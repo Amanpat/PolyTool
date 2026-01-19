@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(docker search:*)",
+      "WebSearch",
+      "WebFetch(domain:hub.docker.com)",
+      "Bash(findstr:*)",
+      "Bash(netstat:*)",
+      "Bash(tasklist:*)",
+      "Bash(wmic process:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker context:*)",
+      "Bash(timeout:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(docker logs:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
