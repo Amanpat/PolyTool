@@ -1,6 +1,8 @@
-"""Gamma API client for Polymarket user resolution."""
+"""Gamma API client for Polymarket user resolution and market metadata."""
 
+import json
 import logging
+from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass
 
@@ -10,6 +12,72 @@ logger = logging.getLogger(__name__)
 
 # Default Gamma API base URL
 DEFAULT_GAMMA_API_BASE = "https://gamma-api.polymarket.com"
+
+
+@dataclass
+class MarketToken:
+    """Mapping of token_id to market/outcome metadata."""
+
+    token_id: str
+    condition_id: str
+    outcome_index: int
+    outcome_name: str
+    market_slug: str
+    question: str
+    category: str
+    event_slug: str
+    end_date_iso: Optional[datetime]
+    active: bool
+    raw_json: dict
+
+
+@dataclass
+class Market:
+    """Full market metadata from Gamma API."""
+
+    condition_id: str
+    market_slug: str
+    question: str
+    description: str
+    category: str
+    event_slug: str
+    outcomes: list[str]
+    clob_token_ids: list[str]
+    end_date_iso: Optional[datetime]
+    active: bool
+    liquidity: float
+    volume: float
+    raw_json: dict
+
+    def to_market_tokens(self) -> list[MarketToken]:
+        """Extract MarketToken entries from this market."""
+        tokens = []
+        for idx, token_id in enumerate(self.clob_token_ids):
+            outcome_name = self.outcomes[idx] if idx < len(self.outcomes) else f"Outcome {idx}"
+            tokens.append(MarketToken(
+                token_id=token_id,
+                condition_id=self.condition_id,
+                outcome_index=idx,
+                outcome_name=outcome_name,
+                market_slug=self.market_slug,
+                question=self.question,
+                category=self.category,
+                event_slug=self.event_slug,
+                end_date_iso=self.end_date_iso,
+                active=self.active,
+                raw_json=self.raw_json,
+            ))
+        return tokens
+
+
+@dataclass
+class MarketsFetchResult:
+    """Result of fetching markets from Gamma API."""
+
+    markets: list[Market]
+    market_tokens: list[MarketToken]
+    pages_fetched: int
+    total_markets: int
 
 
 @dataclass
@@ -164,3 +232,244 @@ class GammaClient:
 
         # Otherwise, search by username
         return self.search_user(input_value)
+
+    def fetch_markets_page(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        active_only: bool = True,
+    ) -> list[dict]:
+        """
+        Fetch a single page of markets.
+
+        GET /markets?limit=N&offset=M&closed=false
+
+        Args:
+            limit: Number of markets per page (max 100)
+            offset: Offset for pagination
+            active_only: Only fetch non-closed markets
+
+        Returns:
+            List of raw market dictionaries
+        """
+        params = {"limit": limit, "offset": offset}
+        if active_only:
+            params["closed"] = "false"
+
+        try:
+            response = self.client.get_json("/markets", params=params)
+        except Exception as e:
+            logger.error(f"Error fetching markets page: {e}")
+            return []
+
+        # Response can be a list directly or wrapped in an object
+        if isinstance(response, list):
+            return response
+        elif isinstance(response, dict):
+            return response.get("data", response.get("markets", []))
+        return []
+
+    def fetch_all_markets(
+        self,
+        max_pages: int = 50,
+        page_size: int = 100,
+        active_only: bool = True,
+    ) -> MarketsFetchResult:
+        """
+        Fetch all markets with pagination.
+
+        Args:
+            max_pages: Maximum pages to fetch
+            page_size: Markets per page
+            active_only: Only fetch non-closed markets
+
+        Returns:
+            MarketsFetchResult with markets and flattened market_tokens
+        """
+        result = MarketsFetchResult(
+            markets=[],
+            market_tokens=[],
+            pages_fetched=0,
+            total_markets=0,
+        )
+        offset = 0
+
+        for page in range(max_pages):
+            raw_markets = self.fetch_markets_page(
+                limit=page_size, offset=offset, active_only=active_only
+            )
+            result.pages_fetched += 1
+
+            if not raw_markets:
+                break
+
+            for raw in raw_markets:
+                market = self._parse_market(raw)
+                if market:
+                    result.markets.append(market)
+                    result.market_tokens.extend(market.to_market_tokens())
+                    result.total_markets += 1
+
+            logger.info(f"Fetched page {page + 1}: {len(raw_markets)} markets")
+
+            if len(raw_markets) < page_size:
+                break
+
+            offset += page_size
+
+        logger.info(
+            f"Completed fetching markets: {result.total_markets} markets, "
+            f"{len(result.market_tokens)} tokens in {result.pages_fetched} pages"
+        )
+        return result
+
+    def _parse_market(self, raw: dict) -> Optional[Market]:
+        """
+        Parse raw market JSON into Market object.
+
+        Handles JSON-encoded fields: outcomes, clobTokenIds, outcomePrices
+        """
+        # Parse JSON-encoded lists (Gamma API returns these as strings)
+        outcomes_raw = raw.get("outcomes", "[]")
+        clob_tokens_raw = raw.get("clobTokenIds", "[]")
+
+        if isinstance(outcomes_raw, str):
+            try:
+                outcomes = json.loads(outcomes_raw)
+            except json.JSONDecodeError:
+                outcomes = []
+        else:
+            outcomes = outcomes_raw or []
+
+        if isinstance(clob_tokens_raw, str):
+            try:
+                clob_token_ids = json.loads(clob_tokens_raw)
+            except json.JSONDecodeError:
+                clob_token_ids = []
+        else:
+            clob_token_ids = clob_tokens_raw or []
+
+        # Skip markets without token IDs
+        if not clob_token_ids:
+            return None
+
+        # Parse end date
+        end_date_str = raw.get("endDate") or raw.get("end_date_iso")
+        end_date = None
+        if end_date_str:
+            try:
+                # Handle ISO format with various timezone formats
+                end_date_str = end_date_str.replace("Z", "+00:00")
+                if "+" in end_date_str:
+                    end_date_str = end_date_str.split("+")[0]
+                end_date = datetime.fromisoformat(end_date_str)
+            except ValueError:
+                pass
+
+        # Extract category from various possible locations
+        category = raw.get("category", "")
+        if not category:
+            tags = raw.get("tags", [])
+            if tags and isinstance(tags, list) and len(tags) > 0:
+                if isinstance(tags[0], dict):
+                    category = tags[0].get("label", "")
+                elif isinstance(tags[0], str):
+                    category = tags[0]
+
+        return Market(
+            condition_id=raw.get("conditionId", "") or raw.get("condition_id", ""),
+            market_slug=raw.get("slug", "") or raw.get("market_slug", ""),
+            question=raw.get("question", ""),
+            description=raw.get("description", ""),
+            category=category,
+            event_slug=raw.get("groupItemTitle", "") or raw.get("event_slug", ""),
+            outcomes=outcomes,
+            clob_token_ids=clob_token_ids,
+            end_date_iso=end_date,
+            active=raw.get("closed") != True and raw.get("closed") != "true",
+            liquidity=float(raw.get("liquidityNum", 0) or raw.get("liquidity", 0) or 0),
+            volume=float(raw.get("volumeNum", 0) or raw.get("volume", 0) or 0),
+            raw_json=raw,
+        )
+
+    def get_market_by_condition_id(self, condition_id: str) -> Optional[Market]:
+        """
+        Fetch a single market by its condition_id.
+
+        Uses GET /markets?condition_id=<id> to find the market.
+
+        Args:
+            condition_id: The market's condition ID (0x...)
+
+        Returns:
+            Market if found, None otherwise
+        """
+        if not condition_id:
+            return None
+
+        logger.debug(f"Fetching market by condition_id: {condition_id}")
+
+        try:
+            # Try fetching with condition_id filter
+            response = self.client.get_json(
+                "/markets",
+                params={"condition_id": condition_id, "limit": 1},
+            )
+
+            markets = []
+            if isinstance(response, list):
+                markets = response
+            elif isinstance(response, dict):
+                markets = response.get("data", response.get("markets", []))
+
+            if markets:
+                return self._parse_market(markets[0])
+
+            # Also try with conditionId (camelCase)
+            response = self.client.get_json(
+                "/markets",
+                params={"conditionId": condition_id, "limit": 1},
+            )
+
+            if isinstance(response, list):
+                markets = response
+            elif isinstance(response, dict):
+                markets = response.get("data", response.get("markets", []))
+
+            if markets:
+                return self._parse_market(markets[0])
+
+            logger.debug(f"No market found for condition_id: {condition_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching market by condition_id {condition_id}: {e}")
+            return None
+
+    def get_markets_by_condition_ids(
+        self,
+        condition_ids: list[str],
+        batch_size: int = 10,
+    ) -> list[Market]:
+        """
+        Fetch multiple markets by their condition_ids.
+
+        Args:
+            condition_ids: List of condition IDs to fetch
+            batch_size: Number of concurrent requests (rate limiting)
+
+        Returns:
+            List of found Market objects
+        """
+        markets = []
+        for i, condition_id in enumerate(condition_ids):
+            market = self.get_market_by_condition_id(condition_id)
+            if market:
+                markets.append(market)
+
+            # Log progress every 10 markets
+            if (i + 1) % 10 == 0:
+                logger.info(f"Fetched {i + 1}/{len(condition_ids)} markets by condition_id")
+
+        logger.info(f"Fetched {len(markets)} markets out of {len(condition_ids)} condition_ids")
+        return markets

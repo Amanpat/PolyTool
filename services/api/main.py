@@ -16,6 +16,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages
 
 from polymarket.gamma import GammaClient
 from polymarket.data_api import DataApiClient
+from polymarket.features import (
+    compute_daily_features_sql,
+    compute_features_sql,
+    get_insert_columns as get_features_columns,
+    get_bucket_insert_columns,
+)
+from polymarket.detectors import DetectorRunner, get_insert_columns as get_detector_columns
+from polymarket.backfill import backfill_missing_mappings
 
 # Configure logging
 logging.basicConfig(
@@ -41,7 +49,7 @@ CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "polyttool")
 app = FastAPI(
     title="PolyTool API",
     description="API for Polymarket data ingestion and analysis",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # Initialize clients
@@ -360,6 +368,301 @@ async def get_user_trade_stats(proxy_wallet: str):
         raise
     except Exception as e:
         logger.error(f"Failed to get trade stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class IngestMarketsRequest(BaseModel):
+    """Request body for /api/ingest/markets endpoint."""
+
+    active_only: bool = Field(default=True, description="Only fetch active/non-closed markets")
+    max_pages: int = Field(default=50, ge=1, le=200, description="Maximum pages to fetch")
+
+
+class IngestMarketsResponse(BaseModel):
+    """Response body for /api/ingest/markets endpoint."""
+
+    pages_fetched: int
+    markets_total: int
+    market_tokens_written: int
+
+
+class RunDetectorsRequest(BaseModel):
+    """Request body for /api/run/detectors endpoint."""
+
+    user: str = Field(..., description="Username (with or without @) or wallet address (0x...)")
+    bucket: str = Field(default="day", description="Bucket type: day, hour, week")
+    recompute_features: bool = Field(default=True, description="Recompute features first")
+    backfill_mappings: bool = Field(default=True, description="Backfill missing market token mappings")
+
+
+class RunDetectorsResponse(BaseModel):
+    """Response body for /api/run/detectors endpoint."""
+
+    proxy_wallet: str
+    detectors_run: int
+    results: list[dict]
+    features_computed: bool
+    backfill_stats: Optional[dict] = None
+
+
+@app.post("/api/ingest/markets", response_model=IngestMarketsResponse)
+async def ingest_markets(request: IngestMarketsRequest):
+    """
+    Fetch and ingest market metadata from Gamma API.
+
+    - Fetches markets with optional active_only filter
+    - Extracts market_tokens mapping (token_id -> outcome)
+    - Stores in market_tokens and markets tables
+    """
+    logger.info(f"Ingesting markets: active_only={request.active_only}, max_pages={request.max_pages}")
+
+    result = gamma_client.fetch_all_markets(
+        max_pages=request.max_pages,
+        active_only=request.active_only,
+    )
+
+    logger.info(f"Fetched {result.total_markets} markets, {len(result.market_tokens)} tokens")
+
+    # Insert into ClickHouse
+    tokens_written = 0
+    try:
+        client = get_clickhouse_client()
+
+        if result.market_tokens:
+            rows = []
+            for mt in result.market_tokens:
+                rows.append([
+                    mt.token_id,
+                    mt.condition_id,
+                    mt.outcome_index,
+                    mt.outcome_name,
+                    mt.market_slug,
+                    mt.question,
+                    mt.category,
+                    mt.event_slug,
+                    mt.end_date_iso,
+                    1 if mt.active else 0,
+                    json.dumps(mt.raw_json),
+                    datetime.utcnow(),
+                ])
+
+            client.insert(
+                "market_tokens",
+                rows,
+                column_names=[
+                    "token_id", "condition_id", "outcome_index", "outcome_name",
+                    "market_slug", "question", "category", "event_slug",
+                    "end_date_iso", "active", "raw_json", "ingested_at"
+                ],
+            )
+            tokens_written = len(rows)
+            logger.info(f"Inserted {tokens_written} market tokens")
+
+        # Also insert full markets
+        if result.markets:
+            market_rows = []
+            for m in result.markets:
+                market_rows.append([
+                    m.condition_id,
+                    m.market_slug,
+                    m.question,
+                    m.description,
+                    m.category,
+                    m.event_slug,
+                    m.outcomes,
+                    m.clob_token_ids,
+                    m.end_date_iso,
+                    1 if m.active else 0,
+                    m.liquidity,
+                    m.volume,
+                    json.dumps(m.raw_json),
+                    datetime.utcnow(),
+                ])
+
+            client.insert(
+                "markets",
+                market_rows,
+                column_names=[
+                    "condition_id", "market_slug", "question", "description",
+                    "category", "event_slug", "outcomes", "clob_token_ids",
+                    "end_date_iso", "active", "liquidity", "volume",
+                    "raw_json", "ingested_at"
+                ],
+            )
+            logger.info(f"Inserted {len(market_rows)} markets")
+
+    except Exception as e:
+        logger.error(f"Failed to insert markets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return IngestMarketsResponse(
+        pages_fetched=result.pages_fetched,
+        markets_total=result.total_markets,
+        market_tokens_written=tokens_written,
+    )
+
+
+@app.post("/api/run/detectors", response_model=RunDetectorsResponse)
+async def run_detectors(request: RunDetectorsRequest):
+    """
+    Run strategy detectors for a user.
+
+    - Resolves username to wallet
+    - Optionally backfills missing market token mappings
+    - Fetches trades from ClickHouse
+    - Optionally recomputes bucket features
+    - Runs all 4 detectors for each bucket
+    - Stores results in detector_results table
+    """
+    logger.info(f"Running detectors for: {request.user}, bucket={request.bucket}")
+
+    # Resolve user
+    profile = gamma_client.resolve(request.user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Could not resolve user: {request.user}")
+
+    proxy_wallet = profile.proxy_wallet
+    logger.info(f"Resolved to proxy wallet: {proxy_wallet}")
+
+    try:
+        client = get_clickhouse_client()
+
+        # Optionally backfill missing market token mappings
+        backfill_stats = None
+        if request.backfill_mappings:
+            logger.info(f"Running backfill for missing market mappings...")
+            backfill_stats = backfill_missing_mappings(
+                clickhouse_client=client,
+                gamma_client=gamma_client,
+                proxy_wallet=proxy_wallet,
+                max_missing=500,
+            )
+            logger.info(f"Backfill complete: {backfill_stats}")
+
+        # Fetch trades
+        trades_result = client.query(
+            """
+            SELECT proxy_wallet, trade_uid, ts, token_id, condition_id,
+                   outcome, side, size, price, transaction_hash
+            FROM user_trades
+            WHERE proxy_wallet = {wallet:String}
+            ORDER BY ts
+            """,
+            parameters={"wallet": proxy_wallet},
+        )
+
+        trades = []
+        for row in trades_result.result_rows:
+            trades.append({
+                "proxy_wallet": row[0],
+                "trade_uid": row[1],
+                "ts": row[2],
+                "token_id": row[3],
+                "condition_id": row[4],
+                "outcome": row[5],
+                "side": row[6],
+                "size": float(row[7]),
+                "price": float(row[8]),
+                "transaction_hash": row[9],
+            })
+
+        if not trades:
+            raise HTTPException(status_code=404, detail="No trades found for user")
+
+        logger.info(f"Fetched {len(trades)} trades for {proxy_wallet}")
+
+        # Fetch market_tokens map (after potential backfill)
+        tokens_result = client.query(
+            "SELECT token_id, condition_id, outcome_index, outcome_name, category FROM market_tokens"
+        )
+        market_tokens_map = {}
+        for row in tokens_result.result_rows:
+            market_tokens_map[row[0]] = {
+                "condition_id": row[1],
+                "outcome_index": row[2],
+                "outcome_name": row[3],
+                "category": row[4],
+            }
+
+        logger.info(f"Loaded {len(market_tokens_map)} market tokens for mapping")
+
+        # Optionally recompute bucket features
+        features_computed = False
+        if request.recompute_features:
+            features_sql = compute_features_sql(proxy_wallet, bucket_type=request.bucket)
+            features_result = client.query(features_sql)
+
+            if features_result.result_rows:
+                feature_rows = []
+                for row in features_result.result_rows:
+                    feature_rows.append([
+                        row[0],  # proxy_wallet
+                        row[1],  # bucket_type
+                        row[2],  # bucket_start
+                        int(row[3]),  # trades_count
+                        int(row[4]),  # buys_count
+                        int(row[5]),  # sells_count
+                        float(row[6]),  # volume
+                        float(row[7]),  # notional
+                        int(row[8]),  # unique_tokens
+                        int(row[9]),  # unique_markets
+                        float(row[10]),  # avg_trade_size
+                        float(row[11]),  # pct_buys
+                        float(row[12]),  # pct_sells
+                        float(row[13]),  # mapping_coverage
+                        datetime.utcnow(),
+                    ])
+
+                client.insert(
+                    "user_bucket_features",
+                    feature_rows,
+                    column_names=get_bucket_insert_columns(),
+                )
+                features_computed = True
+                logger.info(f"Computed and stored {len(feature_rows)} bucket feature rows")
+
+        # Run detectors for each bucket
+        runner = DetectorRunner()
+        all_results = runner.run_all_by_bucket(
+            trades=trades,
+            proxy_wallet=proxy_wallet,
+            bucket_type=request.bucket,
+            market_tokens_map=market_tokens_map,
+        )
+
+        # Store results
+        detector_rows = [r.to_row() for r in all_results]
+        if detector_rows:
+            client.insert(
+                "detector_results",
+                detector_rows,
+                column_names=get_detector_columns(),
+            )
+            logger.info(f"Stored {len(detector_rows)} detector results")
+
+        # Return results
+        return RunDetectorsResponse(
+            proxy_wallet=proxy_wallet,
+            detectors_run=len(all_results),
+            results=[
+                {
+                    "detector": r.detector_name,
+                    "bucket_type": r.bucket_type,
+                    "bucket_start": r.bucket_start.isoformat() if r.bucket_start else None,
+                    "score": r.score,
+                    "label": r.label,
+                    "evidence": r.evidence,
+                }
+                for r in all_results
+            ],
+            features_computed=features_computed,
+            backfill_stats=backfill_stats,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to run detectors: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
