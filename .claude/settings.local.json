@@ -16,7 +16,9 @@
       "Bash(curl:*)",
       "Bash(python -m json.tool:*)",
       "Bash(docker logs:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: bootstrap PolyTool monorepo with local infrastructure\n\nCreate basic project skeleton and local database + dashboard environment\nfor PolyTool reverse-engineering data storage and visualization.\n\nInfrastructure:\n- ClickHouse \\(latest\\) for analytics storage with polyttool database\n- Grafana 11.4.0 with ClickHouse datasource plugin\n- Docker Compose for local development\n\nMonorepo structure:\n- /docs/ - specifications and feature documentation\n- /infra/ - infrastructure configuration \\(ClickHouse, Grafana\\)\n- /services/ - API and worker placeholders\n- /packages/ - shared libraries placeholder\n\nAuto-provisioning:\n- ClickHouse datasource configured via grafana_ro user \\(SELECT only\\)\n- \"PolyTool - Infra Smoke\" dashboard with heartbeat panels\n\nPorts: ClickHouse HTTP 18123, Native 19000, Grafana 3000\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)"
     ]
   }
 }

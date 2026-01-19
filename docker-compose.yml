@@ -45,6 +45,34 @@ services:
     networks:
       - polyttool
 
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: polyttool-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - GAMMA_API_BASE=${GAMMA_API_BASE:-https://gamma-api.polymarket.com}
+      - DATA_API_BASE=${DATA_API_BASE:-https://data-api.polymarket.com}
+      - INGEST_MAX_PAGES_DEFAULT=${INGEST_MAX_PAGES_DEFAULT:-50}
+      - HTTP_TIMEOUT_SECONDS=${HTTP_TIMEOUT_SECONDS:-20}
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polyttool_admin}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-polyttool_admin}
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DB:-polyttool}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polyttool
+
 volumes:
   clickhouse_data:
   grafana_data:
