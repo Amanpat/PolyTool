@@ -3,6 +3,7 @@
 from .http_client import HttpClient
 from .gamma import GammaClient, Market, MarketToken, MarketsFetchResult
 from .data_api import DataApiClient
+from .clob import ClobClient, OrderBookTop
 from .features import (
     DailyFeatures,
     BucketFeatures,
@@ -12,11 +13,14 @@ from .features import (
 )
 from .detectors import DetectorRunner, DetectorResult
 from .backfill import backfill_missing_mappings
+from .pnl import PnlBucketResult, PnlComputeResult, compute_user_pnl_buckets
 
 __all__ = [
     "HttpClient",
     "GammaClient",
     "DataApiClient",
+    "ClobClient",
+    "OrderBookTop",
     "Market",
     "MarketToken",
     "MarketsFetchResult",
@@ -28,4 +32,7 @@ __all__ = [
     "DetectorRunner",
     "DetectorResult",
     "backfill_missing_mappings",
+    "PnlBucketResult",
+    "PnlComputeResult",
+    "compute_user_pnl_buckets",
 ]

@@ -40,10 +40,14 @@ class Market:
     question: str
     description: str
     category: str
+    tags: list[str]
     event_slug: str
+    event_title: str
     outcomes: list[str]
     clob_token_ids: list[str]
+    start_date_iso: Optional[datetime]
     end_date_iso: Optional[datetime]
+    close_date_iso: Optional[datetime]
     active: bool
     liquidity: float
     volume: float
@@ -329,6 +333,22 @@ class GammaClient:
 
         Handles JSON-encoded fields: outcomes, clobTokenIds, outcomePrices
         """
+        def parse_datetime(value: Optional[object]) -> Optional[datetime]:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return datetime.utcfromtimestamp(value)
+            if isinstance(value, str) and value:
+                try:
+                    cleaned = value.replace("Z", "+00:00")
+                    if "T" in cleaned:
+                        cleaned = cleaned.split("+")[0]
+                        return datetime.fromisoformat(cleaned)
+                    return datetime.strptime(cleaned[:19], "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    return None
+            return None
+
         # Parse JSON-encoded lists (Gamma API returns these as strings)
         outcomes_raw = raw.get("outcomes", "[]")
         clob_tokens_raw = raw.get("clobTokenIds", "[]")
@@ -353,28 +373,61 @@ class GammaClient:
         if not clob_token_ids:
             return None
 
-        # Parse end date
-        end_date_str = raw.get("endDate") or raw.get("end_date_iso")
-        end_date = None
-        if end_date_str:
-            try:
-                # Handle ISO format with various timezone formats
-                end_date_str = end_date_str.replace("Z", "+00:00")
-                if "+" in end_date_str:
-                    end_date_str = end_date_str.split("+")[0]
-                end_date = datetime.fromisoformat(end_date_str)
-            except ValueError:
-                pass
-
         # Extract category from various possible locations
         category = raw.get("category", "")
-        if not category:
-            tags = raw.get("tags", [])
-            if tags and isinstance(tags, list) and len(tags) > 0:
-                if isinstance(tags[0], dict):
-                    category = tags[0].get("label", "")
-                elif isinstance(tags[0], str):
-                    category = tags[0]
+        raw_tags = raw.get("tags", [])
+        if isinstance(raw_tags, str):
+            try:
+                raw_tags = json.loads(raw_tags)
+            except json.JSONDecodeError:
+                raw_tags = []
+
+        tags: list[str] = []
+        if isinstance(raw_tags, list):
+            for tag in raw_tags:
+                if isinstance(tag, dict):
+                    label = tag.get("label") or tag.get("name") or tag.get("slug") or ""
+                    if label:
+                        tags.append(label)
+                elif isinstance(tag, str):
+                    tags.append(tag)
+
+        if not category and tags:
+            category = tags[0]
+
+        event_title = (
+            raw.get("eventTitle")
+            or raw.get("event_title")
+            or raw.get("groupItemTitle")
+            or raw.get("event", "")
+        )
+        event_slug = (
+            raw.get("eventSlug")
+            or raw.get("event_slug")
+            or raw.get("groupItemSlug")
+            or raw.get("groupItemTitle", "")
+        )
+
+        start_date = (
+            parse_datetime(raw.get("startDate"))
+            or parse_datetime(raw.get("start_date_iso"))
+            or parse_datetime(raw.get("startTime"))
+            or parse_datetime(raw.get("start_time"))
+            or parse_datetime(raw.get("startDateIso"))
+        )
+        end_date = (
+            parse_datetime(raw.get("endDate"))
+            or parse_datetime(raw.get("end_date_iso"))
+            or parse_datetime(raw.get("endTime"))
+            or parse_datetime(raw.get("end_time"))
+        )
+        close_date = (
+            parse_datetime(raw.get("closeTime"))
+            or parse_datetime(raw.get("close_date"))
+            or parse_datetime(raw.get("closeDate"))
+            or parse_datetime(raw.get("closedTime"))
+            or parse_datetime(raw.get("closedAt"))
+        )
 
         return Market(
             condition_id=raw.get("conditionId", "") or raw.get("condition_id", ""),
@@ -382,10 +435,14 @@ class GammaClient:
             question=raw.get("question", ""),
             description=raw.get("description", ""),
             category=category,
-            event_slug=raw.get("groupItemTitle", "") or raw.get("event_slug", ""),
+            tags=tags,
+            event_slug=event_slug,
+            event_title=event_title or "",
             outcomes=outcomes,
             clob_token_ids=clob_token_ids,
+            start_date_iso=start_date,
             end_date_iso=end_date,
+            close_date_iso=close_date,
             active=raw.get("closed") != True and raw.get("closed") != "true",
             liquidity=float(raw.get("liquidityNum", 0) or raw.get("liquidity", 0) or 0),
             volume=float(raw.get("volumeNum", 0) or raw.get("volume", 0) or 0),

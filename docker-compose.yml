@@ -73,6 +73,39 @@ services:
     networks:
       - polyttool
 
+  migrate:
+    image: clickhouse/clickhouse-server:latest
+    container_name: polyttool-migrate
+    environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polyttool_admin}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-polyttool_admin}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-polyttool}
+    volumes:
+      - ./infra/clickhouse/initdb:/migrations:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - polyttool
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        echo "Waiting for ClickHouse to be ready..."
+        for i in $$(seq 1 60); do
+          if clickhouse-client --host clickhouse --port 9000 --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" --query "SELECT 1" >/dev/null 2>&1; then
+            echo "ClickHouse is ready."
+            break
+          fi
+          sleep 1
+        done
+        echo "Applying ClickHouse migrations from /migrations..."
+        for f in /migrations/*.sql; do
+          echo "Running $$f..."
+          clickhouse-client --host clickhouse --port 9000 --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" --multiquery < "$$f"
+        done
+        echo "Migrations complete."
+
 volumes:
   clickhouse_data:
   grafana_data:

@@ -147,10 +147,14 @@ def backfill_missing_mappings(
             m.question,
             m.description,
             m.category,
+            m.tags,
             m.event_slug,
+            m.event_title,
             m.outcomes,
             m.clob_token_ids,
+            m.start_date_iso,
             m.end_date_iso,
+            m.close_date_iso,
             1 if m.active else 0,
             m.liquidity,
             m.volume,
@@ -164,8 +168,10 @@ def backfill_missing_mappings(
             market_rows,
             column_names=[
                 "condition_id", "market_slug", "question", "description",
-                "category", "event_slug", "outcomes", "clob_token_ids",
-                "end_date_iso", "active", "liquidity", "volume",
+                "category", "tags", "event_slug", "event_title",
+                "outcomes", "clob_token_ids", "start_date_iso",
+                "end_date_iso", "close_date_iso", "active",
+                "liquidity", "volume",
                 "raw_json", "ingested_at"
             ],
         )

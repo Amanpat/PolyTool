@@ -18,6 +18,9 @@ DEFAULT_MAX_PAGES = 50
 DEFAULT_BUCKET = "day"
 DEFAULT_BACKFILL = True
 DEFAULT_INGEST_MARKETS = False
+DEFAULT_INGEST_ACTIVITY = False
+DEFAULT_INGEST_POSITIONS = False
+DEFAULT_COMPUTE_PNL = False
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_BODY_SNIPPET = 800
 
@@ -171,6 +174,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Ingest active market metadata before scanning",
     )
+    parser.add_argument(
+        "--ingest-activity",
+        action="store_true",
+        default=None,
+        help="Ingest user activity before running detectors",
+    )
+    parser.add_argument(
+        "--ingest-positions",
+        action="store_true",
+        default=None,
+        help="Ingest a user positions snapshot before running detectors",
+    )
+    parser.add_argument(
+        "--compute-pnl",
+        action="store_true",
+        default=None,
+        help="Compute PnL after running detectors",
+    )
     parser.add_argument("--api-base-url", help="Base URL for the PolyTool API")
     return parser
 
@@ -181,6 +202,9 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     env_bucket = os.getenv("SCAN_BUCKET")
     env_backfill = parse_bool(os.getenv("SCAN_BACKFILL"), "SCAN_BACKFILL")
     env_ingest_markets = parse_bool(os.getenv("SCAN_INGEST_MARKETS"), "SCAN_INGEST_MARKETS")
+    env_ingest_activity = parse_bool(os.getenv("SCAN_INGEST_ACTIVITY"), "SCAN_INGEST_ACTIVITY")
+    env_ingest_positions = parse_bool(os.getenv("SCAN_INGEST_POSITIONS"), "SCAN_INGEST_POSITIONS")
+    env_compute_pnl = parse_bool(os.getenv("SCAN_COMPUTE_PNL"), "SCAN_COMPUTE_PNL")
     env_api_base = os.getenv("API_BASE_URL")
     env_timeout = parse_float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS"), "SCAN_HTTP_TIMEOUT_SECONDS")
 
@@ -204,12 +228,36 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         ingest_markets = DEFAULT_INGEST_MARKETS
 
+    if args.ingest_activity is True:
+        ingest_activity = True
+    elif env_ingest_activity is not None:
+        ingest_activity = env_ingest_activity
+    else:
+        ingest_activity = DEFAULT_INGEST_ACTIVITY
+
+    if args.ingest_positions is True:
+        ingest_positions = True
+    elif env_ingest_positions is not None:
+        ingest_positions = env_ingest_positions
+    else:
+        ingest_positions = DEFAULT_INGEST_POSITIONS
+
+    if args.compute_pnl is True:
+        compute_pnl = True
+    elif env_compute_pnl is not None:
+        compute_pnl = env_compute_pnl
+    else:
+        compute_pnl = DEFAULT_COMPUTE_PNL
+
     return {
         "user": user,
         "max_pages": max_pages,
         "bucket": bucket,
         "backfill": backfill,
         "ingest_markets": ingest_markets,
+        "ingest_activity": ingest_activity,
+        "ingest_positions": ingest_positions,
+        "compute_pnl": compute_pnl,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
     }
@@ -256,7 +304,10 @@ def print_summary(
     config: Dict[str, Any],
     resolve_response: Dict[str, Any],
     ingest_response: Dict[str, Any],
+    activity_response: Optional[Dict[str, Any]],
+    positions_response: Optional[Dict[str, Any]],
     detectors_response: Dict[str, Any],
+    pnl_response: Optional[Dict[str, Any]],
 ) -> None:
     username = resolve_response.get("username") or config["user"]
     proxy_wallet = resolve_response.get("proxy_wallet") or "unknown"
@@ -273,6 +324,22 @@ def print_summary(
         f"written={ingest_response.get('rows_written')}, "
         f"distinct={ingest_response.get('distinct_trade_uids_total')}"
     )
+
+    if activity_response:
+        print(
+            "Activity ingested: "
+            f"pages={activity_response.get('pages_fetched')}, "
+            f"fetched={activity_response.get('rows_fetched_total')}, "
+            f"written={activity_response.get('rows_written')}, "
+            f"distinct={activity_response.get('distinct_activity_uids_total')}"
+        )
+
+    if positions_response:
+        print(
+            "Positions snapshot: "
+            f"rows={positions_response.get('rows_written')}, "
+            f"snapshot_ts={positions_response.get('snapshot_ts')}"
+        )
 
     backfill_stats = detectors_response.get("backfill_stats")
     if backfill_stats:
@@ -293,11 +360,23 @@ def print_summary(
     else:
         print("Detector scores: none")
 
+    if pnl_response:
+        latest_bucket = pnl_response.get("latest_bucket") or {}
+        if latest_bucket:
+            print(
+                "PnL latest bucket: "
+                f"realized={latest_bucket.get('realized_pnl')}, "
+                f"mtm={latest_bucket.get('mtm_pnl_estimate')}, "
+                f"exposure={latest_bucket.get('exposure_notional_estimate')}"
+            )
+        else:
+            print("PnL latest bucket: none")
+
     api_base_url = config["api_base_url"].rstrip("/")
     print("")
     print("URLs")
     print("  Grafana: http://localhost:3000")
-    print("  Dashboards: PolyTool - User Trades, PolyTool - Strategy Detectors")
+    print("  Dashboards: PolyTool - User Trades, PolyTool - Strategy Detectors, PolyTool - PnL")
     print(f"  Swagger: {api_base_url}/docs")
 
 
@@ -310,6 +389,24 @@ def run_scan(config: Dict[str, Any]) -> None:
             api_base_url,
             "/api/ingest/markets",
             {"active_only": True},
+            timeout=timeout_seconds,
+        )
+
+    activity_response = None
+    if config["ingest_activity"]:
+        activity_response = post_json(
+            api_base_url,
+            "/api/ingest/activity",
+            {"user": config["user"], "max_pages": config["max_pages"]},
+            timeout=timeout_seconds,
+        )
+
+    positions_response = None
+    if config["ingest_positions"]:
+        positions_response = post_json(
+            api_base_url,
+            "/api/ingest/positions",
+            {"user": config["user"]},
             timeout=timeout_seconds,
         )
 
@@ -336,7 +433,24 @@ def run_scan(config: Dict[str, Any]) -> None:
         timeout=timeout_seconds,
     )
 
-    print_summary(config, resolve_response, ingest_response, detectors_response)
+    pnl_response = None
+    if config["compute_pnl"]:
+        pnl_response = post_json(
+            api_base_url,
+            "/api/compute/pnl",
+            {"user": config["user"], "bucket": config["bucket"]},
+            timeout=timeout_seconds,
+        )
+
+    print_summary(
+        config,
+        resolve_response,
+        ingest_response,
+        activity_response,
+        positions_response,
+        detectors_response,
+        pnl_response,
+    )
 
 
 def main(argv: Optional[list[str]] = None) -> int:

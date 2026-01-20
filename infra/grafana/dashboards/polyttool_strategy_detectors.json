@@ -76,7 +76,9 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -106,7 +108,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  detector_name,\n  score\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  detector_name,\n  argMax(score, computed_at) AS score\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, detector_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -235,14 +237,16 @@
         "footer": {
           "countRows": false,
           "fields": "",
-          "reducer": ["sum"],
+          "reducer": [
+            "sum"
+          ],
           "show": false
         },
         "showHeader": true,
         "sortBy": [
           {
             "desc": true,
-            "displayName": "computed_at"
+            "displayName": "computed_at_latest"
           }
         ]
       },
@@ -256,7 +260,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  detector_name,\n  score,\n  label,\n  bucket_type,\n  bucket_start,\n  computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 20",
+          "rawSql": "WITH latest_bucket AS (\n  SELECT max(bucket_start) AS b\n  FROM polyttool.detector_results\n  WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n)\nSELECT\n  detector_name,\n  argMax(score, computed_at) AS score,\n  argMax(label, computed_at) AS label,\n  any(bucket_start) AS bucket_start_latest,\n  max(computed_at) AS computed_at_latest\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT b FROM latest_bucket)\nGROUP BY detector_name\nORDER BY detector_name",
           "refId": "A"
         }
       ],
@@ -308,7 +312,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -325,7 +331,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT avg(mapping_coverage) AS coverage\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
+          "rawSql": "SELECT avg(coverage) AS coverage\nFROM (\n  SELECT\n    bucket_start,\n    argMax(mapping_coverage, computed_at) AS coverage\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -369,7 +375,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -386,7 +394,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(unique_markets) AS markets\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
+          "rawSql": "SELECT sum(markets) AS markets\nFROM (\n  SELECT\n    bucket_start,\n    argMax(unique_markets, computed_at) AS markets\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -430,7 +438,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -447,7 +457,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(trades_count) AS trades\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
+          "rawSql": "SELECT sum(trades) AS trades\nFROM (\n  SELECT\n    bucket_start,\n    argMax(trades_count, computed_at) AS trades\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -491,7 +501,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -508,7 +520,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(notional) AS notional\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
+          "rawSql": "SELECT sum(notional) AS notional\nFROM (\n  SELECT\n    bucket_start,\n    argMax(notional, computed_at) AS notional\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -581,7 +593,9 @@
       "id": 7,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -601,7 +615,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  trades_count AS trades\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(trades_count, computed_at) AS trades\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -674,7 +688,9 @@
       "id": 8,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -694,7 +710,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  notional\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(notional, computed_at) AS notional\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -756,7 +772,9 @@
         "footer": {
           "countRows": false,
           "fields": "",
-          "reducer": ["sum"],
+          "reducer": [
+            "sum"
+          ],
           "show": false
         },
         "showHeader": true,
@@ -777,7 +795,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  detector_name,\n  label,\n  score,\n  bucket_start,\n  evidence_json,\n  computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  detector_name,\n  argMax(label, computed_at) AS label,\n  argMax(score, computed_at) AS score,\n  bucket_start,\n  argMax(evidence_json, computed_at) AS evidence_json,\n  max(computed_at) AS computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nGROUP BY bucket_start, detector_name\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -787,7 +805,11 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["polyttool", "detectors", "strategy"],
+  "tags": [
+    "polyttool",
+    "detectors",
+    "strategy"
+  ],
   "templating": {
     "list": [
       {

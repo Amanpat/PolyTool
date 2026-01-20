@@ -74,7 +74,9 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -171,16 +173,24 @@
       },
       "id": 2,
       "options": {
-        "displayLabels": ["name", "percent"],
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
         "legend": {
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "pie",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": true
         },
@@ -253,7 +263,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -314,7 +326,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -375,7 +389,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -436,7 +452,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -549,11 +567,389 @@
       ],
       "title": "Top 10 Tokens by Trade Count",
       "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 22
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "polyttool",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries",
+              "table": "user_activity"
+            }
+          },
+          "queryType": "timeseries",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polyttool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  sum(ifNull(size, 0) * ifNull(price, 0)) AS notional\nFROM deduped\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Activity Volume Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 22
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "polyttool",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "timeseries",
+              "table": "user_activity"
+            }
+          },
+          "queryType": "timeseries",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polyttool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  activity_type,\n  count() AS events\nFROM deduped\nGROUP BY time, activity_type\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Activity Types Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "notional"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(token_id, ingested_at) AS token_id,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polyttool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  if(\n    length(me.market_slug) > 0,\n    me.market_slug,\n    if(length(mt.market_slug) > 0, mt.market_slug, deduped.token_id)\n  ) AS market_slug,\n  count() AS trades,\n  round(sum(ifNull(size, 0) * ifNull(price, 0)), 4) AS notional\nFROM deduped\nLEFT JOIN polyttool.market_tokens AS mt ON deduped.token_id = mt.token_id\nLEFT JOIN polyttool.markets_enriched AS me ON mt.condition_id = me.condition_id\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY market_slug\nORDER BY notional DESC\nLIMIT 20",
+          "refId": "A",
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "polyttool",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table",
+              "table": "user_activity"
+            }
+          }
+        }
+      ],
+      "type": "table",
+      "id": 10,
+      "title": "Top Markets Traded",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "shares"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH latest_snapshot AS (\n  SELECT max(snapshot_ts) AS s\n  FROM polyttool.user_positions_snapshots\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  if(length(mt.market_slug) > 0, mt.market_slug, ups.token_id) AS market_slug,\n  ups.token_id AS token_id,\n  argMax(ups.outcome, ups.ingested_at) AS outcome,\n  argMax(ups.shares, ups.ingested_at) AS shares,\n  argMax(ups.avg_cost, ups.ingested_at) AS avg_cost,\n  round(argMax(ups.shares, ups.ingested_at) * ifNull(argMax(ups.avg_cost, ups.ingested_at), 0), 4) AS notional\nFROM polyttool.user_positions_snapshots AS ups\nLEFT JOIN polyttool.market_tokens AS mt ON ups.token_id = mt.token_id\nWHERE ups.proxy_wallet = '$proxy_wallet'\n  AND ups.snapshot_ts = (SELECT s FROM latest_snapshot)\nGROUP BY ups.token_id, market_slug\nORDER BY shares DESC\nLIMIT 20",
+          "refId": "A",
+          "meta": {
+            "builderOptions": {
+              "columns": [],
+              "database": "polyttool",
+              "limit": 1000,
+              "mode": "list",
+              "queryType": "table",
+              "table": "user_positions_snapshots"
+            }
+          }
+        }
+      ],
+      "type": "table",
+      "id": 11,
+      "title": "Exposure Snapshot",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      }
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["polyttool", "trades", "user"],
+  "tags": [
+    "polyttool",
+    "trades",
+    "user"
+  ],
   "templating": {
     "list": [
       {
