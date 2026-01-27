@@ -23,7 +23,10 @@
       "Bash(dir:*)",
       "WebFetch(domain:gamma-api.polymarket.com)",
       "WebFetch(domain:docs.polymarket.com)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm view:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find:*)"
     ]
   }
 }

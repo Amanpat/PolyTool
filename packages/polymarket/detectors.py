@@ -41,6 +41,7 @@ class BaseDetector:
     """Base class for all detectors."""
 
     NAME: str = "BASE"
+    DISPLAY_NAME: str = "Base Detector"
 
     def detect(
         self,
@@ -73,6 +74,7 @@ class HoldingStyleDetector(BaseDetector):
     """
 
     NAME = "HOLDING_STYLE"
+    DISPLAY_NAME = "Holding Style"
 
     # Classification thresholds (in minutes)
     SCALPER_MAX_MINUTES = 60  # < 1 hour
@@ -216,6 +218,7 @@ class DCALadderingDetector(BaseDetector):
     """
 
     NAME = "DCA_LADDERING"
+    DISPLAY_NAME = "DCA / Laddering"
 
     MIN_TRADES_FOR_PATTERN = 3
     SIZE_CONSISTENCY_THRESHOLD = 0.3  # std/mean < 0.3 = consistent
@@ -336,6 +339,7 @@ class MarketSelectionBiasDetector(BaseDetector):
     """
 
     NAME = "MARKET_SELECTION_BIAS"
+    DISPLAY_NAME = "Market Concentration"
 
     def detect(
         self,
@@ -435,6 +439,7 @@ class CompleteSetArbDetector(BaseDetector):
     """
 
     NAME = "COMPLETE_SET_ARBISH"
+    DISPLAY_NAME = "Complete-Set Arb"
 
     CLOSE_THRESHOLD_HOURS = 24  # Arb if closed within this window
 
@@ -678,3 +683,43 @@ def get_insert_columns() -> list[str]:
         "evidence_json",
         "computed_at",
     ]
+
+
+# Human-friendly display name mappings
+DETECTOR_DISPLAY_NAMES: dict[str, str] = {
+    "HOLDING_STYLE": "Holding Style",
+    "DCA_LADDERING": "DCA / Laddering",
+    "MARKET_SELECTION_BIAS": "Market Concentration",
+    "COMPLETE_SET_ARBISH": "Complete-Set Arb",
+}
+
+LABEL_DISPLAY_NAMES: dict[str, str] = {
+    # Holding Style labels
+    "SCALPER": "Scalper",
+    "SWING": "Swing Trader",
+    "HOLDER": "Long-Term Holder",
+    # DCA labels
+    "DCA_LIKELY": "DCA Likely",
+    "RANDOM": "Random Sizing",
+    # Market Concentration labels
+    "DIVERSIFIED": "Diversified",
+    "MODERATE": "Moderate Focus",
+    "CONCENTRATED": "Concentrated",
+    # Arb labels
+    "ARB_LIKELY": "Arb Likely",
+    "NORMAL": "Normal",
+    # Common labels
+    "INSUFFICIENT_DATA": "Insufficient Data",
+    "UNKNOWN": "Unknown",
+    "ERROR": "Error",
+}
+
+
+def get_detector_display_name(detector_name: str) -> str:
+    """Get human-friendly display name for a detector."""
+    return DETECTOR_DISPLAY_NAMES.get(detector_name, detector_name)
+
+
+def get_label_display_name(label: str) -> str:
+    """Get human-friendly display name for a label."""
+    return LABEL_DISPLAY_NAMES.get(label, label)

@@ -108,7 +108,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  detector_name,\n  argMax(score, computed_at) AS score\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, detector_name\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS detector,\n  argMax(score, computed_at) AS score\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, detector_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -186,35 +186,68 @@
                     "options": {
                       "SCALPER": {
                         "color": "red",
-                        "index": 0
+                        "index": 0,
+                        "text": "Scalper"
                       },
                       "SWING": {
                         "color": "yellow",
-                        "index": 1
+                        "index": 1,
+                        "text": "Swing Trader"
                       },
                       "HOLDER": {
                         "color": "green",
-                        "index": 2
+                        "index": 2,
+                        "text": "Long-Term Holder"
                       },
                       "DCA_LIKELY": {
                         "color": "blue",
-                        "index": 3
+                        "index": 3,
+                        "text": "DCA Likely"
+                      },
+                      "RANDOM": {
+                        "color": "semi-dark-orange",
+                        "index": 4,
+                        "text": "Random Sizing"
                       },
                       "DIVERSIFIED": {
                         "color": "green",
-                        "index": 4
+                        "index": 5,
+                        "text": "Diversified"
                       },
                       "MODERATE": {
                         "color": "yellow",
-                        "index": 5
+                        "index": 6,
+                        "text": "Moderate Focus"
                       },
                       "CONCENTRATED": {
                         "color": "red",
-                        "index": 6
+                        "index": 7,
+                        "text": "Concentrated"
                       },
                       "ARB_LIKELY": {
                         "color": "purple",
-                        "index": 7
+                        "index": 8,
+                        "text": "Arb Likely"
+                      },
+                      "NORMAL": {
+                        "color": "green",
+                        "index": 9,
+                        "text": "Normal"
+                      },
+                      "INSUFFICIENT_DATA": {
+                        "color": "gray",
+                        "index": 10,
+                        "text": "Insufficient Data"
+                      },
+                      "UNKNOWN": {
+                        "color": "gray",
+                        "index": 11,
+                        "text": "Unknown"
+                      },
+                      "ERROR": {
+                        "color": "dark-red",
+                        "index": 12,
+                        "text": "Error"
                       }
                     },
                     "type": "value"
@@ -260,7 +293,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH latest_bucket AS (\n  SELECT max(bucket_start) AS b\n  FROM polyttool.detector_results\n  WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n)\nSELECT\n  detector_name,\n  argMax(score, computed_at) AS score,\n  argMax(label, computed_at) AS label,\n  any(bucket_start) AS bucket_start_latest,\n  max(computed_at) AS computed_at_latest\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT b FROM latest_bucket)\nGROUP BY detector_name\nORDER BY detector_name",
+          "rawSql": "WITH latest_bucket AS (\n  SELECT max(bucket_start) AS b\n  FROM polyttool.detector_results\n  WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n)\nSELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(score, computed_at) AS score,\n  argMax(label, computed_at) AS label,\n  any(bucket_start) AS bucket_start_latest,\n  max(computed_at) AS computed_at_latest\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT b FROM latest_bucket)\nGROUP BY detector_name\nORDER BY strategy",
           "refId": "A"
         }
       ],
@@ -795,7 +828,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  detector_name,\n  argMax(label, computed_at) AS label,\n  argMax(score, computed_at) AS score,\n  bucket_start,\n  argMax(evidence_json, computed_at) AS evidence_json,\n  max(computed_at) AS computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nGROUP BY bucket_start, detector_name\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(label, computed_at) AS label,\n  argMax(score, computed_at) AS score,\n  bucket_start,\n  argMax(evidence_json, computed_at) AS evidence_json,\n  max(computed_at) AS computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nGROUP BY bucket_start, detector_name\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -884,26 +917,26 @@
           },
           {
             "selected": false,
-            "text": "HOLDING_STYLE",
+            "text": "Holding Style",
             "value": "HOLDING_STYLE"
           },
           {
             "selected": false,
-            "text": "DCA_LADDERING",
+            "text": "DCA / Laddering",
             "value": "DCA_LADDERING"
           },
           {
             "selected": false,
-            "text": "MARKET_SELECTION_BIAS",
+            "text": "Market Concentration",
             "value": "MARKET_SELECTION_BIAS"
           },
           {
             "selected": false,
-            "text": "COMPLETE_SET_ARBISH",
+            "text": "Complete-Set Arb",
             "value": "COMPLETE_SET_ARBISH"
           }
         ],
-        "query": "All,HOLDING_STYLE,DCA_LADDERING,MARKET_SELECTION_BIAS,COMPLETE_SET_ARBISH",
+        "query": "All : *,Holding Style : HOLDING_STYLE,DCA / Laddering : DCA_LADDERING,Market Concentration : MARKET_SELECTION_BIAS,Complete-Set Arb : COMPLETE_SET_ARBISH",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"

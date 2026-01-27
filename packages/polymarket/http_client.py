@@ -145,6 +145,80 @@ class HttpClient:
             f"Max retries ({self.max_retries}) exceeded for {url}"
         )
 
+    def get_response(
+        self,
+        path: str,
+        params: Optional[dict] = None,
+        headers: Optional[dict] = None,
+    ) -> requests.Response:
+        """
+        Make a GET request and return the response without raising for status.
+
+        Returns the last response after retries, even if status is non-2xx.
+        """
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        attempt = 0
+        last_response: Optional[requests.Response] = None
+
+        while attempt <= self.max_retries:
+            try:
+                response = self.session.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+                last_response = response
+
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", 5))
+                    delay = self._add_jitter(retry_after)
+                    logger.warning(
+                        f"Rate limited (429). Waiting {delay:.2f}s before retry. "
+                        f"Attempt {attempt + 1}/{self.max_retries + 1}"
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+
+                if response.status_code in self.retry_statuses:
+                    delay = self._add_jitter(self.backoff_factor * (2**attempt))
+                    logger.warning(
+                        f"Server error ({response.status_code}). "
+                        f"Waiting {delay:.2f}s before retry. "
+                        f"Attempt {attempt + 1}/{self.max_retries + 1}"
+                    )
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+
+                return response
+
+            except requests.exceptions.Timeout:
+                delay = self._add_jitter(self.backoff_factor * (2**attempt))
+                logger.warning(
+                    f"Request timeout. Waiting {delay:.2f}s before retry. "
+                    f"Attempt {attempt + 1}/{self.max_retries + 1}"
+                )
+                time.sleep(delay)
+                attempt += 1
+
+            except requests.exceptions.ConnectionError as e:
+                delay = self._add_jitter(self.backoff_factor * (2**attempt))
+                logger.warning(
+                    f"Connection error: {e}. Waiting {delay:.2f}s before retry. "
+                    f"Attempt {attempt + 1}/{self.max_retries + 1}"
+                )
+                time.sleep(delay)
+                attempt += 1
+
+        if last_response is not None:
+            return last_response
+
+        raise requests.exceptions.RetryError(
+            f"Max retries ({self.max_retries}) exceeded for {url}"
+        )
+
     def get_json(
         self,
         path: str,

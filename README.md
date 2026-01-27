@@ -413,11 +413,31 @@ docker compose exec clickhouse clickhouse-client \
   --query "SELECT detector_name, score, label FROM polyttool.detector_results LIMIT 10"
 ```
 
+### Smoke contract check
+
+Prerequisites:
+- Stack is running (`docker compose up -d --build`)
+
+Run:
+```powershell
+tools/run_smoke.ps1
+```
+or
+```bash
+python tools/smoke/smoke_api_contract.py
+```
+
+Success looks like:
+- `/health` returns 200
+- `/api/compute/pnl` returns 200 (or a 4xx for invalid user input, but not 500)
+- `/api/compute/arb_feasibility` returns 200 (or a 4xx for invalid user input, but not 500)
+
 ### Troubleshooting: No Data / Duplicates
 
 - No activity/positions data: run `/api/ingest/activity` and `/api/ingest/positions`, then refresh Grafana.
 - Missing market names: run `/api/ingest/markets` or enable `--ingest-markets` in the scan CLI.
 - Duplicate detector or bucket rows: Grafana panels now dedupe via `argMax(...)`; if needed, run `OPTIMIZE TABLE detector_results FINAL`.
+- PnL pricing and snapshot fallback details: see [docs/TROUBLESHOOTING_PNL.md](docs/TROUBLESHOOTING_PNL.md).
 
 ### Stopping Services
 

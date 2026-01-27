@@ -14,7 +14,10 @@ from .clob import ClobClient
 logger = logging.getLogger(__name__)
 
 BucketType = Literal["day", "hour", "week"]
-PRICING_SOURCE = "clob_best_bid_ask"
+PRICING_SOURCE_LIVE = "clob_best_bid_ask"
+PRICING_SOURCE_SNAPSHOT = "orderbook_snapshot"
+PRICING_SOURCE_MIXED = "orderbook_snapshot_with_fallback"
+PRICING_SOURCE = PRICING_SOURCE_LIVE
 
 
 @dataclass
@@ -182,6 +185,54 @@ def _compute_token_weights(
     return sorted(weights.items(), key=lambda item: (-item[1], item[0]))
 
 
+def _load_snapshot_pricing(
+    clickhouse_client: Optional[object],
+    token_ids: list[str],
+    as_of: datetime,
+    snapshot_max_age_seconds: Optional[int],
+) -> dict[str, tuple[float, float]]:
+    if clickhouse_client is None or not token_ids:
+        return {}
+
+    params: dict[str, object] = {"tokens": list(token_ids)}
+    filters = [
+        "token_id IN {tokens:Array(String)}",
+        "status = 'ok'",
+        "best_bid IS NOT NULL",
+        "best_ask IS NOT NULL",
+    ]
+
+    if snapshot_max_age_seconds is not None and snapshot_max_age_seconds > 0:
+        cutoff = as_of - timedelta(seconds=snapshot_max_age_seconds)
+        filters.append("snapshot_ts >= {cutoff:DateTime}")
+        params["cutoff"] = cutoff
+
+    query = f"""
+    SELECT
+        token_id,
+        argMax(best_bid, snapshot_ts) AS best_bid,
+        argMax(best_ask, snapshot_ts) AS best_ask
+    FROM token_orderbook_snapshots
+    WHERE {' AND '.join(filters)}
+    GROUP BY token_id
+    """
+
+    try:
+        result = clickhouse_client.query(query, parameters=params)
+    except Exception as exc:
+        logger.warning(f"Failed to load orderbook snapshots for pricing: {exc}")
+        return {}
+
+    pricing: dict[str, tuple[float, float]] = {}
+    for row in result.result_rows:
+        if not row or len(row) < 3:
+            continue
+        token_id, best_bid, best_ask = row[0], row[1], row[2]
+        if token_id and best_bid is not None and best_ask is not None:
+            pricing[str(token_id)] = (float(best_bid), float(best_ask))
+    return pricing
+
+
 def compute_user_pnl_buckets(
     proxy_wallet: str,
     trades: list[dict],
@@ -191,6 +242,8 @@ def compute_user_pnl_buckets(
     orderbook_cache_seconds: int = 30,
     max_tokens_per_run: int = 200,
     as_of: Optional[datetime] = None,
+    clickhouse_client: Optional[object] = None,
+    snapshot_max_age_seconds: Optional[int] = None,
 ) -> PnlComputeResult:
     as_of = as_of or datetime.utcnow()
 
@@ -302,7 +355,22 @@ def compute_user_pnl_buckets(
     pricing: dict[str, tuple[float, float]] = {}
     tokens_missing_orderbook: list[str] = []
 
+    used_snapshot_pricing = False
+    used_live_pricing = False
+
+    snapshot_pricing = _load_snapshot_pricing(
+        clickhouse_client=clickhouse_client,
+        token_ids=tokens_to_price,
+        as_of=as_of,
+        snapshot_max_age_seconds=snapshot_max_age_seconds,
+    )
+    if snapshot_pricing:
+        pricing.update(snapshot_pricing)
+        used_snapshot_pricing = True
+
     for token_id in tokens_to_price:
+        if token_id in pricing:
+            continue
         now_ts = time.time()
         cached = orderbook_cache.get(token_id)
         if cached and orderbook_cache_seconds > 0:
@@ -317,6 +385,7 @@ def compute_user_pnl_buckets(
             best_ask = None
 
         if best_bid is None or best_ask is None:
+            used_live_pricing = True
             book = clob_client.get_best_bid_ask(token_id)
             if book and book.best_bid is not None and book.best_ask is not None:
                 best_bid = book.best_bid
@@ -331,6 +400,13 @@ def compute_user_pnl_buckets(
                 continue
 
         pricing[token_id] = (float(best_bid), float(best_ask))
+
+    if used_snapshot_pricing and used_live_pricing:
+        pricing_source = PRICING_SOURCE_MIXED
+    elif used_snapshot_pricing:
+        pricing_source = PRICING_SOURCE_SNAPSHOT
+    else:
+        pricing_source = PRICING_SOURCE_LIVE
 
     results: list[PnlBucketResult] = []
     for bucket_start in bucket_starts:
@@ -371,7 +447,7 @@ def compute_user_pnl_buckets(
                 mtm_pnl_estimate=mtm_pnl,
                 exposure_notional_estimate=exposure,
                 open_position_tokens=open_tokens,
-                pricing_source=PRICING_SOURCE,
+                pricing_source=pricing_source,
             )
         )
 
@@ -380,5 +456,5 @@ def compute_user_pnl_buckets(
         tokens_priced=len(pricing),
         tokens_skipped_missing_orderbook=sorted(set(tokens_missing_orderbook)),
         tokens_skipped_limit=sorted(set(tokens_skipped_limit)),
-        pricing_source=PRICING_SOURCE,
+        pricing_source=pricing_source,
     )

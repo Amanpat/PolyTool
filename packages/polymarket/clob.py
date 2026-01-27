@@ -93,6 +93,10 @@ class ClobClient:
         """Fetch the full order book for a token."""
         return self.client.get_json("/book", params={"token_id": token_id})
 
+    def fetch_book_response(self, token_id: str):
+        """Fetch the full order book response for a token."""
+        return self.client.get_response("/book", params={"token_id": token_id})
+
     def get_best_bid_ask(self, token_id: str) -> Optional[OrderBookTop]:
         """Fetch best bid/ask for a token from the order book."""
         try:

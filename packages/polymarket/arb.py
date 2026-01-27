@@ -304,6 +304,8 @@ def compute_arb_feasibility_buckets(
     clob_client: ClobClient,
     cache_ttl_seconds: int = 30,
     max_tokens_per_run: int = 200,
+    clickhouse_client: Optional[object] = None,
+    snapshot_max_age_seconds: Optional[int] = None,
 ) -> ArbFeasibilityResult:
     """
     Compute arb feasibility for a user's trades.
@@ -318,6 +320,8 @@ def compute_arb_feasibility_buckets(
         clob_client: ClobClient for API calls
         cache_ttl_seconds: Cache TTL for fee/book data
         max_tokens_per_run: Max tokens to process per run
+        clickhouse_client: Optional ClickHouse client for snapshot pricing (unused)
+        snapshot_max_age_seconds: Optional max age for snapshots (unused)
 
     Returns:
         ArbFeasibilityResult with computed buckets and diagnostics

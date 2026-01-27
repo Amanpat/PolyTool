@@ -27,6 +27,11 @@ from polymarket.detectors import DetectorRunner, get_insert_columns as get_detec
 from polymarket.backfill import backfill_missing_mappings
 from polymarket.pnl import compute_user_pnl_buckets
 from polymarket.arb import compute_arb_feasibility_buckets, get_insert_columns as get_arb_columns
+from polymarket.orderbook_snapshots import (
+    OrderbookSnapshot,
+    snapshot_from_book,
+    get_insert_columns as get_snapshot_columns,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +52,15 @@ PNL_MAX_TOKENS_PER_RUN = int(os.getenv("PNL_MAX_TOKENS_PER_RUN", "200"))
 PNL_HTTP_TIMEOUT_SECONDS = float(os.getenv("PNL_HTTP_TIMEOUT_SECONDS", "20"))
 ARB_CACHE_SECONDS = int(os.getenv("ARB_CACHE_SECONDS", "30"))
 ARB_MAX_TOKENS_PER_RUN = int(os.getenv("ARB_MAX_TOKENS_PER_RUN", "200"))
+
+# Orderbook snapshot configuration
+BOOK_SNAPSHOT_DEPTH_BAND_BPS = float(os.getenv("BOOK_SNAPSHOT_DEPTH_BAND_BPS", "50"))
+BOOK_SNAPSHOT_NOTIONALS = [float(x) for x in os.getenv("BOOK_SNAPSHOT_NOTIONALS", "100,500").split(",")]
+BOOK_SNAPSHOT_MAX_TOKENS = int(os.getenv("BOOK_SNAPSHOT_MAX_TOKENS", "200"))
+BOOK_SNAPSHOT_MIN_OK_TARGET = int(os.getenv("BOOK_SNAPSHOT_MIN_OK_TARGET", "5"))
+BOOK_SNAPSHOT_404_TTL_HOURS = int(os.getenv("BOOK_SNAPSHOT_404_TTL_HOURS", "24"))
+BOOK_SNAPSHOT_MAX_PREFLIGHT = int(os.getenv("BOOK_SNAPSHOT_MAX_PREFLIGHT", "200"))
+ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS = int(os.getenv("ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS", "3600"))
 
 # ClickHouse configuration
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
@@ -76,6 +90,49 @@ def get_clickhouse_client():
         username=CLICKHOUSE_USER,
         password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DATABASE,
+    )
+
+
+def _extract_error_message_from_response(response) -> Optional[str]:
+    try:
+        payload = response.json()
+    except ValueError:
+        text = response.text.strip()
+        return text or None
+
+    if isinstance(payload, dict):
+        for key in ("error", "message", "detail"):
+            value = payload.get(key)
+            if value:
+                return str(value)
+    if isinstance(payload, str):
+        return payload
+    return None
+
+
+def _build_basic_snapshot(
+    token_id: str,
+    snapshot_ts: datetime,
+    status: str,
+    reason: Optional[str],
+) -> OrderbookSnapshot:
+    return OrderbookSnapshot(
+        token_id=token_id,
+        snapshot_ts=snapshot_ts,
+        best_bid=None,
+        best_ask=None,
+        mid_price=None,
+        spread_bps=None,
+        depth_bid_usd_50bps=None,
+        depth_ask_usd_50bps=None,
+        slippage_buy_bps_100=None,
+        slippage_sell_bps_100=None,
+        slippage_buy_bps_500=None,
+        slippage_sell_bps_500=None,
+        levels_captured=0,
+        book_timestamp=None,
+        status=status,
+        reason=reason,
     )
 
 
@@ -726,6 +783,64 @@ class ComputeArbFeasibilityResponse(BaseModel):
     latest_buckets: list[ArbBucketSummary]
 
 
+class SnapshotBooksRequest(BaseModel):
+    """Request body for /api/snapshot/books endpoint."""
+
+    user: str = Field(..., description="Username (with or without @) or wallet address (0x...)")
+    max_tokens: int = Field(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Max tokens to snapshot",
+    )
+    lookback_days: int = Field(
+        default=90,
+        ge=1,
+        le=365,
+        description="Days to look back for recent trades",
+    )
+    require_active_market: bool = Field(
+        default=True,
+        description="Only snapshot tokens from active markets (not closed/ended)",
+    )
+    include_inactive: bool = Field(
+        default=False,
+        description="Fall back to inactive/historical tokens if no active tokens found",
+    )
+
+
+class SnapshotBooksResponse(BaseModel):
+    """Response body for /api/snapshot/books endpoint."""
+
+    proxy_wallet: str
+    # Backfill diagnostics
+    backfill_missing_found: int = 0
+    backfill_markets_fetched: int = 0
+    backfill_tokens_inserted: int = 0
+    # Token selection diagnostics
+    tokens_candidates_before_filter: int
+    tokens_from_trades_recent: int
+    tokens_from_trades_fallback: int
+    tokens_from_positions: int
+    tokens_with_market_metadata: int
+    tokens_after_active_filter: int
+    tokens_selected_total: int
+    # Execution results
+    tokens_attempted: int
+    tokens_ok: int
+    tokens_empty: int
+    tokens_one_sided: int
+    tokens_no_orderbook: int
+    tokens_error: int
+    tokens_http_429: int
+    tokens_http_5xx: int
+    tokens_skipped_no_orderbook_ttl: int
+    tokens_skipped_limit: list[str]
+    snapshot_ts: datetime
+    # Diagnostic reason if no OK snapshots
+    no_ok_reason: Optional[str] = None
+
+
 @app.post("/api/ingest/markets", response_model=IngestMarketsResponse)
 async def ingest_markets(request: IngestMarketsRequest):
     """
@@ -1075,6 +1190,8 @@ async def compute_pnl(request: ComputePnlRequest):
             orderbook_cache_seconds=PNL_ORDERBOOK_CACHE_SECONDS,
             max_tokens_per_run=PNL_MAX_TOKENS_PER_RUN,
             as_of=datetime.utcnow(),
+            clickhouse_client=client,
+            snapshot_max_age_seconds=ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS,
         )
 
         if not pnl_result.buckets:
@@ -1209,6 +1326,8 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
             clob_client=clob_client,
             cache_ttl_seconds=ARB_CACHE_SECONDS,
             max_tokens_per_run=request.max_tokens,
+            clickhouse_client=client,
+            snapshot_max_age_seconds=ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS,
         )
 
         if not arb_result.buckets:
@@ -1262,6 +1381,454 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to compute arb feasibility: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/snapshot/books", response_model=SnapshotBooksResponse)
+async def snapshot_books(request: SnapshotBooksRequest):
+    """
+    Snapshot orderbook metrics for tokens the user has traded.
+
+    - Resolves user -> proxy_wallet
+    - Gets candidate token_ids from user_trades + user_positions_snapshots (within lookback_days)
+    - Filters to active markets only (if require_active_market=True)
+    - Snapshots each token's orderbook (best bid/ask, spread, depth, slippage)
+    - Writes to token_orderbook_snapshots table
+    - Returns snapshot statistics with diagnostics
+    """
+    logger.info(
+        f"Snapshotting books for: {request.user}, max_tokens={request.max_tokens}, "
+        f"lookback_days={request.lookback_days}, require_active={request.require_active_market}, "
+        f"include_inactive={request.include_inactive}"
+    )
+
+    # Resolve user
+    profile = gamma_client.resolve(request.user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Could not resolve user: {request.user}")
+
+    proxy_wallet = profile.proxy_wallet
+    logger.info(f"Resolved to proxy wallet: {proxy_wallet}")
+
+    try:
+        client = get_clickhouse_client()
+
+        # Token selection with fallbacks
+        tokens_from_trades_recent: list[str] = []
+        tokens_from_trades_fallback: list[str] = []
+        tokens_from_positions: list[str] = []
+
+        candidates_ordered: list[str] = []
+        candidates_seen: set[str] = set()
+
+        positions_seen: set[str] = set()
+        latest_positions = client.query(
+            """
+            SELECT DISTINCT token_id
+            FROM user_positions_snapshots
+            WHERE proxy_wallet = {wallet:String}
+              AND shares > 0
+              AND token_id IS NOT NULL
+              AND snapshot_ts = (
+                  SELECT max(snapshot_ts)
+                  FROM user_positions_snapshots
+                  WHERE proxy_wallet = {wallet:String}
+              )
+            """,
+            parameters={"wallet": proxy_wallet},
+        )
+        for row in latest_positions.result_rows:
+            token_id = row[0]
+            if token_id and token_id not in positions_seen:
+                positions_seen.add(token_id)
+                tokens_from_positions.append(token_id)
+                if token_id not in candidates_seen:
+                    candidates_seen.add(token_id)
+                    candidates_ordered.append(token_id)
+
+        lookback_start = datetime.utcnow() - timedelta(days=request.lookback_days)
+        recent_trades = client.query(
+            """
+            SELECT token_id, max(ts) AS latest_ts
+            FROM user_trades
+            WHERE proxy_wallet = {wallet:String}
+              AND ts >= {start:DateTime}
+              AND token_id IS NOT NULL
+            GROUP BY token_id
+            ORDER BY latest_ts DESC
+            """,
+            parameters={"wallet": proxy_wallet, "start": lookback_start},
+        )
+        trades_seen: set[str] = set()
+        for row in recent_trades.result_rows:
+            token_id = row[0]
+            if token_id and token_id not in trades_seen:
+                trades_seen.add(token_id)
+                tokens_from_trades_recent.append(token_id)
+                if token_id not in candidates_seen:
+                    candidates_seen.add(token_id)
+                    candidates_ordered.append(token_id)
+
+        all_candidates = candidates_ordered
+        tokens_candidates_before_filter = len(all_candidates)
+
+        logger.info(
+            f"Candidates before filter: {tokens_candidates_before_filter} "
+            f"(positions={len(tokens_from_positions)}, recent_trades={len(tokens_from_trades_recent)})"
+        )
+
+        # 2.5. Backfill missing market_tokens mappings for candidate tokens
+        # This runs BEFORE the active filter so we have metadata for filtering
+        backfill_stats = {"missing_found": 0, "markets_fetched": 0, "tokens_inserted": 0}
+        missing_token_ids: list[str] = []
+        if all_candidates and request.require_active_market:
+            existing_tokens = client.query(
+                """
+                SELECT DISTINCT token_id
+                FROM market_tokens
+                WHERE token_id IN {tokens:Array(String)}
+                """,
+                parameters={"tokens": list(all_candidates)},
+            )
+            existing_token_ids = {row[0] for row in existing_tokens.result_rows if row and row[0]}
+            missing_token_ids = [token_id for token_id in all_candidates if token_id not in existing_token_ids]
+
+            if missing_token_ids:
+                logger.info(
+                    f"Running backfill for {len(missing_token_ids)} missing market token mappings..."
+                )
+                backfill_stats = backfill_missing_mappings(
+                    clickhouse_client=client,
+                    gamma_client=gamma_client,
+                    proxy_wallet=proxy_wallet,
+                    max_missing=min(200, len(missing_token_ids)),  # Bounded by safety cap
+                )
+                logger.info(f"Backfill complete: {backfill_stats}")
+
+        # 3. Apply active market filter if requested
+        tokens_with_metadata: set[str] = set()
+        tokens_after_active_filter: list[str] = []
+        no_ok_reason = None
+
+        if request.require_active_market and all_candidates:
+            # Query which tokens have market metadata and are active
+            # Active = market has close_date_iso IS NULL or close_date_iso > now()
+            #        AND active = 1 in market_tokens or markets_enriched
+            active_check = client.query(
+                """
+                SELECT DISTINCT mt.token_id,
+                       mt.active AS mt_active,
+                       me.active AS me_active,
+                       me.close_date_iso
+                FROM market_tokens mt
+                LEFT JOIN markets_enriched me ON mt.condition_id = me.condition_id
+                WHERE mt.token_id IN {tokens:Array(String)}
+                """,
+                parameters={"tokens": list(all_candidates)},
+            )
+
+            active_map: dict[str, bool] = {}
+            for row in active_check.result_rows:
+                token_id, mt_active, me_active, close_date = row
+                tokens_with_metadata.add(token_id)
+
+                is_active = mt_active == 1
+                if close_date is not None:
+                    is_active = is_active and close_date > datetime.utcnow()
+                if me_active is not None:
+                    is_active = is_active and me_active == 1
+
+                active_map[token_id] = is_active
+
+            tokens_after_active_filter = [
+                token_id for token_id in all_candidates if active_map.get(token_id)
+            ]
+
+            logger.info(
+                f"Active filter: {len(tokens_with_metadata)} have metadata, "
+                f"{len(tokens_after_active_filter)} are active"
+            )
+
+            # If no active tokens but we have candidates, set diagnostic reason
+            if not tokens_after_active_filter:
+                if tokens_with_metadata:
+                    no_ok_reason = (
+                        f"All {len(tokens_with_metadata)} tokens with market metadata are from closed/inactive markets"
+                    )
+                else:
+                    market_tokens_total = client.query(
+                        "SELECT count() FROM market_tokens"
+                    ).result_rows[0][0]
+                    if market_tokens_total == 0:
+                        no_ok_reason = (
+                            f"No market metadata found for {len(all_candidates)} candidate tokens "
+                            "(markets not ingested; run /api/ingest/markets)"
+                        )
+                    elif backfill_stats.get("missing_found", 0) > 0 and backfill_stats.get("tokens_inserted", 0) == 0:
+                        no_ok_reason = (
+                            f"No market metadata found for {len(all_candidates)} candidate tokens "
+                            "(token id mismatch unresolved)"
+                        )
+                    else:
+                        no_ok_reason = (
+                            f"No market metadata found for {len(all_candidates)} candidate tokens "
+                            "(run /api/ingest/markets first)"
+                        )
+
+                # Fall back to historical if requested
+                if request.include_inactive:
+                    logger.info("include_inactive=True, falling back to historical tokens")
+                    # Get last 50 distinct tokens from all trades
+                    fallback_trades = client.query(
+                        """
+                        SELECT token_id, max(ts) AS latest_ts
+                        FROM user_trades
+                        WHERE proxy_wallet = {wallet:String}
+                          AND token_id IS NOT NULL
+                        GROUP BY token_id
+                        ORDER BY latest_ts DESC
+                        LIMIT 50
+                        """,
+                        parameters={"wallet": proxy_wallet},
+                    )
+                    fallback_seen: set[str] = set()
+                    for row in fallback_trades.result_rows:
+                        token_id = row[0]
+                        if token_id and token_id not in fallback_seen:
+                            fallback_seen.add(token_id)
+                            tokens_from_trades_fallback.append(token_id)
+                    no_ok_reason = no_ok_reason + " (using historical fallback)"
+        else:
+            # Not filtering by active market - use all candidates
+            tokens_after_active_filter = list(all_candidates)
+            tokens_with_metadata = set()  # Not checked
+
+        # Final token set to snapshot
+        final_tokens: list[str] = list(tokens_after_active_filter)
+        final_seen = set(final_tokens)
+        for token_id in tokens_from_trades_fallback:
+            if token_id not in final_seen:
+                final_seen.add(token_id)
+                final_tokens.append(token_id)
+        tokens_selected_total = len(final_tokens)
+
+        logger.info(
+            f"Final token selection: {tokens_selected_total} tokens "
+            f"(active_filtered={len(tokens_after_active_filter)}, fallback={len(tokens_from_trades_fallback)})"
+        )
+
+        if not final_tokens:
+            return SnapshotBooksResponse(
+                proxy_wallet=proxy_wallet,
+                backfill_missing_found=backfill_stats.get("missing_found", 0),
+                backfill_markets_fetched=backfill_stats.get("markets_fetched", 0),
+                backfill_tokens_inserted=backfill_stats.get("tokens_inserted", 0),
+                tokens_candidates_before_filter=tokens_candidates_before_filter,
+                tokens_from_trades_recent=len(tokens_from_trades_recent),
+                tokens_from_trades_fallback=len(tokens_from_trades_fallback),
+                tokens_from_positions=len(tokens_from_positions),
+                tokens_with_market_metadata=len(tokens_with_metadata),
+                tokens_after_active_filter=len(tokens_after_active_filter),
+                tokens_selected_total=0,
+                tokens_attempted=0,
+                tokens_ok=0,
+                tokens_empty=0,
+                tokens_one_sided=0,
+                tokens_no_orderbook=0,
+                tokens_error=0,
+                tokens_http_429=0,
+                tokens_http_5xx=0,
+                tokens_skipped_no_orderbook_ttl=0,
+                tokens_skipped_limit=[],
+                snapshot_ts=datetime.utcnow(),
+                no_ok_reason=no_ok_reason or "No tokens found for user",
+            )
+
+        snapshot_ts = datetime.utcnow()
+        max_tokens_attempted = min(request.max_tokens, BOOK_SNAPSHOT_MAX_PREFLIGHT)
+
+        tokens_skipped_no_orderbook_ttl = 0
+        skip_no_orderbook: set[str] = set()
+        if BOOK_SNAPSHOT_404_TTL_HOURS > 0 and final_tokens:
+            ttl_cutoff = snapshot_ts - timedelta(hours=BOOK_SNAPSHOT_404_TTL_HOURS)
+            try:
+                ttl_result = client.query(
+                    """
+                    SELECT token_id
+                    FROM (
+                        SELECT token_id, argMax(status, snapshot_ts) AS latest_status
+                        FROM token_orderbook_snapshots
+                        WHERE snapshot_ts >= {cutoff:DateTime}
+                          AND token_id IN {tokens:Array(String)}
+                        GROUP BY token_id
+                    )
+                    WHERE latest_status = 'no_orderbook'
+                    """,
+                    parameters={"cutoff": ttl_cutoff, "tokens": list(final_tokens)},
+                )
+                skip_no_orderbook = {row[0] for row in ttl_result.result_rows if row and row[0]}
+            except Exception as exc:
+                logger.warning(f"Failed to load no_orderbook TTL cache: {exc}")
+
+        snapshots: list[OrderbookSnapshot] = []
+        tokens_attempted = 0
+        tokens_ok = 0
+        tokens_empty = 0
+        tokens_one_sided = 0
+        tokens_no_orderbook = 0
+        tokens_error = 0
+        tokens_http_429 = 0
+        tokens_http_5xx = 0
+        tokens_skipped_limit: list[str] = []
+
+        remaining_start = None
+        for idx, token_id in enumerate(final_tokens):
+            if token_id in skip_no_orderbook:
+                tokens_skipped_no_orderbook_ttl += 1
+                continue
+            if tokens_attempted >= max_tokens_attempted or tokens_ok >= BOOK_SNAPSHOT_MIN_OK_TARGET:
+                remaining_start = idx
+                break
+
+            tokens_attempted += 1
+            try:
+                response = clob_client.fetch_book_response(token_id)
+            except Exception as exc:
+                snapshots.append(
+                    _build_basic_snapshot(
+                        token_id=token_id,
+                        snapshot_ts=snapshot_ts,
+                        status="error",
+                        reason=str(exc),
+                    )
+                )
+                tokens_error += 1
+                continue
+
+            status_code = response.status_code
+            if status_code == 200:
+                try:
+                    book = response.json()
+                except ValueError:
+                    snapshots.append(
+                        _build_basic_snapshot(
+                            token_id=token_id,
+                            snapshot_ts=snapshot_ts,
+                            status="error",
+                            reason="Invalid JSON response",
+                        )
+                    )
+                    tokens_error += 1
+                    continue
+
+                snapshot = snapshot_from_book(
+                    token_id=token_id,
+                    book=book,
+                    snapshot_ts=snapshot_ts,
+                    depth_band_bps=BOOK_SNAPSHOT_DEPTH_BAND_BPS,
+                    notional_sizes=BOOK_SNAPSHOT_NOTIONALS,
+                )
+                snapshots.append(snapshot)
+                if snapshot.status == "ok":
+                    tokens_ok += 1
+                elif snapshot.status == "empty":
+                    tokens_empty += 1
+                elif snapshot.status == "one_sided":
+                    tokens_one_sided += 1
+                else:
+                    tokens_error += 1
+                continue
+
+            error_message = _extract_error_message_from_response(response)
+            if status_code == 404 and error_message and "No orderbook exists" in error_message:
+                snapshots.append(
+                    _build_basic_snapshot(
+                        token_id=token_id,
+                        snapshot_ts=snapshot_ts,
+                        status="no_orderbook",
+                        reason=error_message,
+                    )
+                )
+                tokens_no_orderbook += 1
+                continue
+
+            if status_code == 429:
+                tokens_http_429 += 1
+            elif 500 <= status_code <= 599:
+                tokens_http_5xx += 1
+
+            snapshots.append(
+                _build_basic_snapshot(
+                    token_id=token_id,
+                    snapshot_ts=snapshot_ts,
+                    status="error",
+                    reason=error_message or f"HTTP {status_code}",
+                )
+            )
+            tokens_error += 1
+
+        if remaining_start is not None:
+            tokens_skipped_limit = [
+                token_id for token_id in final_tokens[remaining_start:]
+                if token_id not in skip_no_orderbook
+            ]
+
+        # Write to ClickHouse
+        if snapshots:
+            rows = [s.to_row() for s in snapshots]
+            client.insert(
+                "token_orderbook_snapshots",
+                rows,
+                column_names=get_snapshot_columns(),
+            )
+            logger.info(f"Inserted {len(rows)} orderbook snapshots into ClickHouse")
+
+        # Build diagnostic reason if no OK snapshots
+        if tokens_ok == 0:
+            if tokens_no_orderbook > 0:
+                if tokens_attempted > 0 and tokens_no_orderbook >= (tokens_attempted / 2):
+                    no_ok_reason = (
+                        f"Most tokens returned no_orderbook ({tokens_no_orderbook} of {tokens_attempted})"
+                    )
+                else:
+                    no_ok_reason = f"{tokens_no_orderbook} tokens returned no_orderbook"
+            elif tokens_empty > 0:
+                no_ok_reason = f"All {tokens_empty} tokens have empty orderbooks"
+            elif tokens_one_sided > 0:
+                no_ok_reason = f"All {tokens_one_sided} tokens have one-sided orderbooks"
+            elif tokens_error > 0:
+                no_ok_reason = f"All {tokens_error} tokens had errors fetching orderbook"
+
+        return SnapshotBooksResponse(
+            proxy_wallet=proxy_wallet,
+            backfill_missing_found=backfill_stats.get("missing_found", 0),
+            backfill_markets_fetched=backfill_stats.get("markets_fetched", 0),
+            backfill_tokens_inserted=backfill_stats.get("tokens_inserted", 0),
+            tokens_candidates_before_filter=tokens_candidates_before_filter,
+            tokens_from_trades_recent=len(tokens_from_trades_recent),
+            tokens_from_trades_fallback=len(tokens_from_trades_fallback),
+            tokens_from_positions=len(tokens_from_positions),
+            tokens_with_market_metadata=len(tokens_with_metadata),
+            tokens_after_active_filter=len(tokens_after_active_filter),
+            tokens_selected_total=tokens_selected_total,
+            tokens_attempted=tokens_attempted,
+            tokens_ok=tokens_ok,
+            tokens_empty=tokens_empty,
+            tokens_one_sided=tokens_one_sided,
+            tokens_no_orderbook=tokens_no_orderbook,
+            tokens_error=tokens_error,
+            tokens_http_429=tokens_http_429,
+            tokens_http_5xx=tokens_http_5xx,
+            tokens_skipped_no_orderbook_ttl=tokens_skipped_no_orderbook_ttl,
+            tokens_skipped_limit=tokens_skipped_limit,
+            snapshot_ts=snapshot_ts,
+            no_ok_reason=no_ok_reason,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to snapshot books: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

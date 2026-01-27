@@ -21,6 +21,7 @@ DEFAULT_INGEST_MARKETS = False
 DEFAULT_INGEST_ACTIVITY = False
 DEFAULT_INGEST_POSITIONS = False
 DEFAULT_COMPUTE_PNL = False
+DEFAULT_SNAPSHOT_BOOKS = False
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_BODY_SNIPPET = 800
 
@@ -192,6 +193,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Compute PnL after running detectors",
     )
+    parser.add_argument(
+        "--snapshot-books",
+        action="store_true",
+        default=None,
+        help="Snapshot orderbook metrics before computing PnL/arb",
+    )
     parser.add_argument("--api-base-url", help="Base URL for the PolyTool API")
     return parser
 
@@ -205,6 +212,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     env_ingest_activity = parse_bool(os.getenv("SCAN_INGEST_ACTIVITY"), "SCAN_INGEST_ACTIVITY")
     env_ingest_positions = parse_bool(os.getenv("SCAN_INGEST_POSITIONS"), "SCAN_INGEST_POSITIONS")
     env_compute_pnl = parse_bool(os.getenv("SCAN_COMPUTE_PNL"), "SCAN_COMPUTE_PNL")
+    env_snapshot_books = parse_bool(os.getenv("SCAN_SNAPSHOT_BOOKS"), "SCAN_SNAPSHOT_BOOKS")
     env_api_base = os.getenv("API_BASE_URL")
     env_timeout = parse_float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS"), "SCAN_HTTP_TIMEOUT_SECONDS")
 
@@ -249,6 +257,13 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         compute_pnl = DEFAULT_COMPUTE_PNL
 
+    if args.snapshot_books is True:
+        snapshot_books = True
+    elif env_snapshot_books is not None:
+        snapshot_books = env_snapshot_books
+    else:
+        snapshot_books = DEFAULT_SNAPSHOT_BOOKS
+
     return {
         "user": user,
         "max_pages": max_pages,
@@ -258,6 +273,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "ingest_activity": ingest_activity,
         "ingest_positions": ingest_positions,
         "compute_pnl": compute_pnl,
+        "snapshot_books": snapshot_books,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
     }
@@ -306,6 +322,7 @@ def print_summary(
     ingest_response: Dict[str, Any],
     activity_response: Optional[Dict[str, Any]],
     positions_response: Optional[Dict[str, Any]],
+    snapshot_response: Optional[Dict[str, Any]],
     detectors_response: Dict[str, Any],
     pnl_response: Optional[Dict[str, Any]],
 ) -> None:
@@ -340,6 +357,34 @@ def print_summary(
             f"rows={positions_response.get('rows_written')}, "
             f"snapshot_ts={positions_response.get('snapshot_ts')}"
         )
+
+    if snapshot_response:
+        # Token selection diagnostics
+        candidates = snapshot_response.get('tokens_candidates_before_filter', 0)
+        with_metadata = snapshot_response.get('tokens_with_market_metadata', 0)
+        after_filter = snapshot_response.get('tokens_after_active_filter', 0)
+        selected = snapshot_response.get('tokens_selected_total', 0)
+        # Execution results
+        ok = snapshot_response.get('tokens_ok', 0)
+        error = snapshot_response.get('tokens_error', 0)
+        no_orderbook = snapshot_response.get('tokens_no_orderbook', 0)
+        http_429 = snapshot_response.get('tokens_http_429', 0)
+        http_5xx = snapshot_response.get('tokens_http_5xx', 0)
+        skipped_ttl = snapshot_response.get('tokens_skipped_no_orderbook_ttl', 0)
+        no_ok_reason = snapshot_response.get('no_ok_reason')
+
+        print(
+            f"Books snapshotted: candidates={candidates} -> "
+            f"metadata={with_metadata} -> active={after_filter} -> selected={selected}"
+        )
+        print(
+            f"  Results: ok={ok}, empty={snapshot_response.get('tokens_empty', 0)}, "
+            f"one_sided={snapshot_response.get('tokens_one_sided', 0)}, "
+            f"no_orderbook={no_orderbook}, error={error} "
+            f"(429={http_429}, 5xx={http_5xx}), skipped_ttl={skipped_ttl}"
+        )
+        if no_ok_reason:
+            print(f"  Reason: {no_ok_reason}")
 
     backfill_stats = detectors_response.get("backfill_stats")
     if backfill_stats:
@@ -410,6 +455,15 @@ def run_scan(config: Dict[str, Any]) -> None:
             timeout=timeout_seconds,
         )
 
+    snapshot_response = None
+    if config["snapshot_books"]:
+        snapshot_response = post_json(
+            api_base_url,
+            "/api/snapshot/books",
+            {"user": config["user"]},
+            timeout=timeout_seconds,
+        )
+
     resolve_response = post_json(
         api_base_url,
         "/api/resolve",
@@ -448,6 +502,7 @@ def run_scan(config: Dict[str, Any]) -> None:
         ingest_response,
         activity_response,
         positions_response,
+        snapshot_response,
         detectors_response,
         pnl_response,
     )
