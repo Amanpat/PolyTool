@@ -42,6 +42,13 @@ class ArbFeasibilityBucket:
     break_even_notional_usd: Optional[float]  # Notional needed to cover costs
     confidence: Confidence
     evidence: dict
+    # Liquidity confidence fields
+    liquidity_confidence: Confidence = "low"  # Based on orderbook availability
+    priced_legs: int = 0  # Number of legs with usable orderbooks
+    missing_legs: int = 0  # Number of legs with missing/bad orderbooks
+    confidence_reason: str = ""  # Human-readable reason for confidence level
+    depth_100_ok: bool = False  # True if $100 depth available on both sides
+    depth_500_ok: bool = False  # True if $500 depth available on both sides
 
     def to_row(self) -> list:
         """Convert to ClickHouse row format."""
@@ -58,6 +65,12 @@ class ArbFeasibilityBucket:
             self.confidence,
             json.dumps(self.evidence),
             datetime.utcnow(),
+            self.liquidity_confidence,
+            int(self.priced_legs),
+            int(self.missing_legs),
+            self.confidence_reason,
+            1 if self.depth_100_ok else 0,
+            1 if self.depth_500_ok else 0,
         ]
 
 
@@ -71,6 +84,11 @@ class ArbFeasibilityResult:
     tokens_skipped_limit: list[str]
     tokens_skipped_missing_book: list[str]
     markets_analyzed: int
+    # Liquidity quality metrics
+    events_with_full_liquidity: int = 0  # Events where all legs have usable orderbooks
+    events_with_partial_liquidity: int = 0  # Events where some legs have orderbooks
+    events_with_no_liquidity: int = 0  # Events where no legs have orderbooks
+    overall_liquidity_rate: float = 0.0  # % of events with full liquidity
 
 
 def _get_bucket_start(ts: datetime, bucket_type: BucketType) -> datetime:
@@ -196,6 +214,12 @@ def _estimate_arb_costs(
         - slippage_details: {token_id_side: slippage_bps}
         - confidence
         - reasons: list of confidence reasons
+        - priced_legs: number of legs with usable orderbooks
+        - missing_legs: number of legs with missing/bad orderbooks
+        - liquidity_confidence: high/medium/low based on orderbook availability
+        - confidence_reason: human-readable reason
+        - depth_100_ok: True if $100 depth available on all legs
+        - depth_500_ok: True if $500 depth available on all legs
     """
     now_ts = time.time()
     trades = arb_event["trades"]
@@ -208,6 +232,12 @@ def _estimate_arb_costs(
     book_timestamps = {}
     reasons = []
     overall_confidence: Confidence = "high"
+
+    # Track liquidity quality
+    priced_legs = 0
+    missing_legs = 0
+    depth_100_checks: list[bool] = []
+    depth_500_checks: list[bool] = []
 
     for token_id in tokens:
         # Fetch fee rate (with caching)
@@ -251,6 +281,22 @@ def _estimate_arb_costs(
 
         book_timestamps[token_id] = book_ts
 
+        # Track liquidity quality per leg
+        if book and book.get("bids") and book.get("asks"):
+            priced_legs += 1
+            # Check depth coverage
+            bids = book.get("bids", [])
+            asks = book.get("asks", [])
+            bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:10])
+            ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:10])
+            min_depth = min(bid_depth, ask_depth)
+            depth_100_checks.append(min_depth >= 100)
+            depth_500_checks.append(min_depth >= 500)
+        else:
+            missing_legs += 1
+            depth_100_checks.append(False)
+            depth_500_checks.append(False)
+
         # Compute fees and slippage for each trade on this token
         token_trades = [t for t in trades if t["token_id"] == token_id]
 
@@ -285,6 +331,24 @@ def _estimate_arb_costs(
                 elif slip_result.confidence == "medium" and overall_confidence == "high":
                     overall_confidence = "medium"
 
+    # Compute liquidity confidence
+    total_legs = priced_legs + missing_legs
+    if total_legs == 0:
+        liquidity_confidence: Confidence = "low"
+        confidence_reason = "No legs to analyze"
+    elif missing_legs == 0:
+        liquidity_confidence = "high"
+        confidence_reason = f"All {priced_legs} legs have usable orderbooks"
+    elif priced_legs >= missing_legs:
+        liquidity_confidence = "medium"
+        confidence_reason = f"{priced_legs}/{total_legs} legs have orderbooks"
+    else:
+        liquidity_confidence = "low"
+        confidence_reason = f"Only {priced_legs}/{total_legs} legs have orderbooks"
+
+    depth_100_ok = all(depth_100_checks) if depth_100_checks else False
+    depth_500_ok = all(depth_500_checks) if depth_500_checks else False
+
     return {
         "total_fees_usdc": total_fees_usdc,
         "total_slippage_usdc": total_slippage_usdc,
@@ -293,6 +357,12 @@ def _estimate_arb_costs(
         "book_timestamps": book_timestamps,
         "confidence": overall_confidence,
         "reasons": reasons,
+        "priced_legs": priced_legs,
+        "missing_legs": missing_legs,
+        "liquidity_confidence": liquidity_confidence,
+        "confidence_reason": confidence_reason,
+        "depth_100_ok": depth_100_ok,
+        "depth_500_ok": depth_500_ok,
     }
 
 
@@ -470,6 +540,12 @@ def compute_arb_feasibility_buckets(
                 break_even_notional_usd=break_even_notional,
                 confidence=cost_result["confidence"],
                 evidence=evidence,
+                liquidity_confidence=cost_result["liquidity_confidence"],
+                priced_legs=cost_result["priced_legs"],
+                missing_legs=cost_result["missing_legs"],
+                confidence_reason=cost_result["confidence_reason"],
+                depth_100_ok=cost_result["depth_100_ok"],
+                depth_500_ok=cost_result["depth_500_ok"],
             )
         )
 
@@ -477,6 +553,13 @@ def compute_arb_feasibility_buckets(
     for token_id, cache_entry in book_cache.items():
         if not cache_entry.get("book"):
             tokens_missing_book.append(token_id)
+
+    # Compute overall liquidity metrics
+    events_full = sum(1 for b in buckets if b.liquidity_confidence == "high")
+    events_partial = sum(1 for b in buckets if b.liquidity_confidence == "medium")
+    events_none = sum(1 for b in buckets if b.liquidity_confidence == "low")
+    total_events = len(buckets)
+    overall_liquidity_rate = events_full / total_events if total_events > 0 else 0.0
 
     return ArbFeasibilityResult(
         buckets=buckets,
@@ -487,6 +570,10 @@ def compute_arb_feasibility_buckets(
         tokens_skipped_limit=tokens_skipped_limit,
         tokens_skipped_missing_book=sorted(set(tokens_missing_book)),
         markets_analyzed=len(arb_events),
+        events_with_full_liquidity=events_full,
+        events_with_partial_liquidity=events_partial,
+        events_with_no_liquidity=events_none,
+        overall_liquidity_rate=overall_liquidity_rate,
     )
 
 
@@ -505,4 +592,10 @@ def get_insert_columns() -> list[str]:
         "confidence",
         "evidence_json",
         "computed_at",
+        "liquidity_confidence",
+        "priced_legs",
+        "missing_legs",
+        "confidence_reason",
+        "depth_100_ok",
+        "depth_500_ok",
     ]

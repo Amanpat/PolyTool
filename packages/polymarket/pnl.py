@@ -20,6 +20,34 @@ PRICING_SOURCE_MIXED = "orderbook_snapshot_with_fallback"
 PRICING_SOURCE = PRICING_SOURCE_LIVE
 
 
+PricingConfidence = Literal["HIGH", "MED", "LOW"]
+
+
+def _compute_pricing_confidence(
+    snapshot_ratio: float,
+    tokens_priced: int,
+    tokens_missing: int,
+) -> PricingConfidence:
+    """Compute pricing confidence based on coverage metrics.
+
+    HIGH: >=80% snapshot coverage and <10% missing
+    MED: >=50% snapshot coverage and <30% missing
+    LOW: otherwise
+    """
+    total_tokens = tokens_priced + tokens_missing
+    if total_tokens == 0:
+        return "LOW"
+
+    missing_ratio = tokens_missing / total_tokens if total_tokens > 0 else 0.0
+
+    if snapshot_ratio >= 0.8 and missing_ratio < 0.1:
+        return "HIGH"
+    elif snapshot_ratio >= 0.5 and missing_ratio < 0.3:
+        return "MED"
+    else:
+        return "LOW"
+
+
 @dataclass
 class PnlBucketResult:
     """Computed PnL metrics for a user bucket."""
@@ -32,6 +60,9 @@ class PnlBucketResult:
     exposure_notional_estimate: float
     open_position_tokens: int
     pricing_source: str
+    # Quality/confidence fields
+    pricing_snapshot_ratio: float = 0.0  # % of tokens priced via snapshot
+    pricing_confidence: PricingConfidence = "LOW"  # HIGH/MED/LOW
 
     def to_row(self) -> list:
         return [
@@ -43,6 +74,8 @@ class PnlBucketResult:
             float(self.exposure_notional_estimate),
             int(self.open_position_tokens),
             self.pricing_source,
+            float(self.pricing_snapshot_ratio),
+            self.pricing_confidence,
             datetime.utcnow(),
         ]
 
@@ -56,6 +89,12 @@ class PnlComputeResult:
     tokens_skipped_missing_orderbook: list[str]
     tokens_skipped_limit: list[str]
     pricing_source: str = PRICING_SOURCE
+    # Pricing breakdown counts
+    tokens_priced_snapshot: int = 0  # Priced via orderbook snapshot
+    tokens_priced_live: int = 0  # Priced via live CLOB API
+    tokens_unpriced: int = 0  # Could not be priced (missing orderbook)
+    pricing_snapshot_ratio: float = 0.0  # Overall snapshot ratio
+    pricing_confidence: PricingConfidence = "LOW"  # Overall confidence
 
 
 @dataclass
@@ -355,6 +394,10 @@ def compute_user_pnl_buckets(
     pricing: dict[str, tuple[float, float]] = {}
     tokens_missing_orderbook: list[str] = []
 
+    # Track pricing sources for confidence calculation
+    tokens_priced_snapshot: set[str] = set()
+    tokens_priced_live: set[str] = set()
+
     used_snapshot_pricing = False
     used_live_pricing = False
 
@@ -366,6 +409,7 @@ def compute_user_pnl_buckets(
     )
     if snapshot_pricing:
         pricing.update(snapshot_pricing)
+        tokens_priced_snapshot.update(snapshot_pricing.keys())
         used_snapshot_pricing = True
 
     for token_id in tokens_to_price:
@@ -395,6 +439,7 @@ def compute_user_pnl_buckets(
                     "best_ask": best_ask,
                     "fetched_at": now_ts,
                 }
+                tokens_priced_live.add(token_id)
             else:
                 tokens_missing_orderbook.append(token_id)
                 continue
@@ -407,6 +452,22 @@ def compute_user_pnl_buckets(
         pricing_source = PRICING_SOURCE_SNAPSHOT
     else:
         pricing_source = PRICING_SOURCE_LIVE
+
+    # Compute overall pricing confidence metrics
+    total_tokens_to_price = len(tokens_to_price)
+    total_priced = len(pricing)
+    total_missing = len(tokens_missing_orderbook)
+
+    if total_priced > 0:
+        overall_snapshot_ratio = len(tokens_priced_snapshot) / total_priced
+    else:
+        overall_snapshot_ratio = 0.0
+
+    overall_confidence = _compute_pricing_confidence(
+        snapshot_ratio=overall_snapshot_ratio,
+        tokens_priced=total_priced,
+        tokens_missing=total_missing,
+    )
 
     results: list[PnlBucketResult] = []
     for bucket_start in bucket_starts:
@@ -448,6 +509,8 @@ def compute_user_pnl_buckets(
                 exposure_notional_estimate=exposure,
                 open_position_tokens=open_tokens,
                 pricing_source=pricing_source,
+                pricing_snapshot_ratio=overall_snapshot_ratio,
+                pricing_confidence=overall_confidence,
             )
         )
 
@@ -457,4 +520,9 @@ def compute_user_pnl_buckets(
         tokens_skipped_missing_orderbook=sorted(set(tokens_missing_orderbook)),
         tokens_skipped_limit=sorted(set(tokens_skipped_limit)),
         pricing_source=pricing_source,
+        tokens_priced_snapshot=len(tokens_priced_snapshot),
+        tokens_priced_live=len(tokens_priced_live),
+        tokens_unpriced=len(tokens_missing_orderbook),
+        pricing_snapshot_ratio=overall_snapshot_ratio,
+        pricing_confidence=overall_confidence,
     )

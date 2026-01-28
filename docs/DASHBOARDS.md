@@ -47,6 +47,10 @@ The primary dashboard for analyzing a Polymarket user. Combines key metrics from
 | Active Days | Days between first and last trade |
 | Mapping Coverage | % of trades with market metadata |
 | Latest Realized PnL | Most recent bucket's realized profit/loss |
+| Snapshot Pricing % | % of tokens priced via stored orderbook snapshots (higher = more reliable MTM) |
+| Pricing Confidence | Overall MTM reliability: HIGH (green), MED (yellow), LOW (red) |
+
+See [QUALITY_CONFIDENCE.md](./QUALITY_CONFIDENCE.md) for detailed confidence interpretation.
 
 #### PnL & Exposure Row
 | Panel | Description |
@@ -91,7 +95,13 @@ See [PLAYS_VIEW.md](./PLAYS_VIEW.md) for detailed field definitions.
 | Orderbook Quality | Pie chart of snapshot statuses (OK/Empty/One-Sided/Error) |
 | Orderbook OK Rate | Trend line of % of OK snapshots over time |
 | Arb Events | Count of potential arb opportunities analyzed |
+| Total Fees Est | Estimated total fees across all arb events |
+| Total Slippage Est | Estimated total slippage across all arb events |
+| Usable Liquidity Rate | % of arb events with HIGH liquidity confidence (all legs have orderbooks) |
+| $100 Depth Coverage | % of arb events where $100 trades can execute at estimated prices |
 | Arb Confidence | Pie chart showing high/medium/low confidence distribution |
+
+See [QUALITY_CONFIDENCE.md](./QUALITY_CONFIDENCE.md) for interpreting liquidity confidence.
 
 ### Common Workflows
 

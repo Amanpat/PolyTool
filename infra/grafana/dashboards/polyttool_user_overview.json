@@ -407,6 +407,135 @@
       "type": "stat"
     },
     {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "HIGH": {"color": "green", "index": 0, "text": "HIGH"},
+                "MED": {"color": "yellow", "index": 1, "text": "MED"},
+                "LOW": {"color": "red", "index": 2, "text": "LOW"}
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 20,
+        "y": 1
+      },
+      "id": 110,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT argMax(pricing_confidence, computed_at) AS confidence\nFROM polyttool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (\n    SELECT max(bucket_start)\n    FROM polyttool.user_pnl_bucket\n    WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n  )",
+          "refId": "A"
+        }
+      ],
+      "title": "Pricing Confidence",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 80}
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "id": 111,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT argMax(pricing_snapshot_ratio, computed_at) * 100 AS snapshot_pct\nFROM polyttool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (\n    SELECT max(bucket_start)\n    FROM polyttool.user_pnl_bucket\n    WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n  )",
+          "refId": "A"
+        }
+      ],
+      "title": "Snapshot Pricing %",
+      "type": "stat"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -2151,6 +2280,130 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 80}
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 52
+      },
+      "id": 112,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  countIf(liquidity_confidence = 'high') * 100.0 / count() AS usable_rate\nFROM (\n  SELECT argMax(liquidity_confidence, computed_at) AS liquidity_confidence\n  FROM polyttool.arb_feasibility_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY condition_id\n)",
+          "refId": "A"
+        }
+      ],
+      "title": "Usable Liquidity Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 90}
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 52
+      },
+      "id": 113,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  countIf(depth_100_ok = 1) * 100.0 / count() AS depth_100_rate\nFROM (\n  SELECT argMax(depth_100_ok, computed_at) AS depth_100_ok\n  FROM polyttool.arb_feasibility_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY condition_id\n)",
+          "refId": "A"
+        }
+      ],
+      "title": "$100 Depth Coverage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -2226,7 +2479,7 @@
         "h": 4,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 55
       },
       "id": 53,
       "options": {

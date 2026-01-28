@@ -743,6 +743,12 @@ class ComputePnlResponse(BaseModel):
     tokens_skipped_missing_orderbook: list[str]
     tokens_skipped_limit: list[str]
     latest_bucket: Optional[PnlBucketSummary] = None
+    # Quality/confidence metrics
+    tokens_priced_snapshot: int = 0
+    tokens_priced_live: int = 0
+    tokens_unpriced: int = 0
+    pricing_snapshot_ratio: float = 0.0
+    pricing_confidence: str = "LOW"
 
 
 class ComputeArbFeasibilityRequest(BaseModel):
@@ -767,6 +773,12 @@ class ArbBucketSummary(BaseModel):
     total_slippage_est_usdc: float
     break_even_notional_usd: Optional[float]
     confidence: str
+    # Liquidity confidence fields
+    liquidity_confidence: str = "low"
+    priced_legs: int = 0
+    missing_legs: int = 0
+    depth_100_ok: bool = False
+    depth_500_ok: bool = False
 
 
 class ComputeArbFeasibilityResponse(BaseModel):
@@ -781,6 +793,11 @@ class ComputeArbFeasibilityResponse(BaseModel):
     tokens_skipped_limit: list[str]
     tokens_skipped_missing_book: list[str]
     latest_buckets: list[ArbBucketSummary]
+    # Liquidity quality metrics
+    events_with_full_liquidity: int = 0
+    events_with_partial_liquidity: int = 0
+    events_with_no_liquidity: int = 0
+    overall_liquidity_rate: float = 0.0
 
 
 class SnapshotBooksRequest(BaseModel):
@@ -1210,6 +1227,8 @@ async def compute_pnl(request: ComputePnlRequest):
                 "exposure_notional_estimate",
                 "open_position_tokens",
                 "pricing_source",
+                "pricing_snapshot_ratio",
+                "pricing_confidence",
                 "computed_at",
             ],
         )
@@ -1231,6 +1250,11 @@ async def compute_pnl(request: ComputePnlRequest):
             tokens_skipped_missing_orderbook=pnl_result.tokens_skipped_missing_orderbook,
             tokens_skipped_limit=pnl_result.tokens_skipped_limit,
             latest_bucket=latest_summary,
+            tokens_priced_snapshot=pnl_result.tokens_priced_snapshot,
+            tokens_priced_live=pnl_result.tokens_priced_live,
+            tokens_unpriced=pnl_result.tokens_unpriced,
+            pricing_snapshot_ratio=pnl_result.pricing_snapshot_ratio,
+            pricing_confidence=pnl_result.pricing_confidence,
         )
 
     except HTTPException:
@@ -1361,6 +1385,11 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
                 total_slippage_est_usdc=b.total_slippage_est_usdc,
                 break_even_notional_usd=b.break_even_notional_usd,
                 confidence=b.confidence,
+                liquidity_confidence=b.liquidity_confidence,
+                priced_legs=b.priced_legs,
+                missing_legs=b.missing_legs,
+                depth_100_ok=b.depth_100_ok,
+                depth_500_ok=b.depth_500_ok,
             )
             for b in arb_result.buckets
         ]
@@ -1375,6 +1404,10 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
             tokens_skipped_limit=arb_result.tokens_skipped_limit,
             tokens_skipped_missing_book=arb_result.tokens_skipped_missing_book,
             latest_buckets=latest_buckets,
+            events_with_full_liquidity=arb_result.events_with_full_liquidity,
+            events_with_partial_liquidity=arb_result.events_with_partial_liquidity,
+            events_with_no_liquidity=arb_result.events_with_no_liquidity,
+            overall_liquidity_rate=arb_result.overall_liquidity_rate,
         )
 
     except HTTPException:
