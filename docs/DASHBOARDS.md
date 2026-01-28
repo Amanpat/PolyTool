@@ -33,7 +33,7 @@ This guide explains each Grafana dashboard in PolyTool and how to use them.
 The primary dashboard for analyzing a Polymarket user. Combines key metrics from all other dashboards into a single view.
 
 ### Variables
-- **User**: Dropdown showing username (or wallet if no username). Select the user to analyze.
+- **User**: Dropdown showing username with wallet preview (e.g., "alice (0x1234…5678)"). If no username, shows wallet address only. Never blank.
 - **Time Bucket**: Aggregation period for metrics (day/hour/week)
 
 ### Panels
@@ -53,6 +53,16 @@ The primary dashboard for analyzing a Polymarket user. Combines key metrics from
 |-------|-------------|
 | PnL Over Time | Realized PnL (solid green) + MTM estimate (dashed blue) |
 | Exposure Over Time | Open position notional value |
+
+#### Plays (Recent Trades) Row
+| Panel | Description |
+|-------|-------------|
+| Latest Trades (Plays) | Table of individual trades with timestamp, market, outcome, side (color-coded), price, size, notional, and tx hash (clickable link to PolygonScan). Sorted newest-first, limited to 100 rows. Respects dashboard time range. |
+| Top Markets by Notional | Top 10 markets by total notional volume in selected time range |
+| Top Outcomes by Notional | Top 10 outcome/market combinations by notional volume with trade counts |
+| Top Categories by Volume | Top 10 categories by volume with percentage breakdown. Unknown category shown explicitly when market metadata is missing. |
+
+See [PLAYS_VIEW.md](./PLAYS_VIEW.md) for detailed field definitions.
 
 #### Strategy Signals Row
 | Panel | Description |
@@ -88,9 +98,10 @@ The primary dashboard for analyzing a Polymarket user. Combines key metrics from
 **Analyze a new user:**
 1. Select user from dropdown
 2. Review summary stats at top
-3. Check strategy signals for trading style
-4. Look at PnL trend for performance
-5. Review market mix for concentration
+3. Scroll to "Plays" section to see recent trades and top markets
+4. Check strategy signals for trading style
+5. Look at PnL trend for performance
+6. Review market mix for concentration
 
 **Compare time periods:**
 1. Adjust Grafana time picker (top right)

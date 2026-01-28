@@ -651,6 +651,530 @@
         "x": 0,
         "y": 12
       },
+      "id": 105,
+      "panels": [],
+      "title": "Plays (Recent Trades)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "market"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "outcome"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "side"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "BUY": {"color": "green", "index": 0},
+                      "SELL": {"color": "red", "index": 1}
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "price"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "size"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "notional"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tx_hash"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "View on PolygonScan",
+                    "url": "https://polygonscan.com/tx/${__value.raw}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 106,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "time"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  t.ts AS time,\n  coalesce(nullIf(mt.question, ''), nullIf(mt.market_slug, ''), t.condition_id) AS market,\n  coalesce(nullIf(mt.outcome_name, ''), t.outcome) AS outcome,\n  t.side AS side,\n  t.price AS price,\n  t.size AS size,\n  t.size * t.price AS notional,\n  if(t.transaction_hash != '', concat(left(t.transaction_hash, 10), '…'), '') AS tx_hash\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nORDER BY t.ts DESC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Trades (Plays)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "notional"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 23
+      },
+      "id": 107,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "notional"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  coalesce(nullIf(mt.question, ''), nullIf(mt.market_slug, ''), t.condition_id) AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY market\nORDER BY notional DESC\nLIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Markets by Notional",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "notional"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 23
+      },
+      "id": 108,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "notional"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  coalesce(nullIf(mt.outcome_name, ''), t.outcome, 'Unknown') AS outcome,\n  coalesce(nullIf(mt.question, ''), 'Unknown Market') AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY outcome, market\nORDER BY notional DESC\nLIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Outcomes by Notional",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "notional"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "category"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "": {"index": 0, "text": "Unknown"}
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 23
+      },
+      "id": 109,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "notional"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH totals AS (\n  SELECT sum(size * price) AS total_vol\n  FROM polyttool.user_trades\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND $__timeFilter(ts)\n)\nSELECT\n  if(mt.category = '' OR mt.category IS NULL, 'Unknown', mt.category) AS category,\n  sum(t.size * t.price) AS notional,\n  count() AS trades,\n  sum(t.size * t.price) * 100.0 / (SELECT total_vol FROM totals) AS pct\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY category\nORDER BY notional DESC\nLIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Categories by Volume",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
       "id": 102,
       "panels": [],
       "title": "Strategy Signals",
@@ -771,7 +1295,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 32
       },
       "id": 20,
       "options": {
@@ -870,7 +1394,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 32
       },
       "id": 21,
       "options": {
@@ -908,7 +1432,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 39
       },
       "id": 103,
       "panels": [],
@@ -940,7 +1464,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 21
+        "y": 40
       },
       "id": 30,
       "options": {
@@ -1046,7 +1570,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 21
+        "y": 40
       },
       "id": 31,
       "options": {
@@ -1133,7 +1657,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 21
+        "y": 40
       },
       "id": 32,
       "options": {
@@ -1175,7 +1699,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 29
+        "y": 48
       },
       "id": 104,
       "panels": [],
@@ -1303,7 +1827,7 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 30
+        "y": 49
       },
       "id": 40,
       "options": {
@@ -1405,7 +1929,7 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 30
+        "y": 49
       },
       "id": 41,
       "options": {
@@ -1464,7 +1988,7 @@
         "h": 3,
         "w": 4,
         "x": 12,
-        "y": 30
+        "y": 49
       },
       "id": 50,
       "options": {
@@ -1525,7 +2049,7 @@
         "h": 3,
         "w": 4,
         "x": 16,
-        "y": 30
+        "y": 49
       },
       "id": 51,
       "options": {
@@ -1586,7 +2110,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 30
+        "y": 49
       },
       "id": 52,
       "options": {
@@ -1702,7 +2226,7 @@
         "h": 4,
         "w": 12,
         "x": 12,
-        "y": 33
+        "y": 52
       },
       "id": 53,
       "options": {
@@ -1756,14 +2280,14 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse-polyttool"
         },
-        "definition": "SELECT proxy_wallet AS __value, coalesce(username, proxy_wallet) AS __text\nFROM polyttool.users\nORDER BY last_updated DESC",
+        "definition": "SELECT proxy_wallet AS __value,\n  concat(\n    coalesce(nullIf(username, ''), proxy_wallet),\n    ' (',\n    left(proxy_wallet, 6),\n    '…',\n    right(proxy_wallet, 4),\n    ')'\n  ) AS __text\nFROM polyttool.users\nWHERE proxy_wallet != ''\nORDER BY last_updated DESC",
         "hide": 0,
         "includeAll": false,
         "label": "User",
         "multi": false,
         "name": "proxy_wallet",
         "options": [],
-        "query": "SELECT proxy_wallet AS __value, coalesce(username, proxy_wallet) AS __text\nFROM polyttool.users\nORDER BY last_updated DESC",
+        "query": "SELECT proxy_wallet AS __value,\n  concat(\n    coalesce(nullIf(username, ''), proxy_wallet),\n    ' (',\n    left(proxy_wallet, 6),\n    '…',\n    right(proxy_wallet, 4),\n    ')'\n  ) AS __text\nFROM polyttool.users\nWHERE proxy_wallet != ''\nORDER BY last_updated DESC",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
