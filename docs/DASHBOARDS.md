@@ -25,6 +25,31 @@ This guide explains each Grafana dashboard in PolyTool and how to use them.
 
 ---
 
+## User Dropdown (Centralized)
+
+All dashboards with a User selector use the same centralized ClickHouse view for consistent labeling:
+
+**View:** `polyttool.users_grafana_dropdown`
+
+**Query:**
+```sql
+SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text
+```
+
+**Label format:**
+- If username exists: `username (0x1234…abcd)`
+- If no username: `0x1234…abcd`
+
+This ensures:
+- Consistent labels across all dashboards
+- No duplicate wallet display (e.g., no `0xabc…def (0xabc…def)`)
+- Deduplication via `GROUP BY proxy_wallet` with `argMax(username, last_updated)`
+- Most recently updated users appear first
+
+**Migration:** `infra/clickhouse/initdb/10_user_labels_view.sql`
+
+---
+
 ## PolyTool - User Overview
 
 **Location:** Dashboards > PolyTool - User Overview
