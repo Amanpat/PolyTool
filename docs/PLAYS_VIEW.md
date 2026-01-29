@@ -14,7 +14,15 @@ Plays are the atomic unit of trading activity. Higher-level metrics (PnL, strate
 
 ## Data Source
 
-Plays are stored in the `polyttool.user_trades` table and enriched with market metadata from `polyttool.market_tokens` via LEFT JOIN on `token_id`.
+Plays are stored in the `polyttool.user_trades` table, but dashboards read from the
+`polyttool.user_trades_resolved` view. This view resolves token ids in three steps:
+
+1. Direct match on `market_tokens.token_id` (canonical CLOB token ids)
+2. Alias lookup in `token_aliases` (Data API / legacy token ids)
+3. Condition + outcome fallback using `markets` (match outcome index to `clob_token_ids`)
+
+Once resolved, the view attaches market metadata (question, slug, category, outcome name)
+so the Plays panels show consistent labels even when Data API token ids differ from Gamma.
 
 ## Field Definitions
 
@@ -75,7 +83,7 @@ Plays are stored in the `polyttool.user_trades` table and enriched with market m
 
 ## Limitations
 
-1. **Market Metadata Coverage**: Some trades may show condition_id instead of market question if market metadata hasn't been ingested. Run `/api/ingest/markets` to improve coverage.
+1. **Market Metadata Coverage**: Some trades may still show condition_id instead of market question if market metadata hasn't been ingested. Run `/api/ingest/markets` (or backfill) to improve coverage. The token resolution view will map aliases when possible.
 
 2. **Category Coverage**: Categories depend on market metadata. "Unknown" category explicitly shows trades without category mappings.
 

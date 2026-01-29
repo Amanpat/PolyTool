@@ -116,6 +116,7 @@ def compute_features_sql(
         SQL query string
     """
     bucket_func = BUCKET_FUNCTIONS.get(bucket_type, "toStartOfDay")
+    bucket_expr = f"toDateTime({bucket_func}(t.ts))"
 
     where_clause = f"WHERE t.proxy_wallet = '{proxy_wallet}'"
     if start_date:
@@ -125,20 +126,20 @@ def compute_features_sql(
     SELECT
         t.proxy_wallet,
         '{bucket_type}' AS bucket_type,
-        {bucket_func}(t.ts) AS bucket_start,
+        {bucket_expr} AS bucket_start,
         count() AS trades_count,
         countIf(upper(t.side) = 'BUY') AS buys_count,
         countIf(upper(t.side) = 'SELL') AS sells_count,
         sum(t.size) AS volume,
         sum(t.size * t.price) AS notional,
-        count(DISTINCT t.token_id) AS unique_tokens,
+        count(DISTINCT if(length(t.resolved_token_id) > 0, t.resolved_token_id, NULL)) AS unique_tokens,
         count(DISTINCT if(length(mt.condition_id) > 0, mt.condition_id, NULL)) AS unique_markets,
         if(count() > 0, sum(t.size) / count(), 0) AS avg_trade_size,
         if(count() > 0, countIf(upper(t.side) = 'BUY') * 100.0 / count(), 0) AS pct_buys,
         if(count() > 0, countIf(upper(t.side) = 'SELL') * 100.0 / count(), 0) AS pct_sells,
         if(count() > 0, countIf(length(mt.token_id) > 0) * 100.0 / count(), 0) AS mapping_coverage
-    FROM polyttool.user_trades AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t.token_id = mt.token_id
+    FROM polyttool.user_trades_resolved AS t
+    LEFT JOIN polyttool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
     {where_clause}
     GROUP BY t.proxy_wallet, bucket_start
     ORDER BY bucket_start
@@ -172,14 +173,14 @@ def compute_daily_features_sql(proxy_wallet: str, start_date: Optional[date] = N
         countIf(upper(t.side) = 'SELL') AS sells_count,
         sum(t.size) AS volume,
         sum(t.size * t.price) AS notional,
-        count(DISTINCT t.token_id) AS unique_tokens,
+        count(DISTINCT if(length(t.resolved_token_id) > 0, t.resolved_token_id, NULL)) AS unique_tokens,
         count(DISTINCT if(length(mt.condition_id) > 0, mt.condition_id, NULL)) AS unique_markets,
         if(count() > 0, sum(t.size) / count(), 0) AS avg_trade_size,
         if(count() > 0, countIf(upper(t.side) = 'BUY') * 100.0 / count(), 0) AS pct_buys,
         if(count() > 0, countIf(upper(t.side) = 'SELL') * 100.0 / count(), 0) AS pct_sells,
         if(count() > 0, countIf(length(mt.token_id) > 0) * 100.0 / count(), 0) AS mapping_coverage
-    FROM polyttool.user_trades AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t.token_id = mt.token_id
+    FROM polyttool.user_trades_resolved AS t
+    LEFT JOIN polyttool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
     {where_clause}
     GROUP BY t.proxy_wallet, bucket_day
     ORDER BY bucket_day

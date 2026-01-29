@@ -37,13 +37,15 @@ SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text
 ```
 
 **Label format:**
-- If username exists: `username (0x1234…abcd)`
+- If username exists: `@username (0x1234…abcd)`
 - If no username: `0x1234…abcd`
+
+**Note:** Usernames appear only after a scan/resolve using a handle (e.g., `@alice`) at least once.
 
 This ensures:
 - Consistent labels across all dashboards
 - No duplicate wallet display (e.g., no `0xabc…def (0xabc…def)`)
-- Deduplication via `GROUP BY proxy_wallet` with `argMax(username, last_updated)`
+- Deduplication via `GROUP BY proxy_wallet` with `argMaxIf(username, last_updated)`
 - Most recently updated users appear first
 
 **Migration:** `infra/clickhouse/initdb/10_user_labels_view.sql`
@@ -58,7 +60,7 @@ This ensures:
 The primary dashboard for analyzing a Polymarket user. Combines key metrics from all other dashboards into a single view.
 
 ### Variables
-- **User**: Dropdown showing username with wallet preview (e.g., "alice (0x1234…5678)"). If no username, shows wallet address only. Never blank.
+- **User**: Dropdown showing username with wallet preview (e.g., "@alice (0x1234…5678)"). If no username, shows wallet address only. Never blank.
 - **Time Bucket**: Aggregation period for metrics (day/hour/week)
 
 ### Panels
@@ -122,11 +124,15 @@ See [PLAYS_VIEW.md](./PLAYS_VIEW.md) for detailed field definitions.
 | Arb Events | Count of potential arb opportunities analyzed |
 | Total Fees Est | Estimated total fees across all arb events |
 | Total Slippage Est | Estimated total slippage across all arb events |
-| Usable Liquidity Rate | % of arb events with HIGH liquidity confidence (all legs have orderbooks) |
+| Arb Usable Liquidity Rate | % of arb events with HIGH liquidity confidence (all legs have orderbooks) |
 | $100 Depth Coverage | % of arb events where $100 trades can execute at estimated prices |
 | Arb Confidence | Pie chart showing high/medium/low confidence distribution |
+| Usable Liquidity Rate (User Tokens) | % of the user’s token snapshots that meet usable liquidity thresholds |
+| Top Tradeable Markets (Low Cost) | Lowest median execution-cost markets among the user’s tokens |
+| Opportunities (Low Cost) | Latest low-cost shortlist from the Opportunity Engine |
 
-See [QUALITY_CONFIDENCE.md](./QUALITY_CONFIDENCE.md) for interpreting liquidity confidence.
+See [QUALITY_CONFIDENCE.md](./QUALITY_CONFIDENCE.md) for interpreting liquidity confidence and usability thresholds.  
+See [PACKET_6_OPPORTUNITIES.md](./PACKET_6_OPPORTUNITIES.md) for Opportunity Engine details.
 
 ### Common Workflows
 
@@ -241,12 +247,15 @@ Global view of orderbook quality across all snapshots (not user-filtered).
 |-------|-------------|
 | Total Snapshots | Count of all snapshots in time range |
 | OK/Empty/One-Sided/Error | Status breakdown stats |
+| Usable Liquidity % (OK) | % of OK snapshots that pass usability thresholds |
+| Median Exec Cost (bps) | Median execution cost across OK snapshots |
 | Spread Over Time | Average/max/min spread in bps |
 | Depth Over Time | Bid/ask depth at 50bps band |
 | Slippage Over Time | Buy/sell slippage at $100/$500 sizes |
-| Latest Snapshots | Table with enriched market info |
+| Latest Snapshots | Table with enriched market info + usability flags |
 | Status Distribution | Pie chart of snapshot statuses |
 | Error Reasons | Table of error messages for debugging |
+| Liquidity Grade Distribution | HIGH/MED/LOW breakdown of liquidity grades |
 
 ### Status Meanings
 
@@ -338,7 +347,8 @@ Infrastructure health monitoring.
 ### Missing market metadata
 1. Run `/api/ingest/markets` endpoint
 2. Enable `backfill_mappings` on detector runs
-3. Check mapping coverage stat
+3. Check mapping coverage stat (uses `user_trades_resolved`, which resolves token aliases)
+4. If Data API token ids differ from Gamma CLOB ids, ensure `token_aliases` is populated by re-running market ingestion or backfill
 
 ---
 

@@ -7,6 +7,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 from .http_client import HttpClient
+from .normalization import normalize_condition_id
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,21 @@ class MarketToken:
     event_slug: str
     end_date_iso: Optional[datetime]
     active: bool
+    enable_order_book: Optional[bool]
+    accepting_orders: Optional[bool]
+    raw_json: dict
+
+
+@dataclass
+class TokenAlias:
+    """Mapping of alias token ids to canonical clob token ids."""
+
+    alias_token_id: str
+    canonical_clob_token_id: str
+    condition_id: str
+    outcome_index: int
+    outcome_name: str
+    market_slug: str
     raw_json: dict
 
 
@@ -45,6 +61,9 @@ class Market:
     event_title: str
     outcomes: list[str]
     clob_token_ids: list[str]
+    alias_token_ids: list[str]
+    enable_order_book: Optional[bool]
+    accepting_orders: Optional[bool]
     start_date_iso: Optional[datetime]
     end_date_iso: Optional[datetime]
     close_date_iso: Optional[datetime]
@@ -69,9 +88,35 @@ class Market:
                 event_slug=self.event_slug,
                 end_date_iso=self.end_date_iso,
                 active=self.active,
+                enable_order_book=self.enable_order_book,
+                accepting_orders=self.accepting_orders,
                 raw_json=self.raw_json,
             ))
         return tokens
+
+    def to_token_aliases(self) -> list[TokenAlias]:
+        """Extract TokenAlias entries when alias ids are present."""
+        aliases: list[TokenAlias] = []
+        if not self.alias_token_ids:
+            return aliases
+
+        for idx, alias_id in enumerate(self.alias_token_ids):
+            if not alias_id:
+                continue
+            canonical_id = self.clob_token_ids[idx] if idx < len(self.clob_token_ids) else ""
+            if not canonical_id or alias_id == canonical_id:
+                continue
+            outcome_name = self.outcomes[idx] if idx < len(self.outcomes) else f"Outcome {idx}"
+            aliases.append(TokenAlias(
+                alias_token_id=str(alias_id),
+                canonical_clob_token_id=str(canonical_id),
+                condition_id=self.condition_id,
+                outcome_index=idx,
+                outcome_name=outcome_name,
+                market_slug=self.market_slug,
+                raw_json=self.raw_json,
+            ))
+        return aliases
 
 
 @dataclass
@@ -80,6 +125,7 @@ class MarketsFetchResult:
 
     markets: list[Market]
     market_tokens: list[MarketToken]
+    token_aliases: list[TokenAlias]
     pages_fetched: int
     total_markets: int
 
@@ -273,6 +319,51 @@ class GammaClient:
             return response.get("data", response.get("markets", []))
         return []
 
+    def fetch_markets_filtered(
+        self,
+        condition_ids: Optional[list[str]] = None,
+        clob_token_ids: Optional[list[str]] = None,
+        slugs: Optional[list[str]] = None,
+        closed: Optional[bool] = None,
+        limit: int = 100,
+    ) -> list[Market]:
+        """
+        Fetch markets using filter parameters for targeted backfill.
+
+        Supports condition_ids, clob_token_ids, slug, and closed filters.
+        """
+        params: dict[str, object] = {}
+        if condition_ids:
+            params["condition_ids"] = condition_ids
+        if clob_token_ids:
+            params["clob_token_ids"] = clob_token_ids
+        if slugs:
+            params["slug"] = slugs
+        if closed is not None:
+            params["closed"] = "true" if closed else "false"
+        if limit:
+            params["limit"] = min(limit, 100)
+
+        try:
+            response = self.client.get_json("/markets", params=params)
+        except Exception as e:
+            logger.error(f"Error fetching markets with filters {params}: {e}")
+            return []
+
+        if isinstance(response, list):
+            raw_markets = response
+        elif isinstance(response, dict):
+            raw_markets = response.get("data", response.get("markets", []))
+        else:
+            return []
+
+        markets: list[Market] = []
+        for raw in raw_markets:
+            market = self._parse_market(raw)
+            if market:
+                markets.append(market)
+        return markets
+
     def fetch_all_markets(
         self,
         max_pages: int = 50,
@@ -293,6 +384,7 @@ class GammaClient:
         result = MarketsFetchResult(
             markets=[],
             market_tokens=[],
+            token_aliases=[],
             pages_fetched=0,
             total_markets=0,
         )
@@ -312,6 +404,7 @@ class GammaClient:
                 if market:
                     result.markets.append(market)
                     result.market_tokens.extend(market.to_market_tokens())
+                    result.token_aliases.extend(market.to_token_aliases())
                     result.total_markets += 1
 
             logger.info(f"Fetched page {page + 1}: {len(raw_markets)} markets")
@@ -333,6 +426,21 @@ class GammaClient:
 
         Handles JSON-encoded fields: outcomes, clobTokenIds, outcomePrices
         """
+        def parse_bool(value: Optional[object]) -> Optional[bool]:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                cleaned = value.strip().lower()
+                if cleaned in ("true", "1", "yes", "y"):
+                    return True
+                if cleaned in ("false", "0", "no", "n"):
+                    return False
+            return None
+
         def parse_datetime(value: Optional[object]) -> Optional[datetime]:
             if value is None:
                 return None
@@ -349,25 +457,63 @@ class GammaClient:
                     return None
             return None
 
+        def parse_list_field(value: object) -> list:
+            if value is None:
+                return []
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    return []
+            if isinstance(value, list):
+                return [item for item in value if item not in ("", None)]
+            return []
+
+        def parse_token_list(value: object) -> list[str]:
+            parsed = parse_list_field(value)
+            tokens: list[str] = []
+            for item in parsed:
+                if isinstance(item, dict):
+                    token_id = (
+                        item.get("tokenId")
+                        or item.get("token_id")
+                        or item.get("asset")
+                        or item.get("assetId")
+                        or item.get("id")
+                        or ""
+                    )
+                    if token_id:
+                        tokens.append(str(token_id))
+                elif isinstance(item, (str, int, float)):
+                    tokens.append(str(item))
+            return tokens
+
+        def pick_alias_list(candidates: list[list[str]], target_len: int, fallback_len: int) -> list[str]:
+            for candidate in candidates:
+                if candidate and len(candidate) == target_len:
+                    return candidate
+            for candidate in candidates:
+                if candidate and len(candidate) == fallback_len:
+                    return candidate
+            return []
+
         # Parse JSON-encoded lists (Gamma API returns these as strings)
         outcomes_raw = raw.get("outcomes", "[]")
         clob_tokens_raw = raw.get("clobTokenIds", "[]")
 
-        if isinstance(outcomes_raw, str):
-            try:
-                outcomes = json.loads(outcomes_raw)
-            except json.JSONDecodeError:
-                outcomes = []
-        else:
-            outcomes = outcomes_raw or []
+        outcomes = [str(item) for item in parse_list_field(outcomes_raw)]
+        clob_token_ids = [str(item) for item in parse_list_field(clob_tokens_raw)]
 
-        if isinstance(clob_tokens_raw, str):
-            try:
-                clob_token_ids = json.loads(clob_tokens_raw)
-            except json.JSONDecodeError:
-                clob_token_ids = []
-        else:
-            clob_token_ids = clob_tokens_raw or []
+        alias_candidates: list[list[str]] = []
+        for key in ("tokenIds", "token_ids", "tokenID", "token_id", "tokenId"):
+            alias_candidates.append(parse_token_list(raw.get(key)))
+        alias_candidates.append(parse_token_list(raw.get("tokens")))
+
+        alias_token_ids = pick_alias_list(
+            [c for c in alias_candidates if c],
+            len(clob_token_ids),
+            len(outcomes),
+        )
 
         # Skip markets without token IDs
         if not clob_token_ids:
@@ -408,6 +554,16 @@ class GammaClient:
             or raw.get("groupItemTitle", "")
         )
 
+        enable_order_book = parse_bool(
+            raw.get("enableOrderBook")
+            or raw.get("enable_order_book")
+            or raw.get("enable_orderbook")
+        )
+        accepting_orders = parse_bool(
+            raw.get("acceptingOrders")
+            or raw.get("accepting_orders")
+        )
+
         start_date = (
             parse_datetime(raw.get("startDate"))
             or parse_datetime(raw.get("start_date_iso"))
@@ -429,8 +585,12 @@ class GammaClient:
             or parse_datetime(raw.get("closedAt"))
         )
 
+        condition_id = normalize_condition_id(
+            raw.get("conditionId", "") or raw.get("condition_id", "")
+        )
+
         return Market(
-            condition_id=raw.get("conditionId", "") or raw.get("condition_id", ""),
+            condition_id=condition_id,
             market_slug=raw.get("slug", "") or raw.get("market_slug", ""),
             question=raw.get("question", ""),
             description=raw.get("description", ""),
@@ -440,6 +600,9 @@ class GammaClient:
             event_title=event_title or "",
             outcomes=outcomes,
             clob_token_ids=clob_token_ids,
+            alias_token_ids=alias_token_ids,
+            enable_order_book=enable_order_book,
+            accepting_orders=accepting_orders,
             start_date_iso=start_date,
             end_date_iso=end_date,
             close_date_iso=close_date,
@@ -518,15 +681,110 @@ class GammaClient:
         Returns:
             List of found Market objects
         """
-        markets = []
-        for i, condition_id in enumerate(condition_ids):
-            market = self.get_market_by_condition_id(condition_id)
-            if market:
-                markets.append(market)
+        normalized = [normalize_condition_id(cid) for cid in condition_ids if cid]
+        normalized = [cid for cid in normalized if cid]
+        if not normalized:
+            return []
 
-            # Log progress every 10 markets
-            if (i + 1) % 10 == 0:
-                logger.info(f"Fetched {i + 1}/{len(condition_ids)} markets by condition_id")
+        markets: dict[str, Market] = {}
+        for i in range(0, len(normalized), batch_size):
+            batch = normalized[i:i + batch_size]
+            fetched = self.fetch_markets_filtered(
+                condition_ids=batch,
+                closed=False,
+            )
+            for market in fetched:
+                markets[market.condition_id] = market
 
-        logger.info(f"Fetched {len(markets)} markets out of {len(condition_ids)} condition_ids")
-        return markets
+            missing = [cid for cid in batch if cid not in markets]
+            if missing:
+                fetched_closed = self.fetch_markets_filtered(
+                    condition_ids=missing,
+                    closed=True,
+                )
+                for market in fetched_closed:
+                    markets[market.condition_id] = market
+
+            logger.info(
+                f"Fetched batch {i // batch_size + 1}: "
+                f"{len(markets)} markets so far"
+            )
+
+        logger.info(f"Fetched {len(markets)} markets out of {len(normalized)} condition_ids")
+        return list(markets.values())
+
+    def get_markets_by_clob_token_ids(
+        self,
+        clob_token_ids: list[str],
+        batch_size: int = 20,
+    ) -> list[Market]:
+        """
+        Fetch multiple markets by their clob token ids.
+        """
+        tokens = [str(token) for token in clob_token_ids if token]
+        if not tokens:
+            return []
+
+        markets: dict[str, Market] = {}
+        for i in range(0, len(tokens), batch_size):
+            batch = tokens[i:i + batch_size]
+            fetched = self.fetch_markets_filtered(
+                clob_token_ids=batch,
+                closed=False,
+            )
+            for market in fetched:
+                markets[market.condition_id] = market
+
+            if not fetched:
+                fetched_closed = self.fetch_markets_filtered(
+                    clob_token_ids=batch,
+                    closed=True,
+                )
+                for market in fetched_closed:
+                    markets[market.condition_id] = market
+
+            logger.info(
+                f"Fetched batch {i // batch_size + 1}: "
+                f"{len(markets)} markets so far"
+            )
+
+        logger.info(f"Fetched {len(markets)} markets from {len(tokens)} clob token ids")
+        return list(markets.values())
+
+    def get_markets_by_slugs(
+        self,
+        slugs: list[str],
+        batch_size: int = 20,
+    ) -> list[Market]:
+        """
+        Fetch markets by slug list, with closed fallback.
+        """
+        cleaned = [slug.strip() for slug in slugs if slug and slug.strip()]
+        if not cleaned:
+            return []
+
+        markets: dict[str, Market] = {}
+        for i in range(0, len(cleaned), batch_size):
+            batch = cleaned[i:i + batch_size]
+            fetched = self.fetch_markets_filtered(
+                slugs=batch,
+                closed=False,
+            )
+            for market in fetched:
+                markets[market.condition_id] = market
+
+            if not fetched:
+                fetched_closed = self.fetch_markets_filtered(
+                    slugs=batch,
+                    closed=True,
+                )
+                for market in fetched_closed:
+                    markets[market.condition_id] = market
+
+            logger.info(
+                f"Fetched slug batch {i // batch_size + 1}: "
+                f"{len(markets)} markets so far"
+            )
+
+        logger.info(f"Fetched {len(markets)} markets from {len(cleaned)} slugs")
+        return list(markets.values())

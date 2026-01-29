@@ -21,6 +21,7 @@ DEFAULT_INGEST_MARKETS = False
 DEFAULT_INGEST_ACTIVITY = False
 DEFAULT_INGEST_POSITIONS = False
 DEFAULT_COMPUTE_PNL = False
+DEFAULT_COMPUTE_OPPORTUNITIES = False
 DEFAULT_SNAPSHOT_BOOKS = False
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_BODY_SNIPPET = 800
@@ -194,6 +195,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Compute PnL after running detectors",
     )
     parser.add_argument(
+        "--compute-opportunities",
+        action="store_true",
+        default=None,
+        help="Compute low-cost opportunity candidates after scanning",
+    )
+    parser.add_argument(
         "--snapshot-books",
         action="store_true",
         default=None,
@@ -212,6 +219,9 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     env_ingest_activity = parse_bool(os.getenv("SCAN_INGEST_ACTIVITY"), "SCAN_INGEST_ACTIVITY")
     env_ingest_positions = parse_bool(os.getenv("SCAN_INGEST_POSITIONS"), "SCAN_INGEST_POSITIONS")
     env_compute_pnl = parse_bool(os.getenv("SCAN_COMPUTE_PNL"), "SCAN_COMPUTE_PNL")
+    env_compute_opportunities = parse_bool(
+        os.getenv("SCAN_COMPUTE_OPPORTUNITIES"), "SCAN_COMPUTE_OPPORTUNITIES"
+    )
     env_snapshot_books = parse_bool(os.getenv("SCAN_SNAPSHOT_BOOKS"), "SCAN_SNAPSHOT_BOOKS")
     env_api_base = os.getenv("API_BASE_URL")
     env_timeout = parse_float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS"), "SCAN_HTTP_TIMEOUT_SECONDS")
@@ -257,6 +267,13 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         compute_pnl = DEFAULT_COMPUTE_PNL
 
+    if args.compute_opportunities is True:
+        compute_opportunities = True
+    elif env_compute_opportunities is not None:
+        compute_opportunities = env_compute_opportunities
+    else:
+        compute_opportunities = DEFAULT_COMPUTE_OPPORTUNITIES
+
     if args.snapshot_books is True:
         snapshot_books = True
     elif env_snapshot_books is not None:
@@ -273,6 +290,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "ingest_activity": ingest_activity,
         "ingest_positions": ingest_positions,
         "compute_pnl": compute_pnl,
+        "compute_opportunities": compute_opportunities,
         "snapshot_books": snapshot_books,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
@@ -325,6 +343,7 @@ def print_summary(
     snapshot_response: Optional[Dict[str, Any]],
     detectors_response: Dict[str, Any],
     pnl_response: Optional[Dict[str, Any]],
+    opportunities_response: Optional[Dict[str, Any]],
 ) -> None:
     username = resolve_response.get("username") or config["user"]
     proxy_wallet = resolve_response.get("proxy_wallet") or "unknown"
@@ -417,6 +436,14 @@ def print_summary(
         else:
             print("PnL latest bucket: none")
 
+    if opportunities_response:
+        print(
+            "Opportunities: "
+            f"candidates={opportunities_response.get('candidates_considered')}, "
+            f"returned={opportunities_response.get('returned_count')}, "
+            f"bucket={opportunities_response.get('bucket_start')}"
+        )
+
     api_base_url = config["api_base_url"].rstrip("/")
     print("")
     print("URLs")
@@ -496,6 +523,15 @@ def run_scan(config: Dict[str, Any]) -> None:
             timeout=timeout_seconds,
         )
 
+    opportunities_response = None
+    if config["compute_opportunities"]:
+        opportunities_response = post_json(
+            api_base_url,
+            "/api/compute/opportunities",
+            {"user": config["user"], "bucket": config["bucket"]},
+            timeout=timeout_seconds,
+        )
+
     print_summary(
         config,
         resolve_response,
@@ -505,6 +541,7 @@ def run_scan(config: Dict[str, Any]) -> None:
         snapshot_response,
         detectors_response,
         pnl_response,
+        opportunities_response,
     )
 
 

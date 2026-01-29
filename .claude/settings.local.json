@@ -26,7 +26,10 @@
       "Bash(python:*)",
       "Bash(npm view:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Skill(gsd:progress)",
+      "Skill(gsd:quick)",
+      "Bash(test:*)"
     ]
   }
 }

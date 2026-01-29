@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .http_client import HttpClient
+from .normalization import normalize_condition_id
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,9 @@ class Trade:
         """
         # Extract fields with fallbacks
         token_id = data.get("asset", "") or data.get("token_id", "") or data.get("tokenId", "") or ""
-        condition_id = data.get("conditionId", "") or data.get("condition_id", "") or ""
+        condition_id = normalize_condition_id(
+            data.get("conditionId", "") or data.get("condition_id", "") or ""
+        )
         outcome = data.get("outcome", "") or data.get("outcomeName", "") or ""
         side = data.get("side", "") or data.get("type", "") or ""
         size = float(data.get("size", 0) or data.get("amount", 0) or 0)
@@ -144,7 +147,9 @@ class Activity:
             or data.get("token")
             or ""
         )
-        condition_id = data.get("conditionId") or data.get("condition_id") or ""
+        condition_id = normalize_condition_id(
+            data.get("conditionId") or data.get("condition_id") or ""
+        )
         activity_type = (
             data.get("activityType")
             or data.get("activity_type")
@@ -245,7 +250,9 @@ class Position:
             or data.get("token")
             or ""
         )
-        condition_id = data.get("conditionId") or data.get("condition_id") or ""
+        condition_id = normalize_condition_id(
+            data.get("conditionId") or data.get("condition_id") or ""
+        )
         outcome = (
             data.get("outcome")
             or data.get("outcomeName")

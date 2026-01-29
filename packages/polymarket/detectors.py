@@ -3,7 +3,7 @@
 import json
 import statistics
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 from collections import defaultdict
 import logging
@@ -18,7 +18,7 @@ class DetectorResult:
     proxy_wallet: str
     detector_name: str
     bucket_type: str
-    bucket_start: date
+    bucket_start: datetime
     score: float
     label: str
     evidence: dict
@@ -48,7 +48,7 @@ class BaseDetector:
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> DetectorResult:
         """Run detection on trades. Override in subclasses."""
@@ -85,7 +85,7 @@ class HoldingStyleDetector(BaseDetector):
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> DetectorResult:
         # Group trades by token_id
@@ -191,7 +191,7 @@ class HoldingStyleDetector(BaseDetector):
             proxy_wallet=proxy_wallet,
             detector_name=self.NAME,
             bucket_type=bucket_type,
-            bucket_start=bucket_start or date.today(),
+            bucket_start=bucket_start or _default_bucket_start(),
             score=round(score, 4),
             label=label,
             evidence=evidence,
@@ -228,7 +228,7 @@ class DCALadderingDetector(BaseDetector):
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> DetectorResult:
         # Group by token_id + side
@@ -314,7 +314,7 @@ class DCALadderingDetector(BaseDetector):
             proxy_wallet=proxy_wallet,
             detector_name=self.NAME,
             bucket_type=bucket_type,
-            bucket_start=bucket_start or date.today(),
+            bucket_start=bucket_start or _default_bucket_start(),
             score=round(score, 4),
             label=label,
             evidence=evidence,
@@ -346,7 +346,7 @@ class MarketSelectionBiasDetector(BaseDetector):
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> DetectorResult:
         """
@@ -415,7 +415,7 @@ class MarketSelectionBiasDetector(BaseDetector):
             proxy_wallet=proxy_wallet,
             detector_name=self.NAME,
             bucket_type=bucket_type,
-            bucket_start=bucket_start or date.today(),
+            bucket_start=bucket_start or _default_bucket_start(),
             score=round(hhi, 4),
             label=label,
             evidence=evidence,
@@ -448,7 +448,7 @@ class CompleteSetArbDetector(BaseDetector):
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> DetectorResult:
         """
@@ -536,11 +536,16 @@ class CompleteSetArbDetector(BaseDetector):
             proxy_wallet=proxy_wallet,
             detector_name=self.NAME,
             bucket_type=bucket_type,
-            bucket_start=bucket_start or date.today(),
+            bucket_start=bucket_start or _default_bucket_start(),
             score=round(score, 4),
             label=label,
             evidence=evidence,
         )
+
+
+def _default_bucket_start() -> datetime:
+    now = datetime.utcnow()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _get_bucket_start(ts: datetime, bucket_type: str) -> datetime:
@@ -582,7 +587,7 @@ class DetectorRunner:
         trades: list[dict],
         proxy_wallet: str,
         bucket_type: str = "all",
-        bucket_start: Optional[date] = None,
+        bucket_start: Optional[datetime] = None,
         market_tokens_map: Optional[dict] = None,
     ) -> list[DetectorResult]:
         """Run all detectors on all trades and return results."""
@@ -608,7 +613,7 @@ class DetectorRunner:
                         proxy_wallet=proxy_wallet,
                         detector_name=detector.NAME,
                         bucket_type=bucket_type,
-                        bucket_start=bucket_start or date.today(),
+                        bucket_start=bucket_start or _default_bucket_start(),
                         score=0.0,
                         label="ERROR",
                         evidence={"error": str(e)},
@@ -645,7 +650,7 @@ class DetectorRunner:
                 trades=trades,
                 proxy_wallet=proxy_wallet,
                 bucket_type="all",
-                bucket_start=date.today(),
+                bucket_start=_default_bucket_start(),
                 market_tokens_map=market_tokens_map,
             )
 
@@ -656,13 +661,11 @@ class DetectorRunner:
 
         all_results = []
         for bucket_start_dt, bucket_trades in sorted(grouped_trades.items()):
-            bucket_start = bucket_start_dt.date() if isinstance(bucket_start_dt, datetime) else bucket_start_dt
-
             results = self.run_all(
                 trades=bucket_trades,
                 proxy_wallet=proxy_wallet,
                 bucket_type=bucket_type,
-                bucket_start=bucket_start,
+                bucket_start=bucket_start_dt,
                 market_tokens_map=market_tokens_map,
             )
             all_results.extend(results)

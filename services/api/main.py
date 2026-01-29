@@ -32,6 +32,9 @@ from polymarket.orderbook_snapshots import (
     snapshot_from_book,
     get_insert_columns as get_snapshot_columns,
 )
+from polymarket.opportunities import get_opportunity_bucket_start, normalize_bucket_type
+from polymarket.normalization import normalize_condition_id
+from polymarket.token_resolution import resolve_token_id
 
 # Configure logging
 logging.basicConfig(
@@ -61,6 +64,10 @@ BOOK_SNAPSHOT_MIN_OK_TARGET = int(os.getenv("BOOK_SNAPSHOT_MIN_OK_TARGET", "5"))
 BOOK_SNAPSHOT_404_TTL_HOURS = int(os.getenv("BOOK_SNAPSHOT_404_TTL_HOURS", "24"))
 BOOK_SNAPSHOT_MAX_PREFLIGHT = int(os.getenv("BOOK_SNAPSHOT_MAX_PREFLIGHT", "200"))
 ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS = int(os.getenv("ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS", "3600"))
+OPPORTUNITY_TRADE_LOOKBACK_DAYS = int(os.getenv("OPPORTUNITY_TRADE_LOOKBACK_DAYS", "90"))
+OPPORTUNITY_SNAPSHOT_MAX_AGE_SECONDS = int(
+    os.getenv("OPPORTUNITY_SNAPSHOT_MAX_AGE_SECONDS", str(ORDERBOOK_SNAPSHOT_MAX_AGE_SECONDS))
+)
 
 # ClickHouse configuration
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
@@ -110,6 +117,65 @@ def _extract_error_message_from_response(response) -> Optional[str]:
     return None
 
 
+def _is_wallet_address(value: str) -> bool:
+    value = value.strip()
+    return value.startswith("0x") and len(value) >= 40
+
+
+def _normalize_username_input(input_value: str) -> Optional[str]:
+    cleaned = input_value.strip()
+    if not cleaned or cleaned == "@":
+        return None
+    if _is_wallet_address(cleaned):
+        return None
+    if cleaned.startswith("@"):
+        return cleaned
+    return f"@{cleaned}"
+
+
+def _get_existing_user_metadata(client, proxy_wallet: str) -> tuple[Optional[datetime], str]:
+    result = client.query(
+        """
+        SELECT
+            min(first_seen) AS first_seen,
+            argMaxIf(trimBoth(username), last_updated, trimBoth(username) != '') AS best_username
+        FROM users
+        WHERE proxy_wallet = {wallet:String}
+        """,
+        parameters={"wallet": proxy_wallet},
+    )
+
+    if result.result_rows:
+        first_seen = result.result_rows[0][0]
+        best_username = result.result_rows[0][1] or ""
+        return first_seen, best_username
+
+    return None, ""
+
+
+def _upsert_user_profile(client, profile, input_value: str) -> None:
+    now = datetime.utcnow()
+    existing_first_seen, existing_username = _get_existing_user_metadata(
+        client,
+        profile.proxy_wallet,
+    )
+    first_seen = existing_first_seen or now
+    input_username = _normalize_username_input(input_value)
+    username_to_store = input_username or existing_username or ""
+
+    client.insert(
+        "users",
+        [[
+            profile.proxy_wallet,
+            username_to_store,
+            json.dumps(profile.raw_json),
+            first_seen,
+            now,
+        ]],
+        column_names=["proxy_wallet", "username", "raw_profile_json", "first_seen", "last_updated"],
+    )
+
+
 def _build_basic_snapshot(
     token_id: str,
     snapshot_ts: datetime,
@@ -134,6 +200,102 @@ def _build_basic_snapshot(
         status=status,
         reason=reason,
     )
+
+
+def _resolve_candidate_tokens(client, candidates: list[dict]) -> tuple[list[str], dict[str, str]]:
+    if not candidates:
+        return [], {}
+
+    token_ids = [c.get("token_id") for c in candidates if c.get("token_id")]
+    token_ids = [token_id for token_id in token_ids if token_id]
+    if not token_ids:
+        return [], {}
+
+    unique_tokens = list(dict.fromkeys(token_ids))
+
+    direct_tokens = set()
+    try:
+        direct_result = client.query(
+            "SELECT token_id FROM market_tokens WHERE token_id IN {tokens:Array(String)}",
+            parameters={"tokens": unique_tokens},
+        )
+        direct_tokens = {row[0] for row in direct_result.result_rows if row and row[0]}
+    except Exception as exc:
+        logger.warning(f"Failed to fetch direct token mappings: {exc}")
+
+    alias_map: dict[str, str] = {}
+    try:
+        alias_result = client.query(
+            """
+            SELECT alias_token_id, canonical_clob_token_id
+            FROM token_aliases
+            WHERE alias_token_id IN {tokens:Array(String)}
+            """,
+            parameters={"tokens": unique_tokens},
+        )
+        alias_map = {
+            row[0]: row[1] for row in alias_result.result_rows if row and row[0] and row[1]
+        }
+    except Exception as exc:
+        logger.warning(f"Failed to fetch token aliases: {exc}")
+
+    condition_ids = [
+        normalize_condition_id(c.get("condition_id"))
+        for c in candidates
+        if c.get("condition_id")
+    ]
+    condition_ids = [cid for cid in condition_ids if cid]
+
+    markets_map: dict[str, dict[str, list[str]]] = {}
+    if condition_ids:
+        unique_conditions = list(dict.fromkeys(condition_ids))
+        try:
+            markets_result = client.query(
+                """
+                SELECT condition_id, outcomes, clob_token_ids
+                FROM markets
+                WHERE if(
+                    startsWith(lowerUTF8(trimBoth(condition_id)), '0x'),
+                    concat('0x', substring(lowerUTF8(trimBoth(condition_id)), 3)),
+                    concat('0x', lowerUTF8(trimBoth(condition_id)))
+                ) IN {conditions:Array(String)}
+                """,
+                parameters={"conditions": unique_conditions},
+            )
+            for row in markets_result.result_rows:
+                if not row:
+                    continue
+                condition_id = normalize_condition_id(row[0])
+                outcomes = row[1] or []
+                clob_token_ids = row[2] or []
+                if condition_id:
+                    markets_map[condition_id] = {
+                        "outcomes": [str(o) for o in outcomes],
+                        "clob_token_ids": [str(t) for t in clob_token_ids],
+                    }
+        except Exception as exc:
+            logger.warning(f"Failed to fetch markets for condition mapping: {exc}")
+
+    resolved_tokens: list[str] = []
+    resolution_map: dict[str, str] = {}
+    for candidate in candidates:
+        token_id = candidate.get("token_id") or ""
+        if not token_id:
+            continue
+        resolved = resolve_token_id(
+            token_id=token_id,
+            condition_id=candidate.get("condition_id"),
+            outcome=candidate.get("outcome"),
+            direct_token_ids=direct_tokens,
+            alias_map=alias_map,
+            markets_map=markets_map,
+        )
+        if resolved:
+            resolution_map[token_id] = resolved
+            if resolved not in resolved_tokens:
+                resolved_tokens.append(resolved)
+
+    return resolved_tokens, resolution_map
 
 
 # Request/Response models
@@ -228,30 +390,7 @@ async def resolve_user(request: ResolveRequest):
     # Store/update profile in ClickHouse
     try:
         client = get_clickhouse_client()
-        now = datetime.utcnow()
-
-        # Check if user exists
-        existing = client.query(
-            "SELECT first_seen FROM users WHERE proxy_wallet = {wallet:String}",
-            parameters={"wallet": profile.proxy_wallet},
-        )
-
-        first_seen = now
-        if existing.result_rows:
-            first_seen = existing.result_rows[0][0]
-
-        # Upsert user profile
-        client.insert(
-            "users",
-            [[
-                profile.proxy_wallet,
-                profile.username,
-                json.dumps(profile.raw_json),
-                first_seen,
-                now,
-            ]],
-            column_names=["proxy_wallet", "username", "raw_profile_json", "first_seen", "last_updated"],
-        )
+        _upsert_user_profile(client, profile, request.input)
 
         logger.info(f"Stored profile for {profile.proxy_wallet}")
     except Exception as e:
@@ -346,27 +485,7 @@ async def ingest_trades(request: IngestTradesRequest):
             logger.info(f"Inserted {rows_written} rows into ClickHouse")
 
         # Also update user profile
-        now = datetime.utcnow()
-        existing = client.query(
-            "SELECT first_seen FROM users WHERE proxy_wallet = {wallet:String}",
-            parameters={"wallet": proxy_wallet},
-        )
-
-        first_seen = now
-        if existing.result_rows:
-            first_seen = existing.result_rows[0][0]
-
-        client.insert(
-            "users",
-            [[
-                profile.proxy_wallet,
-                profile.username,
-                json.dumps(profile.raw_json),
-                first_seen,
-                now,
-            ]],
-            column_names=["proxy_wallet", "username", "raw_profile_json", "first_seen", "last_updated"],
-        )
+        _upsert_user_profile(client, profile, request.user)
 
         # Get distinct trade count for this user (after merge)
         # Force merge to get accurate count
@@ -463,27 +582,7 @@ async def ingest_activity(request: IngestActivityRequest):
             rows_written = len(rows)
             logger.info(f"Inserted {rows_written} activity rows into ClickHouse")
 
-        now = datetime.utcnow()
-        existing = client.query(
-            "SELECT first_seen FROM users WHERE proxy_wallet = {wallet:String}",
-            parameters={"wallet": proxy_wallet},
-        )
-
-        first_seen = now
-        if existing.result_rows:
-            first_seen = existing.result_rows[0][0]
-
-        client.insert(
-            "users",
-            [[
-                profile.proxy_wallet,
-                profile.username,
-                json.dumps(profile.raw_json),
-                first_seen,
-                now,
-            ]],
-            column_names=["proxy_wallet", "username", "raw_profile_json", "first_seen", "last_updated"],
-        )
+        _upsert_user_profile(client, profile, request.user)
 
         client.command("OPTIMIZE TABLE user_activity FINAL")
 
@@ -564,27 +663,7 @@ async def ingest_positions(request: IngestPositionsRequest):
             rows_written = len(rows)
             logger.info(f"Inserted {rows_written} position snapshots into ClickHouse")
 
-        now = datetime.utcnow()
-        existing = client.query(
-            "SELECT first_seen FROM users WHERE proxy_wallet = {wallet:String}",
-            parameters={"wallet": proxy_wallet},
-        )
-
-        first_seen = now
-        if existing.result_rows:
-            first_seen = existing.result_rows[0][0]
-
-        client.insert(
-            "users",
-            [[
-                profile.proxy_wallet,
-                profile.username,
-                json.dumps(profile.raw_json),
-                first_seen,
-                now,
-            ]],
-            column_names=["proxy_wallet", "username", "raw_profile_json", "first_seen", "last_updated"],
-        )
+        _upsert_user_profile(client, profile, request.user)
 
     except Exception as e:
         logger.error(f"Failed to insert positions into ClickHouse: {e}")
@@ -800,6 +879,30 @@ class ComputeArbFeasibilityResponse(BaseModel):
     overall_liquidity_rate: float = 0.0
 
 
+class ComputeOpportunitiesRequest(BaseModel):
+    """Request body for /api/compute/opportunities endpoint."""
+
+    user: str = Field(..., description="Username (with or without @) or wallet address (0x...)")
+    bucket: str = Field(default="day", description="Bucket type: day, hour, week")
+    limit: int = Field(
+        default=25,
+        ge=1,
+        le=200,
+        description="Max opportunities to return",
+    )
+
+
+class ComputeOpportunitiesResponse(BaseModel):
+    """Response body for /api/compute/opportunities endpoint."""
+
+    proxy_wallet: str
+    bucket_type: str
+    bucket_start: datetime
+    buckets_written: int
+    candidates_considered: int
+    returned_count: int
+
+
 class SnapshotBooksRequest(BaseModel):
     """Request body for /api/snapshot/books endpoint."""
 
@@ -895,6 +998,8 @@ async def ingest_markets(request: IngestMarketsRequest):
                     mt.event_slug,
                     mt.end_date_iso,
                     1 if mt.active else 0,
+                    1 if mt.enable_order_book else 0 if mt.enable_order_book is not None else None,
+                    1 if mt.accepting_orders else 0 if mt.accepting_orders is not None else None,
                     json.dumps(mt.raw_json),
                     datetime.utcnow(),
                 ])
@@ -905,11 +1010,42 @@ async def ingest_markets(request: IngestMarketsRequest):
                 column_names=[
                     "token_id", "condition_id", "outcome_index", "outcome_name",
                     "market_slug", "question", "category", "event_slug",
-                    "end_date_iso", "active", "raw_json", "ingested_at"
+                    "end_date_iso", "active", "enable_order_book", "accepting_orders",
+                    "raw_json", "ingested_at"
                 ],
             )
             tokens_written = len(rows)
             logger.info(f"Inserted {tokens_written} market tokens")
+
+        if result.token_aliases:
+            alias_rows = []
+            for alias in result.token_aliases:
+                alias_rows.append([
+                    alias.alias_token_id,
+                    alias.canonical_clob_token_id,
+                    alias.condition_id,
+                    alias.outcome_index,
+                    alias.outcome_name,
+                    alias.market_slug,
+                    json.dumps(alias.raw_json),
+                    datetime.utcnow(),
+                ])
+
+            client.insert(
+                "token_aliases",
+                alias_rows,
+                column_names=[
+                    "alias_token_id",
+                    "canonical_clob_token_id",
+                    "condition_id",
+                    "outcome_index",
+                    "outcome_name",
+                    "market_slug",
+                    "raw_json",
+                    "ingested_at",
+                ],
+            )
+            logger.info(f"Inserted {len(alias_rows)} token alias rows")
 
         # Also insert full markets
         if result.markets:
@@ -1001,9 +1137,9 @@ async def run_detectors(request: RunDetectorsRequest):
         # Fetch trades
         trades_result = client.query(
             """
-            SELECT proxy_wallet, trade_uid, ts, token_id, condition_id,
-                   outcome, side, size, price, transaction_hash
-            FROM user_trades
+            SELECT proxy_wallet, trade_uid, ts, resolved_token_id, resolved_condition_id,
+                   resolved_outcome_name, side, size, price, transaction_hash
+            FROM user_trades_resolved
             WHERE proxy_wallet = {wallet:String}
             ORDER BY ts
             """,
@@ -1157,8 +1293,8 @@ async def compute_pnl(request: ComputePnlRequest):
             params["start_ts"] = start_ts
 
         trades_query = f"""
-        SELECT ts, token_id, side, size, price
-        FROM user_trades
+        SELECT ts, resolved_token_id AS token_id, side, size, price
+        FROM user_trades_resolved
         WHERE {' AND '.join(trade_filters)}
         ORDER BY ts
         """
@@ -1179,8 +1315,8 @@ async def compute_pnl(request: ComputePnlRequest):
             snapshot_filters.append("snapshot_ts >= {start_ts:DateTime}")
 
         snapshots_query = f"""
-        SELECT snapshot_ts, token_id, shares, avg_cost
-        FROM user_positions_snapshots
+        SELECT snapshot_ts, resolved_token_id AS token_id, shares, avg_cost
+        FROM user_positions_resolved
         WHERE {' AND '.join(snapshot_filters)}
         ORDER BY snapshot_ts
         """
@@ -1297,9 +1433,9 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
         # Fetch trades
         trades_result = client.query(
             """
-            SELECT proxy_wallet, trade_uid, ts, token_id, condition_id,
-                   outcome, side, size, price, transaction_hash
-            FROM user_trades
+            SELECT proxy_wallet, trade_uid, ts, resolved_token_id, resolved_condition_id,
+                   resolved_outcome_name, side, size, price, transaction_hash
+            FROM user_trades_resolved
             WHERE proxy_wallet = {wallet:String}
             ORDER BY ts
             """,
@@ -1417,6 +1553,172 @@ async def compute_arb_feasibility(request: ComputeArbFeasibilityRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/compute/opportunities", response_model=ComputeOpportunitiesResponse)
+async def compute_opportunities(request: ComputeOpportunitiesRequest):
+    """
+    Compute low-cost, tradeable opportunity candidates for a user.
+    """
+    logger.info(
+        f"Computing opportunities for: {request.user}, "
+        f"bucket={request.bucket}, limit={request.limit}"
+    )
+
+    try:
+        bucket = normalize_bucket_type(request.bucket)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    profile = gamma_client.resolve(request.user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Could not resolve user: {request.user}")
+
+    proxy_wallet = profile.proxy_wallet
+    now = datetime.utcnow()
+    bucket_start = get_opportunity_bucket_start(now, bucket)
+    trade_cutoff = now - timedelta(days=OPPORTUNITY_TRADE_LOOKBACK_DAYS)
+    snapshot_cutoff = now - timedelta(seconds=OPPORTUNITY_SNAPSHOT_MAX_AGE_SECONDS)
+
+    try:
+        client = get_clickhouse_client()
+
+        tokens_result = client.query(
+            """
+            SELECT DISTINCT token_id
+            FROM (
+                SELECT resolved_token_id AS token_id
+                FROM user_trades_resolved
+                WHERE proxy_wallet = {wallet:String}
+                  AND ts >= {trade_cutoff:DateTime}
+                  AND resolved_token_id != ''
+                UNION ALL
+                SELECT resolved_token_id AS token_id
+                FROM user_positions_resolved
+                WHERE proxy_wallet = {wallet:String}
+                  AND snapshot_ts = (
+                      SELECT max(snapshot_ts)
+                      FROM user_positions_resolved
+                      WHERE proxy_wallet = {wallet:String}
+                  )
+                  AND resolved_token_id != ''
+            )
+            """,
+            parameters={"wallet": proxy_wallet, "trade_cutoff": trade_cutoff},
+        )
+        tokens = [row[0] for row in tokens_result.result_rows if row and row[0]]
+        tokens = list(dict.fromkeys(tokens))
+        candidates_considered = len(tokens)
+
+        if not tokens:
+            return ComputeOpportunitiesResponse(
+                proxy_wallet=proxy_wallet,
+                bucket_type=bucket,
+                bucket_start=bucket_start,
+                buckets_written=0,
+                candidates_considered=0,
+                returned_count=0,
+            )
+
+        opportunities_query = """
+        SELECT
+            token_id,
+            market_slug,
+            question,
+            outcome_name,
+            execution_cost_bps_100,
+            depth_bid_usd_50bps,
+            depth_ask_usd_50bps,
+            liquidity_grade,
+            status
+        FROM (
+            SELECT
+                resolved_token_id AS token_id,
+                argMax(market_slug, snapshot_ts) AS market_slug,
+                argMax(question, snapshot_ts) AS question,
+                argMax(outcome_name, snapshot_ts) AS outcome_name,
+                argMax(execution_cost_bps_100, snapshot_ts) AS execution_cost_bps_100,
+                argMax(depth_bid_usd_50bps, snapshot_ts) AS depth_bid_usd_50bps,
+                argMax(depth_ask_usd_50bps, snapshot_ts) AS depth_ask_usd_50bps,
+                argMax(liquidity_grade, snapshot_ts) AS liquidity_grade,
+                argMax(status, snapshot_ts) AS status
+            FROM orderbook_snapshots_enriched
+            WHERE resolved_token_id IN {tokens:Array(String)}
+              AND snapshot_ts >= {snapshot_cutoff:DateTime}
+              AND status = 'ok'
+              AND liquidity_grade IN ('HIGH', 'MED')
+            GROUP BY resolved_token_id
+        )
+        ORDER BY execution_cost_bps_100 ASC,
+                 (depth_bid_usd_50bps + depth_ask_usd_50bps) DESC
+        LIMIT {limit:UInt16}
+        """
+
+        opp_result = client.query(
+            opportunities_query,
+            parameters={
+                "tokens": tokens,
+                "snapshot_cutoff": snapshot_cutoff,
+                "limit": request.limit,
+            },
+        )
+
+        computed_at = datetime.utcnow()
+        rows = []
+        for row in opp_result.result_rows:
+            if not row:
+                continue
+            rows.append([
+                proxy_wallet,
+                bucket_start,
+                bucket,
+                row[0],
+                row[1] or "",
+                row[2] or "",
+                row[3] or "",
+                float(row[4]) if row[4] is not None else 0.0,
+                float(row[5]) if row[5] is not None else 0.0,
+                float(row[6]) if row[6] is not None else 0.0,
+                row[7] or "",
+                row[8] or "",
+                computed_at,
+            ])
+
+        if rows:
+            client.insert(
+                "user_opportunities_bucket",
+                rows,
+                column_names=[
+                    "proxy_wallet",
+                    "bucket_start",
+                    "bucket_type",
+                    "token_id",
+                    "market_slug",
+                    "question",
+                    "outcome_name",
+                    "execution_cost_bps_100",
+                    "depth_bid_usd_50bps",
+                    "depth_ask_usd_50bps",
+                    "liquidity_grade",
+                    "status",
+                    "computed_at",
+                ],
+            )
+
+        return ComputeOpportunitiesResponse(
+            proxy_wallet=proxy_wallet,
+            bucket_type=bucket,
+            bucket_start=bucket_start,
+            buckets_written=1 if rows else 0,
+            candidates_considered=candidates_considered,
+            returned_count=len(rows),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to compute opportunities: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/snapshot/books", response_model=SnapshotBooksResponse)
 async def snapshot_books(request: SnapshotBooksRequest):
     """
@@ -1451,13 +1753,16 @@ async def snapshot_books(request: SnapshotBooksRequest):
         tokens_from_trades_fallback: list[str] = []
         tokens_from_positions: list[str] = []
 
-        candidates_ordered: list[str] = []
+        candidate_contexts: list[dict] = []
         candidates_seen: set[str] = set()
 
         positions_seen: set[str] = set()
         latest_positions = client.query(
             """
-            SELECT DISTINCT token_id
+            SELECT
+                token_id,
+                argMax(condition_id, ingested_at) AS condition_id,
+                argMax(outcome, ingested_at) AS outcome
             FROM user_positions_snapshots
             WHERE proxy_wallet = {wallet:String}
               AND shares > 0
@@ -1467,22 +1772,33 @@ async def snapshot_books(request: SnapshotBooksRequest):
                   FROM user_positions_snapshots
                   WHERE proxy_wallet = {wallet:String}
               )
+            GROUP BY token_id
             """,
             parameters={"wallet": proxy_wallet},
         )
         for row in latest_positions.result_rows:
             token_id = row[0]
+            condition_id = row[1] if len(row) > 1 else ""
+            outcome = row[2] if len(row) > 2 else ""
             if token_id and token_id not in positions_seen:
                 positions_seen.add(token_id)
                 tokens_from_positions.append(token_id)
                 if token_id not in candidates_seen:
                     candidates_seen.add(token_id)
-                    candidates_ordered.append(token_id)
+                    candidate_contexts.append({
+                        "token_id": token_id,
+                        "condition_id": condition_id or "",
+                        "outcome": outcome or "",
+                    })
 
         lookback_start = datetime.utcnow() - timedelta(days=request.lookback_days)
         recent_trades = client.query(
             """
-            SELECT token_id, max(ts) AS latest_ts
+            SELECT
+                token_id,
+                argMax(condition_id, ts) AS condition_id,
+                argMax(outcome, ts) AS outcome,
+                max(ts) AS latest_ts
             FROM user_trades
             WHERE proxy_wallet = {wallet:String}
               AND ts >= {start:DateTime}
@@ -1495,13 +1811,20 @@ async def snapshot_books(request: SnapshotBooksRequest):
         trades_seen: set[str] = set()
         for row in recent_trades.result_rows:
             token_id = row[0]
+            condition_id = row[1] if len(row) > 1 else ""
+            outcome = row[2] if len(row) > 2 else ""
             if token_id and token_id not in trades_seen:
                 trades_seen.add(token_id)
                 tokens_from_trades_recent.append(token_id)
                 if token_id not in candidates_seen:
                     candidates_seen.add(token_id)
-                    candidates_ordered.append(token_id)
+                    candidate_contexts.append({
+                        "token_id": token_id,
+                        "condition_id": condition_id or "",
+                        "outcome": outcome or "",
+                    })
 
+        candidates_ordered, _ = _resolve_candidate_tokens(client, candidate_contexts)
         all_candidates = candidates_ordered
         tokens_candidates_before_filter = len(all_candidates)
 
@@ -1511,59 +1834,53 @@ async def snapshot_books(request: SnapshotBooksRequest):
         )
 
         # 2.5. Backfill missing market_tokens mappings for candidate tokens
-        # This runs BEFORE the active filter so we have metadata for filtering
+        # Run the metadata join before backfill, then re-run after backfill completes.
         backfill_stats = {"missing_found": 0, "markets_fetched": 0, "tokens_inserted": 0}
         missing_token_ids: list[str] = []
-        if all_candidates and request.require_active_market:
-            existing_tokens = client.query(
-                """
-                SELECT DISTINCT token_id
-                FROM market_tokens
-                WHERE token_id IN {tokens:Array(String)}
-                """,
-                parameters={"tokens": list(all_candidates)},
-            )
-            existing_token_ids = {row[0] for row in existing_tokens.result_rows if row and row[0]}
-            missing_token_ids = [token_id for token_id in all_candidates if token_id not in existing_token_ids]
 
-            if missing_token_ids:
-                logger.info(
-                    f"Running backfill for {len(missing_token_ids)} missing market token mappings..."
-                )
-                backfill_stats = backfill_missing_mappings(
-                    clickhouse_client=client,
-                    gamma_client=gamma_client,
-                    proxy_wallet=proxy_wallet,
-                    max_missing=min(200, len(missing_token_ids)),  # Bounded by safety cap
-                )
-                logger.info(f"Backfill complete: {backfill_stats}")
+        def _query_market_metadata(tokens: list[str]) -> tuple[set[str], dict[str, bool]]:
+            if not tokens:
+                return set(), {}
 
-        # 3. Apply active market filter if requested
-        tokens_with_metadata: set[str] = set()
-        tokens_after_active_filter: list[str] = []
-        no_ok_reason = None
-
-        if request.require_active_market and all_candidates:
-            # Query which tokens have market metadata and are active
-            # Active = market has close_date_iso IS NULL or close_date_iso > now()
-            #        AND active = 1 in market_tokens or markets_enriched
             active_check = client.query(
                 """
                 SELECT DISTINCT mt.token_id,
                        mt.active AS mt_active,
+                       mt.enable_order_book AS enable_order_book,
+                       mt.accepting_orders AS accepting_orders,
                        me.active AS me_active,
                        me.close_date_iso
                 FROM market_tokens mt
-                LEFT JOIN markets_enriched me ON mt.condition_id = me.condition_id
+                LEFT JOIN markets_enriched me ON if(
+                    startsWith(lowerUTF8(trimBoth(mt.condition_id)), '0x'),
+                    concat('0x', substring(lowerUTF8(trimBoth(mt.condition_id)), 3)),
+                    concat('0x', lowerUTF8(trimBoth(mt.condition_id)))
+                ) = if(
+                    startsWith(lowerUTF8(trimBoth(me.condition_id)), '0x'),
+                    concat('0x', substring(lowerUTF8(trimBoth(me.condition_id)), 3)),
+                    concat('0x', lowerUTF8(trimBoth(me.condition_id)))
+                )
                 WHERE mt.token_id IN {tokens:Array(String)}
                 """,
-                parameters={"tokens": list(all_candidates)},
+                parameters={"tokens": list(tokens)},
             )
 
+            tokens_with_metadata: set[str] = set()
             active_map: dict[str, bool] = {}
             for row in active_check.result_rows:
-                token_id, mt_active, me_active, close_date = row
+                token_id = row[0]
+                mt_active = row[1]
+                enable_order_book = row[2]
+                accepting_orders = row[3]
+                me_active = row[4]
+                close_date = row[5]
                 tokens_with_metadata.add(token_id)
+
+                tradeable_flag = None
+                if enable_order_book is not None:
+                    tradeable_flag = enable_order_book == 1
+                if accepting_orders is not None:
+                    tradeable_flag = (tradeable_flag if tradeable_flag is not None else True) and accepting_orders == 1
 
                 is_active = mt_active == 1
                 if close_date is not None:
@@ -1571,7 +1888,49 @@ async def snapshot_books(request: SnapshotBooksRequest):
                 if me_active is not None:
                     is_active = is_active and me_active == 1
 
+                if tradeable_flag is not None:
+                    is_active = is_active and tradeable_flag
+
                 active_map[token_id] = is_active
+
+            return tokens_with_metadata, active_map
+
+        # 3. Apply active market filter if requested (post-backfill metadata)
+        tokens_with_metadata: set[str] = set()
+        tokens_after_active_filter: list[str] = []
+        no_ok_reason = None
+
+        if request.require_active_market and all_candidates:
+            tokens_with_metadata, active_map = _query_market_metadata(all_candidates)
+            missing_token_ids = [
+                token_id for token_id in all_candidates if token_id not in tokens_with_metadata
+            ]
+
+            if missing_token_ids:
+                logger.info(
+                    f"Running backfill for {len(missing_token_ids)} missing market token mappings..."
+                )
+                candidate_condition_ids = [
+                    c.get("condition_id") or "" for c in candidate_contexts if c.get("condition_id")
+                ]
+                candidate_token_ids = [
+                    c.get("token_id") or "" for c in candidate_contexts if c.get("token_id")
+                ]
+                backfill_stats = backfill_missing_mappings(
+                    clickhouse_client=client,
+                    gamma_client=gamma_client,
+                    proxy_wallet=proxy_wallet,
+                    max_missing=min(200, len(missing_token_ids)),  # Bounded by safety cap
+                    candidate_condition_ids=candidate_condition_ids,
+                    candidate_token_ids=candidate_token_ids,
+                )
+                logger.info(f"Backfill complete: {backfill_stats}")
+
+                # Re-resolve candidate tokens after backfill (aliases/markets may now be present)
+                all_candidates, _ = _resolve_candidate_tokens(client, candidate_contexts)
+
+                # Refresh metadata after backfill completes
+                tokens_with_metadata, active_map = _query_market_metadata(all_candidates)
 
             tokens_after_active_filter = [
                 token_id for token_id in all_candidates if active_map.get(token_id)
@@ -1589,24 +1948,30 @@ async def snapshot_books(request: SnapshotBooksRequest):
                         f"All {len(tokens_with_metadata)} tokens with market metadata are from closed/inactive markets"
                     )
                 else:
-                    market_tokens_total = client.query(
-                        "SELECT count() FROM market_tokens"
-                    ).result_rows[0][0]
-                    if market_tokens_total == 0:
+                    if backfill_stats.get("tokens_inserted", 0) > 0:
                         no_ok_reason = (
-                            f"No market metadata found for {len(all_candidates)} candidate tokens "
-                            "(markets not ingested; run /api/ingest/markets)"
-                        )
-                    elif backfill_stats.get("missing_found", 0) > 0 and backfill_stats.get("tokens_inserted", 0) == 0:
-                        no_ok_reason = (
-                            f"No market metadata found for {len(all_candidates)} candidate tokens "
-                            "(token id mismatch unresolved)"
+                            "Backfill inserted tokens but metadata join still returned 0 - "
+                            "investigate market_tokens coverage/schema"
                         )
                     else:
-                        no_ok_reason = (
-                            f"No market metadata found for {len(all_candidates)} candidate tokens "
-                            "(run /api/ingest/markets first)"
-                        )
+                        market_tokens_total = client.query(
+                            "SELECT count() FROM market_tokens"
+                        ).result_rows[0][0]
+                        if market_tokens_total == 0:
+                            no_ok_reason = (
+                                f"No market metadata found for {len(all_candidates)} candidate tokens "
+                                "(markets not ingested; run /api/ingest/markets)"
+                            )
+                        elif backfill_stats.get("missing_found", 0) > 0 and backfill_stats.get("tokens_inserted", 0) == 0:
+                            no_ok_reason = (
+                                f"No market metadata found for {len(all_candidates)} candidate tokens "
+                                "(token id mismatch unresolved)"
+                            )
+                        else:
+                            no_ok_reason = (
+                                f"No market metadata found for {len(all_candidates)} candidate tokens "
+                                "(run /api/ingest/markets first)"
+                            )
 
                 # Fall back to historical if requested
                 if request.include_inactive:
@@ -1614,7 +1979,11 @@ async def snapshot_books(request: SnapshotBooksRequest):
                     # Get last 50 distinct tokens from all trades
                     fallback_trades = client.query(
                         """
-                        SELECT token_id, max(ts) AS latest_ts
+                        SELECT
+                            token_id,
+                            argMax(condition_id, ts) AS condition_id,
+                            argMax(outcome, ts) AS outcome,
+                            max(ts) AS latest_ts
                         FROM user_trades
                         WHERE proxy_wallet = {wallet:String}
                           AND token_id IS NOT NULL
@@ -1625,11 +1994,23 @@ async def snapshot_books(request: SnapshotBooksRequest):
                         parameters={"wallet": proxy_wallet},
                     )
                     fallback_seen: set[str] = set()
+                    fallback_candidates: list[dict] = []
                     for row in fallback_trades.result_rows:
                         token_id = row[0]
+                        condition_id = row[1] if len(row) > 1 else ""
+                        outcome = row[2] if len(row) > 2 else ""
                         if token_id and token_id not in fallback_seen:
                             fallback_seen.add(token_id)
                             tokens_from_trades_fallback.append(token_id)
+                            fallback_candidates.append({
+                                "token_id": token_id,
+                                "condition_id": condition_id or "",
+                                "outcome": outcome or "",
+                            })
+                    resolved_fallback_tokens, _ = _resolve_candidate_tokens(
+                        client, fallback_candidates
+                    )
+                    tokens_from_trades_fallback = resolved_fallback_tokens
                     no_ok_reason = no_ok_reason + " (using historical fallback)"
         else:
             # Not filtering by active market - use all candidates

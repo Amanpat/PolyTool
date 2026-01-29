@@ -127,6 +127,53 @@ Do not rely on arb feasibility when:
 - Fee estimates (come from CLOB API, generally accurate)
 - Slippage estimates when depth is adequate
 
+## Liquidity Usability Layer (Orderbook Snapshots)
+
+An `ok` snapshot only means the book is two-sided. It does **not** guarantee a trade is realistically executable. A market can be `ok` while still being unusable due to wide spreads, shallow depth, or high slippage.
+
+### Usability Thresholds
+
+We hardcode pragmatic defaults (configurable later in Grafana):
+
+- **usable_spread**: `spread_bps <= 200`
+- **usable_depth**: `depth_bid_usd_50bps >= 500` **and** `depth_ask_usd_50bps >= 500`
+- **usable_slippage_100**: `slippage_buy_bps_100 <= 100` **and** `slippage_sell_bps_100 <= 100`
+- **usable_liquidity**: `status = 'ok'` **and** all three checks above
+- **execution_cost_bps_100**: `max(spread_bps, slippage_buy_bps_100, slippage_sell_bps_100)`
+
+We chose **200 bps** as the spread ceiling because anything wider than ~2% typically overwhelms the edge for small-to-mid trade sizes.
+
+### Liquidity Grades
+
+- **HIGH**: `usable_liquidity = true`
+- **MED**: `status = 'ok'` and `spread_bps <= 500` and `depth_bid_usd_50bps >= 200` and `depth_ask_usd_50bps >= 200`
+- **LOW**: everything else
+
+### Verifying Join Uniqueness (No Duplicate Enrichment)
+
+If orderbook snapshots look duplicated, verify the joins are unique. You can run:
+
+```sql
+SELECT token_id, count() c
+FROM polyttool.market_tokens
+GROUP BY token_id
+HAVING c > 1
+ORDER BY c DESC
+LIMIT 20;
+```
+
+```sql
+SELECT snapshot_ts, token_id, count() c
+FROM polyttool.orderbook_snapshots_enriched
+WHERE snapshot_ts > now() - INTERVAL 30 DAY
+GROUP BY snapshot_ts, token_id
+HAVING c > 1
+ORDER BY c DESC
+LIMIT 20;
+```
+
+Or use the smoke helper: `python tools/smoke/smoke_liquidity_integrity.py`.
+
 ## Best Practices
 
 ### Before Acting on MTM PnL

@@ -88,7 +88,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count(DISTINCT trade_uid) AS total_trades\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT count(DISTINCT trade_uid) AS total_trades\nFROM polyttool.user_trades_resolved\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -149,7 +149,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(size * price) AS total_volume\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT sum(size * price) AS total_volume\nFROM polyttool.user_trades_resolved\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -209,7 +209,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count(DISTINCT condition_id) AS markets\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\n  AND condition_id != ''",
+          "rawSql": "SELECT count(DISTINCT resolved_condition_id) AS markets\nFROM polyttool.user_trades_resolved\nWHERE proxy_wallet = '$proxy_wallet'\n  AND resolved_condition_id != ''",
           "refId": "A"
         }
       ],
@@ -269,7 +269,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT dateDiff('day', min(ts), max(ts)) AS active_days\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT dateDiff('day', min(ts), max(ts)) AS active_days\nFROM polyttool.user_trades_resolved\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -338,7 +338,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  countIf(mt.token_id IS NOT NULL) * 100.0 / count() AS mapping_pct\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT\n  countIf(length(t.market_slug) > 0) * 100.0 / count() AS mapping_pct\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -993,7 +993,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  t.ts AS time,\n  coalesce(nullIf(mt.question, ''), nullIf(mt.market_slug, ''), t.condition_id) AS market,\n  coalesce(nullIf(mt.outcome_name, ''), t.outcome) AS outcome,\n  t.side AS side,\n  t.price AS price,\n  t.size AS size,\n  t.size * t.price AS notional,\n  if(t.transaction_hash != '', concat(left(t.transaction_hash, 10), '…'), '') AS tx_hash\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nORDER BY t.ts DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  t.ts AS time,\n  coalesce(nullIf(t.question, ''), nullIf(t.market_slug, ''), t.resolved_condition_id, t.condition_id) AS market,\n  coalesce(nullIf(t.resolved_outcome_name, ''), t.outcome) AS outcome,\n  t.side AS side,\n  t.price AS price,\n  t.size AS size,\n  t.size * t.price AS notional,\n  if(t.transaction_hash != '', concat(left(t.transaction_hash, 10), '…'), '') AS tx_hash\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nORDER BY t.ts DESC\nLIMIT 100",
           "refId": "A"
         }
       ],
@@ -1080,7 +1080,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  coalesce(nullIf(mt.question, ''), nullIf(mt.market_slug, ''), t.condition_id) AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY market\nORDER BY notional DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  coalesce(nullIf(t.question, ''), nullIf(t.market_slug, ''), t.resolved_condition_id, t.condition_id) AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY market\nORDER BY notional DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -1167,7 +1167,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  coalesce(nullIf(mt.outcome_name, ''), t.outcome, 'Unknown') AS outcome,\n  coalesce(nullIf(mt.question, ''), 'Unknown Market') AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY outcome, market\nORDER BY notional DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  coalesce(nullIf(t.resolved_outcome_name, ''), t.outcome, 'Unknown') AS outcome,\n  coalesce(nullIf(t.question, ''), nullIf(t.market_slug, ''), t.resolved_condition_id, 'Unknown Market') AS market,\n  sum(t.size * t.price) AS notional,\n  count() AS trades\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY outcome, market\nORDER BY notional DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -1289,7 +1289,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n  SELECT sum(size * price) AS total_vol\n  FROM polyttool.user_trades\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND $__timeFilter(ts)\n)\nSELECT\n  if(mt.category = '' OR mt.category IS NULL, 'Unknown', mt.category) AS category,\n  sum(t.size * t.price) AS notional,\n  count() AS trades,\n  sum(t.size * t.price) * 100.0 / (SELECT total_vol FROM totals) AS pct\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY category\nORDER BY notional DESC\nLIMIT 10",
+          "rawSql": "WITH totals AS (\n  SELECT sum(size * price) AS total_vol\n  FROM polyttool.user_trades_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND $__timeFilter(ts)\n)\nSELECT\n  if(t.category = '' OR t.category IS NULL, 'Unknown', t.category) AS category,\n  sum(t.size * t.price) AS notional,\n  count() AS trades,\n  sum(t.size * t.price) * 100.0 / (SELECT total_vol FROM totals) AS pct\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\n  AND $__timeFilter(t.ts)\nGROUP BY category\nORDER BY notional DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -1625,7 +1625,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  coalesce(mt.category, 'Unmapped') AS category,\n  sum(t.size * t.price) AS volume\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY category\nORDER BY volume DESC\nLIMIT 8",
+          "rawSql": "SELECT\n  coalesce(t.category, 'Unmapped') AS category,\n  sum(t.size * t.price) AS volume\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY category\nORDER BY volume DESC\nLIMIT 8",
           "refId": "A"
         }
       ],
@@ -1728,7 +1728,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH totals AS (\n  SELECT sum(size * price) AS total_vol\n  FROM polyttool.user_trades\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  coalesce(mt.category, 'Unmapped') AS category,\n  sum(t.size * t.price) AS volume,\n  count(DISTINCT t.condition_id) AS markets,\n  sum(t.size * t.price) * 100.0 / (SELECT total_vol FROM totals) AS pct\nFROM polyttool.user_trades t\nLEFT JOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY category\nORDER BY volume DESC\nLIMIT 10",
+          "rawSql": "WITH totals AS (\n  SELECT sum(size * price) AS total_vol\n  FROM polyttool.user_trades_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  coalesce(t.category, 'Unmapped') AS category,\n  sum(t.size * t.price) AS volume,\n  count(DISTINCT t.resolved_condition_id) AS markets,\n  sum(t.size * t.price) * 100.0 / (SELECT total_vol FROM totals) AS pct\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY category\nORDER BY volume DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -1815,7 +1815,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  mt.question AS market,\n  sum(t.size * t.price) AS volume,\n  count() AS trades\nFROM polyttool.user_trades t\nJOIN polyttool.market_tokens mt ON t.token_id = mt.token_id\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY mt.question\nORDER BY volume DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  coalesce(nullIf(t.question, ''), nullIf(t.market_slug, ''), t.resolved_condition_id, t.condition_id) AS market,\n  sum(t.size * t.price) AS volume,\n  count() AS trades\nFROM polyttool.user_trades_resolved t\nWHERE t.proxy_wallet = '$proxy_wallet'\nGROUP BY market\nORDER BY volume DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -2332,7 +2332,7 @@
           "refId": "A"
         }
       ],
-      "title": "Usable Liquidity Rate",
+      "title": "Arb Usable Liquidity Rate",
       "type": "stat"
     },
     {
@@ -2394,6 +2394,69 @@
         }
       ],
       "title": "$100 Depth Coverage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 80}
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 56
+      },
+      "id": 114,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH user_tokens AS (\n  SELECT DISTINCT resolved_token_id AS token_id\n  FROM polyttool.user_trades_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n  UNION ALL\n  SELECT DISTINCT resolved_token_id AS token_id\n  FROM polyttool.user_positions_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  if(\n    countIf(e.status = 'ok') = 0,\n    0,\n    countIf(e.usable_liquidity = 1) * 100.0 / countIf(e.status = 'ok')\n  ) AS usable_liquidity_rate\nFROM polyttool.orderbook_snapshots_enriched e\nINNER JOIN (\n  SELECT DISTINCT token_id FROM user_tokens\n) t ON e.resolved_token_id = t.token_id\nWHERE $__timeFilter(e.snapshot_ts)",
+          "refId": "A"
+        }
+      ],
+      "title": "Usable Liquidity Rate (User Tokens)",
       "type": "stat"
     },
     {
@@ -2517,6 +2580,272 @@
       ],
       "title": "Arb Confidence Distribution",
       "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "median_exec_cost_bps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "median_depth_total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 59
+      },
+      "id": 115,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "median_exec_cost_bps"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH user_tokens AS (\n  SELECT DISTINCT resolved_token_id AS token_id\n  FROM polyttool.user_trades_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n  UNION ALL\n  SELECT DISTINCT resolved_token_id AS token_id\n  FROM polyttool.user_positions_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  coalesce(nullIf(e.question, ''), nullIf(e.market_slug, ''), e.resolved_token_id) AS market,\n  e.outcome_name,\n  median(e.execution_cost_bps_100) AS median_exec_cost_bps,\n  median(e.depth_bid_usd_50bps + e.depth_ask_usd_50bps) AS median_depth_total\nFROM polyttool.orderbook_snapshots_enriched e\nINNER JOIN (\n  SELECT DISTINCT token_id FROM user_tokens\n) t ON e.resolved_token_id = t.token_id\nWHERE $__timeFilter(e.snapshot_ts)\n  AND e.status = 'ok'\n  AND e.liquidity_grade IN ('HIGH', 'MED')\nGROUP BY market, e.outcome_name\nORDER BY median_exec_cost_bps ASC, median_depth_total DESC\nLIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Tradeable Markets (Low Cost)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "execution_cost_bps_100"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "depth_bid_usd_50bps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "depth_ask_usd_50bps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "liquidity_grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "HIGH": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "HIGH"
+                      },
+                      "MED": {
+                        "color": "yellow",
+                        "index": 1,
+                        "text": "MED"
+                      },
+                      "LOW": {
+                        "color": "red",
+                        "index": 2,
+                        "text": "LOW"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 59
+      },
+      "id": 116,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "execution_cost_bps_100"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH latest AS (\n  SELECT max(bucket_start) AS bucket_start\n  FROM polyttool.user_opportunities_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n)\nSELECT\n  coalesce(nullIf(question, ''), nullIf(market_slug, ''), token_id) AS market,\n  outcome_name,\n  execution_cost_bps_100,\n  depth_bid_usd_50bps,\n  depth_ask_usd_50bps,\n  liquidity_grade,\n  status,\n  computed_at\nFROM polyttool.user_opportunities_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT bucket_start FROM latest)\nORDER BY execution_cost_bps_100 ASC,\n         (depth_bid_usd_50bps + depth_ask_usd_50bps) DESC\nLIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Opportunities (Low Cost)",
+      "type": "table"
     }
   ],
   "refresh": "30s",

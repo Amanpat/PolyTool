@@ -394,6 +394,144 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  if(\n    countIf(status = 'ok') = 0,\n    0,\n    countIf(usable_liquidity = 1) * 100.0 / countIf(status = 'ok')\n  ) AS usable_liquidity_pct\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
+          "refId": "A"
+        }
+      ],
+      "title": "Usable Liquidity % (OK)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT median(execution_cost_bps_100) AS median_exec_cost_bps\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\n  AND execution_cost_bps_100 > 0",
+          "refId": "A"
+        }
+      ],
+      "title": "Median Exec Cost (bps)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -448,7 +586,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 8
       },
       "id": 5,
       "options": {
@@ -545,7 +683,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 8
       },
       "id": 6,
       "options": {
@@ -642,7 +780,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 16
       },
       "id": 7,
       "options": {
@@ -757,6 +895,97 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "execution_cost_bps_100"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "usable_liquidity"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "No"
+                      },
+                      "1": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "Yes"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "liquidity_grade"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "HIGH": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "HIGH"
+                      },
+                      "MED": {
+                        "color": "yellow",
+                        "index": 1,
+                        "text": "MED"
+                      },
+                      "LOW": {
+                        "color": "red",
+                        "index": 2,
+                        "text": "LOW"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "status"
             },
             "properties": [
@@ -805,7 +1034,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 24
       },
       "id": 8,
       "options": {
@@ -836,7 +1065,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  e.snapshot_ts,\n  e.token_id,\n  e.market_slug,\n  e.question,\n  e.status,\n  e.reason,\n  e.best_bid,\n  e.best_ask,\n  e.spread_bps,\n  e.depth_bid_usd_50bps,\n  e.depth_ask_usd_50bps,\n  e.slippage_buy_bps_100,\n  e.slippage_sell_bps_100\nFROM polyttool.orderbook_snapshots_enriched e\nWHERE $__timeFilter(e.snapshot_ts)\nORDER BY e.snapshot_ts DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  e.snapshot_ts,\n  e.token_id,\n  e.market_slug,\n  e.question,\n  e.outcome_name,\n  e.status,\n  e.reason,\n  e.best_bid,\n  e.best_ask,\n  e.spread_bps,\n  e.depth_bid_usd_50bps,\n  e.depth_ask_usd_50bps,\n  e.slippage_buy_bps_100,\n  e.slippage_sell_bps_100,\n  e.execution_cost_bps_100,\n  e.usable_liquidity,\n  e.liquidity_grade\nFROM polyttool.orderbook_snapshots_enriched e\nWHERE $__timeFilter(e.snapshot_ts)\nORDER BY e.snapshot_ts DESC\nLIMIT 100",
           "refId": "A"
         }
       ],
@@ -929,7 +1158,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 30
+        "y": 34
       },
       "id": 10,
       "options": {
@@ -1009,7 +1238,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 30
+        "y": 34
       },
       "id": 11,
       "options": {
@@ -1046,6 +1275,136 @@
       ],
       "title": "Error Reasons",
       "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "high"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "High"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "med"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Med"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "low"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "Low"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "id": 14,
+      "options": {
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "pieType": "pie",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT\n  countIf(liquidity_grade = 'HIGH') AS high,\n  countIf(liquidity_grade = 'MED') AS med,\n  countIf(liquidity_grade = 'LOW') AS low\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
+          "refId": "A"
+        }
+      ],
+      "title": "Liquidity Grade Distribution",
+      "type": "piechart"
     }
   ],
   "refresh": "30s",
