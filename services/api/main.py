@@ -35,6 +35,7 @@ from polymarket.orderbook_snapshots import (
 from polymarket.opportunities import get_opportunity_bucket_start, normalize_bucket_type
 from polymarket.normalization import normalize_condition_id
 from polymarket.token_resolution import resolve_token_id
+from polymarket.llm_research_packets import export_user_dossier
 
 # Configure logging
 logging.basicConfig(
@@ -961,6 +962,62 @@ class SnapshotBooksResponse(BaseModel):
     no_ok_reason: Optional[str] = None
 
 
+class ExportUserDossierRequest(BaseModel):
+    """Request body for /api/export/user_dossier endpoint."""
+
+    user: str = Field(..., description="Username (with or without @) or wallet address (0x...)")
+    days: int = Field(default=30, ge=1, le=3650, description="Lookback window in days")
+    max_trades: int = Field(
+        default=200,
+        ge=1,
+        le=5000,
+        description="Max anchor trades to include across all lists",
+    )
+
+
+class ExportUserDossierResponse(BaseModel):
+    """Response body for /api/export/user_dossier endpoint."""
+
+    export_id: str
+    proxy_wallet: str
+    generated_at: datetime
+    path_json: str
+    path_md: str
+    stats: dict
+
+
+class ExportUserDossierHistoryRow(BaseModel):
+    """History row for /api/export/user_dossier/history endpoint."""
+
+    export_id: str
+    proxy_wallet: str
+    generated_at: datetime
+    window_start: datetime
+    window_end: datetime
+    window_days: int
+    max_trades: int
+    trades_count: int
+    activity_count: int
+    positions_count: int
+    mapping_coverage: float
+    liquidity_ok_count: int
+    liquidity_total_count: int
+    usable_liquidity_rate: float
+    pricing_snapshot_ratio: float
+    pricing_confidence: str
+    anchor_trade_uids: list[str] = []
+    detectors_json: Optional[str] = None
+    dossier_json: Optional[str] = None
+    memo_md: Optional[str] = None
+
+
+class ExportUserDossierHistoryResponse(BaseModel):
+    """Response body for /api/export/user_dossier/history endpoint."""
+
+    proxy_wallet: str
+    rows: list[ExportUserDossierHistoryRow]
+
+
 @app.post("/api/ingest/markets", response_model=IngestMarketsResponse)
 async def ingest_markets(request: IngestMarketsRequest):
     """
@@ -1619,17 +1676,7 @@ async def compute_opportunities(request: ComputeOpportunitiesRequest):
             )
 
         opportunities_query = """
-        SELECT
-            token_id,
-            market_slug,
-            question,
-            outcome_name,
-            execution_cost_bps_100,
-            depth_bid_usd_50bps,
-            depth_ask_usd_50bps,
-            liquidity_grade,
-            status
-        FROM (
+        WITH latest AS (
             SELECT
                 resolved_token_id AS token_id,
                 argMax(market_slug, snapshot_ts) AS market_slug,
@@ -1643,10 +1690,21 @@ async def compute_opportunities(request: ComputeOpportunitiesRequest):
             FROM orderbook_snapshots_enriched
             WHERE resolved_token_id IN {tokens:Array(String)}
               AND snapshot_ts >= {snapshot_cutoff:DateTime}
-              AND status = 'ok'
-              AND liquidity_grade IN ('HIGH', 'MED')
             GROUP BY resolved_token_id
         )
+        SELECT
+            token_id,
+            market_slug,
+            question,
+            outcome_name,
+            execution_cost_bps_100,
+            depth_bid_usd_50bps,
+            depth_ask_usd_50bps,
+            liquidity_grade,
+            status
+        FROM latest
+        WHERE status = 'ok'
+          AND liquidity_grade IN ('HIGH', 'MED')
         ORDER BY execution_cost_bps_100 ASC,
                  (depth_bid_usd_50bps + depth_ask_usd_50bps) DESC
         LIMIT {limit:UInt16}
@@ -2244,6 +2302,143 @@ async def snapshot_books(request: SnapshotBooksRequest):
     except Exception as e:
         logger.error(f"Failed to snapshot books: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/export/user_dossier", response_model=ExportUserDossierResponse)
+async def export_user_dossier_api(request: ExportUserDossierRequest):
+    """
+    Export a deterministic user dossier + research memo for later LLM review.
+
+    - Resolves user to proxy wallet
+    - Builds dossier JSON and memo template
+    - Writes artifacts and stores export in ClickHouse
+    """
+    logger.info(
+        f"Exporting user dossier for: {request.user}, days={request.days}, max_trades={request.max_trades}"
+    )
+
+    profile = gamma_client.resolve(request.user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Could not resolve user: {request.user}")
+
+    proxy_wallet = profile.proxy_wallet
+    try:
+        client = get_clickhouse_client()
+        _upsert_user_profile(client, profile, request.user)
+
+        export_result = export_user_dossier(
+            clickhouse_client=client,
+            proxy_wallet=proxy_wallet,
+            user_input=request.user,
+            window_days=request.days,
+            max_trades=request.max_trades,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export user dossier: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return ExportUserDossierResponse(
+        export_id=export_result.export_id,
+        proxy_wallet=proxy_wallet,
+        generated_at=export_result.generated_at,
+        path_json=export_result.path_json,
+        path_md=export_result.path_md,
+        stats=export_result.stats,
+    )
+
+
+@app.get("/api/export/user_dossier/history", response_model=ExportUserDossierHistoryResponse)
+async def export_user_dossier_history(
+    user: str,
+    limit: int = 20,
+    include_body: bool = False,
+):
+    """
+    Fetch export history rows for a user.
+
+    - Returns summary rows by default
+    - include_body=true returns full JSON/memo fields
+    """
+    if limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be positive")
+    if limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be <= 200")
+
+    profile = gamma_client.resolve(user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Could not resolve user: {user}")
+
+    proxy_wallet = profile.proxy_wallet
+    select_fields = [
+        "export_id",
+        "proxy_wallet",
+        "generated_at",
+        "window_start",
+        "window_end",
+        "window_days",
+        "max_trades",
+        "trades_count",
+        "activity_count",
+        "positions_count",
+        "mapping_coverage",
+        "liquidity_ok_count",
+        "liquidity_total_count",
+        "usable_liquidity_rate",
+        "pricing_snapshot_ratio",
+        "pricing_confidence",
+        "anchor_trade_uids",
+    ]
+    if include_body:
+        select_fields.extend(["detectors_json", "dossier_json", "memo_md"])
+
+    query = f"""
+        SELECT {", ".join(select_fields)}
+        FROM user_dossier_exports
+        WHERE proxy_wallet = {{wallet:String}}
+        ORDER BY generated_at DESC
+        LIMIT {{limit:Int32}}
+    """
+
+    try:
+        client = get_clickhouse_client()
+        result = client.query(
+            query,
+            parameters={"wallet": proxy_wallet, "limit": limit},
+        )
+    except Exception as e:
+        logger.error(f"Failed to load dossier export history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    rows: list[ExportUserDossierHistoryRow] = []
+    for row in result.result_rows:
+        base = {
+            "export_id": row[0],
+            "proxy_wallet": row[1],
+            "generated_at": row[2],
+            "window_start": row[3],
+            "window_end": row[4],
+            "window_days": row[5],
+            "max_trades": row[6],
+            "trades_count": row[7],
+            "activity_count": row[8],
+            "positions_count": row[9],
+            "mapping_coverage": row[10],
+            "liquidity_ok_count": row[11],
+            "liquidity_total_count": row[12],
+            "usable_liquidity_rate": row[13],
+            "pricing_snapshot_ratio": row[14],
+            "pricing_confidence": row[15],
+            "anchor_trade_uids": row[16] or [],
+        }
+        if include_body:
+            base["detectors_json"] = row[17]
+            base["dossier_json"] = row[18]
+            base["memo_md"] = row[19]
+        rows.append(ExportUserDossierHistoryRow(**base))
+
+    return ExportUserDossierHistoryResponse(proxy_wallet=proxy_wallet, rows=rows)
 
 
 if __name__ == "__main__":

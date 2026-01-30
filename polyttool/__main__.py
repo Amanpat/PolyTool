@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import sys
 
+from tools.cli.export_dossier import main as export_dossier_main
 from tools.cli.scan import main as scan_main
 
 
 def print_usage() -> None:
     print("Usage: python -m polyttool scan [options]")
+    print("       python -m polyttool export-dossier [options]")
 
 
 def main() -> int:
@@ -23,6 +25,8 @@ def main() -> int:
 
     if command == "scan":
         return scan_main(sys.argv[2:])
+    if command == "export-dossier":
+        return export_dossier_main(sys.argv[2:])
 
     print(f"Unknown command: {command}")
     print_usage()
