@@ -7,6 +7,10 @@ A monorepo for Polymarket reverse-engineering tools and analysis infrastructure.
 - Docker and Docker Compose
 - curl (for testing)
 
+## Documentation index
+
+See [docs/README.md](docs/README.md) for the documentation index.
+
 ## Quick Start
 
 ```bash
@@ -25,6 +29,12 @@ docker compose ps
 ```
 
 All services should show as "healthy" after startup.
+
+## Safety check before pushing
+
+```powershell
+python tools/guard/pre_push_guard.py
+```
 
 ## Quickstart: Scan a user
 
@@ -437,7 +447,7 @@ Success looks like:
 - No activity/positions data: run `/api/ingest/activity` and `/api/ingest/positions`, then refresh Grafana.
 - Missing market names: run `/api/ingest/markets` or enable `--ingest-markets` in the scan CLI.
 - Duplicate detector or bucket rows: Grafana panels now dedupe via `argMax(...)`; if needed, run `OPTIMIZE TABLE detector_results FINAL`.
-- PnL pricing and snapshot fallback details: see [docs/TROUBLESHOOTING_PNL.md](docs/TROUBLESHOOTING_PNL.md).
+- PnL pricing and snapshot fallback details: see [docs/archive/TROUBLESHOOTING_PNL.md](docs/archive/TROUBLESHOOTING_PNL.md).
 
 ### Stopping Services
 

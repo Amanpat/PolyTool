@@ -93,11 +93,24 @@ class ResearchPacketExportTests(unittest.TestCase):
                 clickhouse_client=client,
                 proxy_wallet="0xabc",
                 user_input="@tester",
+                username="@Tester",
                 window_days=30,
                 max_trades=3,
                 artifacts_base_path=tmpdir,
                 generated_at=client.now,
             )
+            date_label = client.now.strftime("%Y-%m-%d")
+            expected_prefix = os.path.join(
+                tmpdir,
+                "dossiers",
+                "users",
+                "tester",
+                "0xabc",
+                date_label,
+                result.export_id,
+            )
+            self.assertTrue(os.path.normpath(result.artifact_path).endswith(os.path.normpath(expected_prefix)))
+            self.assertIn(os.path.join("dossiers", "users", "tester", "0xabc"), result.path_json)
 
         self.assertIn("header", result.dossier)
         self.assertIn("coverage", result.dossier)
@@ -122,6 +135,9 @@ class ResearchPacketExportTests(unittest.TestCase):
         self.assertEqual(insert["table"], "user_dossier_exports")
         self.assertIn("export_id", insert["column_names"])
         self.assertIn("proxy_wallet", insert["column_names"])
+        self.assertIn("username", insert["column_names"])
+        self.assertIn("username_slug", insert["column_names"])
+        self.assertIn("artifact_path", insert["column_names"])
         self.assertIn("generated_at", insert["column_names"])
         self.assertIn("dossier_json", insert["column_names"])
         dossier_index = insert["column_names"].index("dossier_json")

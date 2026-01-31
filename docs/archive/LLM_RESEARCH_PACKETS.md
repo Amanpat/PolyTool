@@ -39,9 +39,12 @@ Response body:
 {
   "export_id": "...",
   "proxy_wallet": "...",
+  "username": "@handle_or_empty",
+  "username_slug": "handle_or_unknown",
+  "artifact_path": "artifacts/dossiers/users/<username_slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/",
   "generated_at": "...",
-  "path_json": "artifacts/dossiers/<proxy_wallet>/<YYYY-MM-DD>/dossier.json",
-  "path_md": "artifacts/dossiers/<proxy_wallet>/<YYYY-MM-DD>/memo.md",
+  "path_json": "artifacts/dossiers/users/<username_slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/dossier.json",
+  "path_md": "artifacts/dossiers/users/<username_slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/memo.md",
   "stats": { ... }
 }
 ```
@@ -57,13 +60,28 @@ Use `include_body=true` if you want full JSON/memo fields returned.
 ```
 python -m polyttool export-dossier --user "@Pimping" --days 30 --max-trades 200
 ```
+```
+python -m polyttool export-dossier --wallet "0x..." --days 30 --max-trades 200
+```
 
-Artifacts are written to `artifacts/dossiers/<proxy_wallet>/<YYYY-MM-DD>/`.
+Artifacts are written to:
+
+`artifacts/dossiers/users/<username_slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/`
+
+Each export also includes a small `manifest.json` alongside the memo with the proxy wallet,
+username label, slug, run id, created_at_utc, and path.
+
+`username_slug` is derived from the resolved handle: trimmed, lowercased, and non `[a-z0-9_-]`
+characters become `_`. Missing/empty usernames are recorded as `unknown`.
 
 ## ClickHouse history
 
 Exports are stored in `polyttool.user_dossier_exports`. The latest export per wallet is in
 `polyttool.user_dossier_exports_latest`.
+
+Note: `proxy_wallet` remains the canonical ID for joins and API params. `username` is stored as a
+human-friendly label and only appears once a handle has been resolved (either from a handle-based
+request or a stored username for that wallet).
 
 Example queries:
 

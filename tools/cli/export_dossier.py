@@ -57,7 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Export an LLM Research Packet v1 dossier + memo for a user.",
     )
-    parser.add_argument("--user", help="Target Polymarket username (@name) or wallet address")
+    target_group = parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument("--user", help="Target Polymarket username (@name)")
+    target_group.add_argument("--wallet", help="Target proxy wallet address (0x...)")
     parser.add_argument(
         "--days",
         type=int,
@@ -95,9 +97,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not args.user:
-        print("Error: --user is required.", file=sys.stderr)
-        return 1
     if args.days <= 0:
         print("Error: --days must be positive.", file=sys.stderr)
         return 1
@@ -110,15 +109,25 @@ def main(argv: Optional[list[str]] = None) -> int:
         base_url=os.getenv("GAMMA_API_BASE", DEFAULT_GAMMA_BASE),
         timeout=float(os.getenv("HTTP_TIMEOUT_SECONDS", str(DEFAULT_HTTP_TIMEOUT))),
     )
-    profile = gamma_client.resolve(args.user)
+    input_value = args.user or args.wallet
+    profile = gamma_client.resolve(input_value)
     if profile is None:
-        print(f"Error: could not resolve user {args.user}", file=sys.stderr)
+        print(f"Error: could not resolve user {input_value}", file=sys.stderr)
         return 1
+
+    username_label = None
+    if profile.username:
+        username_label = f"@{profile.username}"
+    elif args.user:
+        cleaned = args.user.strip()
+        if cleaned:
+            username_label = cleaned if cleaned.startswith("@") else f"@{cleaned}"
 
     result = export_user_dossier(
         clickhouse_client=client,
         proxy_wallet=profile.proxy_wallet,
-        user_input=args.user,
+        user_input=input_value,
+        username=username_label,
         window_days=args.days,
         max_trades=args.max_trades,
         artifacts_base_path=args.artifacts_dir,
@@ -127,7 +136,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print("Export complete")
     print(f"Export id: {result.export_id}")
     print(f"Proxy wallet: {result.proxy_wallet}")
+    print(f"Username: {result.username or 'unknown'}")
+    print(f"Username slug: {result.username_slug}")
     print(f"Generated at: {result.generated_at}")
+    print(f"Artifact dir: {result.artifact_path}")
     print(f"Dossier JSON: {result.path_json}")
     print(f"Memo MD: {result.path_md}")
     return 0

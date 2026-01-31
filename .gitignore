@@ -36,6 +36,31 @@ yarn-error.log*
 # Docker volumes (local data)
 *.log
 
+# Artifacts (never commit)
+/artifacts/
+/artifacts/dossiers/
+/artifacts/dossiers/**
+/artifacts/**
+
+# Private KB (keep only README + .gitkeep)
+kb/**
+!kb/README.md
+!kb/.gitkeep
+kb/rag/index/
+kb/rag/index/**
+kb/rag/manifests/
+kb/rag/manifests/**
+chroma/
+
+# Sensitive outputs (never commit)
+*.env
+.env.*
+*secrets*
+*key*
+*token*
+response_*.json
+*.tmp
+
 # Test coverage
 .coverage
 htmlcov/

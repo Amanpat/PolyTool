@@ -980,6 +980,9 @@ class ExportUserDossierResponse(BaseModel):
 
     export_id: str
     proxy_wallet: str
+    username: Optional[str] = None
+    username_slug: str
+    artifact_path: str
     generated_at: datetime
     path_json: str
     path_md: str
@@ -991,6 +994,9 @@ class ExportUserDossierHistoryRow(BaseModel):
 
     export_id: str
     proxy_wallet: str
+    username: Optional[str] = None
+    username_slug: str
+    artifact_path: str
     generated_at: datetime
     window_start: datetime
     window_end: datetime
@@ -2324,12 +2330,22 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
     proxy_wallet = profile.proxy_wallet
     try:
         client = get_clickhouse_client()
+        _, stored_username = _get_existing_user_metadata(client, proxy_wallet)
+        input_username = _normalize_username_input(request.user)
+        resolved_profile_username = f"@{profile.username}" if profile.username else ""
+        if input_username:
+            resolved_username = resolved_profile_username or input_username
+        else:
+            resolved_username = stored_username or resolved_profile_username
+        resolved_username = resolved_username or None
+
         _upsert_user_profile(client, profile, request.user)
 
         export_result = export_user_dossier(
             clickhouse_client=client,
             proxy_wallet=proxy_wallet,
             user_input=request.user,
+            username=resolved_username,
             window_days=request.days,
             max_trades=request.max_trades,
         )
@@ -2342,6 +2358,9 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
     return ExportUserDossierResponse(
         export_id=export_result.export_id,
         proxy_wallet=proxy_wallet,
+        username=export_result.username,
+        username_slug=export_result.username_slug,
+        artifact_path=export_result.artifact_path,
         generated_at=export_result.generated_at,
         path_json=export_result.path_json,
         path_md=export_result.path_md,
@@ -2374,6 +2393,9 @@ async def export_user_dossier_history(
     select_fields = [
         "export_id",
         "proxy_wallet",
+        "username",
+        "username_slug",
+        "artifact_path",
         "generated_at",
         "window_start",
         "window_end",
@@ -2416,26 +2438,29 @@ async def export_user_dossier_history(
         base = {
             "export_id": row[0],
             "proxy_wallet": row[1],
-            "generated_at": row[2],
-            "window_start": row[3],
-            "window_end": row[4],
-            "window_days": row[5],
-            "max_trades": row[6],
-            "trades_count": row[7],
-            "activity_count": row[8],
-            "positions_count": row[9],
-            "mapping_coverage": row[10],
-            "liquidity_ok_count": row[11],
-            "liquidity_total_count": row[12],
-            "usable_liquidity_rate": row[13],
-            "pricing_snapshot_ratio": row[14],
-            "pricing_confidence": row[15],
-            "anchor_trade_uids": row[16] or [],
+            "username": row[2] or None,
+            "username_slug": row[3] or "unknown",
+            "artifact_path": row[4] or "",
+            "generated_at": row[5],
+            "window_start": row[6],
+            "window_end": row[7],
+            "window_days": row[8],
+            "max_trades": row[9],
+            "trades_count": row[10],
+            "activity_count": row[11],
+            "positions_count": row[12],
+            "mapping_coverage": row[13],
+            "liquidity_ok_count": row[14],
+            "liquidity_total_count": row[15],
+            "usable_liquidity_rate": row[16],
+            "pricing_snapshot_ratio": row[17],
+            "pricing_confidence": row[18],
+            "anchor_trade_uids": row[19] or [],
         }
         if include_body:
-            base["detectors_json"] = row[17]
-            base["dossier_json"] = row[18]
-            base["memo_md"] = row[19]
+            base["detectors_json"] = row[20]
+            base["dossier_json"] = row[21]
+            base["memo_md"] = row[22]
         rows.append(ExportUserDossierHistoryRow(**base))
 
     return ExportUserDossierHistoryResponse(proxy_wallet=proxy_wallet, rows=rows)

@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import json
-import os
+import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEFAULT_WINDOW_DAYS = 30
@@ -28,6 +29,8 @@ NOTIONAL_BUCKETS = [
 class UserDossierExport:
     export_id: str
     proxy_wallet: str
+    username: Optional[str]
+    username_slug: str
     generated_at: datetime
     window_start: datetime
     window_end: datetime
@@ -37,8 +40,57 @@ class UserDossierExport:
     detectors_json: str
     anchor_trade_uids: List[str]
     stats: Dict[str, Any]
+    artifact_path: str
     path_json: str
     path_md: str
+    manifest_path: str
+
+
+_USERNAME_SLUG_RE = re.compile(r"[^a-z0-9_-]")
+
+
+def _username_to_slug(username: Optional[str]) -> str:
+    if username is None:
+        return "unknown"
+    cleaned = username.strip()
+    if not cleaned or cleaned == "@":
+        return "unknown"
+    if cleaned.startswith("@"):
+        cleaned = cleaned[1:]
+    cleaned = cleaned.strip().lower()
+    if not cleaned:
+        return "unknown"
+    cleaned = _USERNAME_SLUG_RE.sub("_", cleaned)
+    return cleaned or "unknown"
+
+
+def build_dossier_dir(
+    proxy_wallet: str,
+    username: Optional[str],
+    date_utc: datetime,
+    run_id: str,
+) -> Path:
+    date_label = date_utc.strftime("%Y-%m-%d")
+    username_slug = _username_to_slug(username)
+    return (
+        Path("artifacts")
+        / "dossiers"
+        / "users"
+        / username_slug
+        / proxy_wallet
+        / date_label
+        / run_id
+    )
+
+
+def _apply_artifacts_base_path(artifacts_base_path: str, dossier_dir: Path) -> Path:
+    base_path = artifacts_base_path or "artifacts"
+    if base_path == "artifacts":
+        return dossier_dir
+    parts = dossier_dir.parts
+    if parts and parts[0] == "artifacts":
+        return Path(base_path).joinpath(*parts[1:])
+    return Path(base_path) / dossier_dir
 
 
 def _safe_divide(numerator: float, denominator: float, digits: int = 6) -> float:
@@ -56,7 +108,11 @@ def _round_value(value: Optional[float], digits: int = 6) -> Optional[float]:
 def _isoformat(dt: Optional[datetime]) -> str:
     if dt is None:
         return ""
-    return dt.replace(microsecond=0).isoformat() + "Z"
+    if isinstance(dt, datetime):
+        return dt.replace(microsecond=0).isoformat() + "Z"
+    if isinstance(dt, date):
+        return datetime(dt.year, dt.month, dt.day).isoformat() + "Z"
+    return str(dt)
 
 
 def _format_number(value: Optional[float], digits: int = 4) -> str:
@@ -341,6 +397,7 @@ def export_user_dossier(
     clickhouse_client,
     proxy_wallet: str,
     user_input: str,
+    username: Optional[str] = None,
     window_days: int = DEFAULT_WINDOW_DAYS,
     max_trades: int = DEFAULT_MAX_TRADES,
     artifacts_base_path: str = "artifacts",
@@ -354,6 +411,7 @@ def export_user_dossier(
     window_start = generated_at - timedelta(days=window_days)
 
     export_id = str(uuid.uuid4())
+    username_slug = _username_to_slug(username)
 
     trade_summary_query = """
         SELECT
@@ -402,7 +460,7 @@ def export_user_dossier(
     activity_count = int(activity_row[0]) if activity_row else 0
 
     positions_snapshot_query = """
-        SELECT max(snapshot_ts)
+        SELECT maxOrNull(snapshot_ts)
         FROM user_positions_resolved
         WHERE proxy_wallet = {wallet:String}
           AND snapshot_ts >= {start:DateTime}
@@ -624,7 +682,7 @@ def export_user_dossier(
             detector_name,
             argMax(score, bucket_start) AS score,
             argMax(label, bucket_start) AS label,
-            max(bucket_start) AS bucket_start
+            max(bucket_start) AS latest_bucket_start
         FROM detector_results
         WHERE proxy_wallet = {wallet:String}
           AND bucket_type = 'day'
@@ -670,7 +728,7 @@ def export_user_dossier(
             sumIf(1, status = 'one_sided') AS one_sided_count,
             sumIf(1, status = 'no_orderbook') AS no_orderbook_count,
             sumIf(1, status = 'error') AS error_count,
-            sumIf(usable_liquidity = 1) AS usable_count,
+            sumIf(1, usable_liquidity = 1) AS usable_count,
             quantileExactIf(0.5)(execution_cost_bps_100, status = 'ok') AS median_exec_cost,
             quantileExactIf(0.9)(execution_cost_bps_100, status = 'ok') AS p90_exec_cost
         FROM orderbook_snapshots_enriched
@@ -906,17 +964,31 @@ def export_user_dossier(
 
     memo_md = _build_research_memo(dossier, anchor_rows)
 
-    date_label = generated_at.strftime("%Y-%m-%d")
-    output_dir = os.path.join(artifacts_base_path, "dossiers", proxy_wallet, date_label)
-    os.makedirs(output_dir, exist_ok=True)
+    dossier_dir = build_dossier_dir(
+        proxy_wallet=proxy_wallet,
+        username=username,
+        date_utc=generated_at,
+        run_id=export_id,
+    )
+    output_dir = _apply_artifacts_base_path(artifacts_base_path, dossier_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    path_json = os.path.join(output_dir, "dossier.json")
-    path_md = os.path.join(output_dir, "memo.md")
+    path_json = output_dir / "dossier.json"
+    path_md = output_dir / "memo.md"
+    manifest_path = output_dir / "manifest.json"
 
-    with open(path_json, "w", encoding="utf-8") as handle:
-        handle.write(dossier_json)
-    with open(path_md, "w", encoding="utf-8") as handle:
-        handle.write(memo_md)
+    path_json.write_text(dossier_json, encoding="utf-8")
+    path_md.write_text(memo_md, encoding="utf-8")
+
+    manifest = {
+        "proxy_wallet": proxy_wallet,
+        "username": username or "",
+        "username_slug": username_slug,
+        "run_id": export_id,
+        "created_at_utc": _isoformat(generated_at),
+        "path": str(output_dir),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
     stats = {
         "trades_count": trades_count,
@@ -937,6 +1009,9 @@ def export_user_dossier(
             export_id,
             proxy_wallet,
             user_input,
+            username or "",
+            username_slug,
+            str(output_dir),
             generated_at,
             window_days,
             window_start,
@@ -961,6 +1036,9 @@ def export_user_dossier(
             "export_id",
             "proxy_wallet",
             "user_input",
+            "username",
+            "username_slug",
+            "artifact_path",
             "generated_at",
             "window_days",
             "window_start",
@@ -986,6 +1064,8 @@ def export_user_dossier(
     return UserDossierExport(
         export_id=export_id,
         proxy_wallet=proxy_wallet,
+        username=username,
+        username_slug=username_slug,
         generated_at=generated_at,
         window_start=window_start,
         window_end=window_end,
@@ -995,6 +1075,8 @@ def export_user_dossier(
         detectors_json=detectors_json,
         anchor_trade_uids=anchor_trade_uids,
         stats=stats,
-        path_json=path_json,
-        path_md=path_md,
+        artifact_path=str(output_dir),
+        path_json=str(path_json),
+        path_md=str(path_md),
+        manifest_path=str(manifest_path),
     )

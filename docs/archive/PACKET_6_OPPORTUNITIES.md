@@ -50,6 +50,31 @@ ORDER BY execution_cost_bps_100 ASC
 LIMIT 25;
 ```
 
+## ClickHouse Note (Aggregates)
+
+ClickHouse forbids aggregate functions in `WHERE`. The opportunity query uses a latest-per-token
+subquery/CTE, then filters in the outer query.
+
+Quick verification example:
+
+```sql
+WITH latest AS (
+  SELECT
+    resolved_token_id AS token_id,
+    argMax(status, snapshot_ts) AS status,
+    argMax(liquidity_grade, snapshot_ts) AS liquidity_grade,
+    argMax(execution_cost_bps_100, snapshot_ts) AS execution_cost_bps_100
+  FROM polyttool.orderbook_snapshots_enriched
+  WHERE resolved_token_id IN ('tokenA', 'tokenB')
+    AND snapshot_ts >= now() - INTERVAL 1 DAY
+  GROUP BY resolved_token_id
+)
+SELECT token_id, status, liquidity_grade, execution_cost_bps_100
+FROM latest
+WHERE status = 'ok' AND liquidity_grade IN ('HIGH', 'MED')
+ORDER BY execution_cost_bps_100 ASC;
+```
+
 ## Table Fields (user_opportunities_bucket)
 
 - `proxy_wallet`, `bucket_start`, `bucket_type`
