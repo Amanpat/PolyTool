@@ -31,6 +31,11 @@ Outputs land under `kb/users/<slug>/exports/<YYYY-MM-DD>/` by default.
 python -m polyttool rag-index --roots "kb,artifacts" --rebuild
 ```
 
+Optional — include archived docs (useful when you want RAG to surface past design decisions):
+```
+python -m polyttool rag-index --roots "kb,artifacts,docs/archive" --rebuild
+```
+
 5) Query the local RAG index
 ```
 python -m polyttool rag-query --question "Summarize recent strategy shifts" --k 8
@@ -43,6 +48,8 @@ python -m polyttool rag-query --user "@Pimping" --question "What's the most rece
 
 ## Notes
 - The index is stored under `kb/rag/index/` (gitignored).
-- Only `kb/` and `artifacts/` are indexed; `docs/` is excluded.
+- Default roots are `kb/` and `artifacts/`; `docs/archive/` can be added optionally (see step 4).
 - Save any LLM memo outputs under `kb/users/<slug>/llm_outputs/`.
 - Paste retrieved snippets into Opus 4.5 (or another offline model) for memo drafting.
+- **External / manual LLM UIs**: if you paste into a hosted model (Opus 4.5 web, ChatGPT, etc.),
+  upload only the memo + minimal dossier excerpts you are comfortable sharing externally.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
@@ -9,6 +10,7 @@ from typing import Iterable, List, Optional, Tuple
 from .chunker import TextChunk, chunk_text
 from .embedder import BaseEmbedder
 from .manifest import write_manifest
+from .metadata import build_chunk_metadata, canonicalize_rel_path, compute_chunk_id, compute_doc_id
 
 ALLOWED_ROOTS = {"kb", "artifacts"}
 DEFAULT_COLLECTION = "polyttool_rag"
@@ -39,6 +41,29 @@ class IndexSummary:
     files_indexed: int
     chunks_indexed: int
     manifest_path: str
+
+
+def sanitize_collection_name(name: str) -> str:
+    """Normalize a Chroma collection name to match allowed constraints."""
+    if not name:
+        return DEFAULT_COLLECTION
+
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
+    cleaned = re.sub(r"^[^a-zA-Z0-9]+", "", cleaned)
+    cleaned = re.sub(r"[^a-zA-Z0-9]+$", "", cleaned)
+
+    if not cleaned or len(cleaned) < 3:
+        return DEFAULT_COLLECTION
+
+    if len(cleaned) > 512:
+        cleaned = cleaned[:512]
+        cleaned = re.sub(r"[^a-zA-Z0-9]+$", "", cleaned)
+        cleaned = re.sub(r"^[^a-zA-Z0-9]+", "", cleaned)
+
+    if not cleaned or len(cleaned) < 3:
+        return DEFAULT_COLLECTION
+
+    return cleaned
 
 
 def _resolve_repo_root() -> Path:
@@ -96,11 +121,11 @@ def _iter_files(roots: Iterable[Path], repo_root: Path) -> Iterable[Path]:
             yield path
 
 
-def _load_text(path: Path) -> str:
+def _load_bytes(path: Path) -> bytes:
     try:
-        return path.read_text(encoding="utf-8", errors="ignore")
+        return path.read_bytes()
     except Exception:
-        return ""
+        return b""
 
 
 def build_index(
@@ -118,6 +143,8 @@ def build_index(
         import chromadb
     except ImportError as exc:
         raise RuntimeError("chromadb is required. Install requirements-rag.txt.") from exc
+
+    collection_name = sanitize_collection_name(collection_name)
 
     repo_root = _resolve_repo_root()
     resolved_roots: List[Path] = []
@@ -148,28 +175,45 @@ def build_index(
     chunks_indexed = 0
 
     for path in _iter_files(resolved_roots, repo_root):
-        text = _load_text(path)
+        raw_bytes = _load_bytes(path)
+        text = raw_bytes.decode("utf-8", errors="ignore")
         if not text.strip():
             continue
         chunks: List[TextChunk] = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
         if not chunks:
             continue
         embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
-        rel_path = path.relative_to(repo_root).as_posix()
+        rel_path = canonicalize_rel_path(path.relative_to(repo_root).as_posix())
+        doc_id = compute_doc_id(rel_path, raw_bytes)
+
+        # --- delete-before-insert: remove stale chunks for this file ---
+        # This handles content changes (different chunks) and file shrinkage
+        # (fewer chunks) without leaving orphans.  On a fresh/rebuild index
+        # the delete is a harmless no-op.
+        if not rebuild:
+            try:
+                collection.delete(where={"file_path": rel_path})
+            except Exception:
+                # Chroma versions < 0.4 may not support where-delete;
+                # fall through to upsert which is still safe for same-count
+                # changes (but may leave orphans on shrinkage).
+                pass
 
         ids: List[str] = []
         metadatas: List[dict] = []
         documents: List[str] = []
         for chunk in chunks:
-            ids.append(f"{rel_path}::chunk_{chunk.chunk_id}")
+            cid = compute_chunk_id(doc_id, chunk.chunk_id, chunk.text)
+            ids.append(cid)
             metadatas.append(
-                {
-                    "file_path": rel_path,
-                    "chunk_id": chunk.chunk_id,
-                    "start_word": chunk.start_word,
-                    "end_word": chunk.end_word,
-                    "root": rel_path.split("/", 1)[0],
-                }
+                build_chunk_metadata(
+                    rel_path=rel_path,
+                    abs_path=path,
+                    doc_id=doc_id,
+                    chunk_index=chunk.chunk_id,
+                    start_word=chunk.start_word,
+                    end_word=chunk.end_word,
+                )
             )
             documents.append(chunk.text)
 
@@ -203,6 +247,7 @@ def build_index(
         overlap=overlap,
         indexed_roots=indexed_roots,
         repo_root=repo_root,
+        collection_name=collection_name,
     )
 
     return IndexSummary(

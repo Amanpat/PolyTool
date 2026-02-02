@@ -10,8 +10,10 @@ Key goals:
 - Local RAG from day one: embeddings + Chroma persistence for offline retrieval.
 
 Data boundaries:
-- Public: `docs/`, source code, infra configs.
+- Public: `docs/` is the public truth source; source code + infra configs are also public.
 - Private: `kb/`, `artifacts/` (gitignored + pre-push guard).
+- RAG defaults to indexing `kb/` + `artifacts/`; `docs/archive/` can be added optionally
+  (see `docs/LOCAL_RAG_WORKFLOW.md`).
 
 See `docs/ARCHITECTURE.md` for the data flow, `docs/RISK_POLICY.md` for guardrails, and
 `docs/adr/` for decision records.

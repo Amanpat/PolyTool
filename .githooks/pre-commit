@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Pre-commit guard: blocks commits that include private or secrets-like files.
+# Activate with: git config core.hooksPath .githooks
+python tools/guard/pre_commit_guard.py

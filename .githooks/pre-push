@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Pre-push guard: blocks pushes that include private or secrets-like files.
+# Activate with: git config core.hooksPath .githooks
+python tools/guard/pre_push_guard.py

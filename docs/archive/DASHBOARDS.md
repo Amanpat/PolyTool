@@ -355,5 +355,5 @@ Infrastructure health monitoring.
 ## Related Documentation
 
 - [STRATEGY_CATALOG.md](./STRATEGY_CATALOG.md) - Detector algorithm details
-- [CLAUDE.md](../CLAUDE.md) - Project overview and infrastructure commands
-- [services/api/README.md](../services/api/README.md) - API endpoint documentation
+- [CLAUDE.md](../../CLAUDE.md) - Project overview and infrastructure commands
+- [services/api/README.md](../../services/api/README.md) - API endpoint documentation

@@ -126,6 +126,14 @@ WHERE export_id = '<id>';
 Paste the `memo.md` first, then attach the `dossier.json` for detailed metrics. Ensure every claim in the memo
 references a dossier metric or an anchor `trade_uid`.
 
+**External / manual LLM UIs**: if you paste into a hosted model (Opus 4.5 web, ChatGPT, etc.),
+upload only the memo + minimal dossier excerpts you are comfortable sharing externally.
+
+## RAG integration
+
+Finished memo outputs can be stored in `kb/users/<slug>/llm_outputs/` and will be picked up
+automatically by the local RAG index (default roots include `kb/`).
+
 ## Rules
 
 - All strategy claims must cite dossier metrics or trade_uids.
