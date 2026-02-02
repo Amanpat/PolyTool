@@ -9,6 +9,13 @@ from typing import Iterable, List, Optional, Tuple
 
 from .chunker import TextChunk, chunk_text
 from .embedder import BaseEmbedder
+from .lexical import (
+    DEFAULT_LEXICAL_DB_PATH,
+    clear_all as _lexical_clear_all,
+    delete_file_chunks as _lexical_delete_file,
+    insert_chunks as _lexical_insert,
+    open_lexical_db,
+)
 from .manifest import write_manifest
 from .metadata import build_chunk_metadata, canonicalize_rel_path, compute_chunk_id, compute_doc_id
 
@@ -96,7 +103,7 @@ def _should_skip(path: Path, repo_root: Path) -> bool:
     except ValueError:
         return True
     rel_posix = rel.as_posix()
-    if rel_posix.startswith("kb/rag/index/") or rel_posix.startswith("kb/rag/manifests/"):
+    if rel_posix.startswith("kb/rag/index/") or rel_posix.startswith("kb/rag/manifests/") or rel_posix.startswith("kb/rag/lexical/"):
         return True
     if any(part in SKIP_DIR_PARTS for part in rel.parts):
         return True
@@ -138,6 +145,7 @@ def build_index(
     collection_name: str = DEFAULT_COLLECTION,
     rebuild: bool = False,
     manifest_path: Optional[Path] = None,
+    lexical_db_path: Optional[Path] = DEFAULT_LEXICAL_DB_PATH,
 ) -> IndexSummary:
     try:
         import chromadb
@@ -171,6 +179,16 @@ def build_index(
         metadata={"hnsw:space": "cosine"},
     )
 
+    # --- lexical (FTS5) index ---
+    lex_conn = None
+    if lexical_db_path is not None:
+        lex_path = Path(lexical_db_path)
+        if not lex_path.is_absolute():
+            lex_path = (repo_root / lex_path).resolve()
+        lex_conn = open_lexical_db(lex_path)
+        if rebuild:
+            _lexical_clear_all(lex_conn)
+
     files_indexed = 0
     chunks_indexed = 0
 
@@ -198,6 +216,8 @@ def build_index(
                 # fall through to upsert which is still safe for same-count
                 # changes (but may leave orphans on shrinkage).
                 pass
+            if lex_conn is not None:
+                _lexical_delete_file(lex_conn, rel_path)
 
         ids: List[str] = []
         metadatas: List[dict] = []
@@ -232,8 +252,30 @@ def build_index(
                 metadatas=metadatas,
             )
 
+        # --- lexical: mirror the same chunks into FTS5 ---
+        if lex_conn is not None:
+            lex_rows = []
+            for i, chunk in enumerate(chunks):
+                lex_rows.append({
+                    "chunk_id": ids[i],
+                    "doc_id": doc_id,
+                    "file_path": rel_path,
+                    "chunk_index": chunk.chunk_id,
+                    "doc_type": metadatas[i].get("doc_type"),
+                    "user_slug": metadatas[i].get("user_slug"),
+                    "proxy_wallet": metadatas[i].get("proxy_wallet"),
+                    "is_private": metadatas[i].get("is_private", True),
+                    "created_at": metadatas[i].get("created_at"),
+                    "chunk_text": chunk.text,
+                })
+            _lexical_insert(lex_conn, lex_rows)
+            lex_conn.commit()
+
         files_indexed += 1
         chunks_indexed += len(chunks)
+
+    if lex_conn is not None:
+        lex_conn.close()
 
     final_manifest_path = manifest_path or DEFAULT_MANIFEST_PATH
     if not final_manifest_path.is_absolute():

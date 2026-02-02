@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -922,6 +923,421 @@ class ReplacementOnChangeTests(unittest.TestCase):
                 self.assertIn("doc_id", meta)
                 self.assertEqual(len(meta["doc_id"]), 64)  # sha256 hex
                 self.assertIn("chunk_index", meta)
+            finally:
+                helper.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# PACKET 4 – Hybrid retrieval tests
+# ---------------------------------------------------------------------------
+
+
+from polymarket.rag.lexical import (
+    clear_all as lexical_clear_all,
+    delete_file_chunks as lexical_delete_file,
+    insert_chunks as lexical_insert,
+    lexical_search,
+    open_lexical_db,
+    reciprocal_rank_fusion,
+    RRF_K,
+)
+
+
+class RRFFusionTests(unittest.TestCase):
+    """Reciprocal Rank Fusion produces deterministic, stable ordering."""
+
+    def _make_result(self, chunk_id: str, score=None) -> dict:
+        return {
+            "file_path": f"f/{chunk_id}.md",
+            "chunk_id": chunk_id,
+            "chunk_index": 0,
+            "doc_id": f"d_{chunk_id}",
+            "score": score,
+            "snippet": chunk_id,
+            "metadata": {},
+        }
+
+    def test_rrf_deterministic_ordering(self) -> None:
+        """Given fixed ranked lists, RRF produces the expected order."""
+        vector = [self._make_result("a", 0.9), self._make_result("b", 0.8), self._make_result("c", 0.7)]
+        lexical = [self._make_result("b"), self._make_result("d"), self._make_result("a")]
+
+        fused = reciprocal_rank_fusion(vector, lexical, rrf_k=60)
+
+        # b: vector rank 2 + lexical rank 1 → 1/62 + 1/61 ≈ 0.03252
+        # a: vector rank 1 + lexical rank 3 → 1/61 + 1/63 ≈ 0.03226
+        # d: lexical rank 2 only → 1/62 ≈ 0.01613
+        # c: vector rank 3 only → 1/63 ≈ 0.01587
+        ids = [r["chunk_id"] for r in fused]
+        self.assertEqual(ids, ["b", "a", "d", "c"])
+
+        # Explainable fields on the top result
+        self.assertEqual(fused[0]["vector_rank"], 2)
+        self.assertEqual(fused[0]["lexical_rank"], 1)
+        self.assertEqual(fused[0]["final_rank"], 1)
+        self.assertIsNotNone(fused[0]["fused_score"])
+
+        # Vector-only result has no lexical rank
+        c_entry = next(r for r in fused if r["chunk_id"] == "c")
+        self.assertEqual(c_entry["vector_rank"], 3)
+        self.assertIsNone(c_entry["lexical_rank"])
+
+        # Lexical-only result has no vector rank
+        d_entry = next(r for r in fused if r["chunk_id"] == "d")
+        self.assertIsNone(d_entry["vector_rank"])
+        self.assertEqual(d_entry["lexical_rank"], 2)
+
+    def test_rrf_stable_on_rerun(self) -> None:
+        """Running RRF twice with the same input produces identical output."""
+        vector = [self._make_result("x", 0.5), self._make_result("y", 0.4)]
+        lexical = [self._make_result("y"), self._make_result("z")]
+        run1 = reciprocal_rank_fusion(vector, lexical)
+        run2 = reciprocal_rank_fusion(vector, lexical)
+        self.assertEqual(
+            [r["chunk_id"] for r in run1],
+            [r["chunk_id"] for r in run2],
+        )
+        self.assertEqual(
+            [r["fused_score"] for r in run1],
+            [r["fused_score"] for r in run2],
+        )
+
+    def test_rrf_empty_inputs(self) -> None:
+        """RRF handles empty lists gracefully."""
+        self.assertEqual(reciprocal_rank_fusion([], []), [])
+        vector = [self._make_result("a")]
+        self.assertEqual(len(reciprocal_rank_fusion(vector, [])), 1)
+        self.assertEqual(len(reciprocal_rank_fusion([], vector)), 1)
+
+
+class LexicalFilterTests(unittest.TestCase):
+    """Lexical retrieval enforces the same filters as the vector path."""
+
+    def _build_lexical_db(self, tmpdir: Path) -> sqlite3.Connection:
+        """Insert synthetic multi-user chunks into a temp lexical DB."""
+        import sqlite3  # noqa: F811
+
+        lex_db = tmpdir / "lex" / "lexical.sqlite3"
+        conn = open_lexical_db(lex_db)
+        lexical_insert(conn, [
+            {
+                "chunk_id": "alice_1",
+                "doc_id": "d_alice",
+                "file_path": "kb/users/alice/notes.md",
+                "chunk_index": 0,
+                "doc_type": "user_kb",
+                "user_slug": "alice",
+                "is_private": True,
+                "chunk_text": "Alice private notes about market strategy blockchain",
+            },
+            {
+                "chunk_id": "bob_1",
+                "doc_id": "d_bob",
+                "file_path": "kb/users/bob/notes.md",
+                "chunk_index": 0,
+                "doc_type": "user_kb",
+                "user_slug": "bob",
+                "is_private": True,
+                "chunk_text": "Bob private notes about risk analysis blockchain",
+            },
+            {
+                "chunk_id": "public_1",
+                "doc_id": "d_public",
+                "file_path": "docs/README.md",
+                "chunk_index": 0,
+                "doc_type": "docs",
+                "is_private": False,
+                "chunk_text": "Public documentation about blockchain technology overview",
+            },
+            {
+                "chunk_id": "archive_1",
+                "doc_id": "d_archive",
+                "file_path": "docs/archive/old.md",
+                "chunk_index": 0,
+                "doc_type": "archive",
+                "is_private": False,
+                "chunk_text": "Archived old documentation about blockchain history",
+            },
+        ])
+        conn.commit()
+        return conn
+
+    def test_lexical_user_isolation(self) -> None:
+        """Searching with user_slug only returns that user's chunks."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            conn = self._build_lexical_db(Path(raw))
+            try:
+                results = lexical_search(
+                    conn, "blockchain",
+                    k=10, user_slug="alice", private_only=False, include_archive=True,
+                )
+                self.assertTrue(results, "Expected at least one result for alice")
+                for r in results:
+                    self.assertEqual(
+                        r["metadata"].get("user_slug"), "alice",
+                        f"User isolation violated: got {r['metadata'].get('user_slug')}",
+                    )
+            finally:
+                conn.close()
+
+    def test_lexical_private_only(self) -> None:
+        """Default private_only=True excludes public and archive chunks."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            conn = self._build_lexical_db(Path(raw))
+            try:
+                results = lexical_search(conn, "blockchain", k=10)
+                self.assertTrue(results)
+                for r in results:
+                    self.assertTrue(
+                        r["metadata"].get("is_private", False),
+                        f"Private-only violated: got public doc {r['file_path']}",
+                    )
+            finally:
+                conn.close()
+
+    def test_lexical_public_only(self) -> None:
+        """public_only=True returns only public chunks."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            conn = self._build_lexical_db(Path(raw))
+            try:
+                results = lexical_search(
+                    conn, "blockchain", k=10,
+                    private_only=False, public_only=True, include_archive=True,
+                )
+                self.assertTrue(results)
+                for r in results:
+                    self.assertFalse(
+                        r["metadata"].get("is_private", True),
+                        f"Public-only violated: got private doc {r['file_path']}",
+                    )
+            finally:
+                conn.close()
+
+    def test_lexical_archive_excluded_by_default(self) -> None:
+        """Archive docs excluded unless include_archive=True."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            conn = self._build_lexical_db(Path(raw))
+            try:
+                results = lexical_search(
+                    conn, "blockchain", k=10, private_only=False,
+                )
+                for r in results:
+                    self.assertNotEqual(
+                        r["metadata"].get("doc_type"), "archive",
+                        f"Archive not excluded: got {r['file_path']}",
+                    )
+            finally:
+                conn.close()
+
+    def test_lexical_doc_type_filter(self) -> None:
+        """doc_types filter restricts results to matching types."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            conn = self._build_lexical_db(Path(raw))
+            try:
+                results = lexical_search(
+                    conn, "blockchain", k=10,
+                    doc_types=["docs"], private_only=False, include_archive=True,
+                )
+                self.assertTrue(results)
+                for r in results:
+                    self.assertEqual(r["metadata"].get("doc_type"), "docs")
+            finally:
+                conn.close()
+
+
+class HybridIntegrationTests(unittest.TestCase):
+    """End-to-end integration tests for hybrid retrieval."""
+
+    def test_lexical_finds_keyword(self) -> None:
+        """A unique keyword is found by lexical retrieval."""
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            # Add a file with a unique keyword
+            kb_users_carol = tmpdir / "kb" / "users" / "carol"
+            kb_users_carol.mkdir(parents=True, exist_ok=True)
+            (kb_users_carol / "notes.md").write_text(
+                "Carol notes about xylophone instrument practice schedule weekly",
+                encoding="utf-8",
+            )
+            index_dir, coll = helper.build(tmpdir)
+            try:
+                results = query_index(
+                    question="xylophone",
+                    lexical_only=True,
+                    k=5,
+                    private_only=False,
+                    include_archive=True,
+                )
+                self.assertTrue(results, "Lexical should find the unique keyword")
+                found = any("xylophone" in r["snippet"].lower() for r in results)
+                self.assertTrue(found, "xylophone not found in lexical results")
+            finally:
+                helper.cleanup()
+
+    def test_hybrid_fuses_stubbed_vector_with_lexical(self) -> None:
+        """Hybrid mode fuses stubbed vector results with real lexical search."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            lex_db = tmpdir / "kb" / "rag" / "lexical" / "lexical.sqlite3"
+            conn = open_lexical_db(lex_db)
+            lexical_insert(conn, [
+                {
+                    "chunk_id": "shared_1",
+                    "doc_id": "d_shared",
+                    "file_path": "kb/users/alice/notes.md",
+                    "chunk_index": 0,
+                    "doc_type": "user_kb",
+                    "user_slug": "alice",
+                    "is_private": True,
+                    "chunk_text": "alpha beta gamma",
+                },
+                {
+                    "chunk_id": "lex_only",
+                    "doc_id": "d_lex",
+                    "file_path": "kb/users/bob/notes.md",
+                    "chunk_index": 0,
+                    "doc_type": "user_kb",
+                    "user_slug": "bob",
+                    "is_private": True,
+                    "chunk_text": "alpha delta epsilon",
+                },
+            ])
+            conn.commit()
+            conn.close()
+
+            conn = open_lexical_db(lex_db)
+            lexical_results = lexical_search(conn, "alpha", k=10)
+            conn.close()
+            self.assertTrue(lexical_results, "Expected lexical results for 'alpha'")
+
+            vector_results = [
+                {
+                    "file_path": "kb/users/alice/notes.md",
+                    "chunk_id": "shared_1",
+                    "chunk_index": 0,
+                    "doc_id": "d_shared",
+                    "score": 0.9,
+                    "snippet": "alpha beta gamma",
+                    "metadata": {
+                        "file_path": "kb/users/alice/notes.md",
+                        "doc_id": "d_shared",
+                        "chunk_index": 0,
+                        "doc_type": "user_kb",
+                        "user_slug": "alice",
+                        "is_private": True,
+                    },
+                },
+                {
+                    "file_path": "kb/users/carol/notes.md",
+                    "chunk_id": "vec_only",
+                    "chunk_index": 0,
+                    "doc_id": "d_vec",
+                    "score": 0.7,
+                    "snippet": "alpha zeta eta",
+                    "metadata": {
+                        "file_path": "kb/users/carol/notes.md",
+                        "doc_id": "d_vec",
+                        "chunk_index": 0,
+                        "doc_type": "user_kb",
+                        "user_slug": "carol",
+                        "is_private": True,
+                    },
+                },
+            ]
+
+            with patch("polymarket.rag.query._run_vector_query", return_value=vector_results):
+                results = query_index(
+                    question="alpha",
+                    embedder=_FakeEmbedder(),
+                    k=10,
+                    hybrid=True,
+                    lexical_db_path=lex_db,
+                )
+
+            expected = reciprocal_rank_fusion(vector_results, lexical_results)[:10]
+            self.assertEqual(
+                [r["chunk_id"] for r in results],
+                [r["chunk_id"] for r in expected],
+            )
+
+            ids = {r["chunk_id"] for r in results}
+            self.assertTrue({"shared_1", "lex_only", "vec_only"}.issubset(ids))
+            for r in results:
+                self.assertIn("fused_score", r)
+                self.assertIn("final_rank", r)
+                self.assertIn("vector_rank", r)
+                self.assertIn("lexical_rank", r)
+
+    def test_lexical_only_no_embedder_needed(self) -> None:
+        """lexical_only=True works without an embedder."""
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            try:
+                # embedder=None should not raise for lexical_only
+                results = query_index(
+                    question="notes",
+                    embedder=None,
+                    lexical_only=True,
+                    k=5,
+                    private_only=False,
+                    include_archive=True,
+                )
+                # Should not raise; results may or may not be empty
+                self.assertIsInstance(results, list)
+            finally:
+                helper.cleanup()
+
+    def test_hybrid_and_lexical_only_mutually_exclusive(self) -> None:
+        """Passing both hybrid=True and lexical_only=True raises ValueError."""
+        with self.assertRaises(ValueError):
+            query_index(
+                question="test",
+                hybrid=True,
+                lexical_only=True,
+            )
+
+
+class LexicalIdempotenceTests(unittest.TestCase):
+    """Re-indexing the same content does not create duplicates in lexical DB."""
+
+    def test_double_index_same_count(self) -> None:
+        import sqlite3
+
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            try:
+                lex_db = tmpdir / "kb" / "rag" / "lexical" / "lexical.sqlite3"
+                conn = open_lexical_db(lex_db)
+                count_first = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+                conn.close()
+
+                # Index again (incremental)
+                build_index(
+                    roots=[
+                        (tmpdir / "kb").as_posix(),
+                        (tmpdir / "artifacts").as_posix(),
+                    ],
+                    embedder=helper.embedder,
+                    chunk_size=10,
+                    overlap=2,
+                    persist_directory=index_dir,
+                    collection_name=coll,
+                    rebuild=False,
+                )
+
+                conn = open_lexical_db(lex_db)
+                count_second = conn.execute("SELECT count(*) FROM chunks").fetchone()[0]
+                conn.close()
+
+                self.assertEqual(
+                    count_first, count_second,
+                    f"Lexical duplicates: {count_first} -> {count_second}",
+                )
             finally:
                 helper.cleanup()
 

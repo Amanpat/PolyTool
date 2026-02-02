@@ -74,6 +74,37 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Include archive documents in results (excluded by default).",
     )
+    retrieval = parser.add_mutually_exclusive_group()
+    retrieval.add_argument(
+        "--hybrid",
+        action="store_true",
+        default=False,
+        help="Use hybrid (vector + lexical) retrieval with RRF fusion.",
+    )
+    retrieval.add_argument(
+        "--lexical-only",
+        action="store_true",
+        default=False,
+        help="Use lexical (FTS5) retrieval only (no embedding model needed).",
+    )
+    parser.add_argument(
+        "--top-k-vector",
+        type=int,
+        default=25,
+        help="Number of vector candidates to retrieve for hybrid fusion.",
+    )
+    parser.add_argument(
+        "--top-k-lexical",
+        type=int,
+        default=25,
+        help="Number of lexical candidates to retrieve for hybrid fusion.",
+    )
+    parser.add_argument(
+        "--rrf-k",
+        type=int,
+        default=60,
+        help="RRF fusion constant (higher reduces rank impact).",
+    )
     parser.add_argument("--model", default=DEFAULT_EMBED_MODEL, help="SentenceTransformer model name.")
     parser.add_argument("--device", default="auto", help="Device: auto, cpu, cuda.")
     parser.add_argument(
@@ -113,7 +144,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         doc_types = flat or None
 
     try:
-        embedder = SentenceTransformerEmbedder(model_name=args.model, device=args.device)
+        embedder = None
+        if not args.lexical_only:
+            embedder = SentenceTransformerEmbedder(model_name=args.model, device=args.device)
         results = query_index(
             question=args.question,
             embedder=embedder,
@@ -128,14 +161,21 @@ def main(argv: Optional[list[str]] = None) -> int:
             date_from=args.date_from,
             date_to=args.date_to,
             include_archive=args.include_archive,
+            hybrid=args.hybrid,
+            lexical_only=args.lexical_only,
+            top_k_vector=args.top_k_vector,
+            top_k_lexical=args.top_k_lexical,
+            rrf_k=args.rrf_k,
         )
     except RuntimeError as exc:
         print(f"Error: {exc}")
         return 1
 
+    mode = "hybrid" if args.hybrid else ("lexical" if args.lexical_only else "vector")
     payload = {
         "question": args.question,
         "k": args.k,
+        "mode": mode,
         "filters": {
             "user_slug": user_slug,
             "doc_types": doc_types,

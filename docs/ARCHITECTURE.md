@@ -17,7 +17,8 @@ Polymarket APIs -> API ingest -> ClickHouse
                               -> dossier export -> artifacts/
                               -> clickhouse export -> kb/
 kb/ + artifacts/ -> local embeddings -> Chroma index (kb/rag/index)
-Chroma index -> rag-query -> snippets for offline memos
+kb/ + artifacts/ -> lexical index (SQLite FTS5: kb/rag/lexical/lexical.sqlite3)
+Chroma/lexical -> rag-query -> snippets for offline memos
 ```
 
 ## Local RAG boundary
@@ -32,6 +33,17 @@ python -m polyttool rag-index --roots "kb,artifacts,docs/archive" --rebuild
 
 **External / manual LLM UIs**: if you paste retrieved snippets into a hosted model (Opus 4.5 web,
 ChatGPT, etc.), upload only the memo + minimal dossier excerpts you are comfortable sharing.
+
+## Hybrid retrieval (vector + lexical)
+
+PolyTool supports offline hybrid retrieval: vector search (Chroma) + keyword search (SQLite FTS5),
+combined with Reciprocal Rank Fusion (RRF). The lexical DB lives at:
+
+```
+kb/rag/lexical/lexical.sqlite3
+```
+
+**Fusion method**: RRF with default *k=60* (configurable via `--rrf-k`).
 
 ## RAG metadata filter schema
 
@@ -69,6 +81,11 @@ enforcement.
 --date-from YYYY-MM-DD    Created on or after
 --date-to   YYYY-MM-DD    Created on or before
 --include-archive         Include archive documents
+--hybrid                  Use vector + lexical retrieval with RRF fusion
+--lexical-only            Use lexical (FTS5) retrieval only
+--top-k-vector <n>         Vector candidates for hybrid fusion (default 25)
+--top-k-lexical <n>        Lexical candidates for hybrid fusion (default 25)
+--rrf-k <n>                RRF constant (default 60)
 ```
 
 ## Safety
