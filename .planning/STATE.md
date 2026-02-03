@@ -23,3 +23,9 @@ Last activity: 2026-02-03 - Completed quick-001 (offline rerank for hybrid retri
 
 ### Blockers/Concerns
 None currently.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 001 | Offline reranking for hybrid retrieval (opt-in) | 2026-02-03 | 2bffaed | [001-offline-rerank-hybrid-retrieval](./quick/001-offline-rerank-hybrid-retrieval/) |
