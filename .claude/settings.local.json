@@ -29,7 +29,8 @@
       "Bash(find:*)",
       "Skill(gsd:progress)",
       "Skill(gsd:quick)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(pip install:*)"
     ]
   }
 }

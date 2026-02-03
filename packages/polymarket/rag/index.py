@@ -14,6 +14,7 @@ from .lexical import (
     clear_all as _lexical_clear_all,
     delete_file_chunks as _lexical_delete_file,
     insert_chunks as _lexical_insert,
+    list_indexed_file_paths as _lexical_list_paths,
     open_lexical_db,
 )
 from .manifest import write_manifest
@@ -48,6 +49,16 @@ class IndexSummary:
     files_indexed: int
     chunks_indexed: int
     manifest_path: str
+
+
+@dataclass
+class ReconcileSummary:
+    disk_files: int
+    indexed_files: int
+    stale_files: int
+    vector_deleted: int
+    lexical_deleted: int
+    warnings: List[str]
 
 
 def sanitize_collection_name(name: str) -> str:
@@ -296,4 +307,113 @@ def build_index(
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
         manifest_path=str(final_manifest_path),
+    )
+
+
+def _chroma_indexed_file_paths(collection) -> set[str]:
+    """Return the set of distinct ``file_path`` values stored in a Chroma collection."""
+    result = collection.get(include=["metadatas"])
+    paths: set[str] = set()
+    for meta in result.get("metadatas", []):
+        fp = meta.get("file_path")
+        if fp:
+            paths.add(fp)
+    return paths
+
+
+def reconcile_index(
+    *,
+    roots: List[str],
+    persist_directory: Path = DEFAULT_PERSIST_DIR,
+    collection_name: str = DEFAULT_COLLECTION,
+    lexical_db_path: Optional[Path] = DEFAULT_LEXICAL_DB_PATH,
+) -> ReconcileSummary:
+    """Remove index entries whose source files no longer exist on disk.
+
+    Scans *roots* for files that **should** be indexed, then compares against
+    the file paths currently stored in both the Chroma vector index and the
+    SQLite FTS5 lexical index.  Any file path present in an index but absent
+    from disk is deleted from both indexes.
+    """
+    try:
+        import chromadb
+    except ImportError as exc:
+        raise RuntimeError("chromadb is required. Install requirements-rag.txt.") from exc
+
+    collection_name = sanitize_collection_name(collection_name)
+
+    repo_root = _resolve_repo_root()
+    resolved_roots: List[Path] = []
+    for root in roots:
+        resolved, _rel = _resolve_root(root, repo_root)
+        resolved_roots.append(resolved)
+
+    # --- build set of file_paths that SHOULD exist on disk ---
+    disk_paths: set[str] = set()
+    for path in _iter_files(resolved_roots, repo_root):
+        rel_path = canonicalize_rel_path(path.relative_to(repo_root).as_posix())
+        disk_paths.add(rel_path)
+
+    # --- get indexed paths from Chroma ---
+    persist_path = Path(persist_directory)
+    if not persist_path.is_absolute():
+        persist_path = (repo_root / persist_path).resolve()
+
+    client = chromadb.PersistentClient(path=str(persist_path))
+    try:
+        collection = client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Cannot open Chroma collection {collection_name!r}: {exc}") from exc
+
+    chroma_paths = _chroma_indexed_file_paths(collection)
+
+    # --- get indexed paths from lexical DB ---
+    lex_conn = None
+    lexical_paths: set[str] = set()
+    if lexical_db_path is not None:
+        lex_path = Path(lexical_db_path)
+        if not lex_path.is_absolute():
+            lex_path = (repo_root / lex_path).resolve()
+        lex_conn = open_lexical_db(lex_path)
+        lexical_paths = _lexical_list_paths(lex_conn)
+
+    # --- compute stale ---
+    all_indexed = chroma_paths | lexical_paths
+    stale = all_indexed - disk_paths
+
+    warnings: List[str] = []
+    vector_deleted = 0
+    lexical_deleted = 0
+
+    for stale_path in sorted(stale):
+        # --- Chroma deletion ---
+        if stale_path in chroma_paths:
+            try:
+                collection.delete(where={"file_path": stale_path})
+                vector_deleted += 1
+            except Exception as exc:
+                warnings.append(
+                    f"Chroma delete-by-where failed for {stale_path!r}: {exc}. "
+                    "Run --rebuild to fully clean the vector index."
+                )
+
+        # --- Lexical deletion ---
+        if stale_path in lexical_paths and lex_conn is not None:
+            _lexical_delete_file(lex_conn, stale_path)
+            lexical_deleted += 1
+
+    if lex_conn is not None:
+        lex_conn.commit()
+        lex_conn.close()
+
+    return ReconcileSummary(
+        disk_files=len(disk_paths),
+        indexed_files=len(all_indexed),
+        stale_files=len(stale),
+        vector_deleted=vector_deleted,
+        lexical_deleted=lexical_deleted,
+        warnings=warnings,
     )

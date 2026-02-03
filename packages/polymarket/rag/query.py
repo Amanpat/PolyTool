@@ -10,6 +10,7 @@ from .index import DEFAULT_COLLECTION, DEFAULT_PERSIST_DIR, sanitize_collection_
 from .lexical import (
     DEFAULT_LEXICAL_DB_PATH,
     RRF_K,
+    ensure_fts5_available,
     lexical_search,
     open_lexical_db,
     reciprocal_rank_fusion,
@@ -260,6 +261,7 @@ def query_index(
 
     # --- lexical-only path (no embedder needed) ---
     if lexical_only:
+        ensure_fts5_available()
         return _run_lexical_query(
             question,
             k=k,
@@ -285,6 +287,7 @@ def query_index(
             filter_prefixes=filter_prefixes,
         )
 
+    ensure_fts5_available()
     vector_k = max(top_k_vector, k)
     lexical_k = max(top_k_lexical, k)
 

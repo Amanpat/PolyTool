@@ -11,7 +11,7 @@ from typing import List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 
 from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
-from polymarket.rag.index import build_index
+from polymarket.rag.index import build_index, reconcile_index
 
 
 def _parse_roots(raw: str) -> List[str]:
@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated corpus roots (default: kb,artifacts)",
     )
     parser.add_argument("--rebuild", action="store_true", help="Rebuild the index from scratch.")
+    parser.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="Remove stale index entries for files that no longer exist on disk.",
+    )
     parser.add_argument("--chunk-size", type=int, default=400, help="Chunk size (words).")
     parser.add_argument("--overlap", type=int, default=80, help="Chunk overlap (words).")
     parser.add_argument("--model", default=DEFAULT_EMBED_MODEL, help="SentenceTransformer model name.")
@@ -55,6 +60,31 @@ def main(argv: Optional[list[str]] = None) -> int:
     except ValueError as exc:
         print(f"Error: {exc}")
         return 1
+
+    if args.reconcile and args.rebuild:
+        print("Error: --reconcile and --rebuild are mutually exclusive.")
+        return 1
+
+    if args.reconcile:
+        try:
+            summary = reconcile_index(
+                roots=roots,
+                persist_directory=args.persist_dir,
+                collection_name=args.collection,
+            )
+        except (ValueError, RuntimeError) as exc:
+            print(f"Error: {exc}")
+            return 1
+
+        print("RAG reconcile complete")
+        print(f"Disk files: {summary.disk_files}")
+        print(f"Indexed files: {summary.indexed_files}")
+        print(f"Stale files removed: {summary.stale_files}")
+        print(f"  Vector entries cleaned: {summary.vector_deleted}")
+        print(f"  Lexical entries cleaned: {summary.lexical_deleted}")
+        for warning in summary.warnings:
+            print(f"WARNING: {warning}")
+        return 0
 
     if args.chunk_size <= 0 or args.overlap < 0 or args.overlap >= args.chunk_size:
         print("Error: chunk-size must be positive and overlap must be >= 0 and < chunk-size.")

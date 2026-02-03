@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 DEFAULT_LEXICAL_DB_PATH = Path("kb") / "rag" / "lexical" / "lexical.sqlite3"
+FTS5_REQUIRED_MESSAGE = (
+    "SQLite FTS5 not available in this Python build. "
+    "Install Python with FTS5-enabled sqlite or disable --lexical-only/--hybrid."
+)
 
 # Reciprocal Rank Fusion constant.  k=60 is the value from the original
 # Cormack, Clarke & Buettcher (2009) RRF paper and is widely used.
@@ -22,6 +26,25 @@ RRF_K = 60
 # ---------------------------------------------------------------------------
 # FTS5 query sanitization
 # ---------------------------------------------------------------------------
+
+def _probe_fts5() -> bool:
+    """Return True if FTS5 is available in the current sqlite build."""
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE VIRTUAL TABLE fts5_probe USING fts5(content)")
+    except sqlite3.Error:
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
+    return True
+
+
+def ensure_fts5_available() -> None:
+    """Raise if FTS5 is unavailable in the current sqlite build."""
+    if not _probe_fts5():
+        raise RuntimeError(FTS5_REQUIRED_MESSAGE)
 
 def _sanitize_fts_query(query: str) -> str:
     """Wrap each token in double-quotes to neutralise FTS5 operator syntax.
@@ -111,6 +134,12 @@ def clear_all(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 # Index-time helpers (called from index.py)
 # ---------------------------------------------------------------------------
+
+def list_indexed_file_paths(conn: sqlite3.Connection) -> set[str]:
+    """Return the set of distinct ``file_path`` values currently in the lexical DB."""
+    rows = conn.execute("SELECT DISTINCT file_path FROM chunks").fetchall()
+    return {row[0] for row in rows}
+
 
 def delete_file_chunks(conn: sqlite3.Connection, file_path: str) -> None:
     """Remove all chunks for *file_path*.  Triggers update FTS automatically."""

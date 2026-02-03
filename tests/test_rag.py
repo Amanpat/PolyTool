@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 
 from polymarket.rag.chunker import chunk_text
 from polymarket.rag.embedder import BaseEmbedder
-from polymarket.rag.index import DEFAULT_COLLECTION, build_index, sanitize_collection_name
+from polymarket.rag.index import DEFAULT_COLLECTION, build_index, reconcile_index, sanitize_collection_name
 from polymarket.rag.manifest import write_manifest
 from polymarket.rag.metadata import (
     build_chunk_metadata,
@@ -937,8 +937,10 @@ from polymarket.rag.lexical import (
     delete_file_chunks as lexical_delete_file,
     insert_chunks as lexical_insert,
     lexical_search,
+    list_indexed_file_paths,
     open_lexical_db,
     reciprocal_rank_fusion,
+    FTS5_REQUIRED_MESSAGE,
     RRF_K,
 )
 
@@ -1145,6 +1147,50 @@ class LexicalFilterTests(unittest.TestCase):
                 conn.close()
 
 
+class FTS5AvailabilityTests(unittest.TestCase):
+    """Lexical/hybrid queries fail loudly when FTS5 is unavailable."""
+
+    def test_lexical_only_requires_fts5(self) -> None:
+        with patch("polymarket.rag.lexical._probe_fts5", return_value=False):
+            with self.assertRaises(RuntimeError) as ctx:
+                query_index(
+                    question="alpha",
+                    lexical_only=True,
+                    k=5,
+                )
+            self.assertEqual(str(ctx.exception), FTS5_REQUIRED_MESSAGE)
+
+    def test_hybrid_requires_fts5(self) -> None:
+        with patch("polymarket.rag.lexical._probe_fts5", return_value=False):
+            with self.assertRaises(RuntimeError) as ctx:
+                query_index(
+                    question="alpha",
+                    hybrid=True,
+                    embedder=_FakeEmbedder(),
+                    k=5,
+                )
+            self.assertEqual(str(ctx.exception), FTS5_REQUIRED_MESSAGE)
+
+    def test_vector_only_unaffected(self) -> None:
+        stub_result = [{
+            "file_path": "kb/users/alice/notes.md",
+            "chunk_id": "stub",
+            "chunk_index": 0,
+            "doc_id": "d_stub",
+            "score": 0.9,
+            "snippet": "alpha beta gamma",
+            "metadata": {},
+        }]
+        with patch("polymarket.rag.lexical._probe_fts5", return_value=False):
+            with patch("polymarket.rag.query._run_vector_query", return_value=stub_result):
+                results = query_index(
+                    question="alpha",
+                    embedder=_FakeEmbedder(),
+                    k=1,
+                )
+        self.assertEqual(results, stub_result)
+
+
 class HybridIntegrationTests(unittest.TestCase):
     """End-to-end integration tests for hybrid retrieval."""
 
@@ -1340,6 +1386,309 @@ class LexicalIdempotenceTests(unittest.TestCase):
                 )
             finally:
                 helper.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# PACKET 4.2 – Index reconcile mode tests
+# ---------------------------------------------------------------------------
+
+
+class ReconcileTests(unittest.TestCase):
+    """Reconcile removes stale entries from both Chroma and lexical DB."""
+
+    def test_reconcile_removes_deleted_file(self) -> None:
+        """Index two files, delete one from disk, reconcile, verify removal."""
+        import chromadb
+
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+
+            # Create two user files
+            alice_dir = tmpdir / "kb" / "users" / "alice"
+            bob_dir = tmpdir / "kb" / "users" / "bob"
+            artifacts_dir = tmpdir / "artifacts" / "dossiers" / "alice"
+            shared_dir = tmpdir / "kb" / "shared"
+
+            for d in (alice_dir, bob_dir, artifacts_dir, shared_dir):
+                d.mkdir(parents=True, exist_ok=True)
+
+            (alice_dir / "notes.md").write_text(
+                "Alice notes about alpha beta gamma delta epsilon zeta",
+                encoding="utf-8",
+            )
+            (bob_dir / "notes.md").write_text(
+                "Bob notes about theta iota kappa lambda mu nu",
+                encoding="utf-8",
+            )
+            (artifacts_dir / "report.md").write_text(
+                "Alice dossier report omicron pi rho sigma tau",
+                encoding="utf-8",
+            )
+            (shared_dir / "config.yaml").write_text(
+                "shared_config: true\nupsilon phi chi psi omega",
+                encoding="utf-8",
+            )
+
+            index_dir = tmpdir / "_chroma_index"
+            manifest_path = tmpdir / "manifest.json"
+            lex_db_path = tmpdir / "lex" / "lexical.sqlite3"
+            collection_name = sanitize_collection_name(f"test_{tmpdir.name}")
+
+            fake_root = lambda: tmpdir  # noqa: E731
+            p1 = patch("polymarket.rag.index._resolve_repo_root", fake_root)
+            p1.start()
+
+            try:
+                build_index(
+                    roots=[
+                        (tmpdir / "kb").as_posix(),
+                        (tmpdir / "artifacts").as_posix(),
+                    ],
+                    embedder=helper.embedder,
+                    chunk_size=10,
+                    overlap=2,
+                    persist_directory=index_dir,
+                    collection_name=collection_name,
+                    rebuild=True,
+                    manifest_path=manifest_path,
+                    lexical_db_path=lex_db_path,
+                )
+
+                # Verify both files are indexed in both stores
+                client = chromadb.PersistentClient(path=str(index_dir))
+                collection = client.get_collection(collection_name)
+                chroma_count_before = collection.count()
+                self.assertGreater(chroma_count_before, 0)
+
+                conn = open_lexical_db(lex_db_path)
+                lex_paths_before = list_indexed_file_paths(conn)
+                conn.close()
+                self.assertIn("kb/users/alice/notes.md", lex_paths_before)
+                self.assertIn("kb/users/bob/notes.md", lex_paths_before)
+
+                # --- Delete bob's file from disk ---
+                (bob_dir / "notes.md").unlink()
+
+                # --- Run reconcile ---
+                summary = reconcile_index(
+                    roots=[
+                        (tmpdir / "kb").as_posix(),
+                        (tmpdir / "artifacts").as_posix(),
+                    ],
+                    persist_directory=index_dir,
+                    collection_name=collection_name,
+                    lexical_db_path=lex_db_path,
+                )
+
+                # Verify summary
+                self.assertEqual(summary.stale_files, 1)
+                self.assertEqual(summary.lexical_deleted, 1)
+
+                # Verify lexical DB no longer has bob's chunks
+                conn = open_lexical_db(lex_db_path)
+                lex_paths_after = list_indexed_file_paths(conn)
+                bob_count = conn.execute(
+                    "SELECT count(*) FROM chunks WHERE file_path = ?",
+                    ("kb/users/bob/notes.md",),
+                ).fetchone()[0]
+                conn.close()
+                self.assertNotIn("kb/users/bob/notes.md", lex_paths_after)
+                self.assertEqual(bob_count, 0)
+
+                # Verify alice is still in lexical
+                self.assertIn("kb/users/alice/notes.md", lex_paths_after)
+
+                # Verify Chroma no longer has bob's chunks
+                chroma_bob = collection.get(
+                    where={"file_path": "kb/users/bob/notes.md"},
+                    include=["metadatas"],
+                )
+                self.assertEqual(
+                    len(chroma_bob["ids"]), 0,
+                    "Bob's chunks should be removed from Chroma after reconcile",
+                )
+
+                # Verify alice is still in Chroma
+                chroma_alice = collection.get(
+                    where={"file_path": "kb/users/alice/notes.md"},
+                    include=["metadatas"],
+                )
+                self.assertGreater(len(chroma_alice["ids"]), 0)
+
+                # vector_deleted should be 1 (bob)
+                self.assertEqual(summary.vector_deleted, 1)
+                self.assertEqual(summary.warnings, [])
+
+            finally:
+                p1.stop()
+
+    def test_reconcile_noop_when_nothing_stale(self) -> None:
+        """When all indexed files still exist, reconcile deletes nothing."""
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            lex_db_path = tmpdir / "kb" / "rag" / "lexical" / "lexical.sqlite3"
+
+            try:
+                summary = reconcile_index(
+                    roots=[
+                        (tmpdir / "kb").as_posix(),
+                        (tmpdir / "artifacts").as_posix(),
+                    ],
+                    persist_directory=index_dir,
+                    collection_name=coll,
+                    lexical_db_path=lex_db_path,
+                )
+
+                self.assertEqual(summary.stale_files, 0)
+                self.assertEqual(summary.vector_deleted, 0)
+                self.assertEqual(summary.lexical_deleted, 0)
+                self.assertEqual(summary.warnings, [])
+            finally:
+                helper.cleanup()
+
+    def test_reconcile_warns_on_chroma_delete_failure(self) -> None:
+        """If Chroma delete-by-where raises, a warning is emitted but lexical is still cleaned."""
+        helper = _IndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+
+            alice_dir = tmpdir / "kb" / "users" / "alice"
+            bob_dir = tmpdir / "kb" / "users" / "bob"
+            artifacts_dir = tmpdir / "artifacts" / "dossiers" / "alice"
+            shared_dir = tmpdir / "kb" / "shared"
+
+            for d in (alice_dir, bob_dir, artifacts_dir, shared_dir):
+                d.mkdir(parents=True, exist_ok=True)
+
+            (alice_dir / "notes.md").write_text("Alice notes alpha beta", encoding="utf-8")
+            (bob_dir / "notes.md").write_text("Bob notes gamma delta", encoding="utf-8")
+            (artifacts_dir / "report.md").write_text("report data", encoding="utf-8")
+            (shared_dir / "config.yaml").write_text("config: true", encoding="utf-8")
+
+            index_dir = tmpdir / "_chroma_index"
+            manifest_path = tmpdir / "manifest.json"
+            lex_db_path = tmpdir / "lex" / "lexical.sqlite3"
+            collection_name = sanitize_collection_name(f"test_{tmpdir.name}")
+
+            fake_root = lambda: tmpdir  # noqa: E731
+            p1 = patch("polymarket.rag.index._resolve_repo_root", fake_root)
+            p1.start()
+
+            try:
+                build_index(
+                    roots=[
+                        (tmpdir / "kb").as_posix(),
+                        (tmpdir / "artifacts").as_posix(),
+                    ],
+                    embedder=helper.embedder,
+                    chunk_size=10,
+                    overlap=2,
+                    persist_directory=index_dir,
+                    collection_name=collection_name,
+                    rebuild=True,
+                    manifest_path=manifest_path,
+                    lexical_db_path=lex_db_path,
+                )
+
+                # Delete bob from disk
+                (bob_dir / "notes.md").unlink()
+
+                # Patch _chroma_indexed_file_paths and the collection.delete
+                # to simulate a Chroma delete failure for bob's file.
+                import chromadb
+
+                real_client = chromadb.PersistentClient(path=str(index_dir))
+                real_coll = real_client.get_or_create_collection(
+                    name=collection_name, metadata={"hnsw:space": "cosine"},
+                )
+                original_delete = real_coll.delete
+
+                def _failing_delete(**kwargs):
+                    where = kwargs.get("where", {})
+                    if where.get("file_path") == "kb/users/bob/notes.md":
+                        raise RuntimeError("Simulated Chroma delete failure")
+                    return original_delete(**kwargs)
+
+                real_coll.delete = _failing_delete
+
+                # Make get_or_create_collection return our patched collection
+                real_client.get_or_create_collection = lambda **kw: real_coll
+
+                with patch("chromadb.PersistentClient", return_value=real_client):
+                    summary = reconcile_index(
+                        roots=[
+                            (tmpdir / "kb").as_posix(),
+                            (tmpdir / "artifacts").as_posix(),
+                        ],
+                        persist_directory=index_dir,
+                        collection_name=collection_name,
+                        lexical_db_path=lex_db_path,
+                    )
+
+                # Warning should be emitted for failed vector delete
+                self.assertEqual(len(summary.warnings), 1)
+                self.assertIn("Chroma delete-by-where failed", summary.warnings[0])
+                self.assertIn("--rebuild", summary.warnings[0])
+
+                # Lexical should still have been cleaned
+                self.assertEqual(summary.lexical_deleted, 1)
+                conn = open_lexical_db(lex_db_path)
+                bob_count = conn.execute(
+                    "SELECT count(*) FROM chunks WHERE file_path = ?",
+                    ("kb/users/bob/notes.md",),
+                ).fetchone()[0]
+                conn.close()
+                self.assertEqual(bob_count, 0)
+
+            finally:
+                p1.stop()
+
+    def test_list_indexed_file_paths(self) -> None:
+        """list_indexed_file_paths returns the correct set of file_path values."""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            lex_db = Path(raw) / "lex" / "lexical.sqlite3"
+            conn = open_lexical_db(lex_db)
+            lexical_insert(conn, [
+                {
+                    "chunk_id": "c1",
+                    "doc_id": "d1",
+                    "file_path": "kb/users/alice/notes.md",
+                    "chunk_index": 0,
+                    "doc_type": "user_kb",
+                    "user_slug": "alice",
+                    "is_private": True,
+                    "chunk_text": "alpha beta gamma",
+                },
+                {
+                    "chunk_id": "c2",
+                    "doc_id": "d1",
+                    "file_path": "kb/users/alice/notes.md",
+                    "chunk_index": 1,
+                    "doc_type": "user_kb",
+                    "user_slug": "alice",
+                    "is_private": True,
+                    "chunk_text": "delta epsilon zeta",
+                },
+                {
+                    "chunk_id": "c3",
+                    "doc_id": "d2",
+                    "file_path": "kb/users/bob/notes.md",
+                    "chunk_index": 0,
+                    "doc_type": "user_kb",
+                    "user_slug": "bob",
+                    "is_private": True,
+                    "chunk_text": "theta iota kappa",
+                },
+            ])
+            conn.commit()
+
+            paths = list_indexed_file_paths(conn)
+            conn.close()
+
+            self.assertEqual(paths, {"kb/users/alice/notes.md", "kb/users/bob/notes.md"})
 
 
 if __name__ == "__main__":
