@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages
 from polymarket.llm_research_packets import _username_to_slug
 from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
 from polymarket.rag.query import query_index
+from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
 
 
 def _build_user_prefixes(user: str) -> List[str]:
@@ -105,6 +106,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=60,
         help="RRF fusion constant (higher reduces rank impact).",
     )
+    parser.add_argument(
+        "--rerank",
+        action="store_true",
+        default=False,
+        help="Apply cross-encoder reranking after retrieval (requires --hybrid).",
+    )
+    parser.add_argument(
+        "--rerank-top-n",
+        type=int,
+        default=50,
+        help="Number of fused results to rerank (default 50).",
+    )
+    parser.add_argument(
+        "--rerank-model",
+        default=DEFAULT_RERANK_MODEL,
+        help="Cross-encoder model name for reranking.",
+    )
     parser.add_argument("--model", default=DEFAULT_EMBED_MODEL, help="SentenceTransformer model name.")
     parser.add_argument("--device", default="auto", help="Device: auto, cpu, cuda.")
     parser.add_argument(
@@ -147,6 +165,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         embedder = None
         if not args.lexical_only:
             embedder = SentenceTransformerEmbedder(model_name=args.model, device=args.device)
+
+        # Build reranker if requested
+        reranker = None
+        if args.rerank:
+            if not args.hybrid:
+                print("Warning: --rerank is most useful with --hybrid. Proceeding anyway.")
+            reranker = CrossEncoderReranker(
+                model_name=args.rerank_model,
+                device=args.device,
+                cache_folder="kb/rag/models",
+            )
+
         results = query_index(
             question=args.question,
             embedder=embedder,
@@ -166,12 +196,20 @@ def main(argv: Optional[list[str]] = None) -> int:
             top_k_vector=args.top_k_vector,
             top_k_lexical=args.top_k_lexical,
             rrf_k=args.rrf_k,
+            reranker=reranker,
+            rerank_top_n=args.rerank_top_n,
         )
     except RuntimeError as exc:
         print(f"Error: {exc}")
         return 1
 
-    mode = "hybrid" if args.hybrid else ("lexical" if args.lexical_only else "vector")
+    # Determine mode string
+    if args.hybrid:
+        mode = "hybrid+rerank" if args.rerank else "hybrid"
+    elif args.lexical_only:
+        mode = "lexical"
+    else:
+        mode = "vector+rerank" if args.rerank else "vector"
     payload = {
         "question": args.question,
         "k": args.k,
