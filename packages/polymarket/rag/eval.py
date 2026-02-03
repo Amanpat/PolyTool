@@ -8,6 +8,7 @@ scope-violation metrics.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -35,11 +36,13 @@ class EvalCase:
     must_include_any: list[str]
     must_exclude_any: list[str]
     notes: str = ""
+    label: str = ""
 
 
 @dataclass
 class CaseResult:
     query: str
+    label: str
     mode: str  # "vector" | "lexical" | "hybrid"
     recall_at_k: float
     mrr_at_k: float
@@ -94,6 +97,7 @@ def load_suite(path: Path) -> list[EvalCase]:
 
             filters = obj.get("filters") or {}
             expect = obj.get("expect") or {}
+            label = obj.get("label") or expect.get("label") or obj["query"]
 
             cases.append(
                 EvalCase(
@@ -102,6 +106,7 @@ def load_suite(path: Path) -> list[EvalCase]:
                     must_include_any=expect.get("must_include_any") or [],
                     must_exclude_any=expect.get("must_exclude_any") or [],
                     notes=expect.get("notes", ""),
+                    label=label,
                 )
             )
 
@@ -250,6 +255,7 @@ def run_eval(
                 mode_results[mode_name].append(
                     CaseResult(
                         query=case.query,
+                        label=case.label or case.query,
                         mode=mode_name,
                         recall_at_k=0.0,
                         mrr_at_k=0.0,
@@ -266,6 +272,7 @@ def run_eval(
                 mode_results[mode_name].append(
                     CaseResult(
                         query=case.query,
+                        label=case.label or case.query,
                         mode=mode_name,
                         recall_at_k=0.0,
                         mrr_at_k=0.0,
@@ -302,6 +309,7 @@ def run_eval(
                 mode_results[mode_name].append(
                     CaseResult(
                         query=case.query,
+                        label=case.label or case.query,
                         mode=mode_name,
                         recall_at_k=0.0,
                         mrr_at_k=0.0,
@@ -319,6 +327,7 @@ def run_eval(
             mode_results[mode_name].append(
                 CaseResult(
                     query=case.query,
+                    label=case.label or case.query,
                     mode=mode_name,
                     recall_at_k=recall,
                     mrr_at_k=mrr,
@@ -372,6 +381,34 @@ def run_eval(
 # ---------------------------------------------------------------------------
 
 
+def _percentile(values: list[float], pct: float) -> float:
+    """Return a linear-interpolated percentile for *values* (0.0 to 1.0)."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    idx = (len(ordered) - 1) * pct
+    lower = math.floor(idx)
+    upper = math.ceil(idx)
+    if lower == upper:
+        return ordered[int(idx)]
+    weight = idx - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * weight
+
+
+def _top_scope_violations(case_results: list[CaseResult], limit: int = 3) -> list[tuple[str, int]]:
+    """Return top violating case labels with violation counts."""
+    counts: dict[str, int] = {}
+    for cr in case_results:
+        if not cr.scope_violations:
+            continue
+        label = cr.label or cr.query
+        counts[label] = counts.get(label, 0) + len(cr.scope_violations)
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:limit]
+
+
 def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
     """Write ``report.json`` and ``summary.md`` under *output_dir*.
 
@@ -399,22 +436,41 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
         f"",
         f"## Per-mode Summary",
         f"",
-        f"| Mode | Recall@{report.k} | MRR@{report.k} | Scope Violations | Queries w/ Violations | Mean Latency (ms) |",
-        f"|------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 23}|{'-' * 20}|",
+        f"| Mode | Recall@{report.k} | MRR@{report.k} | Scope Violations | Queries w/ Violations | Mean Latency (ms) | P50 Latency (ms) | P95 Latency (ms) |",
+        f"|------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 23}|{'-' * 20}|{'-' * 17}|{'-' * 17}|",
     ]
 
     for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
         agg = report.modes.get(mode_name)
         if agg is None:
             continue
+        latencies = [cr.latency_ms for cr in agg.case_results]
+        p50_latency = _percentile(latencies, 0.5)
+        p95_latency = _percentile(latencies, 0.95)
         lines.append(
             f"| {mode_name} "
             f"| {agg.mean_recall_at_k:.3f} "
             f"| {agg.mean_mrr_at_k:.3f} "
             f"| {agg.total_scope_violations} "
             f"| {agg.queries_with_violations} "
-            f"| {agg.mean_latency_ms:.1f} |"
+            f"| {agg.mean_latency_ms:.1f} "
+            f"| {p50_latency:.1f} "
+            f"| {p95_latency:.1f} |"
         )
+
+    lines.append("")
+    lines.append("## Top Scope Violations")
+    lines.append("")
+    for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
+        agg = report.modes.get(mode_name)
+        if agg is None:
+            continue
+        top_violations = _top_scope_violations(agg.case_results, limit=3)
+        if not top_violations:
+            lines.append(f"- {mode_name}: none")
+            continue
+        labels = ", ".join(f"{label} ({count})" for label, count in top_violations)
+        lines.append(f"- {mode_name}: {labels}")
 
     lines.append("")
     lines.append("## Per-case Detail")

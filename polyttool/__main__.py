@@ -7,6 +7,7 @@ import sys
 from tools.cli.export_clickhouse import main as export_clickhouse_main
 from tools.cli.export_dossier import main as export_dossier_main
 from tools.cli.rag_index import main as rag_index_main
+from tools.cli.rag_eval import main as rag_eval_main
 from tools.cli.rag_query import main as rag_query_main
 from tools.cli.scan import main as scan_main
 
@@ -17,6 +18,7 @@ def print_usage() -> None:
     print("       python -m polyttool export-clickhouse [options]")
     print("       python -m polyttool rag-index [options]")
     print("       python -m polyttool rag-query [options]")
+    print("       python -m polyttool rag-eval [options]")
 
 
 def main() -> int:
@@ -39,6 +41,8 @@ def main() -> int:
         return rag_index_main(sys.argv[2:])
     if command == "rag-query":
         return rag_query_main(sys.argv[2:])
+    if command == "rag-eval":
+        return rag_eval_main(sys.argv[2:])
 
     print(f"Unknown command: {command}")
     print_usage()

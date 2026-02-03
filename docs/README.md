@@ -6,7 +6,9 @@ This folder is the public truth source. Use this page as the entrypoint.
 - [Project overview](PROJECT_OVERVIEW.md)
 - [Architecture](ARCHITECTURE.md)
 - [Risk policy](RISK_POLICY.md)
+- [Knowledge base conventions](KNOWLEDGE_BASE_CONVENTIONS.md)
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
+- [Opus 4.5 evidence bundle workflow](OPUS_BUNDLE_WORKFLOW.md)
 
 ## ADRs
 - [ADR index](adr/)

@@ -11,6 +11,26 @@ A monorepo for Polymarket reverse-engineering tools and analysis infrastructure.
 
 See [docs/README.md](docs/README.md) for the documentation index.
 
+## Knowledge base conventions
+
+See [docs/KNOWLEDGE_BASE_CONVENTIONS.md](docs/KNOWLEDGE_BASE_CONVENTIONS.md) for the
+public/private boundary and the required Agent Run Log in `kb/devlog/` for every agent run.
+
+## CLI overview
+
+PolyTool ships a local CLI with these commands (matches `python -m polyttool --help`):
+
+```
+python -m polyttool scan
+python -m polyttool export-dossier
+python -m polyttool export-clickhouse
+python -m polyttool rag-index
+python -m polyttool rag-query
+python -m polyttool rag-eval
+```
+
+Run `python -m polyttool <command> --help` for command-specific flags.
+
 ## Quick Start
 
 ```bash
@@ -47,12 +67,13 @@ cp .env.example .env
 # Set TARGET_USER in .env (e.g. @432614799197 or 0x...)
 
 # Run the one-shot scan (env-driven, with CLI overrides)
-python tools/cli/scan.py
-# or
 python -m polyttool scan
 
+# Legacy wrapper (same behavior)
+python tools/cli/scan.py
+
 # Optional: include activity + positions snapshots and compute PnL
-python tools/cli/scan.py --ingest-activity --ingest-positions --compute-pnl
+python -m polyttool scan --ingest-activity --ingest-positions --compute-pnl
 ```
 
 Scan flags can also be set via `SCAN_INGEST_ACTIVITY=true`, `SCAN_INGEST_POSITIONS=true`, and `SCAN_COMPUTE_PNL=true`.
@@ -63,6 +84,21 @@ Open Grafana at http://localhost:3000 and view:
 - **PolyTool - PnL**
 
 Port mappings: API `8000`, Grafana `3000`, ClickHouse HTTP `18123`, ClickHouse Native `19000`.
+
+## Local RAG workflow (end-to-end)
+
+See [docs/LOCAL_RAG_WORKFLOW.md](docs/LOCAL_RAG_WORKFLOW.md) for the full local-first workflow and scoping details.
+Short version:
+
+```bash
+python -m polyttool scan
+python -m polyttool export-dossier --user "@Pimping"
+python -m polyttool export-clickhouse --user "@Pimping"
+python -m polyttool rag-index --roots "kb,artifacts" --rebuild
+python -m polyttool rag-query --question "Most recent evidence" --hybrid --rerank --k 8
+```
+
+For the Opus 4.5 evidence bundle template, see [docs/OPUS_BUNDLE_WORKFLOW.md](docs/OPUS_BUNDLE_WORKFLOW.md).
 
 ## Services
 

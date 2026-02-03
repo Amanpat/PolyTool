@@ -425,6 +425,8 @@ class EvalWriteReportTests(unittest.TestCase):
                 self.assertIn("vector", md_text)
                 self.assertIn("lexical", md_text)
                 self.assertIn("hybrid", md_text)
+                self.assertIn("Top Scope Violations", md_text)
+                self.assertIn("P50 Latency", md_text)
 
             finally:
                 helper.cleanup()
