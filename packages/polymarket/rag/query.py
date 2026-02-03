@@ -15,6 +15,7 @@ from .lexical import (
     open_lexical_db,
     reciprocal_rank_fusion,
 )
+from .reranker import BaseReranker, rerank_results
 
 
 def _resolve_repo_root() -> Path:
@@ -239,6 +240,9 @@ def query_index(
     top_k_vector: int = 25,
     top_k_lexical: int = 25,
     rrf_k: int = RRF_K,
+    # --- reranking ---
+    reranker: Optional[BaseReranker] = None,
+    rerank_top_n: int = 50,
 ) -> List[dict]:
     if hybrid and lexical_only:
         raise ValueError("hybrid and lexical_only are mutually exclusive")
@@ -262,21 +266,19 @@ def query_index(
     # --- lexical-only path (no embedder needed) ---
     if lexical_only:
         ensure_fts5_available()
-        return _run_lexical_query(
+        final = _run_lexical_query(
             question,
             k=k,
             lexical_db_path=lexical_db_path,
             filter_prefixes=filter_prefixes,
             **_filter_kw,
         )
-
     # --- vector (and hybrid) path: embedder required ---
-    if embedder is None:
+    elif embedder is None:
         raise ValueError("embedder is required for vector or hybrid queries")
-
-    if not hybrid:
+    elif not hybrid:
         search_k = max(k * 4, k)
-        return _run_vector_query(
+        final = _run_vector_query(
             question,
             embedder=embedder,
             n_results=search_k,
@@ -286,29 +288,36 @@ def query_index(
             where_filter=where_filter,
             filter_prefixes=filter_prefixes,
         )
+    else:
+        # --- hybrid path ---
+        ensure_fts5_available()
+        vector_k = max(top_k_vector, k)
+        lexical_k = max(top_k_lexical, k)
 
-    ensure_fts5_available()
-    vector_k = max(top_k_vector, k)
-    lexical_k = max(top_k_lexical, k)
+        vector_results = _run_vector_query(
+            question,
+            embedder=embedder,
+            n_results=vector_k,
+            output_limit=vector_k,
+            persist_directory=persist_directory,
+            collection_name=collection_name,
+            where_filter=where_filter,
+            filter_prefixes=filter_prefixes,
+        )
 
-    vector_results = _run_vector_query(
-        question,
-        embedder=embedder,
-        n_results=vector_k,
-        output_limit=vector_k,
-        persist_directory=persist_directory,
-        collection_name=collection_name,
-        where_filter=where_filter,
-        filter_prefixes=filter_prefixes,
-    )
+        lexical_results = _run_lexical_query(
+            question,
+            k=lexical_k,
+            lexical_db_path=lexical_db_path,
+            filter_prefixes=filter_prefixes,
+            **_filter_kw,
+        )
 
-    lexical_results = _run_lexical_query(
-        question,
-        k=lexical_k,
-        lexical_db_path=lexical_db_path,
-        filter_prefixes=filter_prefixes,
-        **_filter_kw,
-    )
+        fused = reciprocal_rank_fusion(vector_results, lexical_results, rrf_k=rrf_k)
+        final = fused[:k]
 
-    fused = reciprocal_rank_fusion(vector_results, lexical_results, rrf_k=rrf_k)
-    return fused[:k]
+    # --- Apply reranking if requested ---
+    if reranker is not None and final:
+        final = rerank_results(final, query=question, reranker=reranker, top_n=rerank_top_n)
+
+    return final
