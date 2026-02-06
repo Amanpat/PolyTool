@@ -40,6 +40,13 @@ Items that are out of MVP scope but should be considered for future versions.
 - [ ] Portfolio-level aggregation
 - [ ] User clustering by strategy similarity
 
+### Code Quality (found during Roadmap 2)
+- [ ] Migrate `datetime.utcnow()` to `datetime.now(timezone.utc)` across codebase
+- [ ] DRY the `load_env_file` / `apply_env_defaults` helpers (duplicated in scan.py and examine.py)
+- [ ] Add type stubs or Protocol for ClickHouse client to improve static analysis
+- [ ] Coverage report: add Markdown table for PnL-by-outcome breakdown
+- [ ] Run manifest: add `platform` and `python_version` fields for reproducibility
+
 ## Low Priority / Nice-to-Have
 
 ### CLI Improvements

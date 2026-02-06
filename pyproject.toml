@@ -52,7 +52,7 @@ Homepage = "https://github.com/polymarket/polytool"
 Documentation = "https://github.com/polymarket/polytool/tree/main/docs"
 
 [tool.setuptools]
-packages = ["polytool", "polyttool", "packages", "packages.polymarket", "packages.polymarket.rag", "tools", "tools.cli", "tools.guard"]
+packages = ["polytool", "polytool.reports", "polyttool", "packages", "packages.polymarket", "packages.polymarket.rag", "tools", "tools.cli", "tools.guard"]
 
 [tool.setuptools.package-dir]
 "" = "."

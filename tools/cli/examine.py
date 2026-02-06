@@ -35,6 +35,12 @@ from polymarket.llm_research_packets import (
     export_user_dossier,
 )
 from polytool.user_context import resolve_user_context, UserContext
+from polytool.reports.coverage import (
+    build_coverage_report,
+    normalize_fee_fields,
+    write_coverage_report,
+)
+from polytool.reports.manifest import build_run_manifest, write_run_manifest
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +304,88 @@ def _write_prompt(
     return prompt_path
 
 
+def _load_dossier_positions(artifact_path: str) -> List[Dict[str, Any]]:
+    """Load position lifecycle data from a dossier.json file."""
+    dossier_json_path = Path(artifact_path) / "dossier.json"
+    if not dossier_json_path.exists():
+        return []
+    try:
+        dossier = json.loads(dossier_json_path.read_text(encoding="utf-8"))
+        positions = dossier.get("positions", {}).get("positions", [])
+        # Normalize fee fields on every position
+        for pos in positions:
+            normalize_fee_fields(pos)
+        return positions
+    except (json.JSONDecodeError, KeyError):
+        return []
+
+
+def _emit_trust_artifacts(
+    dossier_path: str,
+    run_id: str,
+    started_at: str,
+    user_ctx: UserContext,
+    user_info: Dict[str, str],
+    window_days: int,
+    max_trades: int,
+    artifacts_dir: str,
+    argv: List[str],
+    bundle_result: Optional[Dict[str, Any]],
+) -> Dict[str, str]:
+    """Emit Coverage & Reconciliation Report + Run Manifest into the dossier run dir.
+
+    Returns dict of written file paths.
+    """
+    output_dir = Path(dossier_path)
+    emitted: Dict[str, str] = {}
+
+    # --- Coverage Report ---
+    positions = _load_dossier_positions(dossier_path)
+    coverage_report = build_coverage_report(
+        positions=positions,
+        run_id=run_id,
+        user_slug=user_ctx.slug,
+        wallet=user_ctx.wallet or "",
+        proxy_wallet=user_info.get("proxy_wallet", ""),
+    )
+    coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
+    emitted.update(coverage_paths)
+
+    # --- Run Manifest ---
+    from datetime import datetime, timezone
+    finished_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    output_paths_map = {
+        "run_root": dossier_path,
+        "dossier_path": dossier_path,
+    }
+    if bundle_result:
+        output_paths_map["kb_bundle_path"] = bundle_result.get("bundle_dir", "")
+
+    effective_config = {
+        "window_days": window_days,
+        "max_trades": max_trades,
+        "artifacts_dir": artifacts_dir,
+    }
+
+    manifest = build_run_manifest(
+        run_id=run_id,
+        started_at=started_at,
+        command_name="examine",
+        argv=argv,
+        user_input=user_info.get("original_input", ""),
+        user_slug=user_ctx.slug,
+        wallets=[w for w in [user_ctx.wallet, user_info.get("proxy_wallet")] if w],
+        output_paths=output_paths_map,
+        effective_config=effective_config,
+        finished_at=finished_at,
+    )
+    manifest_path = write_run_manifest(manifest, output_dir)
+    emitted["run_manifest"] = manifest_path
+
+    return emitted
+
+
 def _write_examine_manifest(
     bundle_dir: Path,
     user_ctx: UserContext,
@@ -477,6 +565,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     for user_target in users_to_examine:
         user_input = user_target["user_input"]
+        from datetime import timezone as _tz
+        _started_at = datetime.now(_tz.utc).replace(microsecond=0).isoformat()
         print(f"\n{'='*60}")
         print(f"Examining: {user_input}")
         print(f"{'='*60}")
@@ -562,6 +652,22 @@ def main(argv: Optional[list[str]] = None) -> int:
             run_id,
         )
         print(f"  Manifest: {manifest_path}")
+
+        # Emit trust & validation artifacts
+        trust_paths = _emit_trust_artifacts(
+            dossier_path=dossier_result["artifact_path"],
+            run_id=run_id,
+            started_at=_started_at,
+            user_ctx=user_ctx,
+            user_info=user_info,
+            window_days=window_days,
+            max_trades=max_trades,
+            artifacts_dir=artifacts_dir,
+            argv=argv or [],
+            bundle_result=bundle_result,
+        )
+        for label, fpath in trust_paths.items():
+            print(f"  Trust artifact ({label}): {fpath}")
 
         results.append({
             "user": user_info["user_handle"],
