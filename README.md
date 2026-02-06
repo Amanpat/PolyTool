@@ -35,6 +35,18 @@ python -m polytool rag-eval
 
 Run `python -m polytool <command> --help` for command-specific flags.
 
+## Local CLI config
+
+`polytool.yaml` is local-only and is intentionally ignored by git.
+
+```bash
+cp polytool.example.yaml polytool.yaml
+```
+
+Use `python -m polytool ...` as the canonical invocation. `python -m polyttool ...`
+remains a deprecated compatibility shim and is scheduled for removal after `v0.2.0`
+(see `docs/adr/ADR-0001-cli-and-module-rename.md`).
+
 ## Quick Start
 
 ```bash

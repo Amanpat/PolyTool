@@ -17,6 +17,7 @@ Quick-reference index of all key docs and what they cover.
 |-----|---------|
 | [Plan of Record](PLAN_OF_RECORD.md) | Durable plan: mission, data gaps, fees policy, taxonomy, validation framework |
 | [Architecture](ARCHITECTURE.md) | Components, data flow, RAG metadata schema |
+| [Architect Context Pack](ARCHITECT_CONTEXT_PACK.md) | Deep context snapshot for maintainers (generated, high-signal overview) |
 | [Project Context (Public)](PROJECT_CONTEXT_PUBLIC.md) | Goals, non-goals, data gaps, artifact contract |
 | [Strategy Playbook](STRATEGY_PLAYBOOK.md) | Outcome taxonomy, EV framework, falsification methodology |
 | [Hypothesis Standard](HYPOTHESIS_STANDARD.md) | Prompt template, output rules, quality rubric |

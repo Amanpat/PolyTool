@@ -35,6 +35,13 @@ yarn-error.log*
 
 # Docker volumes (local data)
 *.log
+mcp_stdout*.txt
+mcp_stderr*.txt
+mcp_stdio*.log
+
+# Local CLI config (never commit machine-specific values)
+polytool.yaml
+polytool.yml
 
 # Artifacts (never commit)
 /artifacts/

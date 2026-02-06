@@ -5,6 +5,7 @@ table, see [INDEX.md](INDEX.md).
 
 ## Table of contents
 - [Start here (recommended order)](#start-here-recommended-order)
+- [Local config and CLI naming](#local-config-and-cli-naming)
 - [Core docs](#core-docs)
 - [Workflows](#workflows)
 - [Planning & Context](#planning--context)
@@ -23,6 +24,11 @@ table, see [INDEX.md](INDEX.md).
 9. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
 10. [Current state / what we built](CURRENT_STATE.md)
 11. [Docs best practices](DOCS_BEST_PRACTICES.md)
+
+## Local config and CLI naming
+- Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
+- Use `python -m polytool ...` as the canonical invocation.
+- `python -m polyttool ...` is a deprecated shim kept for compatibility and scheduled for removal after `v0.2.0` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
 
 ## Core docs
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
@@ -43,6 +49,7 @@ table, see [INDEX.md](INDEX.md).
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan with full design decisions
 - [Roadmap](ROADMAP.md) - Milestone checklist, acceptance criteria, kill conditions
 - [Project context (public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, data gaps, artifact contract
+- [Architect context pack](ARCHITECT_CONTEXT_PACK.md) - Deep technical context snapshot
 - [TODO](TODO.md) - Deferred items by priority
 - [Documentation index](INDEX.md) - Quick-reference table of all docs
 

@@ -1,5 +1,6 @@
-# PolyTool Configuration
-# This file defines defaults, golden cases, and caching settings.
+# PolyTool Configuration (Example)
+# Copy this file to polytool.yaml and customize locally.
+# NOTE: polytool.yaml is local-only and gitignored.
 
 defaults:
   days: 30
@@ -9,18 +10,15 @@ defaults:
   auto_rag_index: false
   hypothesis_format: markdown  # markdown | json
 
-# Golden cases for --all-golden examination
-# MVP: DrPufferfish only
 golden_cases:
-  drpufferfish:
+  # Example only: replace with your own local targets.
+  drpufferfish_example:
     user: "@DrPufferfish"
     wallet: "0xdb27bf2ac5d428a9c63dbc914611036855a6c56e"
-    notes: "Primary sports trader for analysis"
+    notes: "Example golden case for local testing."
 
-# KB sources caching configuration
 kb_sources_caching:
   enabled: true
-  # Allowlisted domains for cache-source command
   allowlist:
     - docs.polymarket.com
     - learn.polymarket.com
@@ -35,10 +33,8 @@ kb_sources_caching:
     - nber.org/papers
     - the-odds-api.com/docs
     - developer.sportradar.com/docs
-  # TTL settings (days)
   ttl_days:
-    docs: 30      # Official documentation
-    dynamic: 7    # Dynamic/frequently updated content
-    default: 14   # Default TTL
-  # Output directory for cached sources
+    docs: 30
+    dynamic: 7
+    default: 14
   output_dir: kb/sources
