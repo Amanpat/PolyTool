@@ -29,8 +29,8 @@ diagnostics show non-zero metadata counts after backfill when markets exist.
 docker compose up -d --build
 docker compose run --rm migrate
 curl -X POST "http://localhost:8000/api/ingest/markets" -H "Content-Type: application/json" -d '{"max_pages":200}'
-python -m polyttool scan --user "@Pimping" --bucket day --ingest-activity --ingest-positions
-curl -X POST "http://localhost:8000/api/snapshot/books" -H "Content-Type: application/json" -d '{"user":"@Pimping","max_tokens":50}'
+python -m polyttool scan --user "@example" --bucket day --ingest-activity --ingest-positions
+curl -X POST "http://localhost:8000/api/snapshot/books" -H "Content-Type: application/json" -d '{"user":"@example","max_tokens":50}'
 ```
 
 ```sql

@@ -8,6 +8,7 @@ and document-type scoping at query time.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,8 +17,11 @@ from typing import Optional
 # 0x-prefixed Ethereum address (40 hex chars)
 _WALLET_RE = re.compile(r"(0x[0-9a-fA-F]{40})")
 
-# Date patterns in paths: YYYY-MM-DD or YYYYMMDD
-_DATE_RE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
+# Date component in dossier paths: YYYY-MM-DD
+_DOSSIER_DATE_PART_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+_MIN_YEAR = 2000
+_MAX_YEAR = 2100
 
 
 def derive_doc_type(rel_path: str) -> str:
@@ -89,20 +93,72 @@ def derive_is_private(rel_path: str) -> bool:
     return root in ("kb", "artifacts")
 
 
+def _is_sane_year(year: int) -> bool:
+    return _MIN_YEAR <= year <= _MAX_YEAR
+
+
+def _parse_manifest_created_at(abs_path: Path) -> Optional[datetime]:
+    try:
+        payload = json.loads(abs_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    raw_value = payload.get("created_at_utc")
+    if not isinstance(raw_value, str):
+        return None
+    cleaned = raw_value.strip()
+    if not cleaned:
+        return None
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed = parsed.astimezone(timezone.utc)
+    if not _is_sane_year(parsed.year):
+        return None
+    return parsed
+
+
+def _extract_dossier_date(rel_path: str) -> Optional[datetime]:
+    rel_posix = canonicalize_rel_path(rel_path)
+    if not rel_posix.startswith("artifacts/dossiers/"):
+        return None
+    parts = rel_posix.split("/")
+    for part in parts:
+        if not _DOSSIER_DATE_PART_RE.fullmatch(part):
+            continue
+        try:
+            year_str, month_str, day_str = part.split("-")
+            year = int(year_str)
+            month = int(month_str)
+            day = int(day_str)
+            if not _is_sane_year(year):
+                return None
+            return datetime(year, month, day, tzinfo=timezone.utc)
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
 def derive_created_at(rel_path: str, abs_path: Path) -> Optional[str]:
     """Best-effort ISO-8601 creation date.
 
-    First tries to parse a date from the path (e.g. dossier directories
-    named by date).  Falls back to the file's mtime.
+    Prefers dossier manifest timestamps, otherwise dossier path dates,
+    and finally falls back to the file's mtime.
     """
-    match = _DATE_RE.search(rel_path)
-    if match:
-        try:
-            year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
-            dt = datetime(year, month, day, tzinfo=timezone.utc)
-            return dt.isoformat()
-        except (ValueError, OverflowError):
-            pass
+    rel_posix = canonicalize_rel_path(rel_path)
+    if Path(rel_posix).name == "manifest.json":
+        manifest_dt = _parse_manifest_created_at(abs_path)
+        if manifest_dt is not None:
+            return manifest_dt.isoformat()
+
+    dossier_dt = _extract_dossier_date(rel_posix)
+    if dossier_dt is not None:
+        return dossier_dt.isoformat()
 
     try:
         mtime = abs_path.stat().st_mtime

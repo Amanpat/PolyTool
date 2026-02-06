@@ -30,7 +30,15 @@
       "Skill(gsd:progress)",
       "Skill(gsd:quick)",
       "Bash(test:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(tree:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(Get-ChildItem:*)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(pip show:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(git check-ignore:*)",
+      "Bash(echo:*)"
     ]
   }
 }

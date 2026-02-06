@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
+from pathlib import Path
 from typing import Dict, Optional
 
 import clickhouse_connect
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from polymarket.gamma import GammaClient
 from polymarket.llm_research_packets import (
@@ -18,6 +21,9 @@ from polymarket.llm_research_packets import (
     DEFAULT_WINDOW_DAYS,
     export_user_dossier,
 )
+from polytool.user_context import resolve_user_context
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CLICKHOUSE_HOST = "clickhouse"
 DEFAULT_CLICKHOUSE_PORT = 8123
@@ -115,13 +121,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Error: could not resolve user {input_value}", file=sys.stderr)
         return 1
 
-    username_label = None
-    if profile.username:
-        username_label = f"@{profile.username}"
-    elif args.user:
-        cleaned = args.user.strip()
-        if cleaned:
-            username_label = cleaned if cleaned.startswith("@") else f"@{cleaned}"
+    # Use canonical identity resolver - preserves original --user input for slug derivation
+    # This ensures "@DrPufferfish" always routes to "drpufferfish/" folder
+    original_handle = args.user.strip() if args.user else None
+    if original_handle and not original_handle.startswith("@"):
+        original_handle = f"@{original_handle}"
+
+    user_ctx = resolve_user_context(
+        handle=original_handle,
+        wallet=profile.proxy_wallet,
+        kb_root=Path("kb"),
+        artifacts_root=Path(args.artifacts_dir),
+        require_wallet_for_handle=bool(args.user),
+    )
+
+    logger.debug(
+        "Resolved UserContext: slug=%s handle=%s wallet=%s",
+        user_ctx.slug,
+        user_ctx.handle,
+        user_ctx.wallet,
+    )
+
+    # username_label is used for display, derive from resolved context
+    username_label = user_ctx.handle
 
     result = export_user_dossier(
         clickhouse_client=client,
@@ -131,6 +153,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         window_days=args.days,
         max_trades=args.max_trades,
         artifacts_base_path=args.artifacts_dir,
+        user_slug_override=user_ctx.slug,  # Pass canonical slug to override internal derivation
     )
 
     print("Export complete")

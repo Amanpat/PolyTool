@@ -23,7 +23,7 @@ If no valid price is found for a token, it is skipped and reported in the respon
 ```bash
 curl -X POST http://localhost:8000/api/compute/pnl \
   -H "Content-Type: application/json" \
-  -d "{\"user\":\"@432614799197\",\"bucket\":\"day\"}"
+  -d "{\"user\":\"@example\",\"bucket\":\"day\"}"
 ```
 
 ## Tips

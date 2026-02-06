@@ -1,52 +1,44 @@
-"""Module entrypoint for running PolyTool CLI commands."""
+"""Backward-compatibility shim for polyttool -> polytool migration.
+
+DEPRECATION WARNING: This module is deprecated and will be removed.
+Use 'python -m polytool' or the 'polytool' CLI instead.
+
+This shim exists only for backward compatibility during the transition period.
+See docs/adr/ADR-0001-cli-and-module-rename.md for details.
+"""
 
 from __future__ import annotations
 
 import sys
+import warnings
 
-from tools.cli.export_clickhouse import main as export_clickhouse_main
-from tools.cli.export_dossier import main as export_dossier_main
-from tools.cli.rag_index import main as rag_index_main
-from tools.cli.rag_eval import main as rag_eval_main
-from tools.cli.rag_query import main as rag_query_main
-from tools.cli.scan import main as scan_main
+_DEPRECATION_SHOWN = False
 
 
-def print_usage() -> None:
-    print("Usage: python -m polyttool scan [options]")
-    print("       python -m polyttool export-dossier [options]")
-    print("       python -m polyttool export-clickhouse [options]")
-    print("       python -m polyttool rag-index [options]")
-    print("       python -m polyttool rag-query [options]")
-    print("       python -m polyttool rag-eval [options]")
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning once per invocation."""
+    global _DEPRECATION_SHOWN
+    if not _DEPRECATION_SHOWN:
+        warnings.warn(
+            "'polyttool' is deprecated. Use 'polytool' instead. "
+            "This shim will be removed in v0.2.0 or after the first stable release. "
+            "See docs/adr/ADR-0001-cli-and-module-rename.md for migration details.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        print(
+            "DEPRECATION WARNING: 'python -m polyttool' is deprecated. "
+            "Use 'python -m polytool' instead.",
+            file=sys.stderr,
+        )
+        _DEPRECATION_SHOWN = True
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
-        print_usage()
-        return 1
-
-    command = sys.argv[1]
-    if command in ("-h", "--help"):
-        print_usage()
-        return 0
-
-    if command == "scan":
-        return scan_main(sys.argv[2:])
-    if command == "export-dossier":
-        return export_dossier_main(sys.argv[2:])
-    if command == "export-clickhouse":
-        return export_clickhouse_main(sys.argv[2:])
-    if command == "rag-index":
-        return rag_index_main(sys.argv[2:])
-    if command == "rag-query":
-        return rag_query_main(sys.argv[2:])
-    if command == "rag-eval":
-        return rag_eval_main(sys.argv[2:])
-
-    print(f"Unknown command: {command}")
-    print_usage()
-    return 1
+    """Forward to polytool main with deprecation warning."""
+    _show_deprecation_warning()
+    from polytool.__main__ import main as polytool_main
+    return polytool_main(sys.argv[1:])
 
 
 if __name__ == "__main__":

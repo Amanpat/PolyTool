@@ -1,9 +1,22 @@
-# Opus 4.5 Evidence Bundle Workflow
+# LLM Evidence Bundle Workflow
 
 This is a local-first, copy/paste workflow for building a short evidence bundle
-for an Opus 4.5 examination report. It does not assume any external APIs.
+for an LLM examination report. It works with any LLM UI and does not assume
+any external APIs.
 
-## Dry run: Opus 4.5 examination report
+## Preferred: generate the bundle via CLI
+
+Use the dedicated CLI to assemble the dossier + curated RAG excerpts into a
+ready-to-paste bundle:
+
+```
+polytool llm-bundle --user "@example"
+```
+
+The bundle is written to:
+`kb/users/<slug>/llm_bundles/<YYYY-MM-DD>/<run_id>/bundle.md`
+
+## Dry run: LLM examination report
 
 ### Files to paste (in this order)
 Use paths that match your actual dossier output. Do not paste private data into
@@ -29,7 +42,7 @@ Use this exact header format so citations are unambiguous:
 
 ### Prompt template (ready to paste)
 ```
-You are Opus 4.5. Write a concise examination report grounded ONLY in the
+You are an LLM assistant. Write a concise examination report grounded ONLY in the
 provided files. Every factual claim must include a citation using the exact
 file_path in square brackets, e.g. [kb/users/alice/notes/2026-02-03.md].
 If a claim is not supported by the pasted evidence, say so explicitly.
@@ -50,5 +63,16 @@ Inputs (paste in this order):
 
 ### Tips
 - RAG excerpts should reinforce the memo and dossier; avoid redundant snippets.
-- If using a hosted UI, paste only content you are comfortable sharing.
+- If using a hosted LLM UI, paste only content you are comfortable sharing.
 - Keep the final report short; evidence quality matters more than length.
+
+## Save the report run (private KB)
+After you produce the report, save it into the private KB so Local RAG can retrieve
+it later. Prompt text is stored in the devlog entry.
+
+```
+polytool llm-save --user "@example" --model "local-llm" --report-path "artifacts/llm/report.md" --prompt-path "artifacts/llm/prompt.md"
+```
+
+This writes to:
+`kb/users/<slug>/llm_reports/<YYYY-MM-DD>/<model_slug>_<run_id>/`

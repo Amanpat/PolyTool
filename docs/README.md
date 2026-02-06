@@ -1,18 +1,57 @@
-﻿# Documentation Index
+# Documentation Hub
 
-This folder is the public truth source. Use this page as the entrypoint.
+Use this page as the entry point for all public docs. For a quick-reference
+table, see [INDEX.md](INDEX.md).
 
-## Truth source
-- [Project overview](PROJECT_OVERVIEW.md)
-- [Architecture](ARCHITECTURE.md)
-- [Risk policy](RISK_POLICY.md)
+## Table of contents
+- [Start here (recommended order)](#start-here-recommended-order)
+- [Core docs](#core-docs)
+- [Workflows](#workflows)
+- [Planning & Context](#planning--context)
+- [Directories](#directories)
+- [Archive (historical)](#archive-historical)
+
+## Start here (recommended order)
+1. [Project overview](PROJECT_OVERVIEW.md)
+2. [Plan of Record](PLAN_OF_RECORD.md)
+3. [Architecture](ARCHITECTURE.md)
+4. [Risk policy](RISK_POLICY.md)
+5. [Roadmap](ROADMAP.md)
+6. [Runbook: Manual examine](RUNBOOK_MANUAL_EXAMINE.md)
+7. [Hypothesis standard](HYPOTHESIS_STANDARD.md)
+8. [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
+9. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
+10. [Current state / what we built](CURRENT_STATE.md)
+11. [Docs best practices](DOCS_BEST_PRACTICES.md)
+
+## Core docs
+- [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
+- [Hypothesis standard](HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
+- [Docs best practices](DOCS_BEST_PRACTICES.md)
 - [Knowledge base conventions](KNOWLEDGE_BASE_CONVENTIONS.md)
-- [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
-- [Opus 4.5 evidence bundle workflow](OPUS_BUNDLE_WORKFLOW.md)
+- [RAG implementation report](RAG_IMPLEMENTATION_REPORT.md)
+- [Strategy playbook](STRATEGY_PLAYBOOK.md)
+- [Project tree (full)](PROJECT_TREE_FULL.txt)
 
-## ADRs
-- [ADR index](adr/)
-- [ADR 0002: Private KB + Local RAG](adr/0002-private-kb-and-local-rag.md)
+## Workflows
+- [Runbook: Manual examine](RUNBOOK_MANUAL_EXAMINE.md) - Primary workflow (step-by-step)
+- [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
+- [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
+- [Research sources](RESEARCH_SOURCES.md)
+
+## Planning & Context
+- [Plan of Record](PLAN_OF_RECORD.md) - Durable plan with full design decisions
+- [Roadmap](ROADMAP.md) - Milestone checklist, acceptance criteria, kill conditions
+- [Project context (public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, data gaps, artifact contract
+- [TODO](TODO.md) - Deferred items by priority
+- [Documentation index](INDEX.md) - Quick-reference table of all docs
+
+## Directories
+- [ADRs](adr/)
+- [Specs (canonical)](specs/)
+- [Feature docs](features/)
+- [Eval suites](eval/)
+- [Archive policy + historical docs](archive/)
 
 ## Archive (historical)
 These are historical or superseded docs preserved for reference.

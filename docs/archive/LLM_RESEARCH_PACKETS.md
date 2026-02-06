@@ -58,7 +58,7 @@ Use `include_body=true` if you want full JSON/memo fields returned.
 ### CLI
 
 ```
-python -m polyttool export-dossier --user "@Pimping" --days 30 --max-trades 200
+python -m polyttool export-dossier --user "@example" --days 30 --max-trades 200
 ```
 ```
 python -m polyttool export-dossier --wallet "0x..." --days 30 --max-trades 200

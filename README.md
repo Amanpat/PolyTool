@@ -7,29 +7,33 @@ A monorepo for Polymarket reverse-engineering tools and analysis infrastructure.
 - Docker and Docker Compose
 - curl (for testing)
 
-## Documentation index
+## Documentation
 
-See [docs/README.md](docs/README.md) for the documentation index.
+Start at [docs/README.md](docs/README.md) for the docs hub. Key pages:
+
+- [Current state / what we built](docs/CURRENT_STATE.md)
+- [Docs best practices](docs/DOCS_BEST_PRACTICES.md)
 
 ## Knowledge base conventions
 
 See [docs/KNOWLEDGE_BASE_CONVENTIONS.md](docs/KNOWLEDGE_BASE_CONVENTIONS.md) for the
 public/private boundary and the required Agent Run Log in `kb/devlog/` for every agent run.
+Bootstrap local KB folders with `powershell -ExecutionPolicy Bypass -File tools\bootstrap_kb.ps1` (optional `--user <slug>`).
 
 ## CLI overview
 
-PolyTool ships a local CLI with these commands (matches `python -m polyttool --help`):
+PolyTool ships a local CLI with these commands (matches `python -m polytool --help`):
 
 ```
-python -m polyttool scan
-python -m polyttool export-dossier
-python -m polyttool export-clickhouse
-python -m polyttool rag-index
-python -m polyttool rag-query
-python -m polyttool rag-eval
+python -m polytool scan
+python -m polytool export-dossier
+python -m polytool export-clickhouse
+python -m polytool rag-index
+python -m polytool rag-query
+python -m polytool rag-eval
 ```
 
-Run `python -m polyttool <command> --help` for command-specific flags.
+Run `python -m polytool <command> --help` for command-specific flags.
 
 ## Quick Start
 
@@ -64,21 +68,22 @@ docker compose up -d --build
 
 # Configure env
 cp .env.example .env
-# Set TARGET_USER in .env (e.g. @432614799197 or 0x...)
+# Set TARGET_USER in .env (e.g. @example or 0x...)
 
 # Run the one-shot scan (env-driven, with CLI overrides)
-python -m polyttool scan
+python -m polytool scan
 
 # Legacy wrapper (same behavior)
 python tools/cli/scan.py
 
 # Optional: include activity + positions snapshots and compute PnL
-python -m polyttool scan --ingest-activity --ingest-positions --compute-pnl
+python -m polytool scan --ingest-activity --ingest-positions --compute-pnl
 ```
 
 Scan flags can also be set via `SCAN_INGEST_ACTIVITY=true`, `SCAN_INGEST_POSITIONS=true`, and `SCAN_COMPUTE_PNL=true`.
 
 Open Grafana at http://localhost:3000 and view:
+
 - **PolyTool - User Trades**
 - **PolyTool - Strategy Detectors**
 - **PolyTool - PnL**
@@ -91,24 +96,24 @@ See [docs/LOCAL_RAG_WORKFLOW.md](docs/LOCAL_RAG_WORKFLOW.md) for the full local-
 Short version:
 
 ```bash
-python -m polyttool scan
-python -m polyttool export-dossier --user "@Pimping"
-python -m polyttool export-clickhouse --user "@Pimping"
-python -m polyttool rag-index --roots "kb,artifacts" --rebuild
-python -m polyttool rag-query --question "Most recent evidence" --hybrid --rerank --k 8
+python -m polytool scan
+python -m polytool export-dossier --user "@example"
+python -m polytool export-clickhouse --user "@example"
+python -m polytool rag-index --roots "kb,artifacts" --rebuild
+python -m polytool rag-query --question "Most recent evidence" --hybrid --rerank --k 8
 ```
 
-For the Opus 4.5 evidence bundle template, see [docs/OPUS_BUNDLE_WORKFLOW.md](docs/OPUS_BUNDLE_WORKFLOW.md).
+For the LLM evidence bundle workflow, see [docs/LLM_BUNDLE_WORKFLOW.md](docs/LLM_BUNDLE_WORKFLOW.md).
 
 ## Services
 
-| Service | URL | Description |
-|---------|-----|-------------|
-| API | http://localhost:8000 | PolyTool REST API |
-| Swagger UI | http://localhost:8000/docs | Interactive API documentation |
-| ClickHouse HTTP | http://localhost:18123 | Analytics database (HTTP interface) |
-| ClickHouse Native | localhost:19000 | Analytics database (Native protocol) |
-| Grafana | http://localhost:3000 | Dashboards (admin/admin) |
+| Service           | URL                        | Description                          |
+| ----------------- | -------------------------- | ------------------------------------ |
+| API               | http://localhost:8000      | PolyTool REST API                    |
+| Swagger UI        | http://localhost:8000/docs | Interactive API documentation        |
+| ClickHouse HTTP   | http://localhost:18123     | Analytics database (HTTP interface)  |
+| ClickHouse Native | localhost:19000            | Analytics database (Native protocol) |
+| Grafana           | http://localhost:3000      | Dashboards (admin/admin)             |
 
 ## Usage Examples
 
@@ -123,6 +128,7 @@ curl -X POST http://localhost:8000/api/ingest/markets \
 ```
 
 Response:
+
 ```json
 {
   "pages_fetched": 15,
@@ -139,7 +145,7 @@ Resolve a username or wallet address to get profile information:
 # By username
 curl -X POST http://localhost:8000/api/resolve \
   -H "Content-Type: application/json" \
-  -d '{"input": "@432614799197"}'
+  -d '{"input": "@example"}'
 
 # By wallet address
 curl -X POST http://localhost:8000/api/resolve \
@@ -154,10 +160,11 @@ Fetch and store trade history for a user:
 ```bash
 curl -X POST http://localhost:8000/api/ingest/trades \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197", "max_pages": 20}'
+  -d '{"user": "@example", "max_pages": 20}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -175,10 +182,11 @@ Fetch public activity events for a user:
 ```bash
 curl -X POST http://localhost:8000/api/ingest/activity \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197", "max_pages": 20}'
+  -d '{"user": "@example", "max_pages": 20}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -196,10 +204,11 @@ Capture the latest positions snapshot for a user:
 ```bash
 curl -X POST http://localhost:8000/api/ingest/positions \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197"}'
+  -d '{"user": "@example"}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -215,10 +224,11 @@ Run all 4 strategy detectors on a user's trade history:
 ```bash
 curl -X POST http://localhost:8000/api/run/detectors \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197", "bucket": "day"}'
+  -d '{"user": "@example", "bucket": "day"}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -247,10 +257,11 @@ Compute realized PnL (FIFO) and conservative MTM PnL using CLOB best bid/ask:
 ```bash
 curl -X POST http://localhost:8000/api/compute/pnl \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197", "bucket": "day"}'
+  -d '{"user": "@example", "bucket": "day"}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -270,6 +281,7 @@ Response:
 ```
 
 PnL notes:
+
 - Realized PnL uses FIFO matching of buys and sells per token (approximate).
 - MTM PnL values longs at current best bid and shorts at current best ask.
 - Exposure notional uses mid price: `(bestBid + bestAsk) / 2`.
@@ -282,10 +294,11 @@ Analyze arb-like activity with dynamic fee rates and slippage estimates:
 ```bash
 curl -X POST http://localhost:8000/api/compute/arb_feasibility \
   -H "Content-Type: application/json" \
-  -d '{"user": "@432614799197", "bucket": "day"}'
+  -d '{"user": "@example", "bucket": "day"}'
 ```
 
 Response:
+
 ```json
 {
   "proxy_wallet": "0x...",
@@ -321,26 +334,28 @@ Response:
 
 ## API Reference
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/resolve` | POST | Resolve username or wallet to profile |
-| `/api/ingest/trades` | POST | Ingest user trade history |
-| `/api/ingest/activity` | POST | Ingest user activity feed |
-| `/api/ingest/positions` | POST | Ingest user positions snapshot |
-| `/api/ingest/markets` | POST | Ingest market metadata |
-| `/api/run/detectors` | POST | Run strategy detectors |
-| `/api/compute/pnl` | POST | Compute realized + MTM PnL buckets |
-| `/api/compute/arb_feasibility` | POST | Compute arb feasibility with dynamic fees + slippage |
-| `/api/users` | GET | List all ingested users |
-| `/api/users/{wallet}/trades/stats` | GET | Get user trade statistics |
+| Endpoint                           | Method | Description                                          |
+| ---------------------------------- | ------ | ---------------------------------------------------- |
+| `/health`                          | GET    | Health check                                         |
+| `/api/resolve`                     | POST   | Resolve username or wallet to profile                |
+| `/api/ingest/trades`               | POST   | Ingest user trade history                            |
+| `/api/ingest/activity`             | POST   | Ingest user activity feed                            |
+| `/api/ingest/positions`            | POST   | Ingest user positions snapshot                       |
+| `/api/ingest/markets`              | POST   | Ingest market metadata                               |
+| `/api/run/detectors`               | POST   | Run strategy detectors                               |
+| `/api/compute/pnl`                 | POST   | Compute realized + MTM PnL buckets                   |
+| `/api/compute/arb_feasibility`     | POST   | Compute arb feasibility with dynamic fees + slippage |
+| `/api/users`                       | GET    | List all ingested users                              |
+| `/api/users/{wallet}/trades/stats` | GET    | Get user trade statistics                            |
 
 ## Strategy Detectors
 
 PolyTool includes 4 explainable strategy detectors:
 
 ### 1. HOLDING_STYLE
+
 Classifies traders based on how long they hold positions.
+
 - **SCALPER**: Median hold time < 1 hour
 - **SWING**: Median hold time 1 hour - 7 days
 - **HOLDER**: Median hold time > 7 days
@@ -348,14 +363,18 @@ Classifies traders based on how long they hold positions.
 Evidence includes hold time percentiles and distribution buckets.
 
 ### 2. DCA_LADDERING
+
 Detects systematic dollar-cost averaging or ladder buying patterns.
+
 - **DCA_LIKELY**: >30% of token/side groups show consistent sizing
 - **RANDOM**: Trading sizes appear random
 
 Evidence includes size coefficient of variation per token.
 
 ### 3. MARKET_SELECTION_BIAS
+
 Measures category concentration using Herfindahl-Hirschman Index (HHI).
+
 - **DIVERSIFIED**: HHI < 0.15 (spread across many categories)
 - **MODERATE**: HHI 0.15 - 0.25
 - **CONCENTRATED**: HHI > 0.25 (focused on few categories)
@@ -363,7 +382,9 @@ Measures category concentration using Herfindahl-Hirschman Index (HHI).
 Evidence includes top categories and volume percentages.
 
 ### 4. COMPLETE_SET_ARBISH
+
 Identifies potential complete-set arbitrage patterns.
+
 - **ARB_LIKELY**: >30% of multi-outcome markets show both-outcome buys within 24h
 - **NORMAL**: No significant arb patterns detected
 
@@ -399,6 +420,7 @@ Slippage is estimated by simulating execution through the live orderbook:
 5. Calculate slippage vs mid-price: `slippage_bps = (VWAP - mid) / mid * 10000`
 
 **Confidence Levels**:
+
 - **high**: Full size simulated through orderbook
 - **medium**: Partial fill simulated, remaining extrapolated
 - **low**: Insufficient depth - marked with "insufficient depth"
@@ -416,6 +438,7 @@ A conservative 1% edge rate assumption is used. Actual break-even depends on the
 ### Evidence JSON
 
 Each arb bucket includes detailed evidence:
+
 - `fee_rate_bps_values`: Fee rates fetched per token
 - `slippage_bps_values`: Slippage estimates per token/side
 - `book_timestamps`: When orderbook data was fetched
@@ -462,18 +485,23 @@ docker compose exec clickhouse clickhouse-client \
 ### Smoke contract check
 
 Prerequisites:
+
 - Stack is running (`docker compose up -d --build`)
 
 Run:
+
 ```powershell
 tools/run_smoke.ps1
 ```
+
 or
+
 ```bash
 python tools/smoke/smoke_api_contract.py
 ```
 
 Success looks like:
+
 - `/health` returns 200
 - `/api/compute/pnl` returns 200 (or a 4xx for invalid user input, but not 500)
 - `/api/compute/arb_feasibility` returns 200 (or a 4xx for invalid user input, but not 500)
@@ -496,16 +524,19 @@ docker compose down
 When you pull updates that add new ClickHouse tables, views, or grants, you may need to apply schema migrations to an existing database volume. The `migrate` service runs all SQL files from `infra/clickhouse/initdb/` in order.
 
 **When to run migrations:**
+
 - After pulling updates that introduce new tables or views
 - If you see "missing table" errors (e.g., `user_pnl_bucket`)
 - After adding new schema files to `infra/clickhouse/initdb/`
 
 **Run migrations:**
+
 ```bash
 docker compose run --rm migrate
 ```
 
 **Verify migrations:**
+
 ```bash
 # Check that all tables exist
 docker compose exec -T clickhouse clickhouse-client \
@@ -525,21 +556,21 @@ docker compose up -d --build
 
 See `.env.example` for available configuration options.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CLICKHOUSE_DB` | polyttool | Default database name |
-| `CLICKHOUSE_USER` | polyttool_admin | Admin username |
-| `CLICKHOUSE_PASSWORD` | polyttool_admin | Admin password |
-| `GRAFANA_ADMIN_USER` | admin | Grafana admin username |
-| `GRAFANA_ADMIN_PASSWORD` | admin | Grafana admin password |
-| `CLOB_API_BASE` | https://clob.polymarket.com | CLOB API base URL |
-| `PNL_BUCKET_DEFAULT` | day | Default PnL bucket type |
-| `PNL_ORDERBOOK_CACHE_SECONDS` | 30 | CLOB orderbook cache TTL |
-| `PNL_MAX_TOKENS_PER_RUN` | 200 | Safety cap on tokens priced |
-| `PNL_HTTP_TIMEOUT_SECONDS` | 20 | CLOB request timeout |
-| `SCAN_COMPUTE_PNL` | false | Run PnL compute after scan |
-| `ARB_CACHE_SECONDS` | 30 | Fee/book cache TTL for arb computation |
-| `ARB_MAX_TOKENS_PER_RUN` | 200 | Safety cap on tokens for arb analysis |
+| Variable                      | Default                     | Description                            |
+| ----------------------------- | --------------------------- | -------------------------------------- |
+| `CLICKHOUSE_DB`               | polyttool                   | Default database name                  |
+| `CLICKHOUSE_USER`             | polyttool_admin             | Admin username                         |
+| `CLICKHOUSE_PASSWORD`         | polyttool_admin             | Admin password                         |
+| `GRAFANA_ADMIN_USER`          | admin                       | Grafana admin username                 |
+| `GRAFANA_ADMIN_PASSWORD`      | admin                       | Grafana admin password                 |
+| `CLOB_API_BASE`               | https://clob.polymarket.com | CLOB API base URL                      |
+| `PNL_BUCKET_DEFAULT`          | day                         | Default PnL bucket type                |
+| `PNL_ORDERBOOK_CACHE_SECONDS` | 30                          | CLOB orderbook cache TTL               |
+| `PNL_MAX_TOKENS_PER_RUN`      | 200                         | Safety cap on tokens priced            |
+| `PNL_HTTP_TIMEOUT_SECONDS`    | 20                          | CLOB request timeout                   |
+| `SCAN_COMPUTE_PNL`            | false                       | Run PnL compute after scan             |
+| `ARB_CACHE_SECONDS`           | 30                          | Fee/book cache TTL for arb computation |
+| `ARB_MAX_TOKENS_PER_RUN`      | 200                         | Safety cap on tokens for arb analysis  |
 
 ## Known Limitations
 

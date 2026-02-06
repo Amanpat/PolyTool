@@ -1,0 +1,44 @@
+# PolyTool Configuration
+# This file defines defaults, golden cases, and caching settings.
+
+defaults:
+  days: 30
+  max_trades: 200
+  output_dir: ./reports
+  artifacts_dir: artifacts
+  auto_rag_index: false
+  hypothesis_format: markdown  # markdown | json
+
+# Golden cases for --all-golden examination
+# MVP: DrPufferfish only
+golden_cases:
+  drpufferfish:
+    user: "@DrPufferfish"
+    wallet: "0xdb27bf2ac5d428a9c63dbc914611036855a6c56e"
+    notes: "Primary sports trader for analysis"
+
+# KB sources caching configuration
+kb_sources_caching:
+  enabled: true
+  # Allowlisted domains for cache-source command
+  allowlist:
+    - docs.polymarket.com
+    - learn.polymarket.com
+    - github.com/Polymarket/
+    - docs.alchemy.com
+    - thegraph.com/docs
+    - dune.com/docs
+    - mlfinlab.readthedocs.io
+    - vectorbt.dev/docs
+    - arxiv.org
+    - papers.ssrn.com
+    - nber.org/papers
+    - the-odds-api.com/docs
+    - developer.sportradar.com/docs
+  # TTL settings (days)
+  ttl_days:
+    docs: 30      # Official documentation
+    dynamic: 7    # Dynamic/frequently updated content
+    default: 14   # Default TTL
+  # Output directory for cached sources
+  output_dir: kb/sources

@@ -292,6 +292,101 @@
       ],
       "title": "Exposure Notional Over Time",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polyttool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": true,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polyttool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  sum(realized_pnl) OVER (ORDER BY bucket_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_realized_pnl\nFROM (\n  SELECT\n    bucket_start,\n    argMax(realized_pnl, computed_at) AS realized_pnl\n  FROM polyttool.user_pnl_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative Realized PnL (USD)",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",

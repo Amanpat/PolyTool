@@ -21,6 +21,12 @@ kb/ + artifacts/ -> lexical index (SQLite FTS5: kb/rag/lexical/lexical.sqlite3)
 Chroma/lexical -> rag-query -> snippets for offline memos
 ```
 
+RAG storage locations:
+- `kb/rag/index/` - Chroma vector index
+- `kb/rag/lexical/lexical.sqlite3` - SQLite FTS5 lexical index
+- `kb/rag/models/` - embedding + reranker model cache
+- `kb/rag/eval/reports/` - retrieval eval outputs
+
 ## Local RAG boundary
 The RAG pipeline indexes by default:
 - `kb/`
@@ -28,7 +34,7 @@ The RAG pipeline indexes by default:
 
 Optionally, `docs/archive/` can be added when you want RAG to surface past design decisions:
 ```
-python -m polyttool rag-index --roots "kb,artifacts,docs/archive" --rebuild
+polytool rag-index --roots "kb,artifacts,docs/archive" --rebuild
 ```
 
 **External / manual LLM UIs**: if you paste retrieved snippets into a hosted model (Opus 4.5 web,

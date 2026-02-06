@@ -69,9 +69,10 @@ def build_dossier_dir(
     username: Optional[str],
     date_utc: datetime,
     run_id: str,
+    username_slug_override: Optional[str] = None,
 ) -> Path:
     date_label = date_utc.strftime("%Y-%m-%d")
-    username_slug = _username_to_slug(username)
+    username_slug = username_slug_override or _username_to_slug(username)
     return (
         Path("artifacts")
         / "dossiers"
@@ -403,7 +404,15 @@ def export_user_dossier(
     artifacts_base_path: str = "artifacts",
     generated_at: Optional[datetime] = None,
     trend_points: int = DEFAULT_TREND_POINTS,
+    user_slug_override: Optional[str] = None,
 ) -> UserDossierExport:
+    """Export a user dossier with trades, positions, and analytics.
+
+    Args:
+        user_slug_override: If provided, use this slug instead of deriving from username.
+            This allows callers to use the canonical identity resolver (polytool.user_context)
+            for consistent path routing.
+    """
     generated_at = generated_at or datetime.utcnow()
     window_days = max(1, int(window_days))
     max_trades = max(1, int(max_trades))
@@ -411,7 +420,7 @@ def export_user_dossier(
     window_start = generated_at - timedelta(days=window_days)
 
     export_id = str(uuid.uuid4())
-    username_slug = _username_to_slug(username)
+    username_slug = user_slug_override if user_slug_override else _username_to_slug(username)
 
     trade_summary_query = """
         SELECT
@@ -939,6 +948,83 @@ def export_user_dossier(
         "anchor_trade_uids": anchor_trade_uids,
     }
 
+    # Fetch position lifecycle with resolution data (best-effort)
+    positions_lifecycle_query = """
+        SELECT
+            resolved_token_id,
+            market_slug,
+            question,
+            outcome_name,
+            entry_ts,
+            entry_price_avg,
+            total_bought,
+            total_cost,
+            exit_ts,
+            exit_price_avg,
+            total_sold,
+            total_proceeds,
+            hold_duration_seconds,
+            position_remaining,
+            trade_count,
+            buy_count,
+            sell_count
+        FROM user_trade_lifecycle
+        WHERE proxy_wallet = {wallet:String}
+        ORDER BY entry_ts DESC
+        LIMIT 100
+    """
+    positions_lifecycle_rows = []
+    try:
+        positions_lifecycle_result = clickhouse_client.query(
+            positions_lifecycle_query,
+            parameters={"wallet": proxy_wallet},
+        )
+        for row in positions_lifecycle_result.result_rows:
+            gross_pnl = (float(row[11] or 0) - float(row[7] or 0))  # proceeds - cost
+            position_remaining_val = float(row[13] or 0)
+            # Determine resolution outcome (best-effort without settlement data)
+            if position_remaining_val > 0:
+                resolution_outcome = "PENDING"
+            elif gross_pnl > 0:
+                resolution_outcome = "PROFIT_EXIT"
+            else:
+                resolution_outcome = "LOSS_EXIT"
+
+            positions_lifecycle_rows.append({
+                "resolved_token_id": row[0] or "",
+                "market_slug": row[1] or "",
+                "question": row[2] or "",
+                "outcome_name": row[3] or "",
+                "entry_ts": _isoformat(row[4]) if row[4] else "",
+                "entry_price": _round_value(row[5]),
+                "total_bought": _round_value(row[6]),
+                "total_cost": _round_value(row[7]),
+                "exit_ts": _isoformat(row[8]) if row[8] else "",
+                "exit_price": _round_value(row[9]),
+                "total_sold": _round_value(row[10]),
+                "total_proceeds": _round_value(row[11]),
+                "hold_duration_seconds": int(row[12] or 0),
+                "position_remaining": _round_value(row[13]),
+                "trade_count": int(row[14] or 0),
+                "buy_count": int(row[15] or 0),
+                "sell_count": int(row[16] or 0),
+                "gross_pnl": _round_value(gross_pnl),
+                "resolution_outcome": resolution_outcome,
+                # Fees placeholder - to be enriched by fee lookup
+                "fees_actual": 0.0,
+                "fees_estimated": 0.0,
+                "fees_source": "unknown",
+                "realized_pnl_net": _round_value(gross_pnl),  # Net = gross when fees unknown
+            })
+    except Exception as e:
+        # Best-effort: if view doesn't exist yet, skip
+        pass
+
+    positions_summary = {
+        "count": len(positions_lifecycle_rows),
+        "positions": positions_lifecycle_rows[:50],  # Limit to 50 in dossier
+    }
+
     dossier = {
         "schema_version": "LLM Research Packet v1",
         "header": {
@@ -957,6 +1043,7 @@ def export_user_dossier(
         "liquidity_summary": liquidity_summary,
         "detectors": detectors_payload,
         "anchors": anchors,
+        "positions": positions_summary,
     }
 
     dossier_json = json.dumps(dossier, indent=2, sort_keys=True)
@@ -969,6 +1056,7 @@ def export_user_dossier(
         username=username,
         date_utc=generated_at,
         run_id=export_id,
+        username_slug_override=username_slug,
     )
     output_dir = _apply_artifacts_base_path(artifacts_base_path, dossier_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -4,6 +4,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,7 @@ from polymarket.rag.metadata import (
     canonicalize_rel_path,
     compute_chunk_id,
     compute_doc_id,
+    derive_created_at,
     derive_doc_type,
     derive_is_private,
     derive_proxy_wallet,
@@ -200,6 +202,49 @@ class MetadataDerivationTests(unittest.TestCase):
 
     def test_proxy_wallet_none(self) -> None:
         self.assertIsNone(derive_proxy_wallet("kb/users/alice/notes.md"))
+
+    def test_created_at_from_dossier_date(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            tmp_root = Path(tmpdir)
+            rel_path = "artifacts/dossiers/users/alice/0xabc/2026-02-03/run1/memo.md"
+            abs_path = tmp_root / Path(rel_path)
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text("memo", encoding="utf-8")
+
+            created_at = derive_created_at(rel_path, abs_path)
+
+        self.assertEqual(created_at, "2026-02-03T00:00:00+00:00")
+
+    def test_created_at_prefers_manifest_created_at(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            tmp_root = Path(tmpdir)
+            rel_path = "artifacts/dossiers/users/alice/0xabc/2026-02-01/run2/manifest.json"
+            abs_path = tmp_root / Path(rel_path)
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text(
+                json.dumps({"created_at_utc": "2026-02-03T12:34:56Z"}),
+                encoding="utf-8",
+            )
+
+            created_at = derive_created_at(rel_path, abs_path)
+
+        self.assertEqual(created_at, "2026-02-03T12:34:56+00:00")
+
+    def test_created_at_ignores_out_of_range_path_dates(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            tmp_root = Path(tmpdir)
+            rel_path = "artifacts/dossiers/users/alice/0xabc/9146-11-03/run1/memo.md"
+            abs_path = tmp_root / Path(rel_path)
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_text("memo", encoding="utf-8")
+
+            fallback_dt = datetime(2026, 2, 5, 1, 2, 3, tzinfo=timezone.utc)
+            ts = fallback_dt.timestamp()
+            os.utime(abs_path, (ts, ts))
+
+            created_at = derive_created_at(rel_path, abs_path)
+
+        self.assertEqual(created_at, "2026-02-05T01:02:03+00:00")
 
     def test_build_chunk_metadata_keys(self) -> None:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
