@@ -1,107 +1,173 @@
 # Trust Artifacts (Roadmap 2)
 
-This document defines the trust artifacts emitted by the canonical scan workflow.
+Roadmap 2 made `python -m polytool scan` the canonical trust-artifact producer.
+The two public trust artifacts are:
 
-## Canonical Command
+- `coverage_reconciliation_report.json` (optional `coverage_reconciliation_report.md`)
+- `run_manifest.json`
 
-Use scan as the canonical workflow entrypoint:
-
-```powershell
-python -m polytool scan --user "@example"
-```
-
-For export diagnostics (wallet, endpoints, response counts):
-
-```powershell
-python -m polytool scan --user "@example" --debug-export
-```
-
-`examine` is a legacy orchestration path. Trust artifacts should be validated from
-scan runs where `run_manifest.json` has `command_name = "scan"`.
-
-## Run Root Concept
-
-Each scan writes a run root under:
+Both are written into the scan run root:
 
 `artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/`
 
-Typical files in the run root:
+`examine` is legacy orchestration. For canonical trust-artifact validation,
+use runs where `run_manifest.json` has `command_name = "scan"`.
 
-- `dossier.json` (exported dossier payload used for trust artifact computation)
-- `memo.md` (if available from export hydration)
-- `coverage_reconciliation_report.json` (canonical machine-readable trust report)
-- `coverage_reconciliation_report.md` (optional human-readable rendering)
-- `run_manifest.json` (canonical run metadata + output paths)
+## Canonical Commands
+
+```powershell
+python -m polytool scan --user "@example"
+python -m polytool scan --user "@example" --debug-export
+```
+
+`--debug-export` prints wallet, endpoint, and hydration diagnostics that help
+explain empty or low-coverage exports.
+
+## Artifact Summary
+
+- `coverage_reconciliation_report.json`:
+  machine-readable trust report for outcome coverage, UID coverage, PnL/fees
+  sanity checks, resolution coverage, and warnings.
+- `coverage_reconciliation_report.md`:
+  optional human-readable rendering of the same report.
+- `run_manifest.json`:
+  run provenance/reproducibility metadata and output paths.
 
 ## coverage_reconciliation_report.json
 
-Main sections and how to interpret them:
+### Practical schema
 
-- `report_version`, `generated_at`, `run_id`, `user_slug`, `wallet`, `proxy_wallet`:
-  identity and provenance metadata.
-- `totals.positions_total`: number of position records used to compute this report.
-- `outcome_counts` / `outcome_percentages`:
-  distribution of `WIN`, `LOSS`, `PROFIT_EXIT`, `LOSS_EXIT`, `PENDING`,
-  `UNKNOWN_RESOLUTION`.
+- Top-level identity/provenance:
+  `report_version`, `generated_at`, `run_id`, `user_slug`, `wallet`,
+  `proxy_wallet`
+- Totals:
+  `totals.positions_total`
+- Outcome distribution:
+  `outcome_counts`, `outcome_percentages`
+- UID coverage:
+  `deterministic_trade_uid_coverage`, `fallback_uid_coverage`
+- PnL sanity:
+  `pnl.realized_pnl_net_total`,
+  `pnl.realized_pnl_net_by_outcome`,
+  `pnl.missing_realized_pnl_count`
+- Fee sourcing sanity:
+  `fees.fees_source_counts`,
+  `fees.fees_actual_present_count`,
+  `fees.fees_estimated_present_count`
+- Resolution coverage:
+  `resolution_coverage.resolved_total`,
+  `resolution_coverage.unknown_resolution_total`,
+  `resolution_coverage.unknown_resolution_rate`,
+  `resolution_coverage.held_to_resolution_total`,
+  `resolution_coverage.win_loss_covered_rate`
+- Warnings:
+  `warnings` (list of actionable strings)
+
+### Outcomes
+
+`outcome_counts`/`outcome_percentages` cover these buckets:
+
+- `WIN`
+- `LOSS`
+- `PROFIT_EXIT`
+- `LOSS_EXIT`
+- `PENDING`
+- `UNKNOWN_RESOLUTION`
+
+Any unrecognized outcome value is normalized into `UNKNOWN_RESOLUTION`.
+
+### deterministic_trade_uid_coverage vs fallback_uid_coverage
+
 - `deterministic_trade_uid_coverage`:
-  strict trade UID coverage from deterministic `trade_uid` values only.
+  strict coverage from deterministic `trade_uid` only.
+  Includes duplicate detection (`duplicate_trade_uid_count`,
+  `duplicate_sample`).
 - `fallback_uid_coverage`:
-  non-deterministic fallback identifiers (`resolved_token_id`, `token_id`,
-  `condition_id`) tracked separately from deterministic coverage.
-- `pnl`:
-  realized net PnL totals and `missing_realized_pnl_count`.
-- `fees`:
-  fee sourcing diagnostics including `fees_source_counts` and actual/estimated
-  presence counts.
-- `resolution_coverage`:
-  resolved/unknown totals and rates, plus held-to-resolution diagnostics.
-- `warnings`:
-  actionable data quality or coverage warnings for this run.
+  coverage from fallback identifiers only
+  (`resolved_token_id`, then `token_id`, then `condition_id`).
+  Includes `fallback_only_count` for rows lacking deterministic `trade_uid`.
 
-### Interpreting Common "Low Quality" Patterns
+Interpretation rule of thumb:
 
-These are expected in Roadmap 2 outputs and are not by themselves a bug:
+- High deterministic coverage is best.
+- High fallback-only coverage means data is still usable, but less strict for
+  dedupe/auditing than deterministic `trade_uid`.
 
-- High `UNKNOWN_RESOLUTION`
-- High `missing_realized_pnl_count`
-- High `fees_source = unknown`
-- Low deterministic trade UID coverage
+### Warning rules of thumb
 
-Roadmap 3 owns reducing `UNKNOWN_RESOLUTION` and improving outcome coverage/data
-quality. Use warnings plus raw dossier/export context to triage what is data
-availability vs parser/schema mismatch.
+Warnings are emitted when these conditions occur:
+
+- duplicate deterministic UIDs exist
+- `UNKNOWN_RESOLUTION` rate is above 5%
+- one or more rows are missing `realized_pnl_net`
+- all rows have `fees_source=unknown`
+
+Scan adds an extra warning when `positions_total = 0` that includes wallet and
+endpoint context plus next checks (wallet mapping, lookback/history coverage).
 
 ## run_manifest.json
 
-`run_manifest.json` is the canonical execution metadata for a scan run.
+### Practical schema
 
-Key fields:
+- Run identity/timing:
+  `manifest_version`, `run_id`, `started_at`, `finished_at`,
+  `duration_seconds`
+- Invocation:
+  `command_name`, `argv`
+- Resolved identity context:
+  `user_input`, `user_slug`, `wallets`
+- Outputs:
+  `output_paths` (includes `run_root`,
+  `coverage_reconciliation_report_json`, and optional markdown path)
+- Reproducibility metadata:
+  `effective_config_hash_sha256`, `polytool_version`, `git_commit`
 
-- `command_name`: should be `scan` for canonical trust artifact runs.
-- `argv`: command arguments used for this run.
-- `run_id`, `started_at`, `finished_at`, `duration_seconds`:
-  run timing and identity.
-- `user_input`, `user_slug`, `wallets`:
-  resolved identity context.
-- `output_paths`:
-  canonical references to run outputs, including
-  `coverage_reconciliation_report_json` and `run_root`.
-- `effective_config_hash_sha256`:
-  reproducibility hook for effective runtime config.
+For canonical Roadmap 2 runs, `command_name` is `scan`.
 
-## Debug Export Guidance
+### Config hash behavior + secret redaction
 
-Run with `--debug-export` when diagnosing empty or unexpected coverage.
+`effective_config_hash_sha256` is SHA-256 of deterministic JSON serialization
+(`sort_keys=True`, stable separators) of the effective config after recursive
+secret redaction.
 
-Expected diagnostics include:
+Redaction rule: any config key containing one of these substrings
+(case-insensitive) is replaced with `<REDACTED>` before hashing:
+
+- `password`
+- `secret`
+- `token`
+- `key`
+- `api_key`
+
+Implications:
+
+- Same non-secret effective config => same hash across runs.
+- Different secret values alone do not change the hash.
+- If no effective config is passed, the hash is an empty string.
+
+### What makes runs reproducible
+
+When comparing two runs, the most useful fields are:
+
+- `command_name` + `argv`
+- `effective_config_hash_sha256`
+- `user_slug` + `wallets`
+- `polytool_version` + `git_commit`
+- `output_paths.run_root` for exact artifact location
+
+## Empty-Export Triage (`--debug-export`)
+
+Use `--debug-export` when trust artifacts look empty or unexpectedly sparse.
+The debug stream reports:
 
 - wallet used for export/hydration
-- endpoints used (`/api/export/user_dossier`, `/api/export/user_dossier/history`)
-- counts returned (positions/trades and local/hydrated lengths)
-- hydration decision (whether history replaced an empty export payload)
+- endpoints used:
+  `/api/export/user_dossier`, `/api/export/user_dossier/history`
+- counts from export and hydrated payloads (positions/trades)
+- whether history hydration replaced an empty latest export
 
 If `positions_total = 0`, validate:
 
-1. user handle to wallet mapping is correct
-2. export endpoints returned non-empty positions for that wallet
-3. lookback window/history coverage is sufficient for the target period
+1. handle/wallet mapping for the target user
+2. export/history endpoint rows for that wallet
+3. lookback/history coverage for the target period

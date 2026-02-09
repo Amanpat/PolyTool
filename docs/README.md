@@ -29,12 +29,12 @@ table, see [INDEX.md](INDEX.md).
 ## Local config and CLI naming
 - Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
 - Use `python -m polytool ...` as the canonical invocation.
-- `python -m polyttool ...` is a deprecated shim kept for compatibility and scheduled for removal after `v0.2.0` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
+- The legacy `polyttool` shim is deprecated, kept for compatibility, and scheduled for removal after `v0.2.0` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
 
 ## Core docs
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
 - [Hypothesis standard](HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
-- [Trust artifacts](TRUST_ARTIFACTS.md) - Scan-emitted coverage report + run manifest contract
+- [Trust artifacts](TRUST_ARTIFACTS.md) - Roadmap 2 scan artifacts: coverage schema, warning rules, run manifest reproducibility
 - [Docs best practices](DOCS_BEST_PRACTICES.md)
 - [Knowledge base conventions](KNOWLEDGE_BASE_CONVENTIONS.md)
 - [RAG implementation report](RAG_IMPLEMENTATION_REPORT.md)
