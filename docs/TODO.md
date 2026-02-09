@@ -40,6 +40,15 @@ Items that are out of MVP scope but should be considered for future versions.
 - [ ] Portfolio-level aggregation
 - [ ] User clustering by strategy similarity
 
+### Code Quality (found during Roadmap 2)
+- [ ] Migrate `datetime.utcnow()` to `datetime.now(timezone.utc)` across codebase
+- [ ] DRY the `load_env_file` / `apply_env_defaults` helpers (duplicated in scan.py and examine.py)
+- [ ] Add type stubs or Protocol for ClickHouse client to improve static analysis
+- [ ] Coverage report: add Markdown table for PnL-by-outcome breakdown
+- [ ] Run manifest: add `platform` and `python_version` fields for reproducibility
+- [ ] Align legacy `examine` trust artifact behavior with `scan` hydration/zero-position diagnostics
+- [ ] Add targeted tests that enforce parity of trust artifact semantics between `scan` and `examine`
+
 ## Low Priority / Nice-to-Have
 
 ### CLI Improvements
@@ -47,6 +56,12 @@ Items that are out of MVP scope but should be considered for future versions.
 - [ ] JSON output mode for all commands
 - [ ] Tab completion for bash/zsh
 - [ ] Config file hot-reload
+- [ ] Add a runtime warning when users invoke legacy `examine`, pointing to canonical `scan`
+
+### Documentation Hygiene
+- [ ] Rename `RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
+- [ ] Add a short troubleshooting snippet in runbooks for `scan --debug-export` (empty export triage flow)
+- [ ] Add a docs guard/check so new non-deprecation `python -m polyttool` command examples fail CI
 
 ### Grafana Dashboards
 - [ ] User comparison dashboard

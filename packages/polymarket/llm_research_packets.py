@@ -990,6 +990,18 @@ def export_user_dossier(
             else:
                 resolution_outcome = "LOSS_EXIT"
 
+            # Build position record with explicit fee sourcing.
+            # fees_actual / fees_estimated are placeholders until
+            # Roadmap 2 on-chain resolution enriches them.
+            fees_actual_val = 0.0
+            fees_estimated_val = 0.0
+            if fees_actual_val > 0:
+                fees_source_val = "actual"
+            elif fees_estimated_val > 0:
+                fees_source_val = "estimated"
+            else:
+                fees_source_val = "unknown"
+
             positions_lifecycle_rows.append({
                 "resolved_token_id": row[0] or "",
                 "market_slug": row[1] or "",
@@ -1010,10 +1022,9 @@ def export_user_dossier(
                 "sell_count": int(row[16] or 0),
                 "gross_pnl": _round_value(gross_pnl),
                 "resolution_outcome": resolution_outcome,
-                # Fees placeholder - to be enriched by fee lookup
-                "fees_actual": 0.0,
-                "fees_estimated": 0.0,
-                "fees_source": "unknown",
+                "fees_actual": fees_actual_val,
+                "fees_estimated": fees_estimated_val,
+                "fees_source": fees_source_val,
                 "realized_pnl_net": _round_value(gross_pnl),  # Net = gross when fees unknown
             })
     except Exception as e:

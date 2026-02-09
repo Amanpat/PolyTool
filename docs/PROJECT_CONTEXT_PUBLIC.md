@@ -21,7 +21,7 @@ local-first, privacy-respecting toolchain that:
 - **Reproducible evidence**: Every claim in an LLM report must cite a specific file
   and path. Dossiers are point-in-time snapshots.
 - **Composable pipeline**: Each CLI command does one thing; `examine` orchestrates
-  the full workflow.
+  a legacy full-workflow wrapper while `scan` remains canonical.
 - **Auditable methodology**: Strategy playbook and hypothesis schema enforce
   falsification and evidence standards.
 
@@ -39,7 +39,7 @@ These are known limitations in the data available from Polymarket's public APIs:
 
 | Gap | Impact | Mitigation |
 |-----|--------|------------|
-| **Resolution / settlement data** | Cannot definitively determine WIN/LOSS for held-to-resolution positions | `UNKNOWN_RESOLUTION` fallback; on-chain provider planned (Roadmap 2) |
+| **Resolution / settlement data** | Cannot definitively determine WIN/LOSS for held-to-resolution positions | `UNKNOWN_RESOLUTION` fallback; coverage improvements planned in Roadmap 3 |
 | **Realized PnL (exact)** | FIFO approximation only; no exchange-provided cost basis | Clearly labeled as approximate in dossier |
 | **Pre-trade context** | No data on what information trader saw before entering | Note as limitation in every hypothesis |
 | **Microstructure data** | No historical orderbook depth; only current snapshots | Slippage estimates use current book, flagged as non-historical |
@@ -97,12 +97,16 @@ All `kb/` and `artifacts/` paths are gitignored. Only `docs/` is committed.
 The **manual workflow** (non-MCP) is the primary and default path:
 
 ```
-scan -> Grafana review -> examine (dossier + bundle + prompt)
+scan -> trust artifacts + Grafana review
+     -> export-dossier + llm-bundle
      -> paste into LLM -> save report via llm-save
      -> rag-index -> rag-query for follow-up research
 ```
 
 See `docs/RUNBOOK_MANUAL_EXAMINE.md` for the step-by-step runbook.
+
+`examine` is retained as a legacy orchestration path and is not canonical for
+trust artifact validation.
 
 **MCP** is an optional, secondary integration path for Claude Desktop. It exposes
 the same underlying tools via the Model Context Protocol. It is tracked separately

@@ -1,7 +1,8 @@
-# Runbook: Manual Examination Workflow
+# Runbook: Scan-First Manual Workflow
 
 This is the single authoritative runbook for examining a Polymarket user using the
-manual (non-MCP) workflow. Every command uses `python -m polytool`.
+manual (non-MCP) workflow. Every canonical command uses `python -m polytool`.
+`examine` is retained as a legacy orchestration path and is not the primary flow.
 
 ## Prerequisites
 
@@ -24,7 +25,13 @@ With optional enrichments:
 python -m polytool scan --user "@example" --ingest-activity --ingest-positions --compute-pnl
 ```
 
-**Output**: Data lands in ClickHouse tables.
+**Output**: Data lands in ClickHouse tables and trust artifacts are written under
+`artifacts/dossiers/users/<slug>/<wallet>/<date>/<run_id>/`:
+
+- `coverage_reconciliation_report.json` (optional `.md`)
+- `run_manifest.json`
+
+See `docs/TRUST_ARTIFACTS.md` for key-by-key interpretation and debug guidance.
 
 ### Step 2: View results in Grafana
 
@@ -35,25 +42,11 @@ Dashboards:
 - **PolyTool - Strategy Detectors**: Detector scores and labels
 - **PolyTool - PnL**: Realized PnL, MTM PnL, exposure over time
 
-### Step 3: Run the examine orchestrator
+### Step 3: Legacy `examine` orchestrator (optional)
 
-The `examine` command automates steps 3a-3c below into a single invocation:
-
-```powershell
-python -m polytool examine --user "@example" --days 30
-```
-
-Dry-run first to verify identity resolution and output paths:
-
-```powershell
-python -m polytool examine --user "@example" --days 30 --dry-run
-```
-
-For the golden case set:
-
-```powershell
-python -m polytool examine --all-golden
-```
+`examine` can still orchestrate steps 3a-3c, but this runbook treats it as
+legacy/backward-compatibility. Prefer running steps 3a-3c directly so each
+artifact stage is explicit and debuggable.
 
 **Outputs** (per user):
 - Dossier: `artifacts/dossiers/users/<slug>/<wallet>/<date>/<run_id>/`
@@ -63,7 +56,7 @@ python -m polytool examine --all-golden
 
 ### Step 3a: Export dossier (standalone)
 
-If you need the dossier step alone:
+Canonical path for dossier export:
 
 ```powershell
 python -m polytool export-dossier --user "@example" --days 30

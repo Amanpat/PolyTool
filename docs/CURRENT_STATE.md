@@ -17,26 +17,29 @@ RAG workflow that never calls external LLM APIs.
 ## Pipeline (text)
 
 ```
-examine -> orchestrates full workflow:
-  scan -> ClickHouse -> Grafana
-  export-dossier -> artifacts/dossiers/.../memo.md + dossier.json + manifest.json
-  llm-bundle -> kb/users/<slug>/llm_bundles/<YYYY-MM-DD>/<run_id>/bundle.md + prompt.txt
+scan -> canonical workflow entrypoint:
+  -> ClickHouse + Grafana refresh
+  -> trust artifacts in artifacts/dossiers/.../coverage_reconciliation_report.* + run_manifest.json
 
 Individual steps:
+  export-dossier -> artifacts/dossiers/.../memo.md + dossier.json + manifest.json
+  llm-bundle -> kb/users/<slug>/llm_bundles/<YYYY-MM-DD>/<run_id>/bundle.md + prompt.txt
   export-clickhouse -> kb/users/<slug>/exports/<YYYY-MM-DD>/
   rag-index -> kb/rag/*
   rag-query -> evidence snippets
   llm-save -> kb/users/<slug>/llm_reports/ + kb/users/<slug>/notes/LLM_notes/
   cache-source -> kb/sources/
+  examine -> legacy orchestrator wrapper (non-canonical)
   mcp -> Claude Desktop integration
 ```
 
 ## CLI commands (plain language)
 
 - `scan`: run a one-shot ingestion via the local API to pull user data into
-  ClickHouse (with optional activity, positions, and PnL flags).
-- `examine`: orchestrate full examination workflow (scan -> dossier -> bundle -> prompt).
-  Golden case support with `--all-golden` for MVP users.
+  ClickHouse (with optional activity, positions, and PnL flags), and emit trust
+  artifacts (`coverage_reconciliation_report.*`, `run_manifest.json`) per run.
+- `examine`: legacy orchestrator (scan -> dossier -> bundle -> prompt) kept for
+  compatibility and golden-case operations.
 - `export-dossier`: build a private, point-in-time evidence package for one user
   (memo + JSON + manifest) under `artifacts/`. Now includes resolution outcomes
   and position lifecycle data.
@@ -97,7 +100,7 @@ Each position now includes a resolution_outcome field:
 - **Canonical commands**: Always use `python -m polytool <command>` in docs,
   scripts, and runbooks. The `polytool` console script also works.
 - **Manual workflow is default**: The manual examination workflow
-  (scan -> examine -> paste -> llm-save) is the primary path. See
+  (scan -> export/bundle -> paste -> llm-save) is the primary path. See
   `docs/RUNBOOK_MANUAL_EXAMINE.md`.
 - **MCP is optional**: The MCP server (`python -m polytool mcp`) provides
   Claude Desktop integration but is not required for the core workflow.

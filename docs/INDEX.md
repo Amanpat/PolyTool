@@ -10,6 +10,7 @@ Quick-reference index of all key docs and what they cover.
 | [docs/README](README.md) | Documentation hub with recommended reading order |
 | [Current State](CURRENT_STATE.md) | What exists today, pipeline diagram, CLI commands |
 | [Roadmap](ROADMAP.md) | Milestone checklist, acceptance criteria, kill conditions |
+| [Trust Artifacts](TRUST_ARTIFACTS.md) | Roadmap 2 scan trust artifacts: practical schema, warning interpretation, reproducibility fields |
 
 ## Planning & Design
 
@@ -27,7 +28,7 @@ Quick-reference index of all key docs and what they cover.
 
 | Doc | Purpose |
 |-----|---------|
-| [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) | Step-by-step manual examination workflow (primary path) |
+| [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) | Scan-first manual workflow; examine guidance retained as legacy |
 | [Local RAG Workflow](LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes |
 | [LLM Bundle Workflow](LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |
 | [Research Sources](RESEARCH_SOURCES.md) | Curated source domains, allowlist, TTL, cache-source usage |

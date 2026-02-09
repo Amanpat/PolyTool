@@ -12,6 +12,7 @@ A monorepo for Polymarket reverse-engineering tools and analysis infrastructure.
 Start at [docs/README.md](docs/README.md) for the docs hub. Key pages:
 
 - [Current state / what we built](docs/CURRENT_STATE.md)
+- [Trust artifacts (Roadmap 2)](docs/TRUST_ARTIFACTS.md) - scan-emitted coverage + reproducibility artifacts
 - [Docs best practices](docs/DOCS_BEST_PRACTICES.md)
 
 ## Knowledge base conventions
@@ -90,9 +91,24 @@ python tools/cli/scan.py
 
 # Optional: include activity + positions snapshots and compute PnL
 python -m polytool scan --ingest-activity --ingest-positions --compute-pnl
+
+# Optional: export diagnostics for trust artifact hydration/debugging
+python -m polytool scan --user "@example" --debug-export
 ```
 
 Scan flags can also be set via `SCAN_INGEST_ACTIVITY=true`, `SCAN_INGEST_POSITIONS=true`, and `SCAN_COMPUTE_PNL=true`.
+
+Roadmap 2 made `scan` the canonical trust-artifact emitter. Each run writes a run root under:
+
+`artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/`
+
+with these public trust artifacts:
+
+- `coverage_reconciliation_report.json` (optional `.md`): outcome coverage %, deterministic-vs-fallback UID coverage, PnL/fee/resolution sanity checks, and warnings.
+- `run_manifest.json`: reproducibility/provenance metadata (command, args, timing, identity, output paths, config hash, version, commit).
+
+See [docs/TRUST_ARTIFACTS.md](docs/TRUST_ARTIFACTS.md) for full interpretation
+and troubleshooting guidance.
 
 Open Grafana at http://localhost:3000 and view:
 

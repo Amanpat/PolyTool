@@ -38,7 +38,8 @@
       "Bash(pip show:*)",
       "WebFetch(domain:github.com)",
       "Bash(git check-ignore:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(git status:*)"
     ]
   }
 }
