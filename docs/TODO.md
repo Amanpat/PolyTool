@@ -54,6 +54,10 @@ Items that are out of MVP scope but should be considered for future versions.
 - [ ] JSON output mode for all commands
 - [ ] Tab completion for bash/zsh
 - [ ] Config file hot-reload
+- [ ] Add a runtime warning when users invoke legacy `examine`, pointing to canonical `scan`
+
+### Documentation Hygiene
+- [ ] Rename `RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
 
 ### Grafana Dashboards
 - [ ] User comparison dashboard

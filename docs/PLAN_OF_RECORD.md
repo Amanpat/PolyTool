@@ -35,11 +35,15 @@ The canonical end-to-end workflow (manual, non-MCP):
 scan
   -> ingest trades, activity, positions, markets into ClickHouse
   -> (optional) compute PnL, run detectors
+  -> emit trust artifacts under artifacts/dossiers/.../<run_id>/
+     (coverage_reconciliation_report.* + run_manifest.json)
 
-examine --user "@handle"
-  -> export-dossier  (artifacts/dossiers/users/<slug>/<wallet>/<date>/<run_id>/)
-  -> llm-bundle      (kb/users/<slug>/llm_bundles/<date>/<run_id>/)
-  -> write prompt.txt + examine_manifest.json
+export-dossier --user "@handle"
+  -> artifacts/dossiers/users/<slug>/<wallet>/<date>/<run_id>/
+
+llm-bundle --user "@handle"
+  -> kb/users/<slug>/llm_bundles/<date>/<run_id>/
+  -> write prompt.txt + bundle_manifest.json
 
 [manual step] paste prompt + bundle into LLM UI
   -> LLM produces hypothesis.md + hypothesis.json
@@ -59,7 +63,11 @@ Grafana (http://localhost:3000)
 ```
 
 Each CLI command is invoked as `python -m polytool <command>`. See
-`docs/RUNBOOK_MANUAL_EXAMINE.md` for the step-by-step runbook.
+`docs/RUNBOOK_MANUAL_EXAMINE.md` for the step-by-step runbook and
+`docs/TRUST_ARTIFACTS.md` for trust artifact interpretation.
+
+`examine` remains available as a legacy orchestration wrapper but is not the
+canonical path for trust artifact validation.
 
 ---
 
@@ -78,7 +86,7 @@ API (`closed=true` + `winningOutcome`) or fetched on-chain.
 `CachedResolutionProvider` that tries ClickHouse cache first, then Gamma API.
 Positions that cannot be resolved fall to `UNKNOWN_RESOLUTION`.
 
-**Roadmap 2 fix**: On-chain resolution provider reading settlement transactions
+**Roadmap 3 target**: On-chain resolution provider reading settlement transactions
 directly from the blockchain.
 
 ### Gap B: Settlement Price
@@ -221,7 +229,7 @@ fee_usdc = shares * price * (fee_rate_bps / 10000) * (price * (1 - price))^2
 - At price=0.5: maximum curve factor (0.0625)
 - At price=0.1 or 0.9: lower curve factor (0.0081)
 
-### Roadmap 2 Improvement
+### Roadmap 3 Improvement
 
 Store `fee_rate_bps` per trade at ingestion time in ClickHouse. This enables
 historical fee reconstruction rather than relying on current rates. The
@@ -403,7 +411,8 @@ that exposes PolyTool CLI commands as MCP tools for Claude Desktop.
 **Current state**: stdio transport, basic tool exposure, tested via
 `mcp.client.stdio.stdio_client` roundtrip.
 
-**Intent**: Enable Claude Desktop to invoke scan, examine, rag-query, etc.
+**Intent**: Enable Claude Desktop to invoke scan, export, rag-query, and legacy
+orchestration commands when needed.
 without manual copy-paste. This is a convenience layer, not the primary workflow.
 
 **The manual workflow remains primary** until MCP is fully stable and tested

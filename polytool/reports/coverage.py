@@ -70,7 +70,8 @@ def build_coverage_report(
     ----------
     positions : list[dict]
         Position lifecycle records, each expected to carry at minimum:
-        ``resolution_outcome``, ``trade_uid`` (or ``resolved_token_id``),
+        ``resolution_outcome``, ``trade_uid`` and/or fallback identifiers
+        (for example ``resolved_token_id``),
         ``realized_pnl_net``, ``fees_actual``, ``fees_estimated``,
         ``fees_source``, ``position_remaining``.
     run_id : str
@@ -99,23 +100,49 @@ def build_coverage_report(
     outcome_counts = {k: outcome_counter.get(k, 0) for k in sorted(KNOWN_OUTCOMES)}
     outcome_pcts = {k: _safe_pct(v, total) for k, v in outcome_counts.items()}
 
-    # --- Trade UID coverage ---
-    trade_uids: List[str] = []
+    # --- UID coverage ---
+    deterministic_trade_uids: List[str] = []
+    fallback_uids: List[str] = []
+
     for pos in positions:
-        uid = pos.get("trade_uid") or pos.get("resolved_token_id") or ""
-        trade_uids.append(uid)
+        trade_uid = str(pos.get("trade_uid") or "").strip()
+        deterministic_trade_uids.append(trade_uid)
 
-    with_uid = sum(1 for uid in trade_uids if uid)
-    uid_counter = Counter(uid for uid in trade_uids if uid)
-    duplicates = {uid: cnt for uid, cnt in uid_counter.items() if cnt > 1}
-    dup_sample = list(duplicates.keys())[:5]
+        fallback_uid = ""
+        for key in ("resolved_token_id", "token_id", "condition_id"):
+            value = str(pos.get(key) or "").strip()
+            if value:
+                fallback_uid = value
+                break
+        fallback_uids.append(fallback_uid)
 
-    trade_uid_coverage = {
+    deterministic_with_uid = sum(1 for uid in deterministic_trade_uids if uid)
+    deterministic_uid_counter = Counter(uid for uid in deterministic_trade_uids if uid)
+    deterministic_duplicates = {
+        uid: cnt for uid, cnt in deterministic_uid_counter.items() if cnt > 1
+    }
+    deterministic_dup_sample = list(deterministic_duplicates.keys())[:5]
+
+    fallback_with_uid = sum(1 for uid in fallback_uids if uid)
+    fallback_only_count = sum(
+        1
+        for deterministic_uid, fallback_uid in zip(deterministic_trade_uids, fallback_uids)
+        if (not deterministic_uid) and fallback_uid
+    )
+
+    deterministic_trade_uid_coverage = {
         "total": total,
-        "with_trade_uid": with_uid,
-        "pct_with_trade_uid": _safe_pct(with_uid, total),
-        "duplicate_trade_uid_count": len(duplicates),
-        "duplicate_sample": dup_sample,
+        "with_trade_uid": deterministic_with_uid,
+        "pct_with_trade_uid": _safe_pct(deterministic_with_uid, total),
+        "duplicate_trade_uid_count": len(deterministic_duplicates),
+        "duplicate_sample": deterministic_dup_sample,
+    }
+    fallback_uid_coverage = {
+        "total": total,
+        "with_fallback_uid": fallback_with_uid,
+        "pct_with_fallback_uid": _safe_pct(fallback_with_uid, total),
+        "fallback_only_count": fallback_only_count,
+        "pct_fallback_only": _safe_pct(fallback_only_count, total),
     }
 
     # --- PnL ---
@@ -181,9 +208,9 @@ def build_coverage_report(
 
     # --- Warnings ---
     warnings: List[str] = []
-    if trade_uid_coverage["duplicate_trade_uid_count"] > 0:
+    if deterministic_trade_uid_coverage["duplicate_trade_uid_count"] > 0:
         warnings.append(
-            f"Found {trade_uid_coverage['duplicate_trade_uid_count']} duplicate trade UIDs"
+            f"Found {deterministic_trade_uid_coverage['duplicate_trade_uid_count']} duplicate deterministic trade UIDs"
         )
     if _safe_pct(unknown, total) > 0.05 and total > 0:
         warnings.append(
@@ -206,7 +233,8 @@ def build_coverage_report(
         },
         "outcome_counts": outcome_counts,
         "outcome_percentages": outcome_pcts,
-        "trade_uid_coverage": trade_uid_coverage,
+        "deterministic_trade_uid_coverage": deterministic_trade_uid_coverage,
+        "fallback_uid_coverage": fallback_uid_coverage,
         "pnl": pnl_section,
         "fees": fees_section,
         "resolution_coverage": resolution_section,
@@ -260,10 +288,21 @@ def _render_markdown(report: Dict[str, Any]) -> str:
         lines.append(f"| {outcome} | {count} | {pct:.2%} |")
     lines.append("")
 
-    lines.append("## Trade UID Coverage")
-    tuc = report["trade_uid_coverage"]
-    lines.append(f"- Total: {tuc['total']}, With UID: {tuc['with_trade_uid']} ({tuc['pct_with_trade_uid']:.2%})")
-    lines.append(f"- Duplicate UIDs: {tuc['duplicate_trade_uid_count']}")
+    lines.append("## UID Coverage")
+    deterministic = report["deterministic_trade_uid_coverage"]
+    fallback = report["fallback_uid_coverage"]
+    lines.append(
+        f"- Deterministic trade_uid: {deterministic['with_trade_uid']} of {deterministic['total']} "
+        f"({deterministic['pct_with_trade_uid']:.2%})"
+    )
+    lines.append(
+        f"- Fallback UID (resolved_token_id/token_id/condition_id): {fallback['with_fallback_uid']} of "
+        f"{fallback['total']} ({fallback['pct_with_fallback_uid']:.2%})"
+    )
+    lines.append(
+        f"- Fallback-only rows: {fallback['fallback_only_count']} ({fallback['pct_fallback_only']:.2%})"
+    )
+    lines.append(f"- Duplicate deterministic trade_uids: {deterministic['duplicate_trade_uid_count']}")
     lines.append("")
 
     lines.append("## PnL Summary")

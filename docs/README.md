@@ -18,12 +18,13 @@ table, see [INDEX.md](INDEX.md).
 3. [Architecture](ARCHITECTURE.md)
 4. [Risk policy](RISK_POLICY.md)
 5. [Roadmap](ROADMAP.md)
-6. [Runbook: Manual examine](RUNBOOK_MANUAL_EXAMINE.md)
-7. [Hypothesis standard](HYPOTHESIS_STANDARD.md)
-8. [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
-9. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
-10. [Current state / what we built](CURRENT_STATE.md)
-11. [Docs best practices](DOCS_BEST_PRACTICES.md)
+6. [Trust Artifacts](TRUST_ARTIFACTS.md)
+7. [Runbook: Manual examine (legacy orchestration)](RUNBOOK_MANUAL_EXAMINE.md)
+8. [Hypothesis standard](HYPOTHESIS_STANDARD.md)
+9. [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
+10. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
+11. [Current state / what we built](CURRENT_STATE.md)
+12. [Docs best practices](DOCS_BEST_PRACTICES.md)
 
 ## Local config and CLI naming
 - Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
@@ -33,6 +34,7 @@ table, see [INDEX.md](INDEX.md).
 ## Core docs
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
 - [Hypothesis standard](HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
+- [Trust artifacts](TRUST_ARTIFACTS.md) - Scan-emitted coverage report + run manifest contract
 - [Docs best practices](DOCS_BEST_PRACTICES.md)
 - [Knowledge base conventions](KNOWLEDGE_BASE_CONVENTIONS.md)
 - [RAG implementation report](RAG_IMPLEMENTATION_REPORT.md)
@@ -40,7 +42,7 @@ table, see [INDEX.md](INDEX.md).
 - [Project tree (full)](PROJECT_TREE_FULL.txt)
 
 ## Workflows
-- [Runbook: Manual examine](RUNBOOK_MANUAL_EXAMINE.md) - Primary workflow (step-by-step)
+- [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
 - [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
 - [Research sources](RESEARCH_SOURCES.md)

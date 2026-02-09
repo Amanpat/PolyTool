@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
+import shutil
 from pathlib import Path
 
 import pytest
@@ -132,7 +132,25 @@ class TestBuildCoverageReport:
         total_pct = sum(report["outcome_percentages"].values())
         assert abs(total_pct - 1.0) < 0.001
 
-    def test_trade_uid_coverage_no_duplicates(self):
+    def test_deterministic_trade_uid_coverage_no_duplicates(self):
+        positions = _make_positions()
+        for idx, pos in enumerate(positions):
+            pos["trade_uid"] = f"uid_{idx}"
+        report = build_coverage_report(
+            positions=positions,
+            run_id="test-run",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        deterministic = report["deterministic_trade_uid_coverage"]
+        fallback = report["fallback_uid_coverage"]
+        assert deterministic["total"] == 6
+        assert deterministic["with_trade_uid"] == 6
+        assert deterministic["duplicate_trade_uid_count"] == 0
+        assert fallback["with_fallback_uid"] == 6
+        assert fallback["fallback_only_count"] == 0
+
+    def test_fallback_uid_not_counted_as_deterministic_trade_uid(self):
         positions = _make_positions()
         report = build_coverage_report(
             positions=positions,
@@ -140,16 +158,17 @@ class TestBuildCoverageReport:
             user_slug="testuser",
             wallet="0xabc",
         )
-        tuc = report["trade_uid_coverage"]
-        assert tuc["total"] == 6
-        assert tuc["with_trade_uid"] == 6
-        assert tuc["duplicate_trade_uid_count"] == 0
+        deterministic = report["deterministic_trade_uid_coverage"]
+        fallback = report["fallback_uid_coverage"]
+        assert deterministic["with_trade_uid"] == 0
+        assert fallback["with_fallback_uid"] == 6
+        assert fallback["fallback_only_count"] == 6
 
     def test_trade_uid_duplicates_detected(self):
         positions = [
-            {"resolved_token_id": "dup1", "resolution_outcome": "WIN",
+            {"trade_uid": "dup1", "resolved_token_id": "tok1", "resolution_outcome": "WIN",
              "realized_pnl_net": 1.0, "position_remaining": 0.0},
-            {"resolved_token_id": "dup1", "resolution_outcome": "LOSS",
+            {"trade_uid": "dup1", "resolved_token_id": "tok2", "resolution_outcome": "LOSS",
              "realized_pnl_net": -1.0, "position_remaining": 0.0},
         ]
         report = build_coverage_report(
@@ -158,8 +177,11 @@ class TestBuildCoverageReport:
             user_slug="testuser",
             wallet="0xabc",
         )
-        assert report["trade_uid_coverage"]["duplicate_trade_uid_count"] == 1
-        assert "dup1" in report["trade_uid_coverage"]["duplicate_sample"]
+        deterministic = report["deterministic_trade_uid_coverage"]
+        fallback = report["fallback_uid_coverage"]
+        assert deterministic["duplicate_trade_uid_count"] == 1
+        assert "dup1" in deterministic["duplicate_sample"]
+        assert fallback["with_fallback_uid"] == 2
 
     def test_pnl_totals(self):
         positions = _make_positions()
@@ -246,7 +268,8 @@ class TestBuildCoverageReport:
         required = [
             "report_version", "generated_at", "run_id", "user_slug",
             "wallet", "proxy_wallet", "totals", "outcome_counts",
-            "outcome_percentages", "trade_uid_coverage", "pnl",
+            "outcome_percentages", "deterministic_trade_uid_coverage",
+            "fallback_uid_coverage", "pnl",
             "fees", "resolution_coverage", "warnings",
         ]
         for field in required:
@@ -266,33 +289,45 @@ class TestBuildCoverageReport:
 
 
 class TestWriteCoverageReport:
-    def test_writes_json_and_md(self, tmp_path):
+    def test_writes_json_and_md(self):
         report = build_coverage_report(
             positions=_make_positions(),
             run_id="write-test",
             user_slug="testuser",
             wallet="0xabc",
         )
-        paths = write_coverage_report(report, tmp_path, write_markdown=True)
-        assert "json" in paths
-        assert "md" in paths
+        output_dir = Path("artifacts") / "_pytest_cov_json_md"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_coverage_report(report, output_dir, write_markdown=True)
+            assert "json" in paths
+            assert "md" in paths
 
-        # Verify JSON is valid
-        json_data = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
-        assert json_data["run_id"] == "write-test"
+            # Verify JSON is valid
+            json_data = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
+            assert json_data["run_id"] == "write-test"
 
-        # Verify Markdown contains key sections
-        md_text = Path(paths["md"]).read_text(encoding="utf-8")
-        assert "# Coverage & Reconciliation Report" in md_text
-        assert "Outcome Distribution" in md_text
+            # Verify Markdown contains key sections
+            md_text = Path(paths["md"]).read_text(encoding="utf-8")
+            assert "# Coverage & Reconciliation Report" in md_text
+            assert "Outcome Distribution" in md_text
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
 
-    def test_json_only(self, tmp_path):
+    def test_json_only(self):
         report = build_coverage_report(
             positions=_make_positions(),
             run_id="json-only",
             user_slug="testuser",
             wallet="0xabc",
         )
-        paths = write_coverage_report(report, tmp_path, write_markdown=False)
-        assert "json" in paths
-        assert "md" not in paths
+        output_dir = Path("artifacts") / "_pytest_cov_json_only"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_coverage_report(report, output_dir, write_markdown=False)
+            assert "json" in paths
+            assert "md" not in paths
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)

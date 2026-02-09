@@ -39,8 +39,8 @@ produces data in ClickHouse.
 
 **Acceptance**: Roadmap 1 is complete when ALL of the following are true:
 
-1. `python -m polytool examine --user "@handle" --dry-run` resolves identity,
-   plans output paths, and exits 0.
+1. `python -m polytool scan --user "@handle"` resolves identity and completes
+   end-to-end via the canonical CLI path.
 2. A real examination run has produced a dossier, bundle, and prompt under the
    correct canonical paths (confirmed; does NOT need to be re-run).
 3. `python -m polytool rag-query --hybrid --rerank` returns relevant results
@@ -56,32 +56,38 @@ produces data in ClickHouse.
 
 ---
 
-### Roadmap 2 - Resolution & Fee Enrichment [NOT STARTED]
+### Roadmap 2 - Trust Artifacts & Scan Canonicalization [COMPLETE]
 
-- [ ] On-chain resolution provider (read settlement from blockchain)
-- [ ] Batch resolution fetching for performance
-- [ ] Resolution caching with TTL in ClickHouse
-- [ ] Per-trade `fee_rate_bps` fetched from `/fee-rate` endpoint at ingestion time
-- [ ] Fee storage in ClickHouse (`fees_actual`, `fees_estimated`, `fees_source` flag)
-- [ ] Handle multi-outcome markets with partial resolution
+- [x] Canonical trust artifact emission from `python -m polytool scan`
+- [x] `coverage_reconciliation_report.json` emitted with split UID metrics:
+  `deterministic_trade_uid_coverage` and `fallback_uid_coverage`
+- [x] `run_manifest.json` emitted with canonical `command_name = "scan"`
+- [x] Empty-export diagnostics documented (`--debug-export`) and warnings surfaced
+  when `positions_total = 0`
+- [x] Docs updated to treat `scan` as canonical and `examine` as legacy
 
-**Acceptance**: UNKNOWN_RESOLUTION count drops to <5% for resolved markets.
-Fee estimates carry `fees_source = actual` for newly ingested trades.
+**Acceptance**: Scan runs consistently emit trust artifacts in the run root under
+`artifacts/dossiers/users/.../<run_id>/`, and docs clearly describe interpretation
+and troubleshooting.
 
-**Kill condition**: If Polymarket changes its settlement mechanism or the on-chain
-data is inaccessible, park this milestone and document the blocker.
+**Handoff**: Reducing `UNKNOWN_RESOLUTION`, improving outcome coverage quality,
+and closing missing PnL/fees gaps are owned by Roadmap 3.
 
 ---
 
 ### Roadmap 3 - Hypothesis Validation Loop [NOT STARTED]
 
+- [ ] Reduce `UNKNOWN_RESOLUTION` by improving resolution coverage and settlement enrichment
+- [ ] Improve outcome coverage reliability for held-to-resolution classification
+- [ ] Reduce `missing_realized_pnl_count` and `fees_source = unknown` rates where data allows
 - [ ] Automatic schema validation on `llm-save` (reject non-conforming JSON)
 - [ ] Summary bullet extraction from report for LLM_notes
 - [ ] Hypothesis diff comparison across runs (detect claim drift)
 - [ ] Falsification test harness (automated threshold checks)
 
 **Acceptance**: `llm-save` rejects invalid hypothesis.json. Hypothesis diff
-between two runs produces a readable changelog.
+between two runs produces a readable changelog. Coverage quality trends down for
+`UNKNOWN_RESOLUTION` and other known gap metrics.
 
 **Kill condition**: Do not start backtesting until this milestone is shipped.
 
@@ -149,7 +155,7 @@ breakdown and lifecycle panels.
 
 ### Roadmap 8 - CI & Testing [NOT STARTED]
 
-- [ ] Integration tests for full examine workflow
+- [ ] Integration tests for scan-first workflow (legacy examine smoke kept separate)
 - [ ] Mock ClickHouse for CI (no Docker dependency)
 - [ ] Property-based tests for fee calculation
 - [ ] RAG index load testing

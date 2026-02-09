@@ -8,9 +8,15 @@ import json
 import os
 import sys
 import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
+
+from polytool.reports.coverage import build_coverage_report, normalize_fee_fields, write_coverage_report
+from polytool.reports.manifest import build_run_manifest, write_run_manifest
 
 ALLOWED_BUCKETS = {"day", "hour", "week"}
 DEFAULT_API_BASE_URL = "http://localhost:8000"
@@ -25,6 +31,8 @@ DEFAULT_COMPUTE_OPPORTUNITIES = False
 DEFAULT_SNAPSHOT_BOOKS = False
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_BODY_SNIPPET = 800
+TRUST_ARTIFACT_WINDOW_DAYS = 30
+TRUST_ARTIFACT_MAX_TRADES = 200
 
 
 class ApiError(Exception):
@@ -46,6 +54,10 @@ class NetworkError(Exception):
         self.url = url
         self.message = message
         self.is_connection_error = is_connection_error
+
+
+class TrustArtifactError(Exception):
+    """Raised when trust artifacts cannot be emitted from scan."""
 
 
 def load_env_file(path: str) -> Dict[str, str]:
@@ -153,6 +165,452 @@ def post_json(
         raise ApiError("POST", url, response.status_code, "Invalid JSON response") from exc
 
 
+def get_json(
+    base_url: str,
+    path: str,
+    params: Dict[str, Any],
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    retries: int = 3,
+    backoff_seconds: float = 1.0,
+) -> Dict[str, Any]:
+    url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+    attempt = 0
+    while True:
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            break
+        except requests.exceptions.RequestException as exc:
+            if attempt >= retries:
+                raise NetworkError(url, str(exc), is_connection_error=isinstance(exc, requests.exceptions.ConnectionError)) from exc
+            delay = backoff_seconds * (2**attempt)
+            print(
+                f"Network error contacting {url}: {exc}. Retrying in {delay:.1f}s...",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            attempt += 1
+
+    if response.status_code != 200:
+        body = response.text.strip()
+        if len(body) > MAX_BODY_SNIPPET:
+            body = body[:MAX_BODY_SNIPPET] + "..."
+        raise ApiError("GET", url, response.status_code, body)
+
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise ApiError("GET", url, response.status_code, "Invalid JSON response") from exc
+
+
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _debug_export(config: Dict[str, Any], message: str) -> None:
+    if config.get("debug_export"):
+        print(f"[debug-export] {message}", file=sys.stderr)
+
+
+def _coerce_non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
+
+
+def _extract_trades_total(dossier: Dict[str, Any]) -> int:
+    coverage = dossier.get("coverage")
+    if isinstance(coverage, dict):
+        coverage_count = _coerce_non_negative_int(coverage.get("trades_count"))
+        if coverage_count > 0:
+            return coverage_count
+
+    trades_section = dossier.get("trades")
+    if isinstance(trades_section, list):
+        return len(trades_section)
+    if isinstance(trades_section, dict):
+        for key in ("trades", "rows", "items"):
+            value = trades_section.get(key)
+            if isinstance(value, list):
+                return len(value)
+        count = _coerce_non_negative_int(trades_section.get("count"))
+        if count > 0:
+            return count
+
+    anchors = dossier.get("anchors")
+    if isinstance(anchors, dict):
+        # Not full trades, but better than reporting zero in debug when anchors exist.
+        anchor_count = _coerce_non_negative_int(anchors.get("total_anchors"))
+        if anchor_count > 0:
+            return anchor_count
+
+    return 0
+
+
+def _extract_positions_payload(dossier: Dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[Any] = []
+
+    positions_section = dossier.get("positions")
+    if isinstance(positions_section, dict):
+        if isinstance(positions_section.get("positions"), list):
+            candidates = positions_section["positions"]
+        elif isinstance(positions_section.get("items"), list):
+            candidates = positions_section["items"]
+    elif isinstance(positions_section, list):
+        candidates = positions_section
+
+    if not candidates:
+        for key in ("positions_lifecycle", "position_lifecycle", "position_lifecycles"):
+            alt = dossier.get(key)
+            if isinstance(alt, list):
+                candidates = alt
+                break
+            if isinstance(alt, dict) and isinstance(alt.get("positions"), list):
+                candidates = alt["positions"]
+                break
+
+    extracted: list[dict[str, Any]] = []
+    for item in candidates:
+        if isinstance(item, dict):
+            extracted.append(dict(item))
+    if extracted:
+        return extracted
+
+    # Some dossier payloads expose only counts without lifecycle rows.
+    declared_count = 0
+    if isinstance(positions_section, dict):
+        declared_count = max(declared_count, _coerce_non_negative_int(positions_section.get("count")))
+    coverage = dossier.get("coverage")
+    if isinstance(coverage, dict):
+        declared_count = max(declared_count, _coerce_non_negative_int(coverage.get("positions_count")))
+    return [{} for _ in range(declared_count)]
+
+
+def _parse_dossier_payload(payload: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(payload, dict):
+        return payload
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _summarize_dossier_payload(dossier: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    if not isinstance(dossier, dict):
+        return {"positions_len": 0, "trades_len": 0}
+    positions_len = len(_extract_positions_payload(dossier))
+    trades_len = _extract_trades_total(dossier)
+    return {"positions_len": positions_len, "trades_len": trades_len}
+
+
+def _load_dossier_payload(output_dir: Path) -> Optional[Dict[str, Any]]:
+    dossier_json_path = output_dir / "dossier.json"
+    if not dossier_json_path.exists():
+        return None
+    try:
+        parsed = json.loads(dossier_json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _history_row_summaries(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    summaries: list[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        dossier_payload = _parse_dossier_payload(row.get("dossier_json"))
+        dossier_summary = _summarize_dossier_payload(dossier_payload)
+        positions_count = max(
+            _coerce_non_negative_int(row.get("positions_count")),
+            dossier_summary["positions_len"],
+        )
+        trades_count = max(
+            _coerce_non_negative_int(row.get("trades_count")),
+            dossier_summary["trades_len"],
+        )
+        summaries.append({
+            "row": row,
+            "dossier_payload": dossier_payload,
+            "export_id": str(row.get("export_id") or ""),
+            "positions_count": positions_count,
+            "trades_count": trades_count,
+            "positions_len": dossier_summary["positions_len"],
+            "trades_len": dossier_summary["trades_len"],
+        })
+    return summaries
+
+
+def _select_history_hydration_row(
+    summaries: list[Dict[str, Any]],
+    export_id: str,
+) -> Optional[Dict[str, Any]]:
+    matching = [s for s in summaries if s["export_id"] == export_id and s["dossier_payload"] is not None]
+    matching_with_positions = [s for s in matching if s["positions_count"] > 0]
+    if matching_with_positions:
+        return matching_with_positions[0]
+
+    any_with_positions = [s for s in summaries if s["dossier_payload"] is not None and s["positions_count"] > 0]
+    if any_with_positions:
+        return any_with_positions[0]
+
+    if matching:
+        return matching[0]
+
+    any_with_payload = [s for s in summaries if s["dossier_payload"] is not None]
+    if any_with_payload:
+        return any_with_payload[0]
+    return None
+
+
+def _write_hydrated_dossier(output_dir: Path, history_summary: Dict[str, Any]) -> None:
+    dossier_payload = history_summary.get("dossier_payload")
+    if not isinstance(dossier_payload, dict):
+        raise TrustArtifactError("Selected history row has no dossier_json payload to hydrate")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dossier_json_path = output_dir / "dossier.json"
+    dossier_json_path.write_text(
+        json.dumps(dossier_payload, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    memo_payload = history_summary.get("row", {}).get("memo_md")
+    if memo_payload:
+        (output_dir / "memo.md").write_text(str(memo_payload), encoding="utf-8")
+
+
+def _load_dossier_positions(dossier_root: Path) -> list[dict[str, Any]]:
+    dossier_json_path = dossier_root / "dossier.json"
+    if not dossier_json_path.exists():
+        raise TrustArtifactError(f"Missing dossier.json at {dossier_json_path}")
+
+    try:
+        dossier = json.loads(dossier_json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise TrustArtifactError(f"Invalid dossier JSON at {dossier_json_path}: {exc}") from exc
+
+    positions = _extract_positions_payload(dossier)
+
+    normalized: list[dict[str, Any]] = []
+    for pos in positions:
+        normalize_fee_fields(pos)
+        normalized.append(pos)
+    return normalized
+
+
+def _hydrate_dossier_from_history_if_needed(
+    output_dir: Path,
+    config: Dict[str, Any],
+    dossier_export_response: Dict[str, Any],
+) -> tuple[list[str], Dict[str, Any], Dict[str, Any]]:
+    endpoints_used = ["/api/export/user_dossier"]
+    local_payload = _load_dossier_payload(output_dir)
+    local_summary = _summarize_dossier_payload(local_payload)
+
+    export_stats = dossier_export_response.get("stats")
+    export_positions_count: Optional[int] = None
+    export_trades_count: Optional[int] = None
+    if isinstance(export_stats, dict):
+        if "positions_count" in export_stats:
+            export_positions_count = _coerce_non_negative_int(export_stats.get("positions_count"))
+        if "trades_count" in export_stats:
+            export_trades_count = _coerce_non_negative_int(export_stats.get("trades_count"))
+
+    _debug_export(
+        config,
+        "endpoint=/api/export/user_dossier "
+        f"positions_count={export_positions_count if export_positions_count is not None else 'n/a'} "
+        f"trades_count={export_trades_count if export_trades_count is not None else 'n/a'} "
+        f"local_positions_len={local_summary['positions_len']} local_trades_len={local_summary['trades_len']}",
+    )
+
+    # When export reports an empty dossier, consult history even if a stale local dossier exists.
+    export_indicates_empty = export_positions_count == 0 if export_positions_count is not None else False
+    should_query_history = local_payload is None or local_summary["positions_len"] == 0 or export_indicates_empty
+    if not should_query_history:
+        return endpoints_used, local_summary, {"history_rows": 0, "hydrated": False}
+
+    history = get_json(
+        config["api_base_url"],
+        "/api/export/user_dossier/history",
+        {
+            "user": str(config["user"]),
+            "limit": 5,
+            "include_body": "true",
+        },
+        timeout=float(config["timeout_seconds"]),
+    )
+    endpoints_used.append("/api/export/user_dossier/history")
+    rows = history.get("rows") or []
+    summaries = _history_row_summaries(rows if isinstance(rows, list) else [])
+    if summaries:
+        top = summaries[0]
+        _debug_export(
+            config,
+            "endpoint=/api/export/user_dossier/history "
+            f"rows={len(summaries)} top_export_id={top['export_id']} "
+            f"top_positions_count={top['positions_count']} top_trades_count={top['trades_count']} "
+            f"top_positions_len={top['positions_len']} top_trades_len={top['trades_len']}",
+        )
+    else:
+        _debug_export(config, "endpoint=/api/export/user_dossier/history rows=0")
+
+    export_id = str(dossier_export_response.get("export_id") or "")
+    selected = _select_history_hydration_row(summaries, export_id)
+
+    if selected and selected["positions_count"] > 0:
+        _write_hydrated_dossier(output_dir, selected)
+        hydrated_summary = _summarize_dossier_payload(_load_dossier_payload(output_dir))
+        _debug_export(
+            config,
+            f"hydrated_from_history export_id={selected['export_id']} "
+            f"positions_len={hydrated_summary['positions_len']} trades_len={hydrated_summary['trades_len']}",
+        )
+        return endpoints_used, hydrated_summary, {"history_rows": len(summaries), "hydrated": True}
+
+    if local_payload is None:
+        if selected:
+            _write_hydrated_dossier(output_dir, selected)
+            hydrated_summary = _summarize_dossier_payload(_load_dossier_payload(output_dir))
+            return endpoints_used, hydrated_summary, {"history_rows": len(summaries), "hydrated": True}
+        raise TrustArtifactError(
+            f"Missing dossier.json at {output_dir / 'dossier.json'} and no usable history dossier payload found"
+        )
+
+    return endpoints_used, local_summary, {"history_rows": len(summaries), "hydrated": False}
+
+
+def _materialize_dossier_if_missing(
+    output_dir: Path,
+    config: Dict[str, Any],
+    dossier_export_response: Dict[str, Any],
+) -> tuple[list[str], Dict[str, Any], Dict[str, Any]]:
+    # Historical function name kept for compatibility; this now also supports hydration from history
+    # when the latest export is empty.
+    wallet_hint = str(dossier_export_response.get("proxy_wallet") or config.get("user") or "")
+    _debug_export(
+        config,
+        f"wallet={wallet_hint} run_root={output_dir}",
+    )
+    endpoints_used, dossier_summary, hydration_meta = _hydrate_dossier_from_history_if_needed(
+        output_dir=output_dir,
+        config=config,
+        dossier_export_response=dossier_export_response,
+    )
+    _debug_export(
+        config,
+        f"endpoints_used={','.join(endpoints_used)} "
+        f"hydrated={hydration_meta.get('hydrated')} history_rows={hydration_meta.get('history_rows', 0)} "
+        f"positions_len={dossier_summary['positions_len']} trades_len={dossier_summary['trades_len']}",
+    )
+    return endpoints_used, dossier_summary, hydration_meta
+
+
+def _emit_trust_artifacts(
+    config: Dict[str, Any],
+    argv: list[str],
+    started_at: str,
+    resolve_response: Dict[str, Any],
+    dossier_export_response: Dict[str, Any],
+) -> Dict[str, str]:
+    artifact_path = str(dossier_export_response.get("artifact_path") or "").strip()
+    if not artifact_path:
+        raise TrustArtifactError("Export response missing artifact_path")
+
+    output_dir = Path(artifact_path)
+    run_id = str(dossier_export_response.get("export_id") or uuid.uuid4().hex[:8])
+    proxy_wallet = str(
+        dossier_export_response.get("proxy_wallet")
+        or resolve_response.get("proxy_wallet")
+        or ""
+    )
+    username_slug = str(dossier_export_response.get("username_slug") or "").strip()
+    if not username_slug:
+        username = str(resolve_response.get("username") or "").strip()
+        username_slug = username.lower() if username else str(config["user"]).strip().lstrip("@").lower()
+
+    endpoints_used, dossier_summary, hydration_meta = _materialize_dossier_if_missing(
+        output_dir,
+        config,
+        dossier_export_response,
+    )
+    _debug_export(
+        config,
+        f"coverage_input positions_len={dossier_summary['positions_len']} "
+        f"trades_len={dossier_summary['trades_len']} hydrated={hydration_meta.get('hydrated')}",
+    )
+    positions = _load_dossier_positions(output_dir)
+    coverage_report = build_coverage_report(
+        positions=positions,
+        run_id=run_id,
+        user_slug=username_slug,
+        wallet=proxy_wallet,
+        proxy_wallet=proxy_wallet,
+    )
+    # Defensive check: scan trust artifacts must use split UID coverage schema.
+    if "trade_uid_coverage" in coverage_report:
+        coverage_report.pop("trade_uid_coverage", None)
+    for required_key in ("deterministic_trade_uid_coverage", "fallback_uid_coverage"):
+        if required_key not in coverage_report:
+            raise TrustArtifactError(f"Coverage report missing required field: {required_key}")
+    positions_total = int(coverage_report.get("totals", {}).get("positions_total") or 0)
+    if positions_total == 0:
+        wallet_for_warning = proxy_wallet or str(resolve_response.get("proxy_wallet") or config["user"])
+        endpoints_text = ", ".join(endpoints_used) if endpoints_used else "(none)"
+        zero_warning = (
+            f"positions_total=0 for wallet={wallet_for_warning}; endpoints_used={endpoints_text}. "
+            "Next checks: confirm wallet mapping/proxy_wallet and increase lookback (export days/history limit)."
+        )
+        warnings = coverage_report.setdefault("warnings", [])
+        if isinstance(warnings, list) and zero_warning not in warnings:
+            warnings.append(zero_warning)
+        print(f"Warning: {zero_warning}", file=sys.stderr)
+    coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
+
+    wallets = [w for w in dict.fromkeys([proxy_wallet, resolve_response.get("proxy_wallet")]) if w]
+    output_paths = {
+        "run_root": str(output_dir),
+        "dossier_path": str(output_dir),
+        "dossier_json": str(output_dir / "dossier.json"),
+        "coverage_reconciliation_report_json": coverage_paths["json"],
+    }
+    if "md" in coverage_paths:
+        output_paths["coverage_reconciliation_report_md"] = coverage_paths["md"]
+
+    effective_config = {
+        **config,
+        "trust_artifact_window_days": TRUST_ARTIFACT_WINDOW_DAYS,
+        "trust_artifact_max_trades": TRUST_ARTIFACT_MAX_TRADES,
+    }
+    manifest = build_run_manifest(
+        run_id=run_id,
+        started_at=started_at,
+        command_name="scan",
+        argv=argv,
+        user_input=str(config["user"]),
+        user_slug=username_slug,
+        wallets=wallets,
+        output_paths=output_paths,
+        effective_config=effective_config,
+        finished_at=_now_utc_iso(),
+    )
+    manifest_path = write_run_manifest(manifest, output_dir)
+
+    emitted = {
+        "coverage_reconciliation_report_json": coverage_paths["json"],
+        "run_manifest": manifest_path,
+    }
+    if "md" in coverage_paths:
+        emitted["coverage_reconciliation_report_md"] = coverage_paths["md"]
+    return emitted
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run a one-shot Polymarket scan via the PolyTool API.",
@@ -206,6 +664,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Snapshot orderbook metrics before computing PnL/arb",
     )
+    parser.add_argument(
+        "--debug-export",
+        action="store_true",
+        default=None,
+        help="Print trust artifact export diagnostics (wallet, endpoints, counts)",
+    )
     parser.add_argument("--api-base-url", help="Base URL for the PolyTool API")
     return parser
 
@@ -223,6 +687,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         os.getenv("SCAN_COMPUTE_OPPORTUNITIES"), "SCAN_COMPUTE_OPPORTUNITIES"
     )
     env_snapshot_books = parse_bool(os.getenv("SCAN_SNAPSHOT_BOOKS"), "SCAN_SNAPSHOT_BOOKS")
+    env_debug_export = parse_bool(os.getenv("SCAN_DEBUG_EXPORT"), "SCAN_DEBUG_EXPORT")
     env_api_base = os.getenv("API_BASE_URL")
     env_timeout = parse_float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS"), "SCAN_HTTP_TIMEOUT_SECONDS")
 
@@ -281,6 +746,13 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         snapshot_books = DEFAULT_SNAPSHOT_BOOKS
 
+    if args.debug_export is True:
+        debug_export = True
+    elif env_debug_export is not None:
+        debug_export = env_debug_export
+    else:
+        debug_export = False
+
     return {
         "user": user,
         "max_pages": max_pages,
@@ -292,6 +764,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "compute_pnl": compute_pnl,
         "compute_opportunities": compute_opportunities,
         "snapshot_books": snapshot_books,
+        "debug_export": debug_export,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
     }
@@ -344,6 +817,8 @@ def print_summary(
     detectors_response: Dict[str, Any],
     pnl_response: Optional[Dict[str, Any]],
     opportunities_response: Optional[Dict[str, Any]],
+    dossier_export_response: Optional[Dict[str, Any]] = None,
+    trust_artifacts: Optional[Dict[str, str]] = None,
 ) -> None:
     username = resolve_response.get("username") or config["user"]
     proxy_wallet = resolve_response.get("proxy_wallet") or "unknown"
@@ -451,10 +926,24 @@ def print_summary(
     print("  Dashboards: PolyTool - User Trades, PolyTool - Strategy Detectors, PolyTool - PnL")
     print(f"  Swagger: {api_base_url}/docs")
 
+    if dossier_export_response:
+        print("")
+        print("Trust artifacts")
+        print(f"  Run root: {dossier_export_response.get('artifact_path')}")
+        if trust_artifacts:
+            for label, path in trust_artifacts.items():
+                print(f"  {label}: {path}")
 
-def run_scan(config: Dict[str, Any]) -> None:
+
+def run_scan(
+    config: Dict[str, Any],
+    argv: Optional[list[str]] = None,
+    started_at: Optional[str] = None,
+) -> Dict[str, str]:
     api_base_url = config["api_base_url"]
     timeout_seconds = config["timeout_seconds"]
+    safe_argv = argv or []
+    started_at_value = started_at or _now_utc_iso()
 
     if config["ingest_markets"]:
         post_json(
@@ -532,6 +1021,24 @@ def run_scan(config: Dict[str, Any]) -> None:
             timeout=timeout_seconds,
         )
 
+    dossier_export_response = post_json(
+        api_base_url,
+        "/api/export/user_dossier",
+        {
+            "user": config["user"],
+            "days": TRUST_ARTIFACT_WINDOW_DAYS,
+            "max_trades": TRUST_ARTIFACT_MAX_TRADES,
+        },
+        timeout=timeout_seconds,
+    )
+    trust_artifacts = _emit_trust_artifacts(
+        config=config,
+        argv=safe_argv,
+        started_at=started_at_value,
+        resolve_response=resolve_response,
+        dossier_export_response=dossier_export_response,
+    )
+
     print_summary(
         config,
         resolve_response,
@@ -542,7 +1049,10 @@ def run_scan(config: Dict[str, Any]) -> None:
         detectors_response,
         pnl_response,
         opportunities_response,
+        dossier_export_response=dossier_export_response,
+        trust_artifacts=trust_artifacts,
     )
+    return trust_artifacts
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -555,7 +1065,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         config = build_config(args)
         validate_config(config)
-        run_scan(config)
+        run_scan(config, argv=argv or [], started_at=_now_utc_iso())
         return 0
     except ApiError as exc:
         print(
@@ -571,6 +1081,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Network error: {exc}", file=sys.stderr)
         if exc.is_connection_error:
             print("Start docker compose up -d --build", file=sys.stderr)
+        return 1
+    except TrustArtifactError as exc:
+        print(f"Trust artifact error: {exc}", file=sys.stderr)
         return 1
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 1
