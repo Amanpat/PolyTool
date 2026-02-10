@@ -8,6 +8,7 @@
 Last activity: 2026-02-10 - Completed quick-002 (resolution provider chain with on-chain CTF + subgraph)
 
 ## Recent Progress
+- Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
 - Quick-001: Cross-encoder reranking with hybrid+rerank eval mode (101 tests passing)
 - Phase 4.3: Offline RAG eval harness implemented with 20 passing tests
 - Phase 4.2: Index reconcile mode for stale chunk cleanup

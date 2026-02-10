@@ -164,8 +164,8 @@ class SubgraphResolutionProvider:
             resolved_at = None
             if resolution_timestamp:
                 try:
-                    from datetime import datetime
-                    resolved_at = datetime.utcfromtimestamp(int(resolution_timestamp))
+                    from datetime import datetime, timezone
+                    resolved_at = datetime.fromtimestamp(int(resolution_timestamp), tz=timezone.utc)
                 except (ValueError, TypeError):
                     pass
 
