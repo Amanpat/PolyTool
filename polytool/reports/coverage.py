@@ -8,6 +8,7 @@ resolution coverage for a single examination run.
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,30 @@ def _safe_pct(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return round(numerator / denominator, 6)
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _coerce_int(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return 0
 
 
 def _now_utc() -> str:
@@ -151,13 +176,21 @@ def build_coverage_report(
     missing_pnl = 0
 
     for pos in positions:
-        pnl = pos.get("realized_pnl_net")
         outcome = pos.get("resolution_outcome", "UNKNOWN_RESOLUTION")
+        if outcome == "PENDING":
+            pos["settlement_price"] = None
+            if not pos.get("resolved_at"):
+                pos["resolved_at"] = None
+            if _coerce_int(pos.get("sell_count")) == 0:
+                pos["gross_pnl"] = 0.0
+                pos["realized_pnl_net"] = 0.0
+
+        pnl = _safe_float(pos.get("realized_pnl_net"))
         if pnl is None:
             missing_pnl += 1
             continue
-        realized_total += float(pnl)
-        by_outcome[outcome] = by_outcome.get(outcome, 0.0) + float(pnl)
+        realized_total += pnl
+        by_outcome[outcome] = by_outcome.get(outcome, 0.0) + pnl
 
     pnl_section = {
         "realized_pnl_net_total": round(realized_total, 6),
@@ -255,7 +288,7 @@ def write_coverage_report(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = output_dir / "coverage_reconciliation_report.json"
-    json_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    json_path.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False), encoding="utf-8")
 
     paths: Dict[str, str] = {"json": str(json_path)}
 

@@ -75,6 +75,29 @@ def _make_positions():
     ]
 
 
+def _latest_drpufferfish_dossier_path() -> Path:
+    root = Path(__file__).resolve().parents[1] / "artifacts" / "dossiers" / "users" / "drpufferfish"
+    candidates = sorted(root.rglob("dossier.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    assert candidates, f"No dossier artifacts found under {root}"
+    return candidates[0]
+
+
+def _load_latest_pending_no_sell_position() -> dict:
+    dossier_path = _latest_drpufferfish_dossier_path()
+    dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    positions = dossier.get("positions", {}).get("positions", [])
+    pending = next(
+        (
+            pos
+            for pos in positions
+            if pos.get("resolution_outcome") == "PENDING" and int(pos.get("sell_count") or 0) == 0
+        ),
+        None,
+    )
+    assert pending is not None, f"No PENDING sell_count==0 position found in {dossier_path}"
+    return dict(pending)
+
+
 class TestNormalizeFeeFields:
     def test_actual_fee_sets_source(self):
         pos = {"fees_actual": 1.5, "fees_estimated": 0.0}
@@ -195,6 +218,22 @@ class TestBuildCoverageReport:
         # 10.5 + (-3.2) + 7.0 + (-1.0) + 0.0 = 13.3  (None is skipped)
         assert abs(pnl["realized_pnl_net_total"] - 13.3) < 0.001
         assert pnl["missing_realized_pnl_count"] == 1  # tok_006 has None
+
+    def test_pending_no_sells_realized_is_zero(self):
+        pending = _load_latest_pending_no_sell_position()
+        report = build_coverage_report(
+            positions=[pending],
+            run_id="pending-fix",
+            user_slug="drpufferfish",
+            wallet="0xabc",
+        )
+
+        assert pending["settlement_price"] is None
+        assert pending["resolved_at"] is None
+        assert pending["gross_pnl"] == 0.0
+        assert pending["realized_pnl_net"] == 0.0
+        assert report["pnl"]["realized_pnl_net_by_outcome"]["PENDING"] == 0.0
+        assert report["pnl"]["realized_pnl_net_total"] == 0.0
 
     def test_fee_source_counts(self):
         positions = _make_positions()

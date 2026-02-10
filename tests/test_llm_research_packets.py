@@ -1,13 +1,92 @@
+import json
 import os
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 
 from polymarket.llm_research_packets import export_user_dossier
+
+
+def _reject_json_constant(value: str):
+    raise ValueError(f"Non-standard JSON constant encountered: {value}")
+
+
+def _strict_json_loads(payload: str):
+    return json.loads(payload, parse_constant=_reject_json_constant)
+
+
+def _latest_drpufferfish_dossier_path() -> Path:
+    root = Path(__file__).resolve().parents[1] / "artifacts" / "dossiers" / "users" / "drpufferfish"
+    candidates = sorted(root.rglob("dossier.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not candidates:
+        raise AssertionError(f"No dossier artifacts found under {root}")
+    return candidates[0]
+
+
+def _load_real_fixture_positions():
+    dossier_path = _latest_drpufferfish_dossier_path()
+    dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    positions = dossier.get("positions", {}).get("positions", [])
+
+    pending = next(
+        (
+            pos
+            for pos in positions
+            if pos.get("resolution_outcome") == "PENDING" and int(pos.get("sell_count") or 0) == 0
+        ),
+        None,
+    )
+    win = next((pos for pos in positions if pos.get("resolution_outcome") == "WIN"), None)
+    loss = next((pos for pos in positions if pos.get("resolution_outcome") == "LOSS"), None)
+
+    if pending is None:
+        raise AssertionError(f"No pending sell_count==0 position found in {dossier_path}")
+    if win is None or loss is None:
+        raise AssertionError(f"Expected WIN and LOSS fixtures in {dossier_path}")
+    return dict(pending), dict(win), dict(loss)
+
+
+def _parse_iso8601(ts: str | None):
+    if not ts:
+        return None
+    text = ts.replace("Z", "+00:00")
+    return datetime.fromisoformat(text)
+
+
+def _position_to_lifecycle_row(position: dict):
+    return [
+        position.get("resolved_token_id", ""),
+        position.get("market_slug", ""),
+        position.get("question", ""),
+        position.get("outcome_name", ""),
+        _parse_iso8601(position.get("entry_ts")),
+        position.get("entry_price"),
+        position.get("total_bought"),
+        position.get("total_cost"),
+        _parse_iso8601(position.get("exit_ts")),
+        position.get("exit_price"),
+        position.get("total_sold"),
+        position.get("total_proceeds"),
+        position.get("hold_duration_seconds"),
+        position.get("position_remaining"),
+        position.get("trade_count"),
+        position.get("buy_count"),
+        position.get("sell_count"),
+        position.get("settlement_price"),
+        _parse_iso8601(position.get("resolved_at")),
+        position.get("resolution_source", ""),
+        position.get("resolution_outcome", "UNKNOWN_RESOLUTION"),
+        position.get("gross_pnl"),
+        position.get("realized_pnl_net"),
+        position.get("fees_actual", 0.0),
+        position.get("fees_estimated", 0.0),
+        position.get("fees_source", "unknown"),
+    ]
 
 
 class _FakeResult:
@@ -16,10 +95,11 @@ class _FakeResult:
 
 
 class _FakeClickhouseClient:
-    def __init__(self):
+    def __init__(self, lifecycle_rows=None):
         self.inserts = []
         self.now = datetime(2026, 1, 15, 12, 0, 0)
         self.snapshot_ts = datetime(2026, 1, 14, 8, 0, 0)
+        self.lifecycle_rows = lifecycle_rows or []
 
     def query(self, query, parameters=None):
         if "FROM user_trades_resolved" in query and "countDistinct" in query:
@@ -79,6 +159,8 @@ class _FakeClickhouseClient:
                 ["uid2", self.now - timedelta(hours=1), "tokenB", "tokenB", "market-b", "Question B", "No", "sell", 0.6, 20.0, 12.0, "tx2"],
                 ["uid3", self.now, "tokenC", "tokenC", "market-c", "Question C", "Yes", "buy", 0.2, 50.0, 10.0, "tx3"],
             ])
+        if "FROM user_trade_lifecycle_enriched" in query:
+            return _FakeResult(self.lifecycle_rows)
         return _FakeResult([])
 
     def insert(self, table, rows, column_names=None):
@@ -142,6 +224,100 @@ class ResearchPacketExportTests(unittest.TestCase):
         self.assertIn("dossier_json", insert["column_names"])
         dossier_index = insert["column_names"].index("dossier_json")
         self.assertTrue(insert["rows"][0][dossier_index])
+
+    def test_pending_no_sells_realized_is_zero(self) -> None:
+        pending, _, _ = _load_real_fixture_positions()
+        client = _FakeClickhouseClient(lifecycle_rows=[_position_to_lifecycle_row(pending)])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+
+        positions = result.dossier.get("positions", {}).get("positions", [])
+        pending_row = next((row for row in positions if row.get("resolution_outcome") == "PENDING"), None)
+        self.assertIsNotNone(pending_row)
+        self.assertEqual(pending_row["sell_count"], 0)
+        self.assertIsNone(pending_row["settlement_price"])
+        self.assertIsNone(pending_row["resolved_at"])
+        self.assertEqual(pending_row["gross_pnl"], 0.0)
+        self.assertEqual(pending_row["realized_pnl_net"], 0.0)
+
+    def test_json_no_nan(self) -> None:
+        pending, win, loss = _load_real_fixture_positions()
+        lifecycle_rows = [
+            _position_to_lifecycle_row(pending),
+            _position_to_lifecycle_row(win),
+            _position_to_lifecycle_row(loss),
+        ]
+        client = _FakeClickhouseClient(lifecycle_rows=lifecycle_rows)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+            dossier_text = Path(result.path_json).read_text(encoding="utf-8")
+
+        self.assertNotIn("NaN", dossier_text)
+        self.assertNotIn("1970-01-01T00:00:00Z", dossier_text)
+        parsed = _strict_json_loads(dossier_text)
+        parsed_positions = parsed.get("positions", {}).get("positions", [])
+        for row in parsed_positions:
+            if row.get("sell_count") == 0:
+                self.assertIsNone(row.get("exit_price"))
+
+    def test_hold_duration_non_negative(self) -> None:
+        _, win, loss = _load_real_fixture_positions()
+        lifecycle_rows = [
+            _position_to_lifecycle_row(win),
+            _position_to_lifecycle_row(loss),
+        ]
+        client = _FakeClickhouseClient(lifecycle_rows=lifecycle_rows)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+
+        by_outcome = {
+            row["resolution_outcome"]: row
+            for row in result.dossier.get("positions", {}).get("positions", [])
+        }
+        self.assertIn("WIN", by_outcome)
+        self.assertIn("LOSS", by_outcome)
+
+        for fixture in (win, loss):
+            outcome = fixture["resolution_outcome"]
+            row = by_outcome[outcome]
+            self.assertGreaterEqual(row["hold_duration_seconds"], 0)
+
+            entry_ts = _parse_iso8601(fixture.get("entry_ts"))
+            resolved_at = _parse_iso8601(fixture.get("resolved_at"))
+            self.assertIsNotNone(entry_ts)
+            self.assertIsNotNone(resolved_at)
+            expected = max(0, int((resolved_at - entry_ts).total_seconds()))
+            self.assertEqual(row["hold_duration_seconds"], expected)
 
 
 if __name__ == "__main__":
