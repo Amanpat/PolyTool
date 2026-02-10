@@ -260,6 +260,15 @@ class ResearchPacketExportTests(unittest.TestCase):
 
     def test_pending_position_no_sells_realized_zero(self) -> None:
         pending = _load_known_pending_suns_position()
+        pending["exit_price"] = float("nan")
+        pending["exit_ts"] = "1970-01-01T00:00:00Z"
+        pending["resolved_at"] = ""
+        pending["resolution_source"] = ""
+        pending["hold_duration_seconds"] = -3600
+        pending["gross_pnl"] = -abs(float(pending.get("total_cost") or 0.0))
+        pending["realized_pnl_net"] = -abs(float(pending.get("total_cost") or 0.0))
+        pending["sell_count"] = 0
+        pending["resolution_outcome"] = "PENDING"
         client = _FakeClickhouseClient(lifecycle_rows=[_position_to_lifecycle_row(pending)])
 
         with _workspace_tempdir() as tmpdir:
@@ -273,8 +282,12 @@ class ResearchPacketExportTests(unittest.TestCase):
                 artifacts_base_path=tmpdir,
                 generated_at=client.now,
             )
+            dossier_text = Path(result.path_json).read_text(encoding="utf-8")
 
-        positions = result.dossier.get("positions", {}).get("positions", [])
+        self.assertNotIn("NaN", dossier_text)
+        parsed = _strict_json_loads(dossier_text)
+
+        positions = parsed.get("positions", {}).get("positions", [])
         pending_row = next((row for row in positions if row.get("resolution_outcome") == "PENDING"), None)
         self.assertIsNotNone(pending_row)
         self.assertEqual(

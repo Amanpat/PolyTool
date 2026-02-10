@@ -180,6 +180,84 @@ def _compute_hold_duration_seconds(
     return max(0, int((end_dt - entry_dt).total_seconds()))
 
 
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float_or_default(
+    value: Any,
+    *,
+    default: Optional[float] = None,
+    digits: int = 6,
+) -> Optional[float]:
+    rounded = _round_value(value, digits=digits)
+    if rounded is None:
+        return default
+    return rounded
+
+
+def normalize_position_for_export(position: Dict[str, Any], now_ts: datetime) -> Dict[str, Any]:
+    normalized = dict(position)
+
+    normalized["entry_ts"] = _optional_isoformat(normalized.get("entry_ts")) or ""
+    normalized["exit_ts"] = _optional_isoformat(normalized.get("exit_ts")) or None
+    normalized["resolved_at"] = _optional_isoformat(normalized.get("resolved_at")) or None
+
+    resolution_source = normalized.get("resolution_source")
+    if isinstance(resolution_source, str) and not resolution_source.strip():
+        normalized["resolution_source"] = None
+
+    for field in (
+        "entry_price",
+        "total_bought",
+        "total_cost",
+        "exit_price",
+        "total_sold",
+        "total_proceeds",
+        "position_remaining",
+        "settlement_price",
+        "gross_pnl",
+        "realized_pnl_net",
+    ):
+        normalized[field] = _coerce_float_or_default(normalized.get(field))
+
+    normalized["fees_actual"] = _coerce_float_or_default(
+        normalized.get("fees_actual"),
+        default=0.0,
+    )
+    normalized["fees_estimated"] = _coerce_float_or_default(
+        normalized.get("fees_estimated"),
+        default=0.0,
+    )
+
+    sell_count_val = _coerce_int(normalized.get("sell_count"), default=0)
+    normalized["sell_count"] = sell_count_val
+    normalized["buy_count"] = _coerce_int(normalized.get("buy_count"), default=0)
+    normalized["trade_count"] = _coerce_int(normalized.get("trade_count"), default=0)
+
+    resolution_outcome = str(normalized.get("resolution_outcome") or "")
+    if resolution_outcome == "PENDING" and sell_count_val == 0:
+        normalized["realized_pnl_net"] = 0.0
+        normalized["gross_pnl"] = 0.0
+        normalized["settlement_price"] = None
+
+    normalized["hold_duration_seconds"] = _compute_hold_duration_seconds(
+        entry_ts=normalized.get("entry_ts"),
+        resolved_at=normalized.get("resolved_at"),
+        exit_ts=normalized.get("exit_ts"),
+        now_ts=now_ts,
+    )
+
+    return normalized
+
+
 def _isoformat(dt: Optional[datetime]) -> str:
     if dt is None:
         return ""
@@ -1172,14 +1250,7 @@ def export_user_dossier(
                     gross_pnl = 0.0
                     realized_pnl_net = 0.0
 
-            hold_duration_seconds_val = _compute_hold_duration_seconds(
-                entry_ts=row[4],
-                resolved_at=resolved_at_raw,
-                exit_ts=row[8],
-                now_ts=generated_at,
-            )
-
-            positions_lifecycle_rows.append({
+            position_row = {
                 "resolved_token_id": row[0] or "",
                 "market_slug": row[1] or "",
                 "question": row[2] or "",
@@ -1192,7 +1263,12 @@ def export_user_dossier(
                 "exit_price": _round_value(row[9]),
                 "total_sold": _round_value(row[10]),
                 "total_proceeds": _round_value(row[11]),
-                "hold_duration_seconds": hold_duration_seconds_val,
+                "hold_duration_seconds": _compute_hold_duration_seconds(
+                    entry_ts=row[4],
+                    resolved_at=resolved_at_raw,
+                    exit_ts=row[8],
+                    now_ts=generated_at,
+                ),
                 "position_remaining": _round_value(row[13]),
                 "trade_count": int(row[14] or 0),
                 "buy_count": buy_count_val,
@@ -1206,7 +1282,10 @@ def export_user_dossier(
                 "fees_estimated": fees_estimated_val,
                 "fees_source": fees_source_val,
                 "realized_pnl_net": _round_value(realized_pnl_net),
-            })
+            }
+            positions_lifecycle_rows.append(
+                normalize_position_for_export(position_row, now_ts=generated_at)
+            )
     except Exception:
         # Best-effort: if view doesn't exist yet, skip
         pass
@@ -1256,7 +1335,8 @@ def export_user_dossier(
     path_md = output_dir / "memo.md"
     manifest_path = output_dir / "manifest.json"
 
-    path_json.write_text(dossier_json, encoding="utf-8")
+    with path_json.open("w", encoding="utf-8") as handle:
+        json.dump(dossier, handle, indent=2, sort_keys=True, allow_nan=False)
     path_md.write_text(memo_md, encoding="utf-8")
 
     manifest = {
