@@ -1,8 +1,10 @@
 import json
 import os
+import shutil
 import sys
-import tempfile
 import unittest
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -51,11 +53,42 @@ def _load_real_fixture_positions():
     return dict(pending), dict(win), dict(loss)
 
 
+def _load_known_pending_suns_position() -> dict:
+    dossier_path = _latest_drpufferfish_dossier_path()
+    dossier = json.loads(dossier_path.read_text(encoding="utf-8"))
+    positions = dossier.get("positions", {}).get("positions", [])
+    known_slug = "will-the-phoenix-suns-win-the-2026-nba-finals"
+    known = next(
+        (
+            pos
+            for pos in positions
+            if pos.get("market_slug") == known_slug
+            and pos.get("resolution_outcome") == "PENDING"
+            and int(pos.get("sell_count") or 0) == 0
+        ),
+        None,
+    )
+    if known is None:
+        raise AssertionError(f"No known Suns pending position found in {dossier_path}")
+    return dict(known)
+
+
 def _parse_iso8601(ts: str | None):
     if not ts:
         return None
     text = ts.replace("Z", "+00:00")
     return datetime.fromisoformat(text)
+
+
+@contextmanager
+def _workspace_tempdir():
+    root = Path("artifacts") / "_tmp_pytest_workspace" / uuid.uuid4().hex
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        yield str(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _position_to_lifecycle_row(position: dict):
@@ -170,7 +203,7 @@ class _FakeClickhouseClient:
 class ResearchPacketExportTests(unittest.TestCase):
     def test_export_builds_expected_artifacts(self) -> None:
         client = _FakeClickhouseClient()
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _workspace_tempdir() as tmpdir:
             result = export_user_dossier(
                 clickhouse_client=client,
                 proxy_wallet="0xabc",
@@ -225,11 +258,11 @@ class ResearchPacketExportTests(unittest.TestCase):
         dossier_index = insert["column_names"].index("dossier_json")
         self.assertTrue(insert["rows"][0][dossier_index])
 
-    def test_pending_no_sells_realized_is_zero(self) -> None:
-        pending, _, _ = _load_real_fixture_positions()
+    def test_pending_position_no_sells_realized_zero(self) -> None:
+        pending = _load_known_pending_suns_position()
         client = _FakeClickhouseClient(lifecycle_rows=[_position_to_lifecycle_row(pending)])
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _workspace_tempdir() as tmpdir:
             result = export_user_dossier(
                 clickhouse_client=client,
                 proxy_wallet="0xabc",
@@ -244,13 +277,20 @@ class ResearchPacketExportTests(unittest.TestCase):
         positions = result.dossier.get("positions", {}).get("positions", [])
         pending_row = next((row for row in positions if row.get("resolution_outcome") == "PENDING"), None)
         self.assertIsNotNone(pending_row)
+        self.assertEqual(
+            pending_row["market_slug"],
+            "will-the-phoenix-suns-win-the-2026-nba-finals",
+        )
         self.assertEqual(pending_row["sell_count"], 0)
         self.assertIsNone(pending_row["settlement_price"])
+        self.assertIsNone(pending_row["exit_ts"])
+        self.assertIsNone(pending_row["exit_price"])
         self.assertIsNone(pending_row["resolved_at"])
         self.assertEqual(pending_row["gross_pnl"], 0.0)
         self.assertEqual(pending_row["realized_pnl_net"], 0.0)
+        self.assertGreaterEqual(pending_row["hold_duration_seconds"], 0)
 
-    def test_json_no_nan(self) -> None:
+    def test_dossier_json_no_nan(self) -> None:
         pending, win, loss = _load_real_fixture_positions()
         lifecycle_rows = [
             _position_to_lifecycle_row(pending),
@@ -259,7 +299,7 @@ class ResearchPacketExportTests(unittest.TestCase):
         ]
         client = _FakeClickhouseClient(lifecycle_rows=lifecycle_rows)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _workspace_tempdir() as tmpdir:
             result = export_user_dossier(
                 clickhouse_client=client,
                 proxy_wallet="0xabc",
@@ -288,7 +328,7 @@ class ResearchPacketExportTests(unittest.TestCase):
         ]
         client = _FakeClickhouseClient(lifecycle_rows=lifecycle_rows)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _workspace_tempdir() as tmpdir:
             result = export_user_dossier(
                 clickhouse_client=client,
                 proxy_wallet="0xabc",
