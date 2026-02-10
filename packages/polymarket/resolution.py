@@ -34,6 +34,7 @@ class Resolution:
     settlement_price: Optional[float]  # 1.0 for winner, 0.0 for loser, None if pending
     resolved_at: Optional[datetime]
     resolution_source: str
+    reason: str = ""
 
 
 class ResolutionProvider(Protocol):
@@ -142,6 +143,7 @@ class ClickHouseResolutionProvider:
                     settlement_price=float(row[2]) if row[2] is not None else None,
                     resolved_at=row[3] if row[3] else None,
                     resolution_source=row[4] or "clickhouse_cache",
+                    reason="cached from ClickHouse",
                 )
         except Exception as e:
             logger.warning(f"Error fetching resolution from ClickHouse: {e}")
@@ -176,6 +178,7 @@ class ClickHouseResolutionProvider:
                     settlement_price=float(row[2]) if row[2] is not None else None,
                     resolved_at=row[3] if row[3] else None,
                     resolution_source=row[4] or "clickhouse_cache",
+                    reason="cached from ClickHouse",
                 )
         except Exception as e:
             logger.warning(f"Error fetching batch resolutions from ClickHouse: {e}")
@@ -219,12 +222,14 @@ class GammaResolutionProvider:
                             settlement_price = 1.0
                         else:
                             settlement_price = 0.0
+                        reason = f"gamma winningOutcome={winning_outcome}, outcome_index={idx}"
                         return Resolution(
                             condition_id=condition_id,
                             outcome_token_id=outcome_token_id,
                             settlement_price=settlement_price,
                             resolved_at=market.close_date_iso,
                             resolution_source="gamma",
+                            reason=reason,
                         )
         except Exception as e:
             logger.warning(f"Error fetching resolution from Gamma: {e}")
@@ -244,15 +249,22 @@ class GammaResolutionProvider:
 
 
 class CachedResolutionProvider:
-    """Resolution provider that caches results and falls back to multiple sources."""
+    """Resolution provider that caches results and falls back to multiple sources.
+
+    Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+    """
 
     def __init__(
         self,
         clickhouse_provider: Optional[ClickHouseResolutionProvider] = None,
         gamma_provider: Optional[GammaResolutionProvider] = None,
+        on_chain_ctf_provider: Optional["OnChainCTFProvider"] = None,
+        subgraph_provider: Optional["SubgraphResolutionProvider"] = None,
     ):
         self.clickhouse_provider = clickhouse_provider
         self.gamma_provider = gamma_provider
+        self.on_chain_ctf_provider = on_chain_ctf_provider
+        self.subgraph_provider = subgraph_provider
         self._cache: dict[str, Resolution] = {}
 
     def get_resolution(
@@ -260,7 +272,10 @@ class CachedResolutionProvider:
         condition_id: str,
         outcome_token_id: str,
     ) -> Optional[Resolution]:
-        """Fetch resolution with caching and fallback."""
+        """Fetch resolution with caching and fallback.
+
+        Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+        """
         # Check cache first
         if outcome_token_id in self._cache:
             return self._cache[outcome_token_id]
@@ -270,6 +285,18 @@ class CachedResolutionProvider:
         # Try ClickHouse cache first (fastest)
         if self.clickhouse_provider:
             resolution = self.clickhouse_provider.get_resolution(
+                condition_id, outcome_token_id
+            )
+
+        # Fall back to on-chain CTF
+        if not resolution and self.on_chain_ctf_provider:
+            resolution = self.on_chain_ctf_provider.get_resolution(
+                condition_id, outcome_token_id
+            )
+
+        # Fall back to subgraph
+        if not resolution and self.subgraph_provider:
+            resolution = self.subgraph_provider.get_resolution(
                 condition_id, outcome_token_id
             )
 
@@ -289,7 +316,10 @@ class CachedResolutionProvider:
         self,
         token_ids: list[str],
     ) -> dict[str, Resolution]:
-        """Fetch multiple resolutions with caching."""
+        """Fetch multiple resolutions with caching.
+
+        Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+        """
         results: dict[str, Resolution] = {}
         missing: list[str] = []
 
@@ -306,6 +336,20 @@ class CachedResolutionProvider:
             results.update(ch_results)
             self._cache.update(ch_results)
             missing = [t for t in missing if t not in ch_results]
+
+        # Fetch remaining from on-chain CTF (note: batch not optimized yet)
+        if missing and self.on_chain_ctf_provider:
+            onchain_results = self.on_chain_ctf_provider.get_resolutions_batch(missing)
+            results.update(onchain_results)
+            self._cache.update(onchain_results)
+            missing = [t for t in missing if t not in onchain_results]
+
+        # Fetch remaining from subgraph (note: batch not optimized yet)
+        if missing and self.subgraph_provider:
+            subgraph_results = self.subgraph_provider.get_resolutions_batch(missing)
+            results.update(subgraph_results)
+            self._cache.update(subgraph_results)
+            missing = [t for t in missing if t not in subgraph_results]
 
         # Fetch remaining from Gamma
         if missing and self.gamma_provider:
