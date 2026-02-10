@@ -36,6 +36,13 @@ from polymarket.opportunities import get_opportunity_bucket_start, normalize_buc
 from polymarket.normalization import normalize_condition_id
 from polymarket.token_resolution import resolve_token_id
 from polymarket.llm_research_packets import export_user_dossier
+from polymarket.resolution_enrichment import (
+    DEFAULT_BATCH_SIZE as DEFAULT_RESOLUTION_BATCH_SIZE,
+    DEFAULT_MAX_CANDIDATES as DEFAULT_RESOLUTION_MAX_CANDIDATES,
+    DEFAULT_MAX_CONCURRENCY as DEFAULT_RESOLUTION_MAX_CONCURRENCY,
+    build_provider_chain as build_resolution_provider_chain,
+    enrich_market_resolutions,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -56,6 +63,8 @@ PNL_MAX_TOKENS_PER_RUN = int(os.getenv("PNL_MAX_TOKENS_PER_RUN", "200"))
 PNL_HTTP_TIMEOUT_SECONDS = float(os.getenv("PNL_HTTP_TIMEOUT_SECONDS", "20"))
 ARB_CACHE_SECONDS = int(os.getenv("ARB_CACHE_SECONDS", "30"))
 ARB_MAX_TOKENS_PER_RUN = int(os.getenv("ARB_MAX_TOKENS_PER_RUN", "200"))
+RESOLUTION_RPC_TIMEOUT_SECONDS = float(os.getenv("RESOLUTION_RPC_TIMEOUT_SECONDS", "10"))
+RESOLUTION_SUBGRAPH_TIMEOUT_SECONDS = float(os.getenv("RESOLUTION_SUBGRAPH_TIMEOUT_SECONDS", "15"))
 
 # Orderbook snapshot configuration
 BOOK_SNAPSHOT_DEPTH_BAND_BPS = float(os.getenv("BOOK_SNAPSHOT_DEPTH_BAND_BPS", "50"))
@@ -154,13 +163,24 @@ def _get_existing_user_metadata(client, proxy_wallet: str) -> tuple[Optional[dat
     return None, ""
 
 
+def _sanitize_datetime_for_insert(value: Optional[datetime], fallback: datetime) -> datetime:
+    """Guard against out-of-range timestamps on Windows hosts."""
+    if value is None:
+        return fallback
+    try:
+        _ = value.timestamp()
+        return value
+    except (OSError, OverflowError, ValueError):
+        return fallback
+
+
 def _upsert_user_profile(client, profile, input_value: str) -> None:
     now = datetime.utcnow()
     existing_first_seen, existing_username = _get_existing_user_metadata(
         client,
         profile.proxy_wallet,
     )
-    first_seen = existing_first_seen or now
+    first_seen = _sanitize_datetime_for_insert(existing_first_seen, now)
     input_username = _normalize_username_input(input_value)
     username_to_store = input_username or existing_username or ""
 
@@ -360,6 +380,49 @@ class IngestPositionsResponse(BaseModel):
     proxy_wallet: str
     snapshot_ts: datetime
     rows_written: int
+
+
+class EnrichResolutionsRequest(BaseModel):
+    """Request body for /api/enrich/resolutions endpoint."""
+
+    user: str = Field(..., description="Username (with or without @) or wallet address (0x...)")
+    max_candidates: int = Field(
+        default=DEFAULT_RESOLUTION_MAX_CANDIDATES,
+        ge=1,
+        le=2000,
+        description="Hard cap on token candidates to enrich",
+    )
+    batch_size: int = Field(
+        default=DEFAULT_RESOLUTION_BATCH_SIZE,
+        ge=1,
+        le=200,
+        description="Batch size per enrichment wave",
+    )
+    max_concurrency: int = Field(
+        default=DEFAULT_RESOLUTION_MAX_CONCURRENCY,
+        ge=1,
+        le=16,
+        description="Max concurrent provider calls per batch",
+    )
+
+
+class EnrichResolutionsResponse(BaseModel):
+    """Response body for /api/enrich/resolutions endpoint."""
+
+    proxy_wallet: str
+    max_candidates: int
+    batch_size: int
+    max_concurrency: int
+    candidates_total: int
+    candidates_processed: int
+    cached_hits: int
+    resolved_written: int
+    unresolved_network: int
+    skipped_missing_identifiers: int
+    skipped_unsupported: int
+    errors: int
+    skipped_reasons: dict[str, int]
+    warnings: list[str]
 
 
 # Endpoints
@@ -675,6 +738,66 @@ async def ingest_positions(request: IngestPositionsRequest):
         snapshot_ts=snapshot_ts,
         rows_written=rows_written,
     )
+
+
+@app.post("/api/enrich/resolutions", response_model=EnrichResolutionsResponse)
+async def enrich_resolutions(request: EnrichResolutionsRequest):
+    """
+    Enrich market resolutions for a user and cache results into market_resolutions.
+
+    Chain: ClickHouse cache -> OnChain CTF -> Subgraph -> Gamma.
+    """
+    logger.info(
+        "Enriching resolutions for user=%s max_candidates=%s batch_size=%s max_concurrency=%s",
+        request.user,
+        request.max_candidates,
+        request.batch_size,
+        request.max_concurrency,
+    )
+
+    profile = gamma_client.resolve(request.user)
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Could not resolve user: {request.user}",
+        )
+
+    proxy_wallet = profile.proxy_wallet
+    try:
+        client = get_clickhouse_client()
+        provider, provider_warnings = build_resolution_provider_chain(
+            clickhouse_client=client,
+            gamma_client=gamma_client,
+            rpc_timeout_seconds=RESOLUTION_RPC_TIMEOUT_SECONDS,
+            subgraph_timeout_seconds=RESOLUTION_SUBGRAPH_TIMEOUT_SECONDS,
+        )
+        summary = enrich_market_resolutions(
+            clickhouse_client=client,
+            proxy_wallet=proxy_wallet,
+            provider=provider,
+            max_candidates=request.max_candidates,
+            batch_size=request.batch_size,
+            max_concurrency=request.max_concurrency,
+        )
+        if provider_warnings:
+            summary.warnings.extend(provider_warnings)
+
+        logger.info(
+            "Resolution enrichment complete for wallet=%s candidates=%s cached=%s written=%s unresolved=%s skipped_missing=%s errors=%s",
+            proxy_wallet,
+            summary.candidates_total,
+            summary.cached_hits,
+            summary.resolved_written,
+            summary.unresolved_network,
+            summary.skipped_missing_identifiers,
+            summary.errors,
+        )
+        return EnrichResolutionsResponse(**summary.as_dict())
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to enrich resolutions: {exc}")
+        raise HTTPException(status_code=500, detail=f"Resolution enrichment failed: {exc}")
 
 
 @app.get("/api/users")
