@@ -29,6 +29,10 @@ DEFAULT_INGEST_POSITIONS = False
 DEFAULT_COMPUTE_PNL = False
 DEFAULT_COMPUTE_OPPORTUNITIES = False
 DEFAULT_SNAPSHOT_BOOKS = False
+DEFAULT_ENRICH_RESOLUTIONS = False
+DEFAULT_RESOLUTION_MAX_CANDIDATES = 200
+DEFAULT_RESOLUTION_BATCH_SIZE = 25
+DEFAULT_RESOLUTION_MAX_CONCURRENCY = 4
 DEFAULT_TIMEOUT_SECONDS = 120.0
 MAX_BODY_SNIPPET = 800
 TRUST_ARTIFACT_WINDOW_DAYS = 30
@@ -665,6 +669,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Snapshot orderbook metrics before computing PnL/arb",
     )
     parser.add_argument(
+        "--enrich-resolutions",
+        action="store_true",
+        default=None,
+        help=(
+            "Run scan-stage resolution enrichment (ClickHouse -> on-chain -> subgraph -> gamma) "
+            "before detectors/export"
+        ),
+    )
+    parser.add_argument(
+        "--resolution-max-candidates",
+        type=int,
+        help="Hard cap on tokens to enrich (default: 200)",
+    )
+    parser.add_argument(
+        "--resolution-batch-size",
+        type=int,
+        help="Batch size per enrichment wave (default: 25)",
+    )
+    parser.add_argument(
+        "--resolution-max-concurrency",
+        type=int,
+        help="Max concurrent provider calls per batch (default: 4)",
+    )
+    parser.add_argument(
         "--debug-export",
         action="store_true",
         default=None,
@@ -687,6 +715,21 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         os.getenv("SCAN_COMPUTE_OPPORTUNITIES"), "SCAN_COMPUTE_OPPORTUNITIES"
     )
     env_snapshot_books = parse_bool(os.getenv("SCAN_SNAPSHOT_BOOKS"), "SCAN_SNAPSHOT_BOOKS")
+    env_enrich_resolutions = parse_bool(
+        os.getenv("SCAN_ENRICH_RESOLUTIONS"), "SCAN_ENRICH_RESOLUTIONS"
+    )
+    env_resolution_max_candidates = parse_int(
+        os.getenv("SCAN_RESOLUTION_MAX_CANDIDATES"),
+        "SCAN_RESOLUTION_MAX_CANDIDATES",
+    )
+    env_resolution_batch_size = parse_int(
+        os.getenv("SCAN_RESOLUTION_BATCH_SIZE"),
+        "SCAN_RESOLUTION_BATCH_SIZE",
+    )
+    env_resolution_max_concurrency = parse_int(
+        os.getenv("SCAN_RESOLUTION_MAX_CONCURRENCY"),
+        "SCAN_RESOLUTION_MAX_CONCURRENCY",
+    )
     env_debug_export = parse_bool(os.getenv("SCAN_DEBUG_EXPORT"), "SCAN_DEBUG_EXPORT")
     env_api_base = os.getenv("API_BASE_URL")
     env_timeout = parse_float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS"), "SCAN_HTTP_TIMEOUT_SECONDS")
@@ -746,6 +789,29 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         snapshot_books = DEFAULT_SNAPSHOT_BOOKS
 
+    if args.enrich_resolutions is True:
+        enrich_resolutions = True
+    elif env_enrich_resolutions is not None:
+        enrich_resolutions = env_enrich_resolutions
+    else:
+        enrich_resolutions = DEFAULT_ENRICH_RESOLUTIONS
+
+    resolution_max_candidates = (
+        args.resolution_max_candidates
+        or env_resolution_max_candidates
+        or DEFAULT_RESOLUTION_MAX_CANDIDATES
+    )
+    resolution_batch_size = (
+        args.resolution_batch_size
+        or env_resolution_batch_size
+        or DEFAULT_RESOLUTION_BATCH_SIZE
+    )
+    resolution_max_concurrency = (
+        args.resolution_max_concurrency
+        or env_resolution_max_concurrency
+        or DEFAULT_RESOLUTION_MAX_CONCURRENCY
+    )
+
     if args.debug_export is True:
         debug_export = True
     elif env_debug_export is not None:
@@ -764,6 +830,10 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "compute_pnl": compute_pnl,
         "compute_opportunities": compute_opportunities,
         "snapshot_books": snapshot_books,
+        "enrich_resolutions": enrich_resolutions,
+        "resolution_max_candidates": resolution_max_candidates,
+        "resolution_batch_size": resolution_batch_size,
+        "resolution_max_concurrency": resolution_max_concurrency,
         "debug_export": debug_export,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
@@ -778,6 +848,12 @@ def validate_config(config: Dict[str, Any]) -> None:
         errors.append(f"SCAN_BUCKET must be one of {sorted(ALLOWED_BUCKETS)}.")
     if not isinstance(config["max_pages"], int) or config["max_pages"] <= 0:
         errors.append("SCAN_MAX_PAGES must be a positive integer.")
+    if not isinstance(config.get("resolution_max_candidates"), int) or config["resolution_max_candidates"] <= 0:
+        errors.append("SCAN_RESOLUTION_MAX_CANDIDATES must be a positive integer.")
+    if not isinstance(config.get("resolution_batch_size"), int) or config["resolution_batch_size"] <= 0:
+        errors.append("SCAN_RESOLUTION_BATCH_SIZE must be a positive integer.")
+    if not isinstance(config.get("resolution_max_concurrency"), int) or config["resolution_max_concurrency"] <= 0:
+        errors.append("SCAN_RESOLUTION_MAX_CONCURRENCY must be a positive integer.")
 
     if errors:
         for err in errors:
@@ -786,6 +862,15 @@ def validate_config(config: Dict[str, Any]) -> None:
 
     if config["timeout_seconds"] <= 0:
         print("Config error: SCAN_HTTP_TIMEOUT_SECONDS must be positive.", file=sys.stderr)
+        raise SystemExit(1)
+    if config["resolution_max_candidates"] > 1000:
+        print("Config error: SCAN_RESOLUTION_MAX_CANDIDATES must be <= 1000.", file=sys.stderr)
+        raise SystemExit(1)
+    if config["resolution_batch_size"] > 200:
+        print("Config error: SCAN_RESOLUTION_BATCH_SIZE must be <= 200.", file=sys.stderr)
+        raise SystemExit(1)
+    if config["resolution_max_concurrency"] > 16:
+        print("Config error: SCAN_RESOLUTION_MAX_CONCURRENCY must be <= 16.", file=sys.stderr)
         raise SystemExit(1)
 
 
@@ -811,6 +896,7 @@ def print_summary(
     config: Dict[str, Any],
     resolve_response: Dict[str, Any],
     ingest_response: Dict[str, Any],
+    resolution_enrichment_response: Optional[Dict[str, Any]],
     activity_response: Optional[Dict[str, Any]],
     positions_response: Optional[Dict[str, Any]],
     snapshot_response: Optional[Dict[str, Any]],
@@ -835,6 +921,22 @@ def print_summary(
         f"written={ingest_response.get('rows_written')}, "
         f"distinct={ingest_response.get('distinct_trade_uids_total')}"
     )
+
+    if resolution_enrichment_response:
+        print(
+            "Resolution enrichment: "
+            f"candidates={resolution_enrichment_response.get('candidates_total')}, "
+            f"processed={resolution_enrichment_response.get('candidates_processed')}, "
+            f"cached={resolution_enrichment_response.get('cached_hits')}, "
+            f"written={resolution_enrichment_response.get('resolved_written')}, "
+            f"unresolved={resolution_enrichment_response.get('unresolved_network')}, "
+            f"skipped_missing={resolution_enrichment_response.get('skipped_missing_identifiers')}, "
+            f"errors={resolution_enrichment_response.get('errors')}"
+        )
+        warnings = resolution_enrichment_response.get("warnings") or []
+        if isinstance(warnings, list):
+            for warning in warnings[:3]:
+                print(f"  Warning: {warning}")
 
     if activity_response:
         print(
@@ -992,6 +1094,27 @@ def run_scan(
         {"user": config["user"], "max_pages": config["max_pages"]},
         timeout=timeout_seconds,
     )
+
+    resolution_enrichment_response = None
+    if config.get("enrich_resolutions", DEFAULT_ENRICH_RESOLUTIONS):
+        resolution_enrichment_response = post_json(
+            api_base_url,
+            "/api/enrich/resolutions",
+            {
+                "user": config["user"],
+                "max_candidates": int(
+                    config.get("resolution_max_candidates", DEFAULT_RESOLUTION_MAX_CANDIDATES)
+                ),
+                "batch_size": int(
+                    config.get("resolution_batch_size", DEFAULT_RESOLUTION_BATCH_SIZE)
+                ),
+                "max_concurrency": int(
+                    config.get("resolution_max_concurrency", DEFAULT_RESOLUTION_MAX_CONCURRENCY)
+                ),
+            },
+            timeout=timeout_seconds,
+        )
+
     detectors_response = post_json(
         api_base_url,
         "/api/run/detectors",
@@ -1043,6 +1166,7 @@ def run_scan(
         config,
         resolve_response,
         ingest_response,
+        resolution_enrichment_response,
         activity_response,
         positions_response,
         snapshot_response,
