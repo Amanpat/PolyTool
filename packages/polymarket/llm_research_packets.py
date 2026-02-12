@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -103,7 +104,158 @@ def _safe_divide(numerator: float, denominator: float, digits: int = 6) -> float
 def _round_value(value: Optional[float], digits: int = 6) -> Optional[float]:
     if value is None:
         return None
-    return round(float(value), digits)
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    return round(numeric, digits)
+
+
+_MISSING_TS_SENTINEL = datetime(1970, 1, 1)
+
+
+def _to_naive_utc_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    dt: Optional[datetime]
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _coerce_optional_timestamp(value: Any) -> Optional[datetime]:
+    dt = _to_naive_utc_datetime(value)
+    if dt is None:
+        return None
+    if dt == _MISSING_TS_SENTINEL:
+        return None
+    return dt
+
+
+def _optional_isoformat(value: Any) -> Optional[str]:
+    dt = _coerce_optional_timestamp(value)
+    if dt is None:
+        return None
+    return _isoformat(dt)
+
+
+def _compute_hold_duration_seconds(
+    entry_ts: Any,
+    resolved_at: Any,
+    exit_ts: Any,
+    now_ts: datetime,
+) -> int:
+    entry_dt = _to_naive_utc_datetime(entry_ts)
+    if entry_dt is None:
+        return 0
+
+    resolved_dt = _coerce_optional_timestamp(resolved_at)
+    exit_dt = _coerce_optional_timestamp(exit_ts)
+    now_dt = _to_naive_utc_datetime(now_ts)
+
+    if resolved_dt is not None:
+        end_dt = resolved_dt
+    elif exit_dt is not None:
+        end_dt = exit_dt
+    else:
+        # Open/pending positions use export-time "now" for a stable snapshot duration.
+        end_dt = now_dt or entry_dt
+
+    return max(0, int((end_dt - entry_dt).total_seconds()))
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float_or_default(
+    value: Any,
+    *,
+    default: Optional[float] = None,
+    digits: int = 6,
+) -> Optional[float]:
+    rounded = _round_value(value, digits=digits)
+    if rounded is None:
+        return default
+    return rounded
+
+
+def normalize_position_for_export(position: Dict[str, Any], now_ts: datetime) -> Dict[str, Any]:
+    normalized = dict(position)
+
+    normalized["entry_ts"] = _optional_isoformat(normalized.get("entry_ts")) or ""
+    normalized["exit_ts"] = _optional_isoformat(normalized.get("exit_ts")) or None
+    normalized["resolved_at"] = _optional_isoformat(normalized.get("resolved_at")) or None
+
+    resolution_source = normalized.get("resolution_source")
+    if isinstance(resolution_source, str) and not resolution_source.strip():
+        normalized["resolution_source"] = None
+
+    for field in (
+        "entry_price",
+        "total_bought",
+        "total_cost",
+        "exit_price",
+        "total_sold",
+        "total_proceeds",
+        "position_remaining",
+        "settlement_price",
+        "gross_pnl",
+        "realized_pnl_net",
+    ):
+        normalized[field] = _coerce_float_or_default(normalized.get(field))
+
+    normalized["fees_actual"] = _coerce_float_or_default(
+        normalized.get("fees_actual"),
+        default=0.0,
+    )
+    normalized["fees_estimated"] = _coerce_float_or_default(
+        normalized.get("fees_estimated"),
+        default=0.0,
+    )
+
+    sell_count_val = _coerce_int(normalized.get("sell_count"), default=0)
+    normalized["sell_count"] = sell_count_val
+    normalized["buy_count"] = _coerce_int(normalized.get("buy_count"), default=0)
+    normalized["trade_count"] = _coerce_int(normalized.get("trade_count"), default=0)
+
+    resolution_outcome = str(normalized.get("resolution_outcome") or "")
+    if resolution_outcome == "PENDING" and sell_count_val == 0:
+        normalized["realized_pnl_net"] = 0.0
+        normalized["gross_pnl"] = 0.0
+        normalized["settlement_price"] = None
+
+    normalized["hold_duration_seconds"] = _compute_hold_duration_seconds(
+        entry_ts=normalized.get("entry_ts"),
+        resolved_at=normalized.get("resolved_at"),
+        exit_ts=normalized.get("exit_ts"),
+        now_ts=now_ts,
+    )
+
+    return normalized
 
 
 def _isoformat(dt: Optional[datetime]) -> str:
@@ -948,8 +1100,42 @@ def export_user_dossier(
         "anchor_trade_uids": anchor_trade_uids,
     }
 
-    # Fetch position lifecycle with resolution data (best-effort)
-    positions_lifecycle_query = """
+    # Fetch position lifecycle with resolution data.
+    # Prefer the enriched lifecycle view (Roadmap 3), then fall back to legacy.
+    positions_lifecycle_enriched_query = """
+        SELECT
+            resolved_token_id,
+            market_slug,
+            question,
+            outcome_name,
+            entry_ts,
+            entry_price_avg,
+            total_bought,
+            total_cost,
+            exit_ts,
+            exit_price_avg,
+            total_sold,
+            total_proceeds,
+            hold_duration_seconds,
+            position_remaining,
+            trade_count,
+            buy_count,
+            sell_count,
+            settlement_price,
+            resolved_at,
+            resolution_source,
+            resolution_outcome,
+            gross_pnl,
+            realized_pnl_net,
+            fees_actual,
+            fees_estimated,
+            fees_source
+        FROM user_trade_lifecycle_enriched
+        WHERE proxy_wallet = {wallet:String}
+        ORDER BY entry_ts DESC
+        LIMIT 100
+    """
+    positions_lifecycle_fallback_query = """
         SELECT
             resolved_token_id,
             market_slug,
@@ -976,58 +1162,131 @@ def export_user_dossier(
     positions_lifecycle_rows = []
     try:
         positions_lifecycle_result = clickhouse_client.query(
-            positions_lifecycle_query,
+            positions_lifecycle_enriched_query,
             parameters={"wallet": proxy_wallet},
         )
+        using_enriched_view = True
+    except Exception:
+        try:
+            positions_lifecycle_result = clickhouse_client.query(
+                positions_lifecycle_fallback_query,
+                parameters={"wallet": proxy_wallet},
+            )
+            using_enriched_view = False
+        except Exception:
+            positions_lifecycle_result = None
+            using_enriched_view = False
+
+    try:
+        if positions_lifecycle_result is None:
+            raise RuntimeError("No lifecycle result")
+
         for row in positions_lifecycle_result.result_rows:
-            gross_pnl = (float(row[11] or 0) - float(row[7] or 0))  # proceeds - cost
-            position_remaining_val = float(row[13] or 0)
-            # Determine resolution outcome (best-effort without settlement data)
-            if position_remaining_val > 0:
-                resolution_outcome = "PENDING"
-            elif gross_pnl > 0:
-                resolution_outcome = "PROFIT_EXIT"
+            entry_ts_iso = _optional_isoformat(row[4]) or ""
+            exit_ts_iso = _optional_isoformat(row[8])
+            sell_count_val = int(row[16] or 0)
+            buy_count_val = int(row[15] or 0)
+            resolved_at_raw: Any = None
+            if using_enriched_view:
+                settlement_price = _round_value(row[17]) if row[17] is not None else None
+                resolved_at_raw = row[18]
+                resolved_at = _optional_isoformat(resolved_at_raw)
+                resolution_source = row[19] or ""
+                resolution_outcome = row[20] or "UNKNOWN_RESOLUTION"
+                position_remaining_val = float(row[13] or 0)
+                gross_pnl = float(row[21] or 0)
+                realized_pnl_net = float(row[22]) if row[22] is not None else gross_pnl
+                fees_actual_val = float(row[23] or 0)
+                fees_estimated_val = float(row[24] or 0)
+                fees_source_val = row[25] or ""
+                # Guard against ClickHouse non-null defaults when the left-join misses.
+                # If resolution_source is empty, treat as unresolved and fall back to
+                # deterministic, non-fabricated classification.
+                if not resolution_source:
+                    settlement_price = None
+                    resolved_at_raw = None
+                    resolved_at = None
+                    gross_pnl = float(row[11] or 0) - float(row[7] or 0)
+                    if position_remaining_val > 0:
+                        resolution_outcome = "PENDING"
+                    elif gross_pnl > 0:
+                        resolution_outcome = "PROFIT_EXIT"
+                    else:
+                        resolution_outcome = "LOSS_EXIT"
+                    realized_pnl_net = gross_pnl
             else:
-                resolution_outcome = "LOSS_EXIT"
-
-            # Build position record with explicit fee sourcing.
-            # fees_actual / fees_estimated are placeholders until
-            # Roadmap 2 on-chain resolution enriches them.
-            fees_actual_val = 0.0
-            fees_estimated_val = 0.0
-            if fees_actual_val > 0:
-                fees_source_val = "actual"
-            elif fees_estimated_val > 0:
-                fees_source_val = "estimated"
-            else:
+                settlement_price = None
+                resolved_at = None
+                resolution_source = ""
+                gross_pnl = float(row[11] or 0) - float(row[7] or 0)
+                position_remaining_val = float(row[13] or 0)
+                # Legacy fallback classification without settlement data.
+                if position_remaining_val > 0:
+                    resolution_outcome = "PENDING"
+                elif gross_pnl > 0:
+                    resolution_outcome = "PROFIT_EXIT"
+                else:
+                    resolution_outcome = "LOSS_EXIT"
+                fees_actual_val = 0.0
+                fees_estimated_val = 0.0
                 fees_source_val = "unknown"
+                realized_pnl_net = gross_pnl
 
-            positions_lifecycle_rows.append({
+            if not fees_source_val:
+                if fees_actual_val > 0:
+                    fees_source_val = "actual"
+                elif fees_estimated_val > 0:
+                    fees_source_val = "estimated"
+                else:
+                    fees_source_val = "unknown"
+
+            if resolution_outcome == "PENDING":
+                settlement_price = None
+                resolved_at = None
+                resolved_at_raw = None
+                if sell_count_val == 0:
+                    # Pending positions without sells have no realized trading activity.
+                    # Keep both gross and realized PnL at zero to avoid fabricating losses.
+                    gross_pnl = 0.0
+                    realized_pnl_net = 0.0
+
+            position_row = {
                 "resolved_token_id": row[0] or "",
                 "market_slug": row[1] or "",
                 "question": row[2] or "",
                 "outcome_name": row[3] or "",
-                "entry_ts": _isoformat(row[4]) if row[4] else "",
+                "entry_ts": entry_ts_iso,
                 "entry_price": _round_value(row[5]),
                 "total_bought": _round_value(row[6]),
                 "total_cost": _round_value(row[7]),
-                "exit_ts": _isoformat(row[8]) if row[8] else "",
+                "exit_ts": exit_ts_iso,
                 "exit_price": _round_value(row[9]),
                 "total_sold": _round_value(row[10]),
                 "total_proceeds": _round_value(row[11]),
-                "hold_duration_seconds": int(row[12] or 0),
+                "hold_duration_seconds": _compute_hold_duration_seconds(
+                    entry_ts=row[4],
+                    resolved_at=resolved_at_raw,
+                    exit_ts=row[8],
+                    now_ts=generated_at,
+                ),
                 "position_remaining": _round_value(row[13]),
                 "trade_count": int(row[14] or 0),
-                "buy_count": int(row[15] or 0),
-                "sell_count": int(row[16] or 0),
+                "buy_count": buy_count_val,
+                "sell_count": sell_count_val,
+                "settlement_price": settlement_price,
+                "resolved_at": resolved_at,
+                "resolution_source": resolution_source,
                 "gross_pnl": _round_value(gross_pnl),
                 "resolution_outcome": resolution_outcome,
                 "fees_actual": fees_actual_val,
                 "fees_estimated": fees_estimated_val,
                 "fees_source": fees_source_val,
-                "realized_pnl_net": _round_value(gross_pnl),  # Net = gross when fees unknown
-            })
-    except Exception as e:
+                "realized_pnl_net": _round_value(realized_pnl_net),
+            }
+            positions_lifecycle_rows.append(
+                normalize_position_for_export(position_row, now_ts=generated_at)
+            )
+    except Exception:
         # Best-effort: if view doesn't exist yet, skip
         pass
 
@@ -1057,8 +1316,8 @@ def export_user_dossier(
         "positions": positions_summary,
     }
 
-    dossier_json = json.dumps(dossier, indent=2, sort_keys=True)
-    detectors_json = json.dumps(detectors_payload, separators=(",", ":"), sort_keys=True)
+    dossier_json = json.dumps(dossier, indent=2, sort_keys=True, allow_nan=False)
+    detectors_json = json.dumps(detectors_payload, separators=(",", ":"), sort_keys=True, allow_nan=False)
 
     memo_md = _build_research_memo(dossier, anchor_rows)
 
@@ -1076,7 +1335,8 @@ def export_user_dossier(
     path_md = output_dir / "memo.md"
     manifest_path = output_dir / "manifest.json"
 
-    path_json.write_text(dossier_json, encoding="utf-8")
+    with path_json.open("w", encoding="utf-8") as handle:
+        json.dump(dossier, handle, indent=2, sort_keys=True, allow_nan=False)
     path_md.write_text(memo_md, encoding="utf-8")
 
     manifest = {
@@ -1087,7 +1347,7 @@ def export_user_dossier(
         "created_at_utc": _isoformat(generated_at),
         "path": str(output_dir),
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False), encoding="utf-8")
 
     stats = {
         "trades_count": trades_count,

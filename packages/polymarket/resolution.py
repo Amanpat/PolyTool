@@ -7,6 +7,7 @@ If resolution cannot be determined, returns UNKNOWN_RESOLUTION.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -34,6 +35,7 @@ class Resolution:
     settlement_price: Optional[float]  # 1.0 for winner, 0.0 for loser, None if pending
     resolved_at: Optional[datetime]
     resolution_source: str
+    reason: str = ""
 
 
 class ResolutionProvider(Protocol):
@@ -43,6 +45,8 @@ class ResolutionProvider(Protocol):
         self,
         condition_id: str,
         outcome_token_id: str,
+        outcome_index: Optional[int] = None,
+        skip_clickhouse_cache: bool = False,
     ) -> Optional[Resolution]:
         """Fetch resolution for an outcome token."""
         ...
@@ -118,6 +122,8 @@ class ClickHouseResolutionProvider:
         self,
         condition_id: str,
         outcome_token_id: str,
+        outcome_index: Optional[int] = None,
+        skip_clickhouse_cache: bool = False,
     ) -> Optional[Resolution]:
         """Fetch resolution from ClickHouse cache."""
         query = """
@@ -142,6 +148,7 @@ class ClickHouseResolutionProvider:
                     settlement_price=float(row[2]) if row[2] is not None else None,
                     resolved_at=row[3] if row[3] else None,
                     resolution_source=row[4] or "clickhouse_cache",
+                    reason="cached from ClickHouse",
                 )
         except Exception as e:
             logger.warning(f"Error fetching resolution from ClickHouse: {e}")
@@ -176,6 +183,7 @@ class ClickHouseResolutionProvider:
                     settlement_price=float(row[2]) if row[2] is not None else None,
                     resolved_at=row[3] if row[3] else None,
                     resolution_source=row[4] or "clickhouse_cache",
+                    reason="cached from ClickHouse",
                 )
         except Exception as e:
             logger.warning(f"Error fetching batch resolutions from ClickHouse: {e}")
@@ -188,24 +196,87 @@ class GammaResolutionProvider:
     def __init__(self, gamma_client):
         self.gamma_client = gamma_client
 
+    @staticmethod
+    def _normalize_condition_id(condition_id: str) -> str:
+        text = str(condition_id or "").strip().lower()
+        if not text:
+            return ""
+        if text.startswith("0x"):
+            return "0x" + text[2:]
+        return "0x" + text
+
+    @staticmethod
+    def _infer_winning_outcome_from_prices(raw: dict) -> Optional[int]:
+        prices_raw = raw.get("outcomePrices", raw.get("outcome_prices"))
+        if prices_raw is None:
+            return None
+        if isinstance(prices_raw, str):
+            try:
+                prices_raw = json.loads(prices_raw)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return None
+        if not isinstance(prices_raw, list) or not prices_raw:
+            return None
+
+        prices: list[float] = []
+        for value in prices_raw:
+            try:
+                prices.append(float(value))
+            except (TypeError, ValueError):
+                return None
+
+        max_idx = max(range(len(prices)), key=lambda idx: prices[idx])
+        max_price = prices[max_idx]
+        # Require a clear winner near settlement price 1.0.
+        if max_price < 0.99:
+            return None
+        for idx, price in enumerate(prices):
+            if idx == max_idx:
+                continue
+            if price > 0.01:
+                return None
+        return max_idx
+
     def get_resolution(
         self,
         condition_id: str,
         outcome_token_id: str,
+        outcome_index: Optional[int] = None,
+        skip_clickhouse_cache: bool = False,
     ) -> Optional[Resolution]:
         """Fetch resolution from Gamma API for closed markets."""
         try:
-            markets = self.gamma_client.fetch_markets_filtered(
+            market = None
+            normalized_requested_cid = self._normalize_condition_id(condition_id)
+            if condition_id:
+                candidate_market = self.gamma_client.get_market_by_condition_id(condition_id)
+                if candidate_market:
+                    normalized_candidate_cid = self._normalize_condition_id(candidate_market.condition_id)
+                    if normalized_candidate_cid == normalized_requested_cid:
+                        market = candidate_market
+
+            markets = [market] if market else self.gamma_client.fetch_markets_filtered(
                 clob_token_ids=[outcome_token_id],
                 closed=True,
             )
+            if not market and normalized_requested_cid:
+                for fetched_market in markets:
+                    if self._normalize_condition_id(fetched_market.condition_id) == normalized_requested_cid:
+                        market = fetched_market
+                        break
+                if market is None and markets:
+                    market = markets[0]
+
             if markets:
-                market = markets[0]
-                # Find outcome index for this token
-                try:
-                    idx = market.clob_token_ids.index(outcome_token_id)
-                except ValueError:
-                    idx = -1
+                market = market or markets[0]
+                # Determine outcome index for this token.
+                if outcome_index is not None:
+                    idx = outcome_index
+                else:
+                    try:
+                        idx = market.clob_token_ids.index(outcome_token_id)
+                    except ValueError:
+                        idx = -1
 
                 # Check if market is resolved (closed)
                 if market.close_date_iso:
@@ -213,18 +284,30 @@ class GammaResolutionProvider:
                     # from the raw JSON if available
                     raw = market.raw_json or {}
                     winning_outcome = raw.get("winningOutcome", raw.get("winner", None))
-                    if winning_outcome is not None:
-                        # Determine settlement price based on winning outcome
-                        if idx >= 0 and idx == winning_outcome:
-                            settlement_price = 1.0
+                    if isinstance(winning_outcome, str):
+                        winning_outcome_str = winning_outcome.strip()
+                        if winning_outcome_str.isdigit():
+                            winning_outcome = int(winning_outcome_str)
                         else:
-                            settlement_price = 0.0
+                            normalized = winning_outcome_str.lower()
+                            outcomes = [str(o).strip().lower() for o in (market.outcomes or [])]
+                            try:
+                                winning_outcome = outcomes.index(normalized)
+                            except ValueError:
+                                winning_outcome = None
+                    if winning_outcome is None:
+                        winning_outcome = self._infer_winning_outcome_from_prices(raw)
+                    if isinstance(winning_outcome, int) and idx >= 0:
+                        # Determine settlement price based on winning outcome
+                        settlement_price = 1.0 if idx == winning_outcome else 0.0
+                        reason = f"gamma winningOutcome={winning_outcome}, outcome_index={idx}"
                         return Resolution(
                             condition_id=condition_id,
                             outcome_token_id=outcome_token_id,
                             settlement_price=settlement_price,
                             resolved_at=market.close_date_iso,
                             resolution_source="gamma",
+                            reason=reason,
                         )
         except Exception as e:
             logger.warning(f"Error fetching resolution from Gamma: {e}")
@@ -244,23 +327,35 @@ class GammaResolutionProvider:
 
 
 class CachedResolutionProvider:
-    """Resolution provider that caches results and falls back to multiple sources."""
+    """Resolution provider that caches results and falls back to multiple sources.
+
+    Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+    """
 
     def __init__(
         self,
         clickhouse_provider: Optional[ClickHouseResolutionProvider] = None,
         gamma_provider: Optional[GammaResolutionProvider] = None,
+        on_chain_ctf_provider: Optional["OnChainCTFProvider"] = None,
+        subgraph_provider: Optional["SubgraphResolutionProvider"] = None,
     ):
         self.clickhouse_provider = clickhouse_provider
         self.gamma_provider = gamma_provider
+        self.on_chain_ctf_provider = on_chain_ctf_provider
+        self.subgraph_provider = subgraph_provider
         self._cache: dict[str, Resolution] = {}
 
     def get_resolution(
         self,
         condition_id: str,
         outcome_token_id: str,
+        outcome_index: Optional[int] = None,
+        skip_clickhouse_cache: bool = False,
     ) -> Optional[Resolution]:
-        """Fetch resolution with caching and fallback."""
+        """Fetch resolution with caching and fallback.
+
+        Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+        """
         # Check cache first
         if outcome_token_id in self._cache:
             return self._cache[outcome_token_id]
@@ -268,15 +363,33 @@ class CachedResolutionProvider:
         resolution = None
 
         # Try ClickHouse cache first (fastest)
-        if self.clickhouse_provider:
+        if self.clickhouse_provider and not skip_clickhouse_cache:
             resolution = self.clickhouse_provider.get_resolution(
-                condition_id, outcome_token_id
+                condition_id, outcome_token_id, outcome_index=outcome_index
+            )
+
+        # Fall back to on-chain CTF
+        if not resolution and self.on_chain_ctf_provider:
+            resolution = self.on_chain_ctf_provider.get_resolution(
+                condition_id,
+                outcome_token_id,
+                outcome_index=outcome_index,
+            )
+
+        # Fall back to subgraph
+        if not resolution and self.subgraph_provider:
+            resolution = self.subgraph_provider.get_resolution(
+                condition_id,
+                outcome_token_id,
+                outcome_index=outcome_index,
             )
 
         # Fall back to Gamma API
         if not resolution and self.gamma_provider:
             resolution = self.gamma_provider.get_resolution(
-                condition_id, outcome_token_id
+                condition_id,
+                outcome_token_id,
+                outcome_index=outcome_index,
             )
 
         # Cache result
@@ -289,7 +402,10 @@ class CachedResolutionProvider:
         self,
         token_ids: list[str],
     ) -> dict[str, Resolution]:
-        """Fetch multiple resolutions with caching."""
+        """Fetch multiple resolutions with caching.
+
+        Chain: ClickHouse -> OnChainCTF -> Subgraph -> Gamma -> None
+        """
         results: dict[str, Resolution] = {}
         missing: list[str] = []
 
@@ -306,6 +422,20 @@ class CachedResolutionProvider:
             results.update(ch_results)
             self._cache.update(ch_results)
             missing = [t for t in missing if t not in ch_results]
+
+        # Fetch remaining from on-chain CTF (note: batch not optimized yet)
+        if missing and self.on_chain_ctf_provider:
+            onchain_results = self.on_chain_ctf_provider.get_resolutions_batch(missing)
+            results.update(onchain_results)
+            self._cache.update(onchain_results)
+            missing = [t for t in missing if t not in onchain_results]
+
+        # Fetch remaining from subgraph (note: batch not optimized yet)
+        if missing and self.subgraph_provider:
+            subgraph_results = self.subgraph_provider.get_resolutions_batch(missing)
+            results.update(subgraph_results)
+            self._cache.update(subgraph_results)
+            missing = [t for t in missing if t not in subgraph_results]
 
         # Fetch remaining from Gamma
         if missing and self.gamma_provider:

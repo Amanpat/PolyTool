@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS market_resolutions (
     -- Settlement price: 1.0 for winning outcome, 0.0 for losing outcome
     -- For binary markets: exactly one outcome has settlement_price=1.0
     -- For multi-outcome: one winner with 1.0, all others 0.0
-    settlement_price Float64,
+    settlement_price Nullable(Float64),
     -- Resolution timestamp (when market was resolved)
     resolved_at DateTime64(3) NULL,
     -- Source of resolution data

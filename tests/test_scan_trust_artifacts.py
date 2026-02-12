@@ -123,6 +123,123 @@ def test_run_scan_emits_trust_artifacts_from_canonical_scan_path(monkeypatch):
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+def test_run_scan_calls_resolution_enrichment_when_enabled(monkeypatch):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-06"
+            / "run-enrich"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "trade_uid": "uid-1",
+                                "resolved_token_id": "tok-1",
+                                "resolution_outcome": "WIN",
+                                "realized_pnl_net": 1.0,
+                                "position_remaining": 0.0,
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        calls = []
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            calls.append((path, payload))
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 1,
+                    "rows_written": 1,
+                    "distinct_trade_uids_total": 1,
+                }
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 1,
+                    "candidates_processed": 1,
+                    "cached_hits": 0,
+                    "resolved_written": 1,
+                    "unresolved_network": 0,
+                    "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0,
+                    "errors": 0,
+                    "skipped_reasons": {},
+                    "warnings": [],
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-enrich",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "enrich_resolutions": True,
+            "resolution_max_candidates": 123,
+            "resolution_batch_size": 12,
+            "resolution_max_concurrency": 3,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--enrich-resolutions"],
+            started_at="2026-02-06T12:00:00+00:00",
+        )
+
+        path_to_payload = {path: payload for path, payload in calls}
+        assert "/api/enrich/resolutions" in path_to_payload
+        assert path_to_payload["/api/enrich/resolutions"]["max_candidates"] == 123
+        assert path_to_payload["/api/enrich/resolutions"]["batch_size"] == 12
+        assert path_to_payload["/api/enrich/resolutions"]["max_concurrency"] == 3
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
 def test_scan_trust_artifacts_use_positions_count_fallback_when_rows_missing(monkeypatch):
     tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
     shutil.rmtree(tmp_path, ignore_errors=True)

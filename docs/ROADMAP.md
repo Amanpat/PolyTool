@@ -75,7 +75,25 @@ and closing missing PnL/fees gaps are owned by Roadmap 3.
 
 ---
 
-### Roadmap 3 - Hypothesis Validation Loop [NOT STARTED]
+### Roadmap 3 - Resolution Coverage [IN PROGRESS]
+
+- [x] OnChainCTFProvider reading CTF payout state from Polygon RPC
+- [x] SubgraphResolutionProvider as fallback via The Graph
+- [x] 4-stage CachedResolutionProvider chain (ClickHouse -> OnChainCTF -> Subgraph -> Gamma)
+- [x] Resolution dataclass with explicit `reason` field for traceability
+- [x] Unit tests for all resolution providers with mocked RPC/subgraph
+- [ ] Reduce `UNKNOWN_RESOLUTION` rate for resolved markets to near-zero
+
+**Acceptance**: `UNKNOWN_RESOLUTION` rate for markets that are objectively resolved
+on-chain drops to < 5%. All resolution sources carry explicit `resolution_source`
+and `reason` fields. Unit tests pass with mocked providers.
+
+**Kill condition**: If Gamma API coverage is already sufficient (>95% resolved
+markets covered), defer on-chain provider to a future milestone.
+
+---
+
+### Roadmap 4 - Hypothesis Validation Loop [NOT STARTED]
 
 - [ ] Reduce `UNKNOWN_RESOLUTION` by improving resolution coverage and settlement enrichment
 - [ ] Improve outcome coverage reliability for held-to-resolution classification
@@ -93,7 +111,7 @@ between two runs produces a readable changelog. Coverage quality trends down for
 
 ---
 
-### Roadmap 4 - Source Caching & Crawl [NOT STARTED]
+### Roadmap 5 - Source Caching & Crawl [NOT STARTED]
 
 - [ ] Full robots.txt parsing (currently basic)
 - [ ] Crawl depth support (follow links within domain)
@@ -109,7 +127,7 @@ defer this milestone.
 
 ---
 
-### Roadmap 5 - MCP Hardening [NOT STARTED]
+### Roadmap 6 - MCP Hardening [NOT STARTED]
 
 - [ ] HTTP transport (currently stdio only)
 - [ ] Authentication for multi-user scenarios
@@ -123,7 +141,7 @@ unauthorized access when exposed on network.
 
 ---
 
-### Roadmap 6 - Multi-User & Comparison [NOT STARTED]
+### Roadmap 7 - Multi-User & Comparison [NOT STARTED]
 
 - [ ] Compare users side-by-side
 - [ ] Portfolio-level aggregation
@@ -136,7 +154,7 @@ report.
 
 ---
 
-### Roadmap 7 - CLI & Dashboard Polish [NOT STARTED]
+### Roadmap 8 - CLI & Dashboard Polish [NOT STARTED]
 
 - [ ] Progress bars for long operations
 - [ ] JSON output mode for all commands
@@ -153,7 +171,7 @@ breakdown and lifecycle panels.
 
 ---
 
-### Roadmap 8 - CI & Testing [NOT STARTED]
+### Roadmap 9 - CI & Testing [NOT STARTED]
 
 - [ ] Integration tests for scan-first workflow (legacy examine smoke kept separate)
 - [ ] Mock ClickHouse for CI (no Docker dependency)
@@ -172,7 +190,7 @@ tests cover edge cases.
 These guard against feature creep. Do NOT start the next milestone until the
 current one is fully shipped.
 
-- **No backtesting** until Roadmap 3 hypothesis validation is done.
+- **No backtesting** until Roadmap 4 hypothesis validation is done.
 - **No real-time monitoring** (out of scope entirely; see TODO.md).
 - **No external LLM API calls** (remains local-only forever).
 - **No mobile app / web UI** (out of scope entirely).

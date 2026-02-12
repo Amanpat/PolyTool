@@ -41,6 +41,7 @@ from polytool.reports.coverage import (
     write_coverage_report,
 )
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
+from tools.cli.scan import ApiError as ScanApiError, NetworkError as ScanNetworkError, post_json as scan_post_json
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,11 @@ DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
 DEFAULT_CLICKHOUSE_DATABASE = "polyttool"
 DEFAULT_GAMMA_BASE = "https://gamma-api.polymarket.com"
 DEFAULT_HTTP_TIMEOUT = 20.0
+DEFAULT_API_BASE_URL = "http://localhost:8000"
+DEFAULT_ENRICH_RESOLUTIONS = True
+DEFAULT_RESOLUTION_MAX_CANDIDATES = 300
+DEFAULT_RESOLUTION_BATCH_SIZE = 25
+DEFAULT_RESOLUTION_MAX_CONCURRENCY = 4
 
 # Golden case configurations
 GOLDEN_CASES = {
@@ -216,6 +222,35 @@ def _run_export_dossier(
         }
     except Exception as e:
         print(f"Error during dossier export: {e}", file=sys.stderr)
+        return None
+
+
+def _run_resolution_enrichment(
+    user: str,
+    api_base_url: str,
+    max_candidates: int,
+    batch_size: int,
+    max_concurrency: int,
+    timeout_seconds: float,
+) -> Optional[Dict[str, Any]]:
+    """Best-effort resolution enrichment before dossier export."""
+    try:
+        return scan_post_json(
+            api_base_url,
+            "/api/enrich/resolutions",
+            {
+                "user": user,
+                "max_candidates": max_candidates,
+                "batch_size": batch_size,
+                "max_concurrency": max_concurrency,
+            },
+            timeout=timeout_seconds,
+        )
+    except (ScanApiError, ScanNetworkError) as exc:
+        print(f"Warning: resolution enrichment skipped ({exc})", file=sys.stderr)
+        return None
+    except Exception as exc:
+        print(f"Warning: resolution enrichment skipped ({exc})", file=sys.stderr)
         return None
 
 
@@ -461,7 +496,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-scan",
         action="store_true",
-        help="Skip scan step (use existing ClickHouse data)",
+        help="Skip scan-stage resolution enrichment and use existing ClickHouse data",
+    )
+    parser.add_argument(
+        "--no-enrich-resolutions",
+        action="store_true",
+        help="Disable pre-export resolution enrichment (enabled by default)",
+    )
+    parser.add_argument(
+        "--resolution-max-candidates",
+        type=int,
+        default=DEFAULT_RESOLUTION_MAX_CANDIDATES,
+        help=f"Hard cap on token candidates to enrich (default: {DEFAULT_RESOLUTION_MAX_CANDIDATES})",
+    )
+    parser.add_argument(
+        "--resolution-batch-size",
+        type=int,
+        default=DEFAULT_RESOLUTION_BATCH_SIZE,
+        help=f"Batch size per enrichment wave (default: {DEFAULT_RESOLUTION_BATCH_SIZE})",
+    )
+    parser.add_argument(
+        "--resolution-max-concurrency",
+        type=int,
+        default=DEFAULT_RESOLUTION_MAX_CONCURRENCY,
+        help=f"Max concurrent provider calls per batch (default: {DEFAULT_RESOLUTION_MAX_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--api-base-url",
+        default=os.getenv("API_BASE_URL", DEFAULT_API_BASE_URL),
+        help=f"PolyTool API base URL for enrichment hook (default: {DEFAULT_API_BASE_URL})",
     )
     parser.add_argument(
         "--dry-run",
@@ -518,6 +581,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     window_days = args.days or config.get("defaults", {}).get("days", DEFAULT_WINDOW_DAYS)
     max_trades = args.max_trades or config.get("defaults", {}).get("max_trades", DEFAULT_MAX_TRADES)
     artifacts_dir = args.artifacts_dir or config.get("defaults", {}).get("artifacts_dir", "artifacts")
+    enrich_resolutions = DEFAULT_ENRICH_RESOLUTIONS and (not args.no_enrich_resolutions)
+    resolution_max_candidates = max(1, min(int(args.resolution_max_candidates), 1000))
+    resolution_batch_size = max(1, min(int(args.resolution_batch_size), 200))
+    resolution_max_concurrency = max(1, min(int(args.resolution_max_concurrency), 16))
+    api_base_url = str(args.api_base_url or DEFAULT_API_BASE_URL).strip() or DEFAULT_API_BASE_URL
+    api_timeout_seconds = float(os.getenv("SCAN_HTTP_TIMEOUT_SECONDS", str(DEFAULT_HTTP_TIMEOUT)))
 
     # Initialize Gamma client for identity resolution (used in both dry-run and execute mode).
     gamma_client = GammaClient(
@@ -599,6 +668,32 @@ def main(argv: Optional[list[str]] = None) -> int:
             user_ctx.artifacts_user_dir,
         )
         print(f"Resolved: {user_info['user_handle']} -> slug={user_slug} ({user_info['proxy_wallet'][:10]}...)")
+
+        if not args.skip_scan and enrich_resolutions:
+            print("\n[0/3] Enriching resolutions cache...")
+            enrich_response = _run_resolution_enrichment(
+                user=user_info["user_handle"],
+                api_base_url=api_base_url,
+                max_candidates=resolution_max_candidates,
+                batch_size=resolution_batch_size,
+                max_concurrency=resolution_max_concurrency,
+                timeout_seconds=api_timeout_seconds,
+            )
+            if enrich_response:
+                print(
+                    "  Resolution enrichment: "
+                    f"candidates={enrich_response.get('candidates_total')}, "
+                    f"cached={enrich_response.get('cached_hits')}, "
+                    f"written={enrich_response.get('resolved_written')}, "
+                    f"unresolved={enrich_response.get('unresolved_network')}, "
+                    f"skipped_missing={enrich_response.get('skipped_missing_identifiers')}"
+                )
+                warnings = enrich_response.get("warnings") or []
+                if isinstance(warnings, list):
+                    for warning in warnings[:2]:
+                        print(f"  Warning: {warning}")
+            else:
+                print("  Warning: enrichment unavailable; continuing with existing cache")
 
         # 2. Export dossier
         print("\n[1/3] Exporting dossier...")
