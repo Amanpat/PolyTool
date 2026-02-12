@@ -240,7 +240,7 @@ def test_run_scan_calls_resolution_enrichment_when_enabled(monkeypatch):
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
-def test_scan_trust_artifacts_use_positions_count_fallback_when_rows_missing(monkeypatch):
+def test_scan_trust_artifacts_warns_when_positions_are_declared_but_rows_missing(monkeypatch, capsys):
     tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
     shutil.rmtree(tmp_path, ignore_errors=True)
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -315,8 +315,15 @@ def test_scan_trust_artifacts_use_positions_count_fallback_when_rows_missing(mon
             argv=["--user", "@TestUser"],
             started_at="2026-02-06T12:00:00+00:00",
         )
+        captured = capsys.readouterr()
         coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
-        assert coverage["totals"]["positions_total"] == 3
+        assert coverage["totals"]["positions_total"] == 0
+        assert coverage["resolution_coverage"]["unknown_resolution_rate"] == 0.0
+        assert "dossier_declares_positions_count=3 but exported positions rows=0" in captured.err
+        assert any(
+            "dossier_declares_positions_count=3 but exported positions rows=0" in warning
+            for warning in coverage["warnings"]
+        )
         assert "trade_uid_coverage" not in coverage
     finally:
         os.chdir(original_cwd)

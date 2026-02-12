@@ -278,17 +278,18 @@ def _extract_positions_payload(dossier: Dict[str, Any]) -> list[dict[str, Any]]:
     for item in candidates:
         if isinstance(item, dict):
             extracted.append(dict(item))
-    if extracted:
-        return extracted
+    return extracted
 
-    # Some dossier payloads expose only counts without lifecycle rows.
+
+def _extract_declared_positions_count(dossier: Dict[str, Any]) -> int:
     declared_count = 0
+    positions_section = dossier.get("positions")
     if isinstance(positions_section, dict):
         declared_count = max(declared_count, _coerce_non_negative_int(positions_section.get("count")))
     coverage = dossier.get("coverage")
     if isinstance(coverage, dict):
         declared_count = max(declared_count, _coerce_non_negative_int(coverage.get("positions_count")))
-    return [{} for _ in range(declared_count)]
+    return declared_count
 
 
 def _parse_dossier_payload(payload: Any) -> Optional[Dict[str, Any]]:
@@ -549,6 +550,12 @@ def _emit_trust_artifacts(
         f"coverage_input positions_len={dossier_summary['positions_len']} "
         f"trades_len={dossier_summary['trades_len']} hydrated={hydration_meta.get('hydrated')}",
     )
+    dossier_payload = _load_dossier_payload(output_dir)
+    declared_positions_count = (
+        _extract_declared_positions_count(dossier_payload)
+        if isinstance(dossier_payload, dict)
+        else 0
+    )
     positions = _load_dossier_positions(output_dir)
     coverage_report = build_coverage_report(
         positions=positions,
@@ -575,6 +582,14 @@ def _emit_trust_artifacts(
         if isinstance(warnings, list) and zero_warning not in warnings:
             warnings.append(zero_warning)
         print(f"Warning: {zero_warning}", file=sys.stderr)
+        if declared_positions_count > 0:
+            mismatch_warning = (
+                f"dossier_declares_positions_count={declared_positions_count} but exported positions rows=0. "
+                "Likely lifecycle export/schema mismatch (check user_trade_lifecycle_enriched/user_trade_lifecycle)."
+            )
+            if isinstance(warnings, list) and mismatch_warning not in warnings:
+                warnings.append(mismatch_warning)
+            print(f"Warning: {mismatch_warning}", file=sys.stderr)
     coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
 
     wallets = [w for w in dict.fromkeys([proxy_wallet, resolve_response.get("proxy_wallet")]) if w]
