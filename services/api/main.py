@@ -99,6 +99,13 @@ data_api_client = DataApiClient(base_url=DATA_API_BASE, timeout=HTTP_TIMEOUT_SEC
 clob_client = ClobClient(base_url=CLOB_API_BASE, timeout=PNL_HTTP_TIMEOUT_SECONDS)
 
 
+DOSSIER_REQUIRED_SCHEMA_OBJECTS = (
+    "user_trade_lifecycle",
+    "user_trade_lifecycle_enriched",
+)
+DOSSIER_SCHEMA_REMEDIATION = "docker compose down -v && docker compose up -d --build clickhouse api"
+
+
 def get_clickhouse_client():
     """Create ClickHouse client connection."""
     return clickhouse_connect.get_client(
@@ -108,6 +115,37 @@ def get_clickhouse_client():
         password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DATABASE,
     )
+
+
+class MissingClickHouseSchemaError(RuntimeError):
+    """Raised when required ClickHouse schema objects are missing."""
+
+
+def _assert_dossier_export_schema(client) -> None:
+    required = list(DOSSIER_REQUIRED_SCHEMA_OBJECTS)
+    try:
+        result = client.query(
+            """
+            SELECT name
+            FROM system.tables
+            WHERE database = {database:String}
+              AND name IN {names:Array(String)}
+            """,
+            parameters={"database": CLICKHOUSE_DATABASE, "names": required},
+        )
+    except Exception as exc:
+        raise MissingClickHouseSchemaError(
+            "Failed to validate ClickHouse schema for dossier export. "
+            f"Check ClickHouse availability and init scripts. Remediation: {DOSSIER_SCHEMA_REMEDIATION}"
+        ) from exc
+
+    found = {str(row[0]) for row in result.result_rows if row and row[0]}
+    missing = [name for name in required if name not in found]
+    if missing:
+        raise MissingClickHouseSchemaError(
+            "Missing ClickHouse schema objects required for dossier export: "
+            f"{', '.join(missing)}. Remediation: {DOSSIER_SCHEMA_REMEDIATION}"
+        )
 
 
 def _extract_error_message_from_response(response) -> Optional[str]:
@@ -2453,6 +2491,7 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
     proxy_wallet = profile.proxy_wallet
     try:
         client = get_clickhouse_client()
+        _assert_dossier_export_schema(client)
         _, stored_username = _get_existing_user_metadata(client, proxy_wallet)
         input_username = _normalize_username_input(request.user)
         resolved_profile_username = f"@{profile.username}" if profile.username else ""
@@ -2474,6 +2513,9 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
         )
     except HTTPException:
         raise
+    except MissingClickHouseSchemaError as e:
+        logger.error(f"Dossier export schema check failed: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to export user dossier: {e}")
         raise HTTPException(status_code=500, detail=str(e))

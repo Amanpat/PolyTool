@@ -2,7 +2,7 @@
 -- Maps (condition_id, outcome_token_id) to settlement outcome
 
 -- Resolutions table: stores settlement price and resolution metadata
-CREATE TABLE IF NOT EXISTS market_resolutions (
+CREATE TABLE IF NOT EXISTS polyttool.market_resolutions (
     condition_id String,
     outcome_token_id String,
     market_slug String,
@@ -24,13 +24,13 @@ ORDER BY (condition_id, outcome_token_id)
 SETTINGS index_granularity = 8192;
 
 -- Index for faster lookups by outcome_token_id
-CREATE INDEX IF NOT EXISTS idx_resolutions_token_id ON market_resolutions (outcome_token_id) TYPE bloom_filter GRANULARITY 1;
+CREATE INDEX IF NOT EXISTS idx_resolutions_token_id ON polyttool.market_resolutions (outcome_token_id) TYPE bloom_filter GRANULARITY 1;
 
 -- Index for faster lookups by market_slug
-CREATE INDEX IF NOT EXISTS idx_resolutions_market_slug ON market_resolutions (market_slug) TYPE bloom_filter GRANULARITY 1;
+CREATE INDEX IF NOT EXISTS idx_resolutions_market_slug ON polyttool.market_resolutions (market_slug) TYPE bloom_filter GRANULARITY 1;
 
 -- View that enriches trades with resolution data
-CREATE OR REPLACE VIEW user_trades_with_resolution AS
+CREATE OR REPLACE VIEW polyttool.user_trades_with_resolution AS
 SELECT
     t.*,
     COALESCE(r.settlement_price, -1) AS settlement_price,
@@ -45,13 +45,13 @@ SELECT
         WHEN r.settlement_price = 0.0 AND lowerUTF8(t.side) = 'sell' THEN 'LOSS_EXIT'
         ELSE 'UNKNOWN_RESOLUTION'
     END AS resolution_outcome
-FROM user_trades_resolved t
-LEFT JOIN market_resolutions r
+FROM polyttool.user_trades_resolved t
+LEFT JOIN polyttool.market_resolutions r
     ON t.resolved_token_id = r.outcome_token_id
     OR t.token_id = r.outcome_token_id;
 
 -- Trade lifecycle view with realized PnL calculation
-CREATE OR REPLACE VIEW user_trade_lifecycle AS
+CREATE OR REPLACE VIEW polyttool.user_trade_lifecycle AS
 SELECT
     proxy_wallet,
     resolved_token_id,
@@ -80,7 +80,7 @@ SELECT
     count() AS trade_count,
     countIf(lowerUTF8(side) = 'buy') AS buy_count,
     countIf(lowerUTF8(side) = 'sell') AS sell_count
-FROM user_trades_resolved
+FROM polyttool.user_trades_resolved
 WHERE resolved_token_id != ''
 GROUP BY
     proxy_wallet,
@@ -90,7 +90,7 @@ GROUP BY
     resolved_outcome_name;
 
 -- Enriched lifecycle view with resolution and PnL
-CREATE OR REPLACE VIEW user_trade_lifecycle_enriched AS
+CREATE OR REPLACE VIEW polyttool.user_trade_lifecycle_enriched AS
 SELECT
     l.*,
     r.settlement_price,
@@ -127,6 +127,11 @@ SELECT
         ELSE
             l.total_proceeds - l.total_cost
     END AS realized_pnl_net
-FROM user_trade_lifecycle l
-LEFT JOIN market_resolutions r
+FROM polyttool.user_trade_lifecycle l
+LEFT JOIN polyttool.market_resolutions r
     ON l.resolved_token_id = r.outcome_token_id;
+
+GRANT SELECT ON polyttool.market_resolutions TO grafana_ro;
+GRANT SELECT ON polyttool.user_trades_with_resolution TO grafana_ro;
+GRANT SELECT ON polyttool.user_trade_lifecycle TO grafana_ro;
+GRANT SELECT ON polyttool.user_trade_lifecycle_enriched TO grafana_ro;
