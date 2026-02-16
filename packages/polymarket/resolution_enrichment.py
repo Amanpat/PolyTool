@@ -21,12 +21,13 @@ from .subgraph import SubgraphResolutionProvider
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_CANDIDATES = 200
+DEFAULT_MAX_CANDIDATES = 500
 DEFAULT_BATCH_SIZE = 25
 DEFAULT_MAX_CONCURRENCY = 4
 MAX_CANDIDATES_HARD_CAP = 1000
 MAX_BATCH_SIZE = 200
 MAX_CONCURRENCY = 16
+DEFAULT_PRIORITY_LIFECYCLE_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,19 @@ class ResolutionCandidate:
 
 
 @dataclass
+class ResolutionCandidateSelection:
+    """Pre-selected enrichment candidates plus truncation diagnostics."""
+
+    candidates: list[ResolutionCandidate]
+    candidates_total: int
+    candidates_selected: int
+    truncated: bool
+    lifecycle_token_universe_size_used_for_selection: int = 0
+    positions_total: int = 0
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ResolutionEnrichmentResult:
     """Summary metrics for one enrichment run."""
 
@@ -49,6 +63,8 @@ class ResolutionEnrichmentResult:
     batch_size: int
     max_concurrency: int
     candidates_total: int = 0
+    candidates_selected: int = 0
+    truncated: bool = False
     candidates_processed: int = 0
     cached_hits: int = 0
     resolved_written: int = 0
@@ -69,6 +85,8 @@ class ResolutionEnrichmentResult:
             "batch_size": self.batch_size,
             "max_concurrency": self.max_concurrency,
             "candidates_total": self.candidates_total,
+            "candidates_selected": self.candidates_selected,
+            "truncated": self.truncated,
             "candidates_processed": self.candidates_processed,
             "cached_hits": self.cached_hits,
             "resolved_written": self.resolved_written,
@@ -152,34 +170,9 @@ def build_provider_chain(
     )
 
 
-def fetch_resolution_candidates(
-    clickhouse_client,
-    proxy_wallet: str,
-    max_candidates: int,
-) -> list[ResolutionCandidate]:
-    """Collect unique token/condition/outcome candidates for one wallet."""
-    query = """
-        SELECT
-            resolved_token_id AS token_id,
-            argMax(resolved_condition_id, ts) AS condition_id,
-            argMax(resolved_outcome_index, ts) AS outcome_index,
-            argMax(market_slug, ts) AS market_slug,
-            argMax(resolved_outcome_name, ts) AS outcome_name,
-            max(ts) AS latest_ts
-        FROM user_trades_resolved
-        WHERE proxy_wallet = {wallet:String}
-          AND resolved_token_id != ''
-        GROUP BY resolved_token_id
-        ORDER BY latest_ts DESC
-        LIMIT {limit:Int32}
-    """
-    result = clickhouse_client.query(
-        query,
-        parameters={"wallet": proxy_wallet, "limit": int(max_candidates)},
-    )
-
+def _map_candidate_rows(rows: Sequence[Sequence[Any]]) -> list[ResolutionCandidate]:
     candidates: list[ResolutionCandidate] = []
-    for row in result.result_rows:
+    for row in rows:
         token_id = str(row[0] or "").strip()
         condition_id = str(row[1] or "").strip()
         outcome_index = _coerce_int(row[2])
@@ -195,6 +188,319 @@ def fetch_resolution_candidates(
             )
         )
     return candidates
+
+
+def _fetch_candidate_rows(
+    clickhouse_client,
+    proxy_wallet: str,
+    *,
+    limit: int,
+    include_tokens: Optional[Sequence[str]] = None,
+    exclude_tokens: Optional[Sequence[str]] = None,
+) -> list[ResolutionCandidate]:
+    include_values = [
+        str(token).strip()
+        for token in (include_tokens or [])
+        if str(token).strip()
+    ]
+    exclude_values = [
+        str(token).strip()
+        for token in (exclude_tokens or [])
+        if str(token).strip()
+    ]
+
+    where_clauses = [
+        "proxy_wallet = {wallet:String}",
+        "resolved_token_id != ''",
+    ]
+    parameters: dict[str, Any] = {"wallet": proxy_wallet, "limit": int(limit)}
+
+    if include_values:
+        where_clauses.append("resolved_token_id IN {include_tokens:Array(String)}")
+        parameters["include_tokens"] = list(dict.fromkeys(include_values))
+
+    if exclude_values:
+        where_clauses.append("resolved_token_id NOT IN {exclude_tokens:Array(String)}")
+        parameters["exclude_tokens"] = list(dict.fromkeys(exclude_values))
+
+    query = f"""
+        SELECT
+            resolved_token_id AS token_id,
+            argMax(resolved_condition_id, ts) AS condition_id,
+            argMax(resolved_outcome_index, ts) AS outcome_index,
+            argMax(market_slug, ts) AS market_slug,
+            argMax(resolved_outcome_name, ts) AS outcome_name,
+            max(ts) AS latest_ts
+        FROM user_trades_resolved
+        WHERE {" AND ".join(where_clauses)}
+        GROUP BY resolved_token_id
+        ORDER BY latest_ts DESC
+        LIMIT {{limit:Int32}}
+    """
+    result = clickhouse_client.query(query, parameters=parameters)
+    return _map_candidate_rows(result.result_rows)
+
+
+def _fetch_lifecycle_priority_tokens(
+    clickhouse_client,
+    proxy_wallet: str,
+    *,
+    limit: int,
+) -> list[str]:
+    if limit <= 0:
+        return []
+
+    tables = ("user_trade_lifecycle_enriched", "user_trade_lifecycle")
+    for table_name in tables:
+        try:
+            result = clickhouse_client.query(
+                f"""
+                SELECT resolved_token_id
+                FROM {table_name}
+                WHERE proxy_wallet = {{wallet:String}}
+                  AND resolved_token_id != ''
+                ORDER BY entry_ts DESC
+                LIMIT {{limit:Int32}}
+                """,
+                parameters={"wallet": proxy_wallet, "limit": int(limit)},
+            )
+        except Exception:
+            continue
+
+        ordered_tokens = [
+            str(row[0]).strip()
+            for row in result.result_rows
+            if row and str(row[0]).strip()
+        ]
+        if ordered_tokens:
+            return list(dict.fromkeys(ordered_tokens))
+    return []
+
+
+def _fetch_latest_positions_total(
+    clickhouse_client,
+    proxy_wallet: str,
+) -> int:
+    result = clickhouse_client.query(
+        """
+        SELECT countDistinct(token_id)
+        FROM user_positions_snapshots
+        WHERE proxy_wallet = {wallet:String}
+          AND token_id != ''
+          AND abs(shares) > 0
+          AND snapshot_ts = (
+              SELECT max(snapshot_ts)
+              FROM user_positions_snapshots
+              WHERE proxy_wallet = {wallet:String}
+          )
+        """,
+        parameters={"wallet": proxy_wallet},
+    )
+    if not result.result_rows:
+        return 0
+    raw_count = _coerce_int(result.result_rows[0][0])
+    return max(raw_count or 0, 0)
+
+
+def _fetch_latest_position_tokens(
+    clickhouse_client,
+    proxy_wallet: str,
+    *,
+    limit: int,
+) -> list[str]:
+    if limit <= 0:
+        return []
+
+    result = clickhouse_client.query(
+        """
+        SELECT token_id
+        FROM user_positions_snapshots
+        WHERE proxy_wallet = {wallet:String}
+          AND token_id != ''
+          AND abs(shares) > 0
+          AND snapshot_ts = (
+              SELECT max(snapshot_ts)
+              FROM user_positions_snapshots
+              WHERE proxy_wallet = {wallet:String}
+          )
+        ORDER BY token_id
+        LIMIT {limit:Int32}
+        """,
+        parameters={"wallet": proxy_wallet, "limit": int(limit)},
+    )
+    ordered_tokens = [
+        str(row[0]).strip()
+        for row in result.result_rows
+        if row and str(row[0]).strip()
+    ]
+    return list(dict.fromkeys(ordered_tokens))
+
+
+def _fetch_total_candidate_count(
+    clickhouse_client,
+    proxy_wallet: str,
+) -> int:
+    result = clickhouse_client.query(
+        """
+        SELECT countDistinct(resolved_token_id)
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND resolved_token_id != ''
+        """,
+        parameters={"wallet": proxy_wallet},
+    )
+    if not result.result_rows:
+        return 0
+    raw_count = result.result_rows[0][0]
+    return max(int(raw_count or 0), 0)
+
+
+def fetch_resolution_candidates(
+    clickhouse_client,
+    proxy_wallet: str,
+    max_candidates: int,
+) -> list[ResolutionCandidate]:
+    """Collect unique token/condition/outcome candidates for one wallet."""
+    normalized_max = _normalize_limit(
+        max_candidates,
+        default=DEFAULT_MAX_CANDIDATES,
+        maximum=MAX_CANDIDATES_HARD_CAP,
+    )
+    return _fetch_candidate_rows(
+        clickhouse_client,
+        proxy_wallet,
+        limit=normalized_max,
+    )
+
+
+def select_resolution_candidates(
+    clickhouse_client,
+    proxy_wallet: str,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    lifecycle_limit: int = DEFAULT_PRIORITY_LIFECYCLE_LIMIT,
+) -> ResolutionCandidateSelection:
+    """Select candidates with lifecycle-referenced tokens prioritized first."""
+    normalized_max = _normalize_limit(
+        max_candidates,
+        default=DEFAULT_MAX_CANDIDATES,
+        maximum=MAX_CANDIDATES_HARD_CAP,
+    )
+    normalized_lifecycle_limit = _normalize_limit(
+        lifecycle_limit,
+        default=DEFAULT_PRIORITY_LIFECYCLE_LIMIT,
+        maximum=MAX_CANDIDATES_HARD_CAP,
+    )
+
+    warnings: list[str] = []
+    try:
+        total_candidates = _fetch_total_candidate_count(clickhouse_client, proxy_wallet)
+    except Exception as exc:
+        total_candidates = 0
+        warnings.append(f"Failed counting total candidates: {exc}")
+
+    positions_total = 0
+    try:
+        positions_total = _fetch_latest_positions_total(clickhouse_client, proxy_wallet)
+    except Exception as exc:
+        warnings.append(f"Failed counting latest position tokens: {exc}")
+
+    priority_token_ids = _fetch_lifecycle_priority_tokens(
+        clickhouse_client,
+        proxy_wallet,
+        limit=normalized_lifecycle_limit,
+    )
+    try:
+        position_priority_tokens = _fetch_latest_position_tokens(
+            clickhouse_client,
+            proxy_wallet,
+            limit=normalized_lifecycle_limit,
+        )
+    except Exception as exc:
+        position_priority_tokens = []
+        warnings.append(f"Failed fetching latest position token universe: {exc}")
+    if position_priority_tokens:
+        seen_priority_tokens = set(priority_token_ids)
+        for token_id in position_priority_tokens:
+            if token_id and token_id not in seen_priority_tokens:
+                seen_priority_tokens.add(token_id)
+                priority_token_ids.append(token_id)
+
+    lifecycle_universe_size = len(priority_token_ids)
+    if lifecycle_universe_size == 0 and positions_total > 0:
+        warnings.append(
+            "token universe empty; enrichment likely too early "
+            f"(positions_total={positions_total})."
+        )
+
+    priority_candidates: list[ResolutionCandidate] = []
+    if priority_token_ids:
+        priority_candidates = _fetch_candidate_rows(
+            clickhouse_client,
+            proxy_wallet,
+            include_tokens=priority_token_ids,
+            limit=max(len(priority_token_ids), 1),
+        )
+    candidates_by_token = {
+        candidate.outcome_token_id: candidate
+        for candidate in priority_candidates
+        if candidate.outcome_token_id
+    }
+
+    selected: list[ResolutionCandidate] = []
+    seen_tokens: set[str] = set()
+    for token_id in priority_token_ids:
+        candidate = candidates_by_token.get(token_id)
+        if candidate is None or candidate.outcome_token_id in seen_tokens:
+            continue
+        seen_tokens.add(candidate.outcome_token_id)
+        selected.append(candidate)
+        if len(selected) >= normalized_max:
+            break
+
+    missing_priority = [token for token in priority_token_ids if token not in candidates_by_token]
+    if missing_priority:
+        warnings.append(
+            f"{len(missing_priority)} lifecycle/position-referenced tokens had no candidate row in user_trades_resolved."
+        )
+
+    remaining = normalized_max - len(selected)
+    if remaining > 0:
+        fallback_candidates = _fetch_candidate_rows(
+            clickhouse_client,
+            proxy_wallet,
+            limit=remaining,
+            exclude_tokens=list(seen_tokens),
+        )
+        for candidate in fallback_candidates:
+            if not candidate.outcome_token_id or candidate.outcome_token_id in seen_tokens:
+                continue
+            seen_tokens.add(candidate.outcome_token_id)
+            selected.append(candidate)
+            if len(selected) >= normalized_max:
+                break
+
+    selected_count = len(selected)
+    if total_candidates <= 0:
+        total_candidates = max(selected_count, len(priority_token_ids))
+    total_candidates = max(total_candidates, selected_count)
+    truncated = total_candidates > selected_count
+
+    if truncated:
+        warnings.append(
+            "Candidate set truncated: "
+            f"selected={selected_count} of total={total_candidates} (max_candidates={normalized_max}); "
+            "lifecycle-referenced tokens were prioritized."
+        )
+
+    return ResolutionCandidateSelection(
+        candidates=selected,
+        candidates_total=total_candidates,
+        candidates_selected=selected_count,
+        truncated=truncated,
+        lifecycle_token_universe_size_used_for_selection=lifecycle_universe_size,
+        positions_total=positions_total,
+        warnings=warnings,
+    )
 
 
 def _write_resolutions(
@@ -272,6 +578,10 @@ def enrich_market_resolutions(
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+    candidates: Optional[Sequence[ResolutionCandidate]] = None,
+    candidates_total: Optional[int] = None,
+    truncated: Optional[bool] = None,
+    selection_warnings: Optional[Sequence[str]] = None,
 ) -> ResolutionEnrichmentResult:
     """Enrich and cache market resolutions for a wallet."""
     normalized_max = _normalize_limit(
@@ -302,14 +612,42 @@ def enrich_market_resolutions(
         summary.warnings.append(f"Failed ensuring market_resolutions table exists: {exc}")
         return summary
 
-    candidates = fetch_resolution_candidates(
-        clickhouse_client=clickhouse_client,
-        proxy_wallet=proxy_wallet,
-        max_candidates=normalized_max,
-    )
-    summary.candidates_total = len(candidates)
+    if selection_warnings:
+        summary.warnings.extend(str(w) for w in selection_warnings if str(w).strip())
 
-    if not candidates:
+    if candidates is None:
+        selected_candidates = fetch_resolution_candidates(
+            clickhouse_client=clickhouse_client,
+            proxy_wallet=proxy_wallet,
+            max_candidates=normalized_max,
+        )
+        selected_total = len(selected_candidates)
+        selected_truncated = False
+    else:
+        selected_candidates = list(candidates)
+        selected_total = _coerce_int(candidates_total)
+        if selected_total is None or selected_total < len(selected_candidates):
+            selected_total = len(selected_candidates)
+        selected_truncated = (
+            bool(truncated)
+            if truncated is not None
+            else selected_total > len(selected_candidates)
+        )
+
+    summary.candidates_total = selected_total
+    summary.candidates_selected = len(selected_candidates)
+    summary.truncated = selected_truncated
+
+    if summary.truncated:
+        truncation_warning = (
+            "Candidate set truncated: "
+            f"selected={summary.candidates_selected} of total={summary.candidates_total} "
+            f"(max_candidates={normalized_max})"
+        )
+        if truncation_warning not in summary.warnings:
+            summary.warnings.append(truncation_warning)
+
+    if not selected_candidates:
         summary.warnings.append(
             f"No resolution candidates found for wallet {proxy_wallet}."
         )
@@ -317,7 +655,7 @@ def enrich_market_resolutions(
 
     filtered: list[ResolutionCandidate] = []
     seen_tokens: set[str] = set()
-    for candidate in candidates:
+    for candidate in selected_candidates:
         if not candidate.outcome_token_id:
             summary.skipped_missing_identifiers += 1
             summary.add_skip_reason("missing_outcome_token_id")

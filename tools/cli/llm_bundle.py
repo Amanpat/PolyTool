@@ -17,10 +17,19 @@ from typing import Any, Dict, Iterable, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
-from polymarket.rag.index import DEFAULT_COLLECTION, DEFAULT_PERSIST_DIR
-from polymarket.rag.query import query_index
-from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
+try:
+    from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
+    from polymarket.rag.index import DEFAULT_COLLECTION, DEFAULT_PERSIST_DIR
+    from polymarket.rag.query import query_index
+    from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
+    _RAG_AVAILABLE = True
+except ImportError:
+    _RAG_AVAILABLE = False
+    DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"
+    DEFAULT_COLLECTION = "polytool"
+    DEFAULT_PERSIST_DIR = Path("kb/rag/index")
+    DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
 from polytool.user_context import UserContext, resolve_user_context
 
 logger = logging.getLogger(__name__)
@@ -242,6 +251,115 @@ def _find_latest_dossier_dir(user_ctx: UserContext) -> Path:
     return latest_manifest.parent
 
 
+def _find_latest_scan_run(user_ctx: UserContext) -> Optional[Path]:
+    """Find the latest scan run directory (command_name='scan') under artifacts.
+
+    Falls back to the latest run_manifest.json if no scan runs exist.
+    Returns None if no run directories are found at all.
+    """
+    base = user_ctx.artifacts_user_dir
+    if not base.exists():
+        return None
+
+    run_manifests = list(base.rglob("run_manifest.json"))
+    if not run_manifests:
+        return None
+
+    scan_runs: List[Path] = []
+    other_runs: List[Path] = []
+    for manifest_path in run_manifests:
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            payload = {}
+        if payload.get("command_name") == "scan":
+            scan_runs.append(manifest_path)
+        else:
+            other_runs.append(manifest_path)
+
+    candidates = scan_runs or other_runs
+    if not candidates:
+        return None
+
+    def _key(path: Path) -> tuple[float, str]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            payload = {}
+        raw_ts = payload.get("started_at", "") or payload.get("created_at_utc", "")
+        parsed = _parse_utc_timestamp(raw_ts)
+        ts = parsed.timestamp() if parsed else path.stat().st_mtime
+        return (ts, path.as_posix())
+
+    return max(candidates, key=_key).parent
+
+
+def _summarize_coverage_json(data: dict) -> str:
+    """Produce a deterministic text summary from coverage_reconciliation_report.json."""
+    lines: List[str] = []
+    totals = data.get("totals", {})
+    positions_total = totals.get("positions_total", 0)
+    lines.append(f"Positions: {positions_total}")
+
+    outcome_counts = data.get("outcome_counts", {})
+    if outcome_counts:
+        parts = [f"{k}: {v}" for k, v in sorted(outcome_counts.items())]
+        lines.append(f"Outcomes: {', '.join(parts)}")
+
+    uid_cov = data.get("deterministic_trade_uid_coverage", {})
+    pct_uid = uid_cov.get("pct_with_trade_uid")
+    if pct_uid is not None:
+        lines.append(f"Deterministic UID coverage: {pct_uid * 100:.2f}%")
+
+    fb_cov = data.get("fallback_uid_coverage", {})
+    pct_fb = fb_cov.get("pct_with_fallback_uid")
+    if pct_fb is not None:
+        lines.append(f"Fallback UID coverage: {pct_fb * 100:.2f}%")
+
+    res_cov = data.get("resolution_coverage", {})
+    unknown_rate = res_cov.get("unknown_resolution_rate")
+    if unknown_rate is not None:
+        lines.append(f"Unknown resolution rate: {unknown_rate * 100:.2f}%")
+
+    warnings = data.get("warnings", [])
+    if warnings:
+        lines.append("")
+        lines.append("Warnings:")
+        for w in warnings:
+            lines.append(f"- {w}")
+
+    return "\n".join(lines)
+
+
+def _build_coverage_section(run_dir: Optional[Path]) -> str:
+    """Build the '## Coverage & Reconciliation' section content.
+
+    Looks for coverage_reconciliation_report.md first, then .json fallback.
+    Returns the section text (without the ## heading).
+    """
+    if run_dir is None:
+        return "_Coverage report not found (no scan run located)._\n"
+
+    md_path = run_dir / "coverage_reconciliation_report.md"
+    json_path = run_dir / "coverage_reconciliation_report.json"
+
+    if md_path.exists():
+        file_ref = _as_posix(md_path)
+        content = md_path.read_text(encoding="utf-8").rstrip("\n")
+        return f"[file_path: {file_ref}]\n{content}\n"
+
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return f"_Coverage JSON could not be parsed: {_as_posix(json_path)}_\n"
+        file_ref = _as_posix(json_path)
+        summary = _summarize_coverage_json(data)
+        return f"[file_path: {file_ref}]\n{summary}\n"
+
+    return "_Coverage report not found in scan run directory._\n"
+
+
 def _normalize_questions(raw: Any) -> List[Dict[str, str]]:
     if raw is None:
         return DEFAULT_QUESTIONS
@@ -295,6 +413,10 @@ def _run_rag_queries(
 ) -> List[dict]:
     if settings.k <= 0:
         raise ValueError("k must be positive.")
+
+    if not _RAG_AVAILABLE:
+        print("Warning: RAG unavailable; excerpts omitted.", file=sys.stderr)
+        return []
 
     embedder = SentenceTransformerEmbedder(model_name=settings.model, device=settings.device)
     reranker = None
@@ -393,7 +515,9 @@ def _render_bundle(
     memo_text: str,
     dossier_text: str,
     manifest_text: str,
+    coverage_section: str,
     excerpts: List[Dict[str, str]],
+    rag_available: bool = True,
 ) -> str:
     lines: List[str] = []
     lines.append("# Opus Evidence Bundle")
@@ -420,9 +544,16 @@ def _render_bundle(
     _append_block(lines, manifest_text)
     lines.append("")
 
+    lines.append("## Coverage & Reconciliation")
+    lines.append("")
+    _append_block(lines, coverage_section)
+    lines.append("")
+
     lines.append("## RAG excerpts")
     lines.append("")
-    if not excerpts:
+    if not rag_available:
+        lines.append("_RAG unavailable; excerpts omitted._")
+    elif not excerpts:
         lines.append("_No RAG excerpts returned._")
     else:
         for entry in excerpts:
@@ -513,16 +644,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    # Find the latest scan run for coverage report
+    scan_run_dir = _find_latest_scan_run(user_ctx)
+    coverage_section = _build_coverage_section(scan_run_dir)
+
     prefixes = _build_user_prefixes(user_slug)
     settings = RagSettings()
+    rag_ok = True
     try:
         rag_payloads = _run_rag_queries(questions, settings, user_slug, prefixes)
-    except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+        if not _RAG_AVAILABLE:
+            rag_ok = False
+    except (RuntimeError, ValueError) as exc:
+        print(f"Warning: RAG query failed ({exc}); proceeding without excerpts.", file=sys.stderr)
+        rag_payloads = []
+        rag_ok = False
 
     excerpts = _collect_excerpts(rag_payloads)
 
@@ -538,7 +674,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         memo_text=memo_text,
         dossier_text=dossier_text,
         manifest_text=manifest_text,
+        coverage_section=coverage_section,
         excerpts=excerpts,
+        rag_available=rag_ok,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)

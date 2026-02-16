@@ -26,7 +26,9 @@ public docs; keep it local.
 2) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/dossier.json`
    - If the full file is large, paste only the key sections you need.
 3) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/manifest.json`
-4) **10 to 18 curated RAG excerpts** with `file_path` headers
+4) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/coverage_reconciliation_report.md`
+   (or `.json` fallback) - data quality / trust context from the latest scan run
+5) **10 to 18 curated RAG excerpts** with `file_path` headers
    - Each excerpt should be short (1 to 3 sentences).
    - Prefer the highest-signal snippets that directly support your conclusions.
 
@@ -58,7 +60,8 @@ Inputs (paste in this order):
 1) memo.md
 2) dossier.json (or key sections)
 3) manifest.json
-4) curated RAG excerpts with file_path headers
+4) coverage_reconciliation_report.md (or json summary)
+5) curated RAG excerpts with file_path headers
 ```
 
 ### Tips

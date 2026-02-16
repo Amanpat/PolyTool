@@ -75,18 +75,24 @@ and closing missing PnL/fees gaps are owned by Roadmap 3.
 
 ---
 
-### Roadmap 3 - Resolution Coverage [IN PROGRESS]
+### Roadmap 3 - Resolution Coverage [COMPLETE]
 
 - [x] OnChainCTFProvider reading CTF payout state from Polygon RPC
 - [x] SubgraphResolutionProvider as fallback via The Graph
 - [x] 4-stage CachedResolutionProvider chain (ClickHouse -> OnChainCTF -> Subgraph -> Gamma)
 - [x] Resolution dataclass with explicit `reason` field for traceability
 - [x] Unit tests for all resolution providers with mocked RPC/subgraph
-- [ ] Reduce `UNKNOWN_RESOLUTION` rate for resolved markets to near-zero
+- [x] Reduce `UNKNOWN_RESOLUTION` rate for resolved markets to near-zero
+- [x] Enrichment parity: `--enrich-resolutions` without explicit knobs achieves
+  comparable coverage, or dataset mismatch is detected via `resolution_parity_debug.json`
 
 **Acceptance**: `UNKNOWN_RESOLUTION` rate for markets that are objectively resolved
 on-chain drops to < 5%. All resolution sources carry explicit `resolution_source`
-and `reason` fields. Unit tests pass with mocked providers.
+and `reason` fields. Unit tests pass with mocked providers. No-knob enrichment
+runs produce identical payloads to knobbed runs (or mismatch is reported).
+
+**Evidence**: See `docs/roadmap3_completion.md` and trust-artifact run
+`dd32ff26-b751-41a3-9aae-e9f59645040f` (2026-02-12).
 
 **Kill condition**: If Gamma API coverage is already sufficient (>95% resolved
 markets covered), defer on-chain provider to a future milestone.

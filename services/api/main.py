@@ -42,6 +42,7 @@ from polymarket.resolution_enrichment import (
     DEFAULT_MAX_CONCURRENCY as DEFAULT_RESOLUTION_MAX_CONCURRENCY,
     build_provider_chain as build_resolution_provider_chain,
     enrich_market_resolutions,
+    select_resolution_candidates,
 )
 
 # Configure logging
@@ -427,7 +428,7 @@ class EnrichResolutionsRequest(BaseModel):
     max_candidates: int = Field(
         default=DEFAULT_RESOLUTION_MAX_CANDIDATES,
         ge=1,
-        le=2000,
+        le=1000,
         description="Hard cap on token candidates to enrich",
     )
     batch_size: int = Field(
@@ -452,6 +453,8 @@ class EnrichResolutionsResponse(BaseModel):
     batch_size: int
     max_concurrency: int
     candidates_total: int
+    candidates_selected: int
+    truncated: bool
     candidates_processed: int
     cached_hits: int
     resolved_written: int
@@ -460,6 +463,7 @@ class EnrichResolutionsResponse(BaseModel):
     skipped_unsupported: int
     errors: int
     skipped_reasons: dict[str, int]
+    lifecycle_token_universe_size_used_for_selection: int
     warnings: list[str]
 
 
@@ -809,6 +813,11 @@ async def enrich_resolutions(request: EnrichResolutionsRequest):
             rpc_timeout_seconds=RESOLUTION_RPC_TIMEOUT_SECONDS,
             subgraph_timeout_seconds=RESOLUTION_SUBGRAPH_TIMEOUT_SECONDS,
         )
+        selection = select_resolution_candidates(
+            clickhouse_client=client,
+            proxy_wallet=proxy_wallet,
+            max_candidates=request.max_candidates,
+        )
         summary = enrich_market_resolutions(
             clickhouse_client=client,
             proxy_wallet=proxy_wallet,
@@ -816,21 +825,31 @@ async def enrich_resolutions(request: EnrichResolutionsRequest):
             max_candidates=request.max_candidates,
             batch_size=request.batch_size,
             max_concurrency=request.max_concurrency,
+            candidates=selection.candidates,
+            candidates_total=selection.candidates_total,
+            truncated=selection.truncated,
+            selection_warnings=selection.warnings,
         )
         if provider_warnings:
             summary.warnings.extend(provider_warnings)
 
         logger.info(
-            "Resolution enrichment complete for wallet=%s candidates=%s cached=%s written=%s unresolved=%s skipped_missing=%s errors=%s",
+            "Resolution enrichment complete for wallet=%s candidates=%s selected=%s truncated=%s cached=%s written=%s unresolved=%s skipped_missing=%s errors=%s",
             proxy_wallet,
             summary.candidates_total,
+            summary.candidates_selected,
+            summary.truncated,
             summary.cached_hits,
             summary.resolved_written,
             summary.unresolved_network,
             summary.skipped_missing_identifiers,
             summary.errors,
         )
-        return EnrichResolutionsResponse(**summary.as_dict())
+        response_payload = summary.as_dict()
+        response_payload["lifecycle_token_universe_size_used_for_selection"] = (
+            selection.lifecycle_token_universe_size_used_for_selection
+        )
+        return EnrichResolutionsResponse(**response_payload)
     except HTTPException:
         raise
     except Exception as exc:
