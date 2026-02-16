@@ -50,13 +50,33 @@ try:
 except ImportError:
     clickhouse_connect = None  # type: ignore
 
-DEFAULT_CLICKHOUSE_HOST = "localhost"
-DEFAULT_CLICKHOUSE_PORT = 8123
 DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
 DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
-DEFAULT_CLICKHOUSE_DATABASE = "polyttool"
 DEFAULT_GAMMA_BASE = "https://gamma-api.polymarket.com"
 DEFAULT_HTTP_TIMEOUT = 20.0
+
+
+def _running_in_docker() -> bool:
+    """Return True when executing inside a Docker container."""
+    if os.environ.get("POLYTOOL_IN_DOCKER") == "1":
+        return True
+    return Path("/.dockerenv").exists()
+
+
+def _resolve_clickhouse_host() -> str:
+    host = os.environ.get("CLICKHOUSE_HOST")
+    if host:
+        return host
+    return "clickhouse" if _running_in_docker() else "localhost"
+
+
+def _resolve_clickhouse_port() -> int:
+    port = os.environ.get("CLICKHOUSE_PORT") or os.environ.get("CLICKHOUSE_HTTP_PORT")
+    return int(port) if port else 8123
+
+
+def _resolve_clickhouse_database() -> str:
+    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polyttool"
 DEFAULT_API_BASE_URL = "http://localhost:8000"
 DEFAULT_ENRICH_RESOLUTIONS = True
 DEFAULT_RESOLUTION_MAX_CANDIDATES = 300
@@ -154,11 +174,11 @@ def _get_clickhouse_client():
         return None
     try:
         return clickhouse_connect.get_client(
-            host=os.getenv("CLICKHOUSE_HOST", DEFAULT_CLICKHOUSE_HOST),
-            port=int(os.getenv("CLICKHOUSE_PORT", str(DEFAULT_CLICKHOUSE_PORT))),
+            host=_resolve_clickhouse_host(),
+            port=_resolve_clickhouse_port(),
             username=os.getenv("CLICKHOUSE_USER", DEFAULT_CLICKHOUSE_USER),
             password=os.getenv("CLICKHOUSE_PASSWORD", DEFAULT_CLICKHOUSE_PASSWORD),
-            database=os.getenv("CLICKHOUSE_DATABASE", DEFAULT_CLICKHOUSE_DATABASE),
+            database=_resolve_clickhouse_database(),
         )
     except Exception as e:
         print(f"Warning: Could not connect to ClickHouse: {e}", file=sys.stderr)

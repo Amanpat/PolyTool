@@ -42,6 +42,7 @@ from polymarket.resolution_enrichment import (
     DEFAULT_MAX_CONCURRENCY as DEFAULT_RESOLUTION_MAX_CONCURRENCY,
     build_provider_chain as build_resolution_provider_chain,
     enrich_market_resolutions,
+    select_resolution_candidates,
 )
 
 # Configure logging
@@ -99,6 +100,13 @@ data_api_client = DataApiClient(base_url=DATA_API_BASE, timeout=HTTP_TIMEOUT_SEC
 clob_client = ClobClient(base_url=CLOB_API_BASE, timeout=PNL_HTTP_TIMEOUT_SECONDS)
 
 
+DOSSIER_REQUIRED_SCHEMA_OBJECTS = (
+    "user_trade_lifecycle",
+    "user_trade_lifecycle_enriched",
+)
+DOSSIER_SCHEMA_REMEDIATION = "docker compose down -v && docker compose up -d --build clickhouse api"
+
+
 def get_clickhouse_client():
     """Create ClickHouse client connection."""
     return clickhouse_connect.get_client(
@@ -108,6 +116,37 @@ def get_clickhouse_client():
         password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DATABASE,
     )
+
+
+class MissingClickHouseSchemaError(RuntimeError):
+    """Raised when required ClickHouse schema objects are missing."""
+
+
+def _assert_dossier_export_schema(client) -> None:
+    required = list(DOSSIER_REQUIRED_SCHEMA_OBJECTS)
+    try:
+        result = client.query(
+            """
+            SELECT name
+            FROM system.tables
+            WHERE database = {database:String}
+              AND name IN {names:Array(String)}
+            """,
+            parameters={"database": CLICKHOUSE_DATABASE, "names": required},
+        )
+    except Exception as exc:
+        raise MissingClickHouseSchemaError(
+            "Failed to validate ClickHouse schema for dossier export. "
+            f"Check ClickHouse availability and init scripts. Remediation: {DOSSIER_SCHEMA_REMEDIATION}"
+        ) from exc
+
+    found = {str(row[0]) for row in result.result_rows if row and row[0]}
+    missing = [name for name in required if name not in found]
+    if missing:
+        raise MissingClickHouseSchemaError(
+            "Missing ClickHouse schema objects required for dossier export: "
+            f"{', '.join(missing)}. Remediation: {DOSSIER_SCHEMA_REMEDIATION}"
+        )
 
 
 def _extract_error_message_from_response(response) -> Optional[str]:
@@ -389,7 +428,7 @@ class EnrichResolutionsRequest(BaseModel):
     max_candidates: int = Field(
         default=DEFAULT_RESOLUTION_MAX_CANDIDATES,
         ge=1,
-        le=2000,
+        le=1000,
         description="Hard cap on token candidates to enrich",
     )
     batch_size: int = Field(
@@ -414,6 +453,8 @@ class EnrichResolutionsResponse(BaseModel):
     batch_size: int
     max_concurrency: int
     candidates_total: int
+    candidates_selected: int
+    truncated: bool
     candidates_processed: int
     cached_hits: int
     resolved_written: int
@@ -422,6 +463,7 @@ class EnrichResolutionsResponse(BaseModel):
     skipped_unsupported: int
     errors: int
     skipped_reasons: dict[str, int]
+    lifecycle_token_universe_size_used_for_selection: int
     warnings: list[str]
 
 
@@ -771,6 +813,11 @@ async def enrich_resolutions(request: EnrichResolutionsRequest):
             rpc_timeout_seconds=RESOLUTION_RPC_TIMEOUT_SECONDS,
             subgraph_timeout_seconds=RESOLUTION_SUBGRAPH_TIMEOUT_SECONDS,
         )
+        selection = select_resolution_candidates(
+            clickhouse_client=client,
+            proxy_wallet=proxy_wallet,
+            max_candidates=request.max_candidates,
+        )
         summary = enrich_market_resolutions(
             clickhouse_client=client,
             proxy_wallet=proxy_wallet,
@@ -778,21 +825,31 @@ async def enrich_resolutions(request: EnrichResolutionsRequest):
             max_candidates=request.max_candidates,
             batch_size=request.batch_size,
             max_concurrency=request.max_concurrency,
+            candidates=selection.candidates,
+            candidates_total=selection.candidates_total,
+            truncated=selection.truncated,
+            selection_warnings=selection.warnings,
         )
         if provider_warnings:
             summary.warnings.extend(provider_warnings)
 
         logger.info(
-            "Resolution enrichment complete for wallet=%s candidates=%s cached=%s written=%s unresolved=%s skipped_missing=%s errors=%s",
+            "Resolution enrichment complete for wallet=%s candidates=%s selected=%s truncated=%s cached=%s written=%s unresolved=%s skipped_missing=%s errors=%s",
             proxy_wallet,
             summary.candidates_total,
+            summary.candidates_selected,
+            summary.truncated,
             summary.cached_hits,
             summary.resolved_written,
             summary.unresolved_network,
             summary.skipped_missing_identifiers,
             summary.errors,
         )
-        return EnrichResolutionsResponse(**summary.as_dict())
+        response_payload = summary.as_dict()
+        response_payload["lifecycle_token_universe_size_used_for_selection"] = (
+            selection.lifecycle_token_universe_size_used_for_selection
+        )
+        return EnrichResolutionsResponse(**response_payload)
     except HTTPException:
         raise
     except Exception as exc:
@@ -2453,6 +2510,7 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
     proxy_wallet = profile.proxy_wallet
     try:
         client = get_clickhouse_client()
+        _assert_dossier_export_schema(client)
         _, stored_username = _get_existing_user_metadata(client, proxy_wallet)
         input_username = _normalize_username_input(request.user)
         resolved_profile_username = f"@{profile.username}" if profile.username else ""
@@ -2474,6 +2532,9 @@ async def export_user_dossier_api(request: ExportUserDossierRequest):
         )
     except HTTPException:
         raise
+    except MissingClickHouseSchemaError as e:
+        logger.error(f"Dossier export schema check failed: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to export user dossier: {e}")
         raise HTTPException(status_code=500, detail=str(e))

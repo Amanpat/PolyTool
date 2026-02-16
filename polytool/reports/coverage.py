@@ -16,6 +16,12 @@ from typing import Any, Dict, List, Optional
 
 
 REPORT_VERSION = "1.0.0"
+PENDING_COVERAGE_INVALID_WARNING = (
+    "All positions are PENDING despite strong identifier coverage. "
+    "This often indicates resolution enrichment did not apply to the relevant tokens "
+    "(candidate cap/truncation or join mismatch). "
+    "Re-run with --resolution-max-candidates 300+ and verify enrichment truncation metrics."
+)
 
 KNOWN_OUTCOMES = frozenset({
     "WIN", "LOSS", "PROFIT_EXIT", "LOSS_EXIT", "PENDING", "UNKNOWN_RESOLUTION",
@@ -88,6 +94,7 @@ def build_coverage_report(
     user_slug: str,
     wallet: str,
     proxy_wallet: Optional[str] = None,
+    resolution_enrichment_response: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a Coverage & Reconciliation Report from position lifecycle data.
 
@@ -107,6 +114,8 @@ def build_coverage_report(
         Primary wallet address.
     proxy_wallet : str | None
         Proxy wallet if different from *wallet*.
+    resolution_enrichment_response : dict | None
+        Optional enrichment summary payload used for diagnostics-only warnings.
     """
     # --- Normalize fees on every position first ---
     for pos in positions:
@@ -253,6 +262,22 @@ def build_coverage_report(
         warnings.append(f"{missing_pnl} positions missing realized_pnl_net")
     if fee_source_counter.get("unknown", 0) == total and total > 0:
         warnings.append("All positions have fees_source=unknown; no actual or estimated fees")
+
+    pending_count = outcome_counts.get("PENDING", 0)
+    pending_pct = outcome_pcts.get("PENDING", 0.0)
+    fallback_pct = float(fallback_uid_coverage.get("pct_with_fallback_uid") or 0.0)
+    pending_distribution_is_all = pending_count == total or pending_pct >= 1.0
+    pending_coverage_invalid = (
+        total > 0
+        and fallback_pct >= 0.95
+        and resolution_section.get("resolved_total", 0) == 0
+        and pending_distribution_is_all
+    )
+    if pending_coverage_invalid:
+        warning = PENDING_COVERAGE_INVALID_WARNING
+        if bool((resolution_enrichment_response or {}).get("truncated")):
+            warning = f"{warning} Enrichment response reported truncated=true."
+        warnings.append(warning)
 
     report = {
         "report_version": REPORT_VERSION,

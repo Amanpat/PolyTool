@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from polytool.reports.coverage import (
+    PENDING_COVERAGE_INVALID_WARNING,
     build_coverage_report,
     normalize_fee_fields,
     write_coverage_report,
@@ -286,6 +287,56 @@ class TestBuildCoverageReport:
         )
         assert any("UNKNOWN_RESOLUTION" in w for w in report["warnings"])
 
+    def test_warning_for_all_pending_with_strong_fallback_coverage(self):
+        positions = [
+            {
+                "resolved_token_id": f"tok-{idx}",
+                "resolution_outcome": "PENDING",
+                "realized_pnl_net": 0.0,
+                "position_remaining": 1.0,
+            }
+            for idx in range(20)
+        ]
+
+        report = build_coverage_report(
+            positions=positions,
+            run_id="pending-invalid",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+
+        assert report["totals"]["positions_total"] > 0
+        assert report["fallback_uid_coverage"]["pct_with_fallback_uid"] >= 0.95
+        assert report["resolution_coverage"]["resolved_total"] == 0
+        assert report["outcome_counts"]["PENDING"] == report["totals"]["positions_total"]
+        assert PENDING_COVERAGE_INVALID_WARNING in report["warnings"]
+
+    def test_warning_mentions_truncation_when_enrichment_truncated(self):
+        positions = [
+            {
+                "resolved_token_id": f"tok-{idx}",
+                "resolution_outcome": "PENDING",
+                "realized_pnl_net": 0.0,
+                "position_remaining": 1.0,
+            }
+            for idx in range(10)
+        ]
+
+        report = build_coverage_report(
+            positions=positions,
+            run_id="pending-invalid-truncated",
+            user_slug="testuser",
+            wallet="0xabc",
+            resolution_enrichment_response={"truncated": True},
+        )
+
+        warning = next(
+            (w for w in report["warnings"] if PENDING_COVERAGE_INVALID_WARNING in w),
+            "",
+        )
+        assert warning
+        assert "truncated=true" in warning
+
     def test_empty_positions(self):
         report = build_coverage_report(
             positions=[],
@@ -370,3 +421,45 @@ class TestWriteCoverageReport:
             assert "md" not in paths
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
+
+
+class TestResolutionEnrichmentParity:
+    """Tests for enrichment-parity coverage diagnostics."""
+
+    def test_all_pending_no_enrichment_response_still_warns(self):
+        """All-PENDING with strong fallback coverage should warn even without enrichment response."""
+        positions = [
+            {"resolved_token_id": f"tok-{i}", "resolution_outcome": "PENDING",
+             "realized_pnl_net": 0.0, "position_remaining": 1.0}
+            for i in range(15)
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="parity-test",
+            user_slug="testuser",
+            wallet="0xabc",
+            resolution_enrichment_response=None,
+        )
+        assert PENDING_COVERAGE_INVALID_WARNING in report["warnings"]
+
+    def test_all_pending_with_non_truncated_enrichment_no_truncation_text(self):
+        """When enrichment is NOT truncated but all positions are PENDING, warning should
+        NOT mention truncation."""
+        positions = [
+            {"resolved_token_id": f"tok-{i}", "resolution_outcome": "PENDING",
+             "realized_pnl_net": 0.0, "position_remaining": 1.0}
+            for i in range(10)
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="parity-no-trunc",
+            user_slug="testuser",
+            wallet="0xabc",
+            resolution_enrichment_response={"truncated": False, "candidates_total": 10,
+                                             "candidates_selected": 10},
+        )
+        pending_warning = next(
+            (w for w in report["warnings"] if PENDING_COVERAGE_INVALID_WARNING in w), ""
+        )
+        assert pending_warning
+        assert "truncated=true" not in pending_warning

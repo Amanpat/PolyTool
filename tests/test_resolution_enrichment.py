@@ -8,7 +8,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 
 from polymarket.resolution import Resolution
-from polymarket.resolution_enrichment import enrich_market_resolutions
+from polymarket.resolution_enrichment import (
+    DEFAULT_MAX_CANDIDATES,
+    enrich_market_resolutions,
+    select_resolution_candidates,
+)
 
 
 class _FakeResult:
@@ -192,3 +196,141 @@ def test_enrichment_skips_missing_identifiers_with_reason():
     assert summary.skipped_reasons["missing_outcome_index"] == 1
     assert provider.calls == []
     assert client.insert_calls == []
+
+
+class _SelectionClickhouseClient:
+    def __init__(self, all_tokens, lifecycle_tokens, position_tokens=None, positions_total=None):
+        self._all_tokens = list(all_tokens)
+        self._lifecycle_tokens = list(lifecycle_tokens)
+        self._position_tokens = list(position_tokens or [])
+        if positions_total is None:
+            self._positions_total = len(self._position_tokens)
+        else:
+            self._positions_total = int(positions_total)
+
+    def query(self, query, parameters=None):
+        parameters = parameters or {}
+        if "FROM user_positions_snapshots" in query and "countDistinct(token_id)" in query:
+            return _FakeResult([[self._positions_total]])
+        if "FROM user_positions_snapshots" in query:
+            limit = int(parameters.get("limit") or len(self._position_tokens))
+            rows = [[token_id] for token_id in self._position_tokens[:limit]]
+            return _FakeResult(rows)
+        if "countDistinct(resolved_token_id)" in query:
+            return _FakeResult([[len(self._all_tokens)]])
+        if "FROM user_trade_lifecycle_enriched" in query:
+            limit = int(parameters.get("limit") or len(self._lifecycle_tokens))
+            rows = [[token_id] for token_id in self._lifecycle_tokens[:limit]]
+            return _FakeResult(rows)
+        if "FROM user_trade_lifecycle" in query:
+            return _FakeResult([])
+        if "FROM user_trades_resolved" in query:
+            include_tokens = set(parameters.get("include_tokens") or [])
+            exclude_tokens = set(parameters.get("exclude_tokens") or [])
+            limit = int(parameters.get("limit") or 0)
+            if include_tokens:
+                ordered = [token for token in self._all_tokens if token in include_tokens]
+            else:
+                ordered = [token for token in self._all_tokens if token not in exclude_tokens]
+            rows = [
+                _candidate(
+                    token,
+                    f"0xcond-{token}",
+                    0,
+                    market_slug=f"market-{token}",
+                    outcome_name="Yes",
+                )
+                for token in ordered[:limit]
+            ]
+            return _FakeResult(rows)
+        raise AssertionError(f"Unexpected query: {query}")
+
+
+def test_select_resolution_candidates_prioritizes_lifecycle_tokens_when_truncated():
+    all_tokens = [f"tok-{idx:04d}" for idx in range(DEFAULT_MAX_CANDIDATES + 80)]
+    lifecycle_priority = ["tok-0579", "tok-0550", "tok-0520"]
+    client = _SelectionClickhouseClient(
+        all_tokens=all_tokens,
+        lifecycle_tokens=lifecycle_priority,
+    )
+
+    selection = select_resolution_candidates(
+        clickhouse_client=client,
+        proxy_wallet="0xwallet",
+        max_candidates=DEFAULT_MAX_CANDIDATES,
+    )
+
+    selected_tokens = [candidate.outcome_token_id for candidate in selection.candidates]
+
+    assert selection.candidates_total == len(all_tokens)
+    assert selection.candidates_selected == DEFAULT_MAX_CANDIDATES
+    assert selection.truncated is True
+    assert selected_tokens[: len(lifecycle_priority)] == lifecycle_priority
+    for token_id in lifecycle_priority:
+        assert token_id in selected_tokens
+
+
+def test_select_resolution_candidates_includes_all_when_under_limit():
+    """When total candidates <= max_candidates, selection must include ALL tokens (no truncation)."""
+    all_tokens = [f"tok-{idx:03d}" for idx in range(50)]
+    lifecycle_priority = ["tok-049", "tok-048"]
+    client = _SelectionClickhouseClient(
+        all_tokens=all_tokens,
+        lifecycle_tokens=lifecycle_priority,
+    )
+
+    selection = select_resolution_candidates(
+        clickhouse_client=client,
+        proxy_wallet="0xwallet",
+        max_candidates=DEFAULT_MAX_CANDIDATES,
+    )
+
+    selected_tokens = [candidate.outcome_token_id for candidate in selection.candidates]
+
+    assert selection.candidates_total == 50
+    assert selection.candidates_selected == 50
+    assert selection.truncated is False
+    # All tokens from the universe must be included.
+    for token_id in all_tokens:
+        assert token_id in selected_tokens
+
+
+def test_select_resolution_candidates_no_truncation_below_positions_total():
+    """Candidate selection must not truncate when max_candidates >= total tokens."""
+    total = 200
+    all_tokens = [f"tok-{idx:04d}" for idx in range(total)]
+    client = _SelectionClickhouseClient(
+        all_tokens=all_tokens,
+        lifecycle_tokens=[],
+    )
+
+    selection = select_resolution_candidates(
+        clickhouse_client=client,
+        proxy_wallet="0xwallet",
+        max_candidates=500,
+    )
+
+    assert selection.candidates_selected == total
+    assert selection.truncated is False
+    assert selection.candidates_total == total
+
+
+def test_select_resolution_candidates_warns_when_token_universe_empty_but_positions_exist():
+    all_tokens = [f"tok-{idx:03d}" for idx in range(20)]
+    client = _SelectionClickhouseClient(
+        all_tokens=all_tokens,
+        lifecycle_tokens=[],
+        position_tokens=[],
+        positions_total=3,
+    )
+
+    selection = select_resolution_candidates(
+        clickhouse_client=client,
+        proxy_wallet="0xwallet",
+        max_candidates=10,
+    )
+
+    assert selection.lifecycle_token_universe_size_used_for_selection == 0
+    assert selection.positions_total == 3
+    assert selection.candidates_selected == 10
+    assert any("token universe empty; enrichment likely too early" in warning for warning in selection.warnings)

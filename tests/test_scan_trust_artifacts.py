@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -7,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from tools.cli import scan
+from polytool.reports.coverage import PENDING_COVERAGE_INVALID_WARNING
 
 
 def test_run_scan_emits_trust_artifacts_from_canonical_scan_path(monkeypatch):
@@ -182,6 +184,8 @@ def test_run_scan_calls_resolution_enrichment_when_enabled(monkeypatch):
                     "batch_size": payload["batch_size"],
                     "max_concurrency": payload["max_concurrency"],
                     "candidates_total": 1,
+                    "candidates_selected": 1,
+                    "truncated": False,
                     "candidates_processed": 1,
                     "cached_hits": 0,
                     "resolved_written": 1,
@@ -240,7 +244,565 @@ def test_run_scan_calls_resolution_enrichment_when_enabled(monkeypatch):
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
-def test_scan_trust_artifacts_use_positions_count_fallback_when_rows_missing(monkeypatch):
+def test_run_scan_orders_resolution_enrichment_after_ingest_positions_and_compute_pnl_when_enabled(
+    monkeypatch,
+):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-13"
+            / "run-ordering"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "trade_uid": "uid-1",
+                                "resolved_token_id": "tok-1",
+                                "resolution_outcome": "WIN",
+                                "realized_pnl_net": 1.0,
+                                "position_remaining": 0.0,
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        call_order = []
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            call_order.append(path)
+            if path == "/api/ingest/positions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "snapshot_ts": "2026-02-13T12:00:00+00:00",
+                    "rows_written": 1,
+                }
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 1,
+                    "rows_written": 1,
+                    "distinct_trade_uids_total": 1,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/compute/pnl":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "bucket_type": "day",
+                    "buckets_computed": 1,
+                    "latest_bucket": {
+                        "bucket_start": "2026-02-13T00:00:00+00:00",
+                        "realized_pnl": 1.0,
+                        "mtm_pnl_estimate": 1.0,
+                        "exposure_notional_estimate": 0.0,
+                        "open_position_tokens": 0,
+                        "pricing_source": "snapshot",
+                        "pricing_snapshot_ratio": 1.0,
+                        "pricing_confidence": "high",
+                    },
+                }
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 1,
+                    "candidates_selected": 1,
+                    "truncated": False,
+                    "candidates_processed": 1,
+                    "cached_hits": 0,
+                    "resolved_written": 1,
+                    "unresolved_network": 0,
+                    "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0,
+                    "errors": 0,
+                    "skipped_reasons": {},
+                    "lifecycle_token_universe_size_used_for_selection": 1,
+                    "warnings": [],
+                }
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-ordering",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": True,
+            "compute_pnl": True,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "enrich_resolutions": True,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        scan.run_scan(
+            config=config,
+            argv=[
+                "--user", "@TestUser",
+                "--ingest-positions",
+                "--compute-pnl",
+                "--enrich-resolutions",
+            ],
+            started_at="2026-02-13T12:00:00+00:00",
+        )
+
+        assert call_order.index("/api/enrich/resolutions") > call_order.index("/api/ingest/positions")
+        assert call_order.index("/api/enrich/resolutions") > call_order.index("/api/compute/pnl")
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_cold_start_resolves_on_first_run_when_compute_precedes_enrichment(monkeypatch):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-13"
+            / "run-cold-start"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+
+        state = {
+            "lifecycle_ready": False,
+            "resolved_ready": False,
+            "calls": [],
+        }
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            state["calls"].append(path)
+
+            if path == "/api/ingest/positions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "snapshot_ts": "2026-02-13T12:00:00+00:00",
+                    "rows_written": 2,
+                }
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 2,
+                    "rows_written": 2,
+                    "distinct_trade_uids_total": 2,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/compute/pnl":
+                state["lifecycle_ready"] = True
+                return {
+                    "proxy_wallet": "0xabc",
+                    "bucket_type": "day",
+                    "buckets_computed": 1,
+                    "latest_bucket": {
+                        "bucket_start": "2026-02-13T00:00:00+00:00",
+                        "realized_pnl": 1.0,
+                        "mtm_pnl_estimate": 1.0,
+                        "exposure_notional_estimate": 0.0,
+                        "open_position_tokens": 0,
+                        "pricing_source": "snapshot",
+                        "pricing_snapshot_ratio": 1.0,
+                        "pricing_confidence": "high",
+                    },
+                }
+            if path == "/api/enrich/resolutions":
+                lifecycle_universe = 2 if state["lifecycle_ready"] else 0
+                state["resolved_ready"] = lifecycle_universe > 0
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 2,
+                    "candidates_selected": 2 if lifecycle_universe > 0 else 0,
+                    "truncated": False,
+                    "candidates_processed": 2 if lifecycle_universe > 0 else 0,
+                    "cached_hits": 0,
+                    "resolved_written": 2 if lifecycle_universe > 0 else 0,
+                    "unresolved_network": 0,
+                    "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0,
+                    "errors": 0,
+                    "skipped_reasons": {},
+                    "lifecycle_token_universe_size_used_for_selection": lifecycle_universe,
+                    "warnings": [] if lifecycle_universe > 0 else [
+                        "token universe empty; enrichment likely too early (positions_total=2)."
+                    ],
+                }
+            if path == "/api/export/user_dossier":
+                positions = [
+                    {
+                        "trade_uid": "uid-1",
+                        "resolved_token_id": "tok-1",
+                        "resolution_outcome": "WIN" if state["resolved_ready"] else "PENDING",
+                        "realized_pnl_net": 1.0 if state["resolved_ready"] else 0.0,
+                        "position_remaining": 0.0 if state["resolved_ready"] else 1.0,
+                    },
+                    {
+                        "trade_uid": "uid-2",
+                        "resolved_token_id": "tok-2",
+                        "resolution_outcome": "LOSS" if state["resolved_ready"] else "PENDING",
+                        "realized_pnl_net": -1.0 if state["resolved_ready"] else 0.0,
+                        "position_remaining": 0.0 if state["resolved_ready"] else 1.0,
+                    },
+                ]
+                (run_root / "dossier.json").write_text(
+                    json.dumps({"positions": {"positions": positions}}, indent=2),
+                    encoding="utf-8",
+                )
+                return {
+                    "export_id": "run-cold-start",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": True,
+            "compute_pnl": True,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "enrich_resolutions": True,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=[
+                "--user", "@TestUser",
+                "--ingest-positions",
+                "--compute-pnl",
+                "--enrich-resolutions",
+            ],
+            started_at="2026-02-13T12:10:00+00:00",
+        )
+
+        coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
+        assert coverage["resolution_coverage"]["resolved_total"] > 0
+        assert not any(PENDING_COVERAGE_INVALID_WARNING in warning for warning in coverage["warnings"])
+
+        parity = json.loads(Path(emitted["resolution_parity_debug_json"]).read_text(encoding="utf-8"))
+        assert parity["lifecycle_token_universe_size_used_for_selection"] == 2
+
+        assert state["calls"].index("/api/compute/pnl") < state["calls"].index("/api/enrich/resolutions")
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_without_resolution_knobs_uses_safe_default_and_reports_resolved_coverage(
+    monkeypatch,
+    capsys,
+):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-12"
+            / "run-default-enrich"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        positions = []
+        for idx in range(8):
+            positions.append(
+                {
+                    "trade_uid": f"uid-win-{idx}",
+                    "resolved_token_id": f"tok-win-{idx}",
+                    "resolution_outcome": "WIN" if idx % 2 == 0 else "LOSS",
+                    "realized_pnl_net": 1.0 if idx % 2 == 0 else -1.0,
+                    "position_remaining": 0.0,
+                }
+            )
+        positions.append(
+            {
+                "trade_uid": "uid-pending",
+                "resolved_token_id": "tok-pending",
+                "resolution_outcome": "PENDING",
+                "realized_pnl_net": 0.0,
+                "position_remaining": 1.0,
+                "sell_count": 0,
+            }
+        )
+        (run_root / "dossier.json").write_text(
+            json.dumps({"positions": {"positions": positions}}, indent=2),
+            encoding="utf-8",
+        )
+
+        calls = []
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            calls.append((path, payload))
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 9,
+                    "rows_written": 9,
+                    "distinct_trade_uids_total": 9,
+                }
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 640,
+                    "candidates_selected": payload["max_candidates"],
+                    "truncated": True,
+                    "candidates_processed": payload["max_candidates"],
+                    "cached_hits": 120,
+                    "resolved_written": 48,
+                    "unresolved_network": 2,
+                    "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0,
+                    "errors": 0,
+                    "skipped_reasons": {},
+                    "lifecycle_token_universe_size_used_for_selection": 2,
+                    "warnings": [],
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-default-enrich",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "enrich_resolutions": True,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--enrich-resolutions"],
+            started_at="2026-02-12T12:00:00+00:00",
+        )
+        captured = capsys.readouterr()
+
+        path_to_payload = {path: payload for path, payload in calls}
+        enrich_payload = path_to_payload["/api/enrich/resolutions"]
+        assert enrich_payload["max_candidates"] == scan.DEFAULT_RESOLUTION_MAX_CANDIDATES
+
+        coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
+        assert coverage["resolution_coverage"]["resolved_total"] > 0
+        assert coverage["resolution_coverage"]["unknown_resolution_rate"] <= 0.05
+        assert "selected=" in captured.out
+        assert "truncated=True" in captured.out
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_scan_trust_artifacts_warns_when_truncated_and_zero_resolved(monkeypatch, capsys):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-12"
+            / "run-truncated-warning"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "trade_uid": "uid-p1",
+                                "resolved_token_id": "tok-p1",
+                                "resolution_outcome": "PENDING",
+                                "realized_pnl_net": 0.0,
+                                "position_remaining": 1.0,
+                                "sell_count": 0,
+                            },
+                            {
+                                "trade_uid": "uid-p2",
+                                "resolved_token_id": "tok-p2",
+                                "resolution_outcome": "PENDING",
+                                "realized_pnl_net": 0.0,
+                                "position_remaining": 2.0,
+                                "sell_count": 0,
+                            },
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 2,
+                    "rows_written": 2,
+                    "distinct_trade_uids_total": 2,
+                }
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 620,
+                    "candidates_selected": payload["max_candidates"],
+                    "truncated": True,
+                    "candidates_processed": payload["max_candidates"],
+                    "cached_hits": 0,
+                    "resolved_written": 0,
+                    "unresolved_network": payload["max_candidates"],
+                    "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0,
+                    "errors": 0,
+                    "skipped_reasons": {},
+                    "warnings": [],
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-truncated-warning",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "enrich_resolutions": True,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--enrich-resolutions"],
+            started_at="2026-02-12T13:00:00+00:00",
+        )
+        captured = capsys.readouterr()
+
+        coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
+        assert coverage["totals"]["positions_total"] == 2
+        assert coverage["resolution_coverage"]["resolved_total"] == 0
+        assert any(
+            "resolution_enrichment_truncated_with_zero_resolved" in warning
+            for warning in coverage["warnings"]
+        )
+        assert "resolution_enrichment_truncated_with_zero_resolved" in captured.err
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_scan_trust_artifacts_warns_when_positions_are_declared_but_rows_missing(monkeypatch, capsys):
     tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
     shutil.rmtree(tmp_path, ignore_errors=True)
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -315,8 +877,15 @@ def test_scan_trust_artifacts_use_positions_count_fallback_when_rows_missing(mon
             argv=["--user", "@TestUser"],
             started_at="2026-02-06T12:00:00+00:00",
         )
+        captured = capsys.readouterr()
         coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
-        assert coverage["totals"]["positions_total"] == 3
+        assert coverage["totals"]["positions_total"] == 0
+        assert coverage["resolution_coverage"]["unknown_resolution_rate"] == 0.0
+        assert "dossier_declares_positions_count=3 but exported positions rows=0" in captured.err
+        assert any(
+            "dossier_declares_positions_count=3 but exported positions rows=0" in warning
+            for warning in coverage["warnings"]
+        )
         assert "trade_uid_coverage" not in coverage
     finally:
         os.chdir(original_cwd)
@@ -545,3 +1114,240 @@ def test_scan_trust_artifacts_warns_when_positions_total_is_zero(monkeypatch, ca
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_build_config_always_includes_resolution_knobs_without_explicit_flags(monkeypatch):
+    """build_config must populate resolution knobs even when no --resolution-* flags are passed."""
+    monkeypatch.delenv("SCAN_RESOLUTION_MAX_CANDIDATES", raising=False)
+    monkeypatch.delenv("SCAN_RESOLUTION_BATCH_SIZE", raising=False)
+    monkeypatch.delenv("SCAN_RESOLUTION_MAX_CONCURRENCY", raising=False)
+
+    parser = scan.build_parser()
+    args = parser.parse_args(["--user", "@TestUser", "--enrich-resolutions"])
+    config = scan.build_config(args)
+
+    assert config["enrich_resolutions"] is True
+    assert config["resolution_max_candidates"] == scan.DEFAULT_RESOLUTION_MAX_CANDIDATES
+    assert config["resolution_batch_size"] == scan.DEFAULT_RESOLUTION_BATCH_SIZE
+    assert config["resolution_max_concurrency"] == scan.DEFAULT_RESOLUTION_MAX_CONCURRENCY
+
+
+def test_effective_resolution_config_uses_defaults_when_keys_missing():
+    """_effective_resolution_config falls back to defaults for missing config keys."""
+    config = {"enrich_resolutions": True}
+    effective = scan._effective_resolution_config(config)
+    assert effective["max_candidates"] == scan.DEFAULT_RESOLUTION_MAX_CANDIDATES
+    assert effective["batch_size"] == scan.DEFAULT_RESOLUTION_BATCH_SIZE
+    assert effective["max_concurrency"] == scan.DEFAULT_RESOLUTION_MAX_CONCURRENCY
+
+
+def test_effective_resolution_config_uses_explicit_values():
+    """_effective_resolution_config uses explicit config values when present."""
+    config = {
+        "resolution_max_candidates": 300,
+        "resolution_batch_size": 50,
+        "resolution_max_concurrency": 8,
+    }
+    effective = scan._effective_resolution_config(config)
+    assert effective["max_candidates"] == 300
+    assert effective["batch_size"] == 50
+    assert effective["max_concurrency"] == 8
+
+
+def test_enrichment_payload_includes_knobs_without_explicit_flags(monkeypatch):
+    """POST /api/enrich/resolutions payload must include max_candidates/batch_size/max_concurrency
+    even when the user only passes --enrich-resolutions without --resolution-* flags."""
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path / "artifacts" / "dossiers" / "users" / "testuser"
+            / "0xabc" / "2026-02-12" / "run-no-knobs"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps({"positions": {"positions": [
+                {"trade_uid": "uid-1", "resolved_token_id": "tok-1",
+                 "resolution_outcome": "WIN", "realized_pnl_net": 1.0,
+                 "position_remaining": 0.0},
+            ]}}),
+            encoding="utf-8",
+        )
+
+        calls = []
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            calls.append((path, payload))
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {"pages_fetched": 1, "rows_fetched_total": 1,
+                        "rows_written": 1, "distinct_trade_uids_total": 1}
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 1, "candidates_selected": 1,
+                    "truncated": False, "candidates_processed": 1,
+                    "cached_hits": 0, "resolved_written": 1,
+                    "unresolved_network": 0, "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0, "errors": 0,
+                    "skipped_reasons": {}, "warnings": [],
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {"export_id": "run-no-knobs", "artifact_path": str(run_root),
+                        "proxy_wallet": "0xabc", "username_slug": "testuser"}
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        # Config without explicit resolution knobs (simulates --enrich-resolutions only).
+        config = {
+            "user": "@TestUser", "max_pages": 10, "bucket": "day",
+            "backfill": True, "ingest_markets": False,
+            "ingest_activity": False, "ingest_positions": False,
+            "compute_pnl": False, "compute_opportunities": False,
+            "snapshot_books": False, "enrich_resolutions": True,
+            "api_base_url": "http://localhost:8000", "timeout_seconds": 30.0,
+        }
+
+        scan.run_scan(config=config, argv=["--user", "@TestUser", "--enrich-resolutions"],
+                       started_at="2026-02-12T12:00:00+00:00")
+
+        path_to_payload = {path: payload for path, payload in calls}
+        enrich_payload = path_to_payload["/api/enrich/resolutions"]
+
+        # Even without explicit config keys, payload must include all three knobs.
+        assert enrich_payload["max_candidates"] == scan.DEFAULT_RESOLUTION_MAX_CANDIDATES
+        assert enrich_payload["batch_size"] == scan.DEFAULT_RESOLUTION_BATCH_SIZE
+        assert enrich_payload["max_concurrency"] == scan.DEFAULT_RESOLUTION_MAX_CONCURRENCY
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_parity_debug_artifact_emitted_with_enrichment(monkeypatch):
+    """When enrich_resolutions is enabled, a resolution_parity_debug.json artifact must be emitted."""
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path / "artifacts" / "dossiers" / "users" / "testuser"
+            / "0xabc" / "2026-02-12" / "run-parity"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps({"positions": {"positions": [
+                {"trade_uid": "uid-1", "resolved_token_id": "tok-1",
+                 "resolution_outcome": "WIN", "realized_pnl_net": 1.0,
+                 "position_remaining": 0.0},
+                {"trade_uid": "uid-2", "resolved_token_id": "tok-2",
+                 "resolution_outcome": "LOSS", "realized_pnl_net": -0.5,
+                 "position_remaining": 0.0},
+            ]}}),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {"pages_fetched": 1, "rows_fetched_total": 2,
+                        "rows_written": 2, "distinct_trade_uids_total": 2}
+            if path == "/api/enrich/resolutions":
+                return {
+                    "proxy_wallet": "0xabc",
+                    "max_candidates": payload["max_candidates"],
+                    "batch_size": payload["batch_size"],
+                    "max_concurrency": payload["max_concurrency"],
+                    "candidates_total": 2, "candidates_selected": 2,
+                    "truncated": False, "candidates_processed": 2,
+                    "cached_hits": 1, "resolved_written": 1,
+                    "unresolved_network": 0, "skipped_missing_identifiers": 0,
+                    "skipped_unsupported": 0, "errors": 0,
+                    "skipped_reasons": {},
+                    "lifecycle_token_universe_size_used_for_selection": 2,
+                    "warnings": [],
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {"export_id": "run-parity", "artifact_path": str(run_root),
+                        "proxy_wallet": "0xabc", "username_slug": "testuser"}
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser", "max_pages": 10, "bucket": "day",
+            "backfill": True, "ingest_markets": False,
+            "ingest_activity": False, "ingest_positions": False,
+            "compute_pnl": False, "compute_opportunities": False,
+            "snapshot_books": False, "enrich_resolutions": True,
+            "resolution_max_candidates": 500,
+            "resolution_batch_size": 25,
+            "resolution_max_concurrency": 4,
+            "api_base_url": "http://localhost:8000", "timeout_seconds": 30.0,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--enrich-resolutions"],
+            started_at="2026-02-12T14:00:00+00:00",
+        )
+
+        # Verify parity debug artifact exists and contains expected fields.
+        assert "resolution_parity_debug_json" in emitted
+        parity_path = Path(emitted["resolution_parity_debug_json"])
+        assert parity_path.exists()
+
+        parity = json.loads(parity_path.read_text(encoding="utf-8"))
+        assert "positions_identity_hash" in parity
+        assert len(parity["positions_identity_hash"]) == 64  # sha256 hex
+        assert parity["positions_count"] == 2
+        assert len(parity["identifiers_sample"]) == 2
+        assert parity["enrichment_request_payload"]["max_candidates"] == 500
+        assert parity["enrichment_request_payload"]["batch_size"] == 25
+        assert parity["enrichment_request_payload"]["max_concurrency"] == 4
+        assert parity["enrichment_response_summary"]["candidates_total"] == 2
+        assert parity["enrichment_response_summary"]["truncated"] is False
+        assert parity["lifecycle_token_universe_size_used_for_selection"] == 2
+
+        # Verify run_manifest includes enrichment effective config.
+        manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
+        assert manifest["output_paths"]["resolution_parity_debug_json"] == str(parity_path)
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_positions_identity_hash_stable_across_order():
+    """_positions_identity_hash must produce the same hash regardless of input order."""
+    positions_a = [
+        {"resolved_token_id": "tok-1", "resolution_outcome": "WIN"},
+        {"resolved_token_id": "tok-2", "resolution_outcome": "LOSS"},
+    ]
+    positions_b = [
+        {"resolved_token_id": "tok-2", "resolution_outcome": "LOSS"},
+        {"resolved_token_id": "tok-1", "resolution_outcome": "WIN"},
+    ]
+    assert scan._positions_identity_hash(positions_a) == scan._positions_identity_hash(positions_b)
+
+
+def test_positions_identity_hash_differs_for_different_positions():
+    """_positions_identity_hash must differ when position identifiers change."""
+    positions_a = [{"resolved_token_id": "tok-1", "resolution_outcome": "WIN"}]
+    positions_b = [{"resolved_token_id": "tok-99", "resolution_outcome": "WIN"}]
+    assert scan._positions_identity_hash(positions_a) != scan._positions_identity_hash(positions_b)

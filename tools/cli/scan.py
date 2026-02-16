@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -30,7 +31,7 @@ DEFAULT_COMPUTE_PNL = False
 DEFAULT_COMPUTE_OPPORTUNITIES = False
 DEFAULT_SNAPSHOT_BOOKS = False
 DEFAULT_ENRICH_RESOLUTIONS = False
-DEFAULT_RESOLUTION_MAX_CANDIDATES = 200
+DEFAULT_RESOLUTION_MAX_CANDIDATES = 500
 DEFAULT_RESOLUTION_BATCH_SIZE = 25
 DEFAULT_RESOLUTION_MAX_CONCURRENCY = 4
 DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -223,6 +224,82 @@ def _coerce_non_negative_int(value: Any) -> int:
     return parsed if parsed > 0 else 0
 
 
+def _effective_resolution_config(config: Dict[str, Any]) -> Dict[str, int]:
+    """Return explicit enrichment knobs, always populated from config or defaults."""
+    return {
+        "max_candidates": int(
+            config.get("resolution_max_candidates") or DEFAULT_RESOLUTION_MAX_CANDIDATES
+        ),
+        "batch_size": int(
+            config.get("resolution_batch_size") or DEFAULT_RESOLUTION_BATCH_SIZE
+        ),
+        "max_concurrency": int(
+            config.get("resolution_max_concurrency") or DEFAULT_RESOLUTION_MAX_CONCURRENCY
+        ),
+    }
+
+
+def _positions_identity_hash(positions: list[Dict[str, Any]]) -> str:
+    """Compute a stable SHA-256 over sorted position identifiers.
+
+    Uses (resolved_token_id|token_id|condition_id, outcome_name, market_slug)
+    tuples so that two runs covering the same positions produce the same hash.
+    """
+    identity_tuples: list[str] = []
+    for pos in positions:
+        identifier = ""
+        for key in ("resolved_token_id", "token_id", "condition_id"):
+            value = str(pos.get(key) or "").strip()
+            if value:
+                identifier = value
+                break
+        outcome_name = str(pos.get("outcome_name") or pos.get("resolution_outcome") or "").strip()
+        market_slug = str(pos.get("market_slug") or "").strip()
+        identity_tuples.append(f"{identifier}|{outcome_name}|{market_slug}")
+    identity_tuples.sort()
+    canonical = "\n".join(identity_tuples)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _build_parity_debug(
+    positions: list[Dict[str, Any]],
+    enrichment_request_payload: Dict[str, Any],
+    enrichment_response: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build a resolution_parity_debug artifact for one run."""
+    identity_hash = _positions_identity_hash(positions)
+
+    identifiers_sample = []
+    for pos in positions[:10]:
+        sample = {}
+        for key in ("resolved_token_id", "token_id", "condition_id"):
+            value = str(pos.get(key) or "").strip()
+            if value:
+                sample[key] = value
+        identifiers_sample.append(sample)
+
+    enrichment_summary: Dict[str, Any] = {}
+    if enrichment_response:
+        for key in (
+            "candidates_total", "candidates_selected", "truncated",
+            "cached_hits", "resolved_written", "unresolved_network",
+            "skipped_missing_identifiers", "errors",
+            "lifecycle_token_universe_size_used_for_selection",
+        ):
+            enrichment_summary[key] = enrichment_response.get(key)
+
+    return {
+        "positions_identity_hash": identity_hash,
+        "positions_count": len(positions),
+        "identifiers_sample": identifiers_sample,
+        "enrichment_request_payload": enrichment_request_payload,
+        "enrichment_response_summary": enrichment_summary,
+        "lifecycle_token_universe_size_used_for_selection": _coerce_non_negative_int(
+            (enrichment_response or {}).get("lifecycle_token_universe_size_used_for_selection")
+        ),
+    }
+
+
 def _extract_trades_total(dossier: Dict[str, Any]) -> int:
     coverage = dossier.get("coverage")
     if isinstance(coverage, dict):
@@ -278,17 +355,18 @@ def _extract_positions_payload(dossier: Dict[str, Any]) -> list[dict[str, Any]]:
     for item in candidates:
         if isinstance(item, dict):
             extracted.append(dict(item))
-    if extracted:
-        return extracted
+    return extracted
 
-    # Some dossier payloads expose only counts without lifecycle rows.
+
+def _extract_declared_positions_count(dossier: Dict[str, Any]) -> int:
     declared_count = 0
+    positions_section = dossier.get("positions")
     if isinstance(positions_section, dict):
         declared_count = max(declared_count, _coerce_non_negative_int(positions_section.get("count")))
     coverage = dossier.get("coverage")
     if isinstance(coverage, dict):
         declared_count = max(declared_count, _coerce_non_negative_int(coverage.get("positions_count")))
-    return [{} for _ in range(declared_count)]
+    return declared_count
 
 
 def _parse_dossier_payload(payload: Any) -> Optional[Dict[str, Any]]:
@@ -522,6 +600,9 @@ def _emit_trust_artifacts(
     started_at: str,
     resolve_response: Dict[str, Any],
     dossier_export_response: Dict[str, Any],
+    resolution_enrichment_response: Optional[Dict[str, Any]] = None,
+    effective_enrichment_config: Optional[Dict[str, int]] = None,
+    enrichment_request_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
     artifact_path = str(dossier_export_response.get("artifact_path") or "").strip()
     if not artifact_path:
@@ -549,6 +630,12 @@ def _emit_trust_artifacts(
         f"coverage_input positions_len={dossier_summary['positions_len']} "
         f"trades_len={dossier_summary['trades_len']} hydrated={hydration_meta.get('hydrated')}",
     )
+    dossier_payload = _load_dossier_payload(output_dir)
+    declared_positions_count = (
+        _extract_declared_positions_count(dossier_payload)
+        if isinstance(dossier_payload, dict)
+        else 0
+    )
     positions = _load_dossier_positions(output_dir)
     coverage_report = build_coverage_report(
         positions=positions,
@@ -556,6 +643,7 @@ def _emit_trust_artifacts(
         user_slug=username_slug,
         wallet=proxy_wallet,
         proxy_wallet=proxy_wallet,
+        resolution_enrichment_response=resolution_enrichment_response,
     )
     # Defensive check: scan trust artifacts must use split UID coverage schema.
     if "trade_uid_coverage" in coverage_report:
@@ -563,6 +651,11 @@ def _emit_trust_artifacts(
     for required_key in ("deterministic_trade_uid_coverage", "fallback_uid_coverage"):
         if required_key not in coverage_report:
             raise TrustArtifactError(f"Coverage report missing required field: {required_key}")
+    warnings = coverage_report.setdefault("warnings", [])
+    if not isinstance(warnings, list):
+        warnings = []
+        coverage_report["warnings"] = warnings
+
     positions_total = int(coverage_report.get("totals", {}).get("positions_total") or 0)
     if positions_total == 0:
         wallet_for_warning = proxy_wallet or str(resolve_response.get("proxy_wallet") or config["user"])
@@ -571,11 +664,51 @@ def _emit_trust_artifacts(
             f"positions_total=0 for wallet={wallet_for_warning}; endpoints_used={endpoints_text}. "
             "Next checks: confirm wallet mapping/proxy_wallet and increase lookback (export days/history limit)."
         )
-        warnings = coverage_report.setdefault("warnings", [])
-        if isinstance(warnings, list) and zero_warning not in warnings:
+        if zero_warning not in warnings:
             warnings.append(zero_warning)
         print(f"Warning: {zero_warning}", file=sys.stderr)
+        if declared_positions_count > 0:
+            mismatch_warning = (
+                f"dossier_declares_positions_count={declared_positions_count} but exported positions rows=0. "
+                "Likely lifecycle export/schema mismatch (check user_trade_lifecycle_enriched/user_trade_lifecycle)."
+            )
+            if mismatch_warning not in warnings:
+                warnings.append(mismatch_warning)
+            print(f"Warning: {mismatch_warning}", file=sys.stderr)
+
+    resolution_coverage = coverage_report.get("resolution_coverage", {})
+    resolved_total = int(resolution_coverage.get("resolved_total") or 0)
+    enrichment_truncated = bool((resolution_enrichment_response or {}).get("truncated"))
+    if enrichment_truncated and positions_total > 0 and resolved_total == 0:
+        total_candidates = _coerce_non_negative_int(
+            (resolution_enrichment_response or {}).get("candidates_total")
+        )
+        selected_candidates = _coerce_non_negative_int(
+            (resolution_enrichment_response or {}).get("candidates_selected")
+        )
+        max_candidates = _coerce_non_negative_int(
+            (resolution_enrichment_response or {}).get("max_candidates")
+        )
+        truncation_warning = (
+            "resolution_enrichment_truncated_with_zero_resolved: "
+            f"selected={selected_candidates}/{total_candidates} "
+            f"(max_candidates={max_candidates}), positions_total={positions_total}, resolved_total=0. "
+            "Coverage outcome distribution is likely invalid."
+        )
+        if truncation_warning not in warnings:
+            warnings.append(truncation_warning)
+        print(f"Warning: {truncation_warning}", file=sys.stderr)
+
     coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
+
+    # Emit resolution_parity_debug.json for cross-run comparison.
+    enrichment_cfg = effective_enrichment_config or _effective_resolution_config(config)
+    parity_payload = enrichment_request_payload or enrichment_cfg
+    parity_debug = _build_parity_debug(positions, parity_payload, resolution_enrichment_response)
+    parity_debug_path = output_dir / "resolution_parity_debug.json"
+    parity_debug_path.write_text(
+        json.dumps(parity_debug, indent=2, sort_keys=True), encoding="utf-8"
+    )
 
     wallets = [w for w in dict.fromkeys([proxy_wallet, resolve_response.get("proxy_wallet")]) if w]
     output_paths = {
@@ -583,6 +716,7 @@ def _emit_trust_artifacts(
         "dossier_path": str(output_dir),
         "dossier_json": str(output_dir / "dossier.json"),
         "coverage_reconciliation_report_json": coverage_paths["json"],
+        "resolution_parity_debug_json": str(parity_debug_path),
     }
     if "md" in coverage_paths:
         output_paths["coverage_reconciliation_report_md"] = coverage_paths["md"]
@@ -591,6 +725,8 @@ def _emit_trust_artifacts(
         **config,
         "trust_artifact_window_days": TRUST_ARTIFACT_WINDOW_DAYS,
         "trust_artifact_max_trades": TRUST_ARTIFACT_MAX_TRADES,
+        # Persist effective enrichment knobs explicitly in the manifest.
+        "resolution_enrichment_effective": enrichment_cfg,
     }
     manifest = build_run_manifest(
         run_id=run_id,
@@ -609,6 +745,7 @@ def _emit_trust_artifacts(
     emitted = {
         "coverage_reconciliation_report_json": coverage_paths["json"],
         "run_manifest": manifest_path,
+        "resolution_parity_debug_json": str(parity_debug_path),
     }
     if "md" in coverage_paths:
         emitted["coverage_reconciliation_report_md"] = coverage_paths["md"]
@@ -680,7 +817,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resolution-max-candidates",
         type=int,
-        help="Hard cap on tokens to enrich (default: 200)",
+        help="Hard cap on tokens to enrich (default: 500)",
     )
     parser.add_argument(
         "--resolution-batch-size",
@@ -923,9 +1060,15 @@ def print_summary(
     )
 
     if resolution_enrichment_response:
+        selected_candidates = resolution_enrichment_response.get("candidates_selected")
+        if selected_candidates is None:
+            selected_candidates = resolution_enrichment_response.get("candidates_processed")
+        truncated = bool(resolution_enrichment_response.get("truncated"))
         print(
             "Resolution enrichment: "
             f"candidates={resolution_enrichment_response.get('candidates_total')}, "
+            f"selected={selected_candidates}, "
+            f"truncated={truncated}, "
             f"processed={resolution_enrichment_response.get('candidates_processed')}, "
             f"cached={resolution_enrichment_response.get('cached_hits')}, "
             f"written={resolution_enrichment_response.get('resolved_written')}, "
@@ -1096,24 +1239,8 @@ def run_scan(
     )
 
     resolution_enrichment_response = None
-    if config.get("enrich_resolutions", DEFAULT_ENRICH_RESOLUTIONS):
-        resolution_enrichment_response = post_json(
-            api_base_url,
-            "/api/enrich/resolutions",
-            {
-                "user": config["user"],
-                "max_candidates": int(
-                    config.get("resolution_max_candidates", DEFAULT_RESOLUTION_MAX_CANDIDATES)
-                ),
-                "batch_size": int(
-                    config.get("resolution_batch_size", DEFAULT_RESOLUTION_BATCH_SIZE)
-                ),
-                "max_concurrency": int(
-                    config.get("resolution_max_concurrency", DEFAULT_RESOLUTION_MAX_CONCURRENCY)
-                ),
-            },
-            timeout=timeout_seconds,
-        )
+    effective_enrichment_config = _effective_resolution_config(config)
+    enrichment_request_payload = {"user": config["user"], **effective_enrichment_config}
 
     detectors_response = post_json(
         api_base_url,
@@ -1144,6 +1271,14 @@ def run_scan(
             timeout=timeout_seconds,
         )
 
+    if config.get("enrich_resolutions", DEFAULT_ENRICH_RESOLUTIONS):
+        resolution_enrichment_response = post_json(
+            api_base_url,
+            "/api/enrich/resolutions",
+            enrichment_request_payload,
+            timeout=timeout_seconds,
+        )
+
     dossier_export_response = post_json(
         api_base_url,
         "/api/export/user_dossier",
@@ -1160,6 +1295,9 @@ def run_scan(
         started_at=started_at_value,
         resolve_response=resolve_response,
         dossier_export_response=dossier_export_response,
+        resolution_enrichment_response=resolution_enrichment_response,
+        effective_enrichment_config=effective_enrichment_config,
+        enrichment_request_payload=enrichment_request_payload,
     )
 
     print_summary(

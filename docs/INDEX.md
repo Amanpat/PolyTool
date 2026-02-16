@@ -10,6 +10,7 @@ Quick-reference index of all key docs and what they cover.
 | [docs/README](README.md) | Documentation hub with recommended reading order |
 | [Current State](CURRENT_STATE.md) | What exists today, pipeline diagram, CLI commands |
 | [Roadmap](ROADMAP.md) | Milestone checklist, acceptance criteria, kill conditions |
+| [Roadmap 3 Completion](roadmap3_completion.md) | Final evidence summary for Resolution Coverage milestone completion |
 | [Trust Artifacts](TRUST_ARTIFACTS.md) | Roadmap 2 scan trust artifacts: practical schema, warning interpretation, reproducibility fields |
 
 ## Planning & Design
