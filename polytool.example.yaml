@@ -10,6 +10,19 @@ defaults:
   auto_rag_index: false
   hypothesis_format: markdown  # markdown | json
 
+segment_config:
+  entry_price_tiers:
+    - name: "deep_underdog"
+      max: 0.30
+    - name: "underdog"
+      min: 0.30
+      max: 0.45
+    - name: "coinflip"
+      min: 0.45
+      max: 0.55
+    - name: "favorite"
+      min: 0.55
+
 golden_cases:
   # Example only: replace with your own local targets.
   drpufferfish_example:

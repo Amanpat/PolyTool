@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-REPORT_VERSION = "1.0.0"
+REPORT_VERSION = "1.1.0"
 PENDING_COVERAGE_INVALID_WARNING = (
     "All positions are PENDING despite strong identifier coverage. "
     "This often indicates resolution enrichment did not apply to the relevant tokens "
@@ -26,6 +27,38 @@ PENDING_COVERAGE_INVALID_WARNING = (
 KNOWN_OUTCOMES = frozenset({
     "WIN", "LOSS", "PROFIT_EXIT", "LOSS_EXIT", "PENDING", "UNKNOWN_RESOLUTION",
 })
+
+DEFAULT_ENTRY_PRICE_TIERS: List[Dict[str, Any]] = [
+    {"name": "deep_underdog", "max": 0.30},
+    {"name": "underdog", "min": 0.30, "max": 0.45},
+    {"name": "coinflip", "min": 0.45, "max": 0.55},
+    {"name": "favorite", "min": 0.55},
+]
+
+LEAGUE_TO_SPORT: Dict[str, str] = {
+    "nba": "basketball",
+    "wnba": "basketball",
+    "ncaamb": "basketball",
+    "nfl": "american_football",
+    "ncaafb": "american_football",
+    "mlb": "baseball",
+    "nhl": "hockey",
+    "epl": "soccer",
+    "lal": "soccer",
+    "elc": "soccer",
+    "ucl": "soccer",
+    "mls": "soccer",
+    "atp": "tennis",
+    "wta": "tennis",
+    "ufc": "mma",
+    "pga": "golf",
+    "nascar": "motorsport",
+    "f1": "motorsport",
+    "unknown": "unknown",
+}
+
+MARKET_TYPE_SPREAD_HINTS = ("spread", "handicap")
+MONEYLINE_WILL_WIN_PATTERN = re.compile(r"will .* win", re.IGNORECASE)
 
 
 def _safe_pct(numerator: int, denominator: int) -> float:
@@ -62,6 +95,222 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _normalize_outcome(value: Any) -> str:
+    outcome = str(value or "UNKNOWN_RESOLUTION").strip().upper()
+    if outcome in KNOWN_OUTCOMES:
+        return outcome
+    return "UNKNOWN_RESOLUTION"
+
+
+def _normalize_entry_price_tiers(entry_price_tiers: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    default_tiers = [dict(tier) for tier in DEFAULT_ENTRY_PRICE_TIERS]
+    if not isinstance(entry_price_tiers, list) or not entry_price_tiers:
+        return default_tiers
+
+    normalized: List[Dict[str, Any]] = []
+    for raw in entry_price_tiers:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or "").strip()
+        if not name or name == "unknown":
+            continue
+
+        min_value = _safe_float(raw.get("min"))
+        max_value = _safe_float(raw.get("max"))
+        tier: Dict[str, Any] = {"name": name}
+        if min_value is not None:
+            tier["min"] = min_value
+        if max_value is not None:
+            tier["max"] = max_value
+        if "min" not in tier and "max" not in tier:
+            continue
+        if "min" in tier and "max" in tier and float(tier["min"]) >= float(tier["max"]):
+            continue
+        normalized.append(tier)
+
+    if not normalized:
+        return default_tiers
+    return normalized
+
+
+def _detect_league(position: Dict[str, Any]) -> str:
+    market_slug = str(position.get("market_slug") or "").strip().lower()
+    if not market_slug:
+        return "unknown"
+    league_code = market_slug.split("-", 1)[0]
+    if league_code in LEAGUE_TO_SPORT and league_code != "unknown":
+        return league_code
+    return "unknown"
+
+
+def _detect_sport(league: str) -> str:
+    return LEAGUE_TO_SPORT.get(league, "unknown")
+
+
+def _detect_market_type(position: Dict[str, Any]) -> str:
+    question = str(position.get("question") or "")
+    market_slug = str(position.get("market_slug") or "")
+    haystack = f"{question} {market_slug}".lower()
+
+    if any(hint in haystack for hint in MARKET_TYPE_SPREAD_HINTS):
+        return "spread"
+    if MONEYLINE_WILL_WIN_PATTERN.search(question):
+        return "moneyline"
+    return "unknown"
+
+
+def _classify_entry_price_tier(entry_price: Optional[float], tiers: List[Dict[str, Any]]) -> str:
+    if entry_price is None:
+        return "unknown"
+    for tier in tiers:
+        min_value = _safe_float(tier.get("min"))
+        max_value = _safe_float(tier.get("max"))
+        if min_value is not None and entry_price < min_value:
+            continue
+        if max_value is not None and entry_price >= max_value:
+            continue
+        return str(tier["name"])
+    return "unknown"
+
+
+def _empty_segment_bucket() -> Dict[str, Any]:
+    return {
+        "count": 0,
+        "wins": 0,
+        "losses": 0,
+        "profit_exits": 0,
+        "loss_exits": 0,
+        "total_pnl_net": 0.0,
+    }
+
+
+def _accumulate_segment_bucket(bucket: Dict[str, Any], outcome: str, pnl_net: float) -> None:
+    bucket["count"] += 1
+    if outcome == "WIN":
+        bucket["wins"] += 1
+    elif outcome == "LOSS":
+        bucket["losses"] += 1
+    elif outcome == "PROFIT_EXIT":
+        bucket["profit_exits"] += 1
+    elif outcome == "LOSS_EXIT":
+        bucket["loss_exits"] += 1
+    bucket["total_pnl_net"] += pnl_net
+
+
+def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
+    wins = int(bucket.get("wins") or 0)
+    losses = int(bucket.get("losses") or 0)
+    profit_exits = int(bucket.get("profit_exits") or 0)
+    loss_exits = int(bucket.get("loss_exits") or 0)
+    denominator = wins + losses + profit_exits + loss_exits
+    numerator = wins + profit_exits
+    return {
+        "count": int(bucket.get("count") or 0),
+        "wins": wins,
+        "losses": losses,
+        "profit_exits": profit_exits,
+        "loss_exits": loss_exits,
+        "win_rate": _safe_pct(numerator, denominator),
+        "total_pnl_net": round(float(bucket.get("total_pnl_net") or 0.0), 6),
+    }
+
+
+def _build_segment_analysis(
+    positions: List[Dict[str, Any]],
+    entry_price_tiers: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    tiers = _normalize_entry_price_tiers(entry_price_tiers)
+    tier_names = [str(tier["name"]) for tier in tiers]
+
+    by_entry_price_tier_raw: Dict[str, Dict[str, Any]] = {
+        name: _empty_segment_bucket() for name in tier_names
+    }
+    by_entry_price_tier_raw["unknown"] = _empty_segment_bucket()
+
+    by_market_type_raw: Dict[str, Dict[str, Any]] = {
+        "moneyline": _empty_segment_bucket(),
+        "spread": _empty_segment_bucket(),
+        "unknown": _empty_segment_bucket(),
+    }
+
+    by_league_raw: Dict[str, Dict[str, Any]] = {"unknown": _empty_segment_bucket()}
+    by_sport_raw: Dict[str, Dict[str, Any]] = {"unknown": _empty_segment_bucket()}
+
+    for position in positions:
+        outcome = _normalize_outcome(position.get("resolution_outcome"))
+        pnl_net = _safe_float(position.get("realized_pnl_net"))
+        pnl_net_value = pnl_net if pnl_net is not None else 0.0
+
+        league = _detect_league(position)
+        sport = _detect_sport(league)
+        market_type = _detect_market_type(position)
+        entry_price = _safe_float(position.get("entry_price"))
+        entry_price_tier = _classify_entry_price_tier(entry_price, tiers)
+
+        by_league_raw.setdefault(league, _empty_segment_bucket())
+        by_sport_raw.setdefault(sport, _empty_segment_bucket())
+        by_market_type_raw.setdefault(market_type, _empty_segment_bucket())
+        by_entry_price_tier_raw.setdefault(entry_price_tier, _empty_segment_bucket())
+
+        _accumulate_segment_bucket(by_entry_price_tier_raw[entry_price_tier], outcome, pnl_net_value)
+        _accumulate_segment_bucket(by_market_type_raw[market_type], outcome, pnl_net_value)
+        _accumulate_segment_bucket(by_league_raw[league], outcome, pnl_net_value)
+        _accumulate_segment_bucket(by_sport_raw[sport], outcome, pnl_net_value)
+
+    by_entry_price_tier = {
+        name: _finalize_segment_bucket(by_entry_price_tier_raw[name])
+        for name in tier_names + ["unknown"]
+    }
+    by_market_type = {
+        name: _finalize_segment_bucket(by_market_type_raw[name])
+        for name in ("moneyline", "spread", "unknown")
+    }
+
+    league_keys = sorted(k for k in by_league_raw.keys() if k != "unknown")
+    league_keys.append("unknown")
+    by_league = {name: _finalize_segment_bucket(by_league_raw[name]) for name in league_keys}
+
+    sport_keys = sorted(k for k in by_sport_raw.keys() if k != "unknown")
+    sport_keys.append("unknown")
+    by_sport = {name: _finalize_segment_bucket(by_sport_raw[name]) for name in sport_keys}
+
+    return {
+        "entry_price_tiers": tiers,
+        "by_entry_price_tier": by_entry_price_tier,
+        "by_market_type": by_market_type,
+        "by_league": by_league,
+        "by_sport": by_sport,
+    }
+
+
+def _collect_segment_rankings(segment_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
+    ranked: List[Dict[str, Any]] = []
+    dimensions = (
+        ("entry_price_tier", "by_entry_price_tier"),
+        ("market_type", "by_market_type"),
+        ("league", "by_league"),
+        ("sport", "by_sport"),
+    )
+    for dimension_label, field in dimensions:
+        buckets = segment_analysis.get(field)
+        if not isinstance(buckets, dict):
+            continue
+        for bucket_name, metrics in buckets.items():
+            if not isinstance(metrics, dict):
+                continue
+            total_pnl_net = _safe_float(metrics.get("total_pnl_net"))
+            if total_pnl_net is None:
+                continue
+            ranked.append({
+                "segment": f"{dimension_label}:{bucket_name}",
+                "count": _coerce_int(metrics.get("count")),
+                "total_pnl_net": round(total_pnl_net, 6),
+            })
+
+    ranked.sort(key=lambda row: (-row["total_pnl_net"], row["segment"]))
+    return ranked
+
+
 def normalize_fee_fields(position: Dict[str, Any]) -> Dict[str, Any]:
     """Ensure every position has explicit fee sourcing.
 
@@ -95,6 +344,7 @@ def build_coverage_report(
     wallet: str,
     proxy_wallet: Optional[str] = None,
     resolution_enrichment_response: Optional[Dict[str, Any]] = None,
+    entry_price_tiers: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build a Coverage & Reconciliation Report from position lifecycle data.
 
@@ -279,6 +529,11 @@ def build_coverage_report(
             warning = f"{warning} Enrichment response reported truncated=true."
         warnings.append(warning)
 
+    segment_analysis = _build_segment_analysis(
+        positions=positions,
+        entry_price_tiers=entry_price_tiers,
+    )
+
     report = {
         "report_version": REPORT_VERSION,
         "generated_at": _now_utc(),
@@ -296,6 +551,7 @@ def build_coverage_report(
         "pnl": pnl_section,
         "fees": fees_section,
         "resolution_coverage": resolution_section,
+        "segment_analysis": segment_analysis,
         "warnings": warnings,
     }
     return report
@@ -315,12 +571,12 @@ def write_coverage_report(
     json_path = output_dir / "coverage_reconciliation_report.json"
     json_path.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False), encoding="utf-8")
 
-    paths: Dict[str, str] = {"json": str(json_path)}
+    paths: Dict[str, str] = {"json": json_path.as_posix()}
 
     if write_markdown:
         md_path = output_dir / "coverage_reconciliation_report.md"
         md_path.write_text(_render_markdown(report), encoding="utf-8")
-        paths["md"] = str(md_path)
+        paths["md"] = md_path.as_posix()
 
     return paths
 
@@ -383,6 +639,8 @@ def _render_markdown(report: Dict[str, Any]) -> str:
     lines.append(f"- WIN+LOSS covered rate: {res['win_loss_covered_rate']:.2%}")
     lines.append("")
 
+    lines.extend(_render_segment_highlights(report))
+
     if report["warnings"]:
         lines.append("## Warnings")
         for w in report["warnings"]:
@@ -390,3 +648,70 @@ def _render_markdown(report: Dict[str, Any]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _render_segment_highlights(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Segment Highlights")
+    lines.append("")
+
+    segment_analysis = report.get("segment_analysis")
+    if not isinstance(segment_analysis, dict):
+        lines.append("- Segment analysis unavailable.")
+        lines.append("")
+        return lines
+
+    ranked = _collect_segment_rankings(segment_analysis)
+    top_segments = ranked[:3]
+    bottom_segments = sorted(ranked, key=lambda row: (row["total_pnl_net"], row["segment"]))[:3]
+
+    lines.append("### Top 3 Segments by total_pnl_net")
+    if top_segments:
+        for row in top_segments:
+            lines.append(
+                f"- {row['segment']}: pnl={row['total_pnl_net']:.6f}, count={row['count']}"
+            )
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    lines.append("### Bottom 3 Segments by total_pnl_net")
+    if bottom_segments:
+        for row in bottom_segments:
+            lines.append(
+                f"- {row['segment']}: pnl={row['total_pnl_net']:.6f}, count={row['count']}"
+            )
+    else:
+        lines.append("- None")
+    lines.append("")
+
+    total_positions = _coerce_int(report.get("totals", {}).get("positions_total"))
+    lines.append("### Unknown Rate Callouts (>20%)")
+    callouts: List[str] = []
+    if total_positions > 0:
+        for field, label in (
+            ("by_league", "league"),
+            ("by_sport", "sport"),
+            ("by_market_type", "market_type"),
+        ):
+            buckets = segment_analysis.get(field)
+            if not isinstance(buckets, dict):
+                continue
+            unknown_bucket = buckets.get("unknown")
+            if not isinstance(unknown_bucket, dict):
+                continue
+            unknown_count = _coerce_int(unknown_bucket.get("count"))
+            unknown_rate = _safe_pct(unknown_count, total_positions)
+            if unknown_rate > 0.20:
+                callouts.append(
+                    f"{label}: {unknown_rate:.2%} ({unknown_count}/{total_positions})"
+                )
+
+    if callouts:
+        for callout in callouts:
+            lines.append(f"- {callout}")
+    else:
+        lines.append("- None above 20%")
+    lines.append("")
+
+    return lines

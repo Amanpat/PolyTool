@@ -19,6 +19,11 @@ import requests
 from polytool.reports.coverage import build_coverage_report, normalize_fee_fields, write_coverage_report
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
 
+try:
+    import yaml  # type: ignore
+except ImportError:
+    yaml = None  # type: ignore
+
 ALLOWED_BUCKETS = {"day", "hour", "week"}
 DEFAULT_API_BASE_URL = "http://localhost:8000"
 DEFAULT_MAX_PAGES = 50
@@ -63,6 +68,40 @@ class NetworkError(Exception):
 
 class TrustArtifactError(Exception):
     """Raised when trust artifacts cannot be emitted from scan."""
+
+
+def _load_local_config(config_path: Optional[str]) -> Dict[str, Any]:
+    """Load polytool local config (YAML preferred, JSON fallback)."""
+    paths_to_try: list[Path] = []
+    if config_path:
+        paths_to_try.append(Path(config_path))
+    else:
+        paths_to_try.extend([Path("polytool.yaml"), Path("polytool.yml")])
+
+    for path in paths_to_try:
+        if not path.exists():
+            continue
+        try:
+            raw_text = path.read_text(encoding="utf-8")
+            payload: Any
+            if yaml is not None:
+                payload = yaml.safe_load(raw_text) or {}
+            else:
+                payload = json.loads(raw_text)
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            continue
+    return {}
+
+
+def _extract_entry_price_tiers(local_config: Dict[str, Any]) -> Optional[list[dict[str, Any]]]:
+    segment_config = local_config.get("segment_config")
+    if not isinstance(segment_config, dict):
+        return None
+    tiers = segment_config.get("entry_price_tiers")
+    if isinstance(tiers, list):
+        return [tier for tier in tiers if isinstance(tier, dict)]
+    return None
 
 
 def load_env_file(path: str) -> Dict[str, str]:
@@ -644,6 +683,7 @@ def _emit_trust_artifacts(
         wallet=proxy_wallet,
         proxy_wallet=proxy_wallet,
         resolution_enrichment_response=resolution_enrichment_response,
+        entry_price_tiers=config.get("entry_price_tiers"),
     )
     # Defensive check: scan trust artifacts must use split UID coverage schema.
     if "trade_uid_coverage" in coverage_report:
@@ -701,6 +741,19 @@ def _emit_trust_artifacts(
 
     coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
 
+    segment_analysis_path = output_dir / "segment_analysis.json"
+    segment_analysis_payload = {
+        "generated_at": coverage_report.get("generated_at"),
+        "run_id": run_id,
+        "user_slug": username_slug,
+        "wallet": proxy_wallet,
+        "segment_analysis": coverage_report.get("segment_analysis", {}),
+    }
+    segment_analysis_path.write_text(
+        json.dumps(segment_analysis_payload, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
+
     # Emit resolution_parity_debug.json for cross-run comparison.
     enrichment_cfg = effective_enrichment_config or _effective_resolution_config(config)
     parity_payload = enrichment_request_payload or enrichment_cfg
@@ -712,11 +765,12 @@ def _emit_trust_artifacts(
 
     wallets = [w for w in dict.fromkeys([proxy_wallet, resolve_response.get("proxy_wallet")]) if w]
     output_paths = {
-        "run_root": str(output_dir),
-        "dossier_path": str(output_dir),
-        "dossier_json": str(output_dir / "dossier.json"),
+        "run_root": output_dir.as_posix(),
+        "dossier_path": output_dir.as_posix(),
+        "dossier_json": (output_dir / "dossier.json").as_posix(),
         "coverage_reconciliation_report_json": coverage_paths["json"],
-        "resolution_parity_debug_json": str(parity_debug_path),
+        "segment_analysis_json": segment_analysis_path.as_posix(),
+        "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
     if "md" in coverage_paths:
         output_paths["coverage_reconciliation_report_md"] = coverage_paths["md"]
@@ -744,8 +798,9 @@ def _emit_trust_artifacts(
 
     emitted = {
         "coverage_reconciliation_report_json": coverage_paths["json"],
-        "run_manifest": manifest_path,
-        "resolution_parity_debug_json": str(parity_debug_path),
+        "segment_analysis_json": segment_analysis_path.as_posix(),
+        "run_manifest": Path(manifest_path).as_posix(),
+        "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
     if "md" in coverage_paths:
         emitted["coverage_reconciliation_report_md"] = coverage_paths["md"]
@@ -835,11 +890,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Print trust artifact export diagnostics (wallet, endpoints, counts)",
     )
+    parser.add_argument(
+        "--config",
+        help="Path to polytool.yaml config file (defaults to ./polytool.yaml if present)",
+    )
     parser.add_argument("--api-base-url", help="Base URL for the PolyTool API")
     return parser
 
 
 def build_config(args: argparse.Namespace) -> Dict[str, Any]:
+    local_config = _load_local_config(args.config)
+    entry_price_tiers = _extract_entry_price_tiers(local_config)
+
     env_user = os.getenv("TARGET_USER")
     env_max_pages = parse_int(os.getenv("SCAN_MAX_PAGES"), "SCAN_MAX_PAGES")
     env_bucket = os.getenv("SCAN_BUCKET")
@@ -972,6 +1034,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "resolution_batch_size": resolution_batch_size,
         "resolution_max_concurrency": resolution_max_concurrency,
         "debug_export": debug_export,
+        "entry_price_tiers": entry_price_tiers,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
     }

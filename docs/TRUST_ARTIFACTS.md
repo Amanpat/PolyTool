@@ -27,7 +27,7 @@ explain empty or low-coverage exports.
 
 - `coverage_reconciliation_report.json`:
   machine-readable trust report for outcome coverage, UID coverage, PnL/fees
-  sanity checks, resolution coverage, and warnings.
+  sanity checks, resolution coverage, segment analysis, and warnings.
 - `coverage_reconciliation_report.md`:
   optional human-readable rendering of the same report.
 - `run_manifest.json`:
@@ -60,8 +60,15 @@ explain empty or low-coverage exports.
   `resolution_coverage.unknown_resolution_rate`,
   `resolution_coverage.held_to_resolution_total`,
   `resolution_coverage.win_loss_covered_rate`
+- Segment analysis:
+  `segment_analysis.by_entry_price_tier`,
+  `segment_analysis.by_market_type`,
+  `segment_analysis.by_league`,
+  `segment_analysis.by_sport`
 - Warnings:
   `warnings` (list of actionable strings)
+
+Current report schema version is `report_version = "1.1.0"`.
 
 ### Outcomes
 
@@ -118,7 +125,9 @@ endpoint context plus next checks (wallet mapping, lookback/history coverage).
   `user_input`, `user_slug`, `wallets`
 - Outputs:
   `output_paths` (includes `run_root`,
-  `coverage_reconciliation_report_json`, and optional markdown path)
+  `coverage_reconciliation_report_json`,
+  `segment_analysis_json`,
+  and optional markdown path)
 - Reproducibility metadata:
   `effective_config_hash_sha256`, `polytool_version`, `git_commit`
 

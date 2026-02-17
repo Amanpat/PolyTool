@@ -102,24 +102,31 @@ def test_run_scan_emits_trust_artifacts_from_canonical_scan_path(monkeypatch):
         )
 
         assert Path(emitted["coverage_reconciliation_report_json"]).exists()
+        assert Path(emitted["segment_analysis_json"]).exists()
         assert Path(emitted["run_manifest"]).exists()
 
         coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
         assert coverage["totals"]["positions_total"] > 0
         assert "deterministic_trade_uid_coverage" in coverage
         assert "fallback_uid_coverage" in coverage
+        assert "segment_analysis" in coverage
         assert "trade_uid_coverage" not in coverage
         assert coverage["deterministic_trade_uid_coverage"]["with_trade_uid"] == 1
         assert coverage["fallback_uid_coverage"]["with_fallback_uid"] == 2
         assert coverage["fallback_uid_coverage"]["fallback_only_count"] == 1
 
+        segment_analysis_payload = json.loads(Path(emitted["segment_analysis_json"]).read_text(encoding="utf-8"))
+        assert "segment_analysis" in segment_analysis_payload
+        assert "by_entry_price_tier" in segment_analysis_payload["segment_analysis"]
+
         manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
         assert manifest["command_name"] == "scan"
         assert manifest["run_id"] == "run-123"
-        assert manifest["output_paths"]["run_root"] == str(run_root)
+        assert manifest["output_paths"]["run_root"] == run_root.as_posix()
         assert manifest["output_paths"]["coverage_reconciliation_report_json"] == emitted[
             "coverage_reconciliation_report_json"
         ]
+        assert manifest["output_paths"]["segment_analysis_json"] == emitted["segment_analysis_json"]
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)
@@ -1132,6 +1139,39 @@ def test_build_config_always_includes_resolution_knobs_without_explicit_flags(mo
     assert config["resolution_max_concurrency"] == scan.DEFAULT_RESOLUTION_MAX_CONCURRENCY
 
 
+def test_build_config_loads_entry_price_tiers_from_polytool_yaml():
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        Path("polytool.yaml").write_text(
+            "\n".join(
+                [
+                    "segment_config:",
+                    "  entry_price_tiers:",
+                    '    - name: "cheap"',
+                    "      max: 0.25",
+                    '    - name: "expensive"',
+                    "      min: 0.25",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        parser = scan.build_parser()
+        args = parser.parse_args(["--user", "@TestUser"])
+        config = scan.build_config(args)
+        assert config["entry_price_tiers"] == [
+            {"name": "cheap", "max": 0.25},
+            {"name": "expensive", "min": 0.25},
+        ]
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
 def test_effective_resolution_config_uses_defaults_when_keys_missing():
     """_effective_resolution_config falls back to defaults for missing config keys."""
     config = {"enrich_resolutions": True}
@@ -1327,7 +1367,7 @@ def test_parity_debug_artifact_emitted_with_enrichment(monkeypatch):
 
         # Verify run_manifest includes enrichment effective config.
         manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
-        assert manifest["output_paths"]["resolution_parity_debug_json"] == str(parity_path)
+        assert manifest["output_paths"]["resolution_parity_debug_json"] == parity_path.as_posix()
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)
