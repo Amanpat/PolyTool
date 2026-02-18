@@ -16,7 +16,11 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from polytool.reports.coverage import build_coverage_report, normalize_fee_fields, write_coverage_report
+from polytool.reports.coverage import (
+    build_coverage_report,
+    normalize_fee_fields,
+    write_coverage_report,
+)
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
 
 try:
@@ -40,6 +44,8 @@ DEFAULT_RESOLUTION_MAX_CANDIDATES = 500
 DEFAULT_RESOLUTION_BATCH_SIZE = 25
 DEFAULT_RESOLUTION_MAX_CONCURRENCY = 4
 DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_PROFIT_FEE_RATE = 0.02
+DEFAULT_FEE_SOURCE_LABEL = "estimated"
 MAX_BODY_SNIPPET = 800
 TRUST_ARTIFACT_WINDOW_DAYS = 30
 TRUST_ARTIFACT_MAX_TRADES = 200
@@ -102,6 +108,29 @@ def _extract_entry_price_tiers(local_config: Dict[str, Any]) -> Optional[list[di
     if isinstance(tiers, list):
         return [tier for tier in tiers if isinstance(tier, dict)]
     return None
+
+
+def _extract_fee_config(local_config: Dict[str, Any]) -> Dict[str, Any]:
+    fee_config = local_config.get("fee_config")
+    if not isinstance(fee_config, dict):
+        return {
+            "profit_fee_rate": DEFAULT_PROFIT_FEE_RATE,
+            "source_label": DEFAULT_FEE_SOURCE_LABEL,
+        }
+
+    raw_rate = fee_config.get("profit_fee_rate")
+    try:
+        profit_fee_rate = float(raw_rate)
+    except (TypeError, ValueError):
+        profit_fee_rate = DEFAULT_PROFIT_FEE_RATE
+    if profit_fee_rate < 0:
+        profit_fee_rate = DEFAULT_PROFIT_FEE_RATE
+
+    source_label = str(fee_config.get("source_label") or "").strip() or DEFAULT_FEE_SOURCE_LABEL
+    return {
+        "profit_fee_rate": profit_fee_rate,
+        "source_label": source_label,
+    }
 
 
 def load_env_file(path: str) -> Dict[str, str]:
@@ -633,6 +662,89 @@ def _materialize_dossier_if_missing(
     return endpoints_used, dossier_summary, hydration_meta
 
 
+def _build_metadata_map_from_positions(
+    positions: list[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build a token/condition → market-metadata mapping from positions that already have metadata.
+
+    This enables self-referential backfill: when different records in the same
+    dossier share a token_id or condition_id, positions that happen to carry
+    complete market_slug/question/outcome_name can fill in the gaps for those
+    that don't.
+
+    Only populates the map from positions where at least one metadata field is
+    non-empty. A position can populate multiple identifiers (`token_id`,
+    `resolved_token_id`, and `condition_id`) when present.
+
+    When two positions share an identifier but disagree on relevant metadata
+    values, the first entry wins deterministically and the collision is counted.
+    For `condition_id` conflicts, `outcome_name` is ignored because condition IDs
+    are market-level and cannot safely determine outcome names.
+
+    Returns
+    -------
+    dict with keys:
+        ``map``               – the token/condition → metadata dict
+        ``conflicts_count``   – number of disagreeing entries detected
+        ``conflict_sample``   – up to 5 conflict examples for debugging
+    """
+    mapping: Dict[str, Dict[str, str]] = {}
+    conflicts_count = 0
+    conflict_sample: list[Dict[str, Any]] = []
+
+    for pos in positions:
+        slug = str(pos.get("market_slug") or "").strip()
+        question = str(pos.get("question") or "").strip()
+        outcome_name = str(pos.get("outcome_name") or "").strip()
+        category = str(pos.get("category") or "").strip()
+        if not any([slug, question, outcome_name, category]):
+            continue
+
+        candidate = {
+            "market_slug": slug,
+            "question": question,
+            "outcome_name": outcome_name,
+            "category": category,
+        }
+
+        for key in ("token_id", "resolved_token_id", "condition_id"):
+            identifier = str(pos.get(key) or "").strip()
+            if not identifier:
+                continue
+
+            candidate_for_key = dict(candidate)
+            conflict_fields = ("market_slug", "question", "outcome_name", "category")
+            if key == "condition_id":
+                # condition_id is market-level only; outcome_name is token-level.
+                candidate_for_key["outcome_name"] = ""
+                conflict_fields = ("market_slug", "question", "category")
+
+            if identifier not in mapping:
+                mapping[identifier] = candidate_for_key
+            else:
+                existing = mapping[identifier]
+                # Detect a real conflict: at least one shared non-empty field disagrees.
+                conflict = any(
+                    existing.get(f) and candidate_for_key.get(f) and existing[f] != candidate_for_key[f]
+                    for f in conflict_fields
+                )
+                if conflict:
+                    conflicts_count += 1
+                    if len(conflict_sample) < 5:
+                        conflict_sample.append({
+                            "identifier": identifier,
+                            "first": dict(existing),
+                            "second": dict(candidate_for_key),
+                        })
+                # First entry wins — do not overwrite.
+
+    return {
+        "map": mapping,
+        "conflicts_count": conflicts_count,
+        "conflict_sample": conflict_sample,
+    }
+
+
 def _emit_trust_artifacts(
     config: Dict[str, Any],
     argv: list[str],
@@ -676,6 +788,17 @@ def _emit_trust_artifacts(
         else 0
     )
     positions = _load_dossier_positions(output_dir)
+    # Build a local market-metadata map from positions that already carry metadata.
+    # When backfill is enabled this lets the coverage builder fill in missing
+    # market_slug/question/outcome_name from sibling records in the same dossier.
+    market_metadata_map: Optional[Dict[str, Dict[str, str]]] = None
+    metadata_conflicts_count = 0
+    metadata_conflict_sample: list[Dict[str, Any]] = []
+    if config.get("backfill", DEFAULT_BACKFILL):
+        metadata_result = _build_metadata_map_from_positions(positions)
+        market_metadata_map = metadata_result["map"]
+        metadata_conflicts_count = metadata_result["conflicts_count"]
+        metadata_conflict_sample = metadata_result["conflict_sample"]
     coverage_report = build_coverage_report(
         positions=positions,
         run_id=run_id,
@@ -684,6 +807,10 @@ def _emit_trust_artifacts(
         proxy_wallet=proxy_wallet,
         resolution_enrichment_response=resolution_enrichment_response,
         entry_price_tiers=config.get("entry_price_tiers"),
+        fee_config=config.get("fee_config"),
+        market_metadata_map=market_metadata_map,
+        metadata_conflicts_count=metadata_conflicts_count,
+        metadata_conflict_sample=metadata_conflict_sample if metadata_conflict_sample else None,
     )
     # Defensive check: scan trust artifacts must use split UID coverage schema.
     if "trade_uid_coverage" in coverage_report:
@@ -901,6 +1028,7 @@ def build_parser() -> argparse.ArgumentParser:
 def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     local_config = _load_local_config(args.config)
     entry_price_tiers = _extract_entry_price_tiers(local_config)
+    fee_config = _extract_fee_config(local_config)
 
     env_user = os.getenv("TARGET_USER")
     env_max_pages = parse_int(os.getenv("SCAN_MAX_PAGES"), "SCAN_MAX_PAGES")
@@ -1035,6 +1163,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "resolution_max_concurrency": resolution_max_concurrency,
         "debug_export": debug_export,
         "entry_price_tiers": entry_price_tiers,
+        "fee_config": fee_config,
         "api_base_url": api_base_url,
         "timeout_seconds": timeout_seconds,
     }
@@ -1054,6 +1183,19 @@ def validate_config(config: Dict[str, Any]) -> None:
         errors.append("SCAN_RESOLUTION_BATCH_SIZE must be a positive integer.")
     if not isinstance(config.get("resolution_max_concurrency"), int) or config["resolution_max_concurrency"] <= 0:
         errors.append("SCAN_RESOLUTION_MAX_CONCURRENCY must be a positive integer.")
+    fee_config = config.get("fee_config")
+    if not isinstance(fee_config, dict):
+        errors.append("fee_config must be a mapping.")
+    else:
+        try:
+            fee_rate = float(fee_config.get("profit_fee_rate"))
+            if fee_rate < 0:
+                raise ValueError("negative")
+        except (TypeError, ValueError):
+            errors.append("fee_config.profit_fee_rate must be a non-negative number.")
+        source_label = str(fee_config.get("source_label") or "").strip()
+        if not source_label:
+            errors.append("fee_config.source_label must be a non-empty string.")
 
     if errors:
         for err in errors:

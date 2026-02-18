@@ -1167,6 +1167,40 @@ def test_build_config_loads_entry_price_tiers_from_polytool_yaml():
             {"name": "cheap", "max": 0.25},
             {"name": "expensive", "min": 0.25},
         ]
+        assert config["fee_config"] == {
+            "profit_fee_rate": scan.DEFAULT_PROFIT_FEE_RATE,
+            "source_label": scan.DEFAULT_FEE_SOURCE_LABEL,
+        }
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_build_config_loads_fee_config_from_polytool_yaml():
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        Path("polytool.yaml").write_text(
+            "\n".join(
+                [
+                    "fee_config:",
+                    "  profit_fee_rate: 0.05",
+                    '  source_label: "heuristic"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        parser = scan.build_parser()
+        args = parser.parse_args(["--user", "@TestUser"])
+        config = scan.build_config(args)
+        assert config["fee_config"] == {
+            "profit_fee_rate": 0.05,
+            "source_label": "heuristic",
+        }
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)

@@ -60,15 +60,30 @@ explain empty or low-coverage exports.
   `resolution_coverage.unknown_resolution_rate`,
   `resolution_coverage.held_to_resolution_total`,
   `resolution_coverage.win_loss_covered_rate`
+- Market metadata coverage (Roadmap 4.4):
+  `market_metadata_coverage.present_count`,
+  `market_metadata_coverage.missing_count`,
+  `market_metadata_coverage.coverage_rate`,
+  `market_metadata_coverage.source_counts` (`ingested`, `backfilled`, `unknown`),
+  `market_metadata_coverage.top_unmappable`
+- Category coverage (Roadmap 4.5):
+  `category_coverage.present_count`,
+  `category_coverage.missing_count`,
+  `category_coverage.coverage_rate`,
+  `category_coverage.source_counts` (`ingested`, `backfilled`, `unknown`),
+  `category_coverage.top_unmappable`
 - Segment analysis:
   `segment_analysis.by_entry_price_tier`,
   `segment_analysis.by_market_type`,
   `segment_analysis.by_league`,
-  `segment_analysis.by_sport`
+  `segment_analysis.by_sport`,
+  `segment_analysis.by_category`,
+  `segment_analysis.by_market_slug.top_by_total_pnl_net`,
+  `segment_analysis.by_market_slug.top_by_count`
 - Warnings:
   `warnings` (list of actionable strings)
 
-Current report schema version is `report_version = "1.1.0"`.
+Current report schema version is `report_version = "1.4.0"`.
 
 ### Outcomes
 
@@ -108,6 +123,8 @@ Warnings are emitted when these conditions occur:
 - `UNKNOWN_RESOLUTION` rate is above 5%
 - one or more rows are missing `realized_pnl_net`
 - all rows have `fees_source=unknown`
+- `market_metadata_coverage` missing rate is above 20%
+- `category_coverage` missing rate is above 20%
 
 Scan adds an extra warning when `positions_total = 0` that includes wallet and
 endpoint context plus next checks (wallet mapping, lookback/history coverage).

@@ -23,6 +23,10 @@ segment_config:
     - name: "favorite"
       min: 0.55
 
+fee_config:
+  profit_fee_rate: 0.02
+  source_label: "estimated"
+
 golden_cases:
   # Example only: replace with your own local targets.
   drpufferfish_example:

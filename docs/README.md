@@ -40,6 +40,7 @@ table, see [INDEX.md](INDEX.md).
 - [RAG implementation report](RAG_IMPLEMENTATION_REPORT.md)
 - [Strategy playbook](STRATEGY_PLAYBOOK.md)
 - [Project tree (full)](PROJECT_TREE_FULL.txt)
+- [Debug: Windows pytest PermissionError tempdirs](debug/DEBUG-windows-permissionerror-pytest-tempdirs.md)
 
 ## Workflows
 - [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes

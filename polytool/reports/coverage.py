@@ -16,13 +16,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-REPORT_VERSION = "1.1.0"
+REPORT_VERSION = "1.4.0"
 PENDING_COVERAGE_INVALID_WARNING = (
     "All positions are PENDING despite strong identifier coverage. "
     "This often indicates resolution enrichment did not apply to the relevant tokens "
     "(candidate cap/truncation or join mismatch). "
     "Re-run with --resolution-max-candidates 300+ and verify enrichment truncation metrics."
 )
+DEFAULT_PROFIT_FEE_RATE = 0.02
+DEFAULT_FEE_SOURCE_LABEL = "estimated"
+NOT_APPLICABLE_FEE_SOURCE = "not_applicable"
 
 KNOWN_OUTCOMES = frozenset({
     "WIN", "LOSS", "PROFIT_EXIT", "LOSS_EXIT", "PENDING", "UNKNOWN_RESOLUTION",
@@ -61,6 +64,281 @@ MARKET_TYPE_SPREAD_HINTS = ("spread", "handicap")
 MONEYLINE_WILL_WIN_PATTERN = re.compile(r"will .* win", re.IGNORECASE)
 
 
+_MARKET_METADATA_FIELDS = ("market_slug", "question", "outcome_name")
+_POSITION_IDENTIFIER_KEYS = ("token_id", "resolved_token_id", "condition_id")
+_CATEGORY_UNKNOWN = "Unknown"
+
+
+def _has_market_metadata(position: Dict[str, Any]) -> bool:
+    """Return True if at least one market metadata field is non-empty."""
+    return any(str(position.get(f) or "").strip() for f in _MARKET_METADATA_FIELDS)
+
+
+def _get_position_identifier(position: Dict[str, Any]) -> tuple[str, str]:
+    """Return identifier key/value for unmappable diagnostics.
+
+    Token-level identifiers (`token_id` or `resolved_token_id`) are surfaced as
+    `token_id` in report payloads. Market-level identifiers are surfaced as
+    `condition_id`.
+    """
+    for key in _POSITION_IDENTIFIER_KEYS:
+        val = str(position.get(key) or "").strip()
+        if val:
+            if key == "condition_id":
+                return "condition_id", val
+            return "token_id", val
+    return "", ""
+
+
+def _rank_unmappable(
+    unmappable_counts: Counter,
+    unmappable_examples: Dict[tuple[str, str], Dict[str, Any]],
+    limit: int = 10,
+) -> List[Dict[str, Any]]:
+    ranked = sorted(
+        unmappable_counts.items(),
+        key=lambda item: (-item[1], item[0][0], item[0][1]),
+    )[:limit]
+    return [
+        {
+            id_key: id_value,
+            "count": count,
+            "example": unmappable_examples.get((id_key, id_value), {}),
+        }
+        for (id_key, id_value), count in ranked
+    ]
+
+
+def backfill_market_metadata(
+    positions: List[Dict[str, Any]],
+    market_metadata_map: Optional[Dict[str, Dict[str, str]]] = None,
+) -> set:
+    """Backfill missing market_slug/question/outcome_name from a local token/condition map.
+
+    Mutates *positions* in place — only fills fields that are currently empty and
+    only when the mapping contains a non-empty value.  Never guesses: if no
+    mapping is found the field is left empty.
+
+    **Key invariant — condition_id cannot fill outcome_name.**
+    A ``condition_id`` identifies a *market* (shared across all outcome tokens within
+    that market), so we cannot know which specific outcome a position corresponds to
+    from the condition alone.  ``token_id`` and ``resolved_token_id`` each identify a
+    single outcome token and may fill all three fields.
+
+    Parameters
+    ----------
+    positions : list[dict]
+        Position lifecycle records, potentially missing market metadata.
+    market_metadata_map : dict[str, dict[str, str]] | None
+        Maps a token_id or condition_id string to a dict with any subset of
+        ``{market_slug, question, outcome_name}``.  Pass *None* or ``{}`` to
+        skip backfill entirely.
+
+    Returns
+    -------
+    set of int
+        Indices of positions where at least one field was backfilled.
+    """
+    backfilled: set = set()
+    if not market_metadata_map:
+        return backfilled
+
+    for idx, pos in enumerate(positions):
+        slug = str(pos.get("market_slug") or "").strip()
+        question = str(pos.get("question") or "").strip()
+        outcome_name = str(pos.get("outcome_name") or "").strip()
+        category = str(pos.get("category") or "").strip()
+
+        if slug and question and outcome_name and category:
+            continue  # Already fully populated
+
+        # Determine which identifier key is available and track its type.
+        # Priority: token_id > resolved_token_id > condition_id
+        used_key: Optional[str] = None
+        identifier = ""
+        for key in ("token_id", "resolved_token_id", "condition_id"):
+            val = str(pos.get(key) or "").strip()
+            if val:
+                identifier = val
+                used_key = key
+                break
+
+        if not identifier:
+            continue
+
+        mapping = market_metadata_map.get(identifier)
+        if not mapping:
+            continue
+
+        # condition_id resolves to market level only — outcome_name is token-specific
+        # and must NOT be inferred from a condition-level mapping.
+        allow_outcome_name = used_key != "condition_id"
+
+        changed = False
+        if not slug:
+            new_slug = str(mapping.get("market_slug") or "").strip()
+            if new_slug:
+                pos["market_slug"] = new_slug
+                changed = True
+        if not question:
+            new_question = str(mapping.get("question") or "").strip()
+            if new_question:
+                pos["question"] = new_question
+                changed = True
+        if not outcome_name and allow_outcome_name:
+            new_outcome_name = str(mapping.get("outcome_name") or "").strip()
+            if new_outcome_name:
+                pos["outcome_name"] = new_outcome_name
+                changed = True
+        # category is market-level — safe to fill from any identifier key including condition_id
+        if not category:
+            new_category = str(mapping.get("category") or "").strip()
+            if new_category:
+                pos["category"] = new_category
+                changed = True
+
+        if changed:
+            backfilled.add(idx)
+
+    return backfilled
+
+
+def _build_market_metadata_coverage(
+    positions: List[Dict[str, Any]],
+    backfilled_indices: Optional[set] = None,
+    metadata_conflicts_count: int = 0,
+    metadata_conflict_sample: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Compute market metadata coverage statistics from positions.
+
+    A position is considered *present* when at least one of
+    ``market_slug``, ``question``, or ``outcome_name`` is non-empty after
+    any backfill has been applied.
+
+    Parameters
+    ----------
+    positions : list[dict]
+        Position records (call *after* ``backfill_market_metadata`` has run).
+    backfilled_indices : set[int] | None
+        Set of position indices where backfill was applied.  Used to populate
+        ``source_counts.backfilled`` vs ``source_counts.ingested``.
+    metadata_conflicts_count : int
+        Number of mapping collisions detected when building the map (two
+        positions with the same identifier but different metadata values).
+        Kept first-wins deterministically.
+    metadata_conflict_sample : list[dict] | None
+        Up to 5 examples of conflicting entries for debugging.
+    """
+    if backfilled_indices is None:
+        backfilled_indices = set()
+
+    present_count = 0
+    missing_count = 0
+    source_counts: Dict[str, int] = {"ingested": 0, "backfilled": 0, "unknown": 0}
+    unmappable_counts: Counter = Counter()
+    unmappable_examples: Dict[tuple[str, str], Dict[str, Any]] = {}
+
+    for idx, pos in enumerate(positions):
+        if _has_market_metadata(pos):
+            present_count += 1
+            if idx in backfilled_indices:
+                source_counts["backfilled"] += 1
+            else:
+                source_counts["ingested"] += 1
+        else:
+            missing_count += 1
+            source_counts["unknown"] += 1
+            identifier_key, identifier_value = _get_position_identifier(pos)
+            if identifier_value:
+                identifier = (identifier_key, identifier_value)
+                unmappable_counts[identifier] += 1
+                if identifier not in unmappable_examples:
+                    unmappable_examples[identifier] = {
+                        k: pos.get(k)
+                        for k in ("token_id", "resolved_token_id", "condition_id",
+                                  "resolution_outcome")
+                    }
+
+    total = len(positions)
+    top_unmappable = _rank_unmappable(unmappable_counts, unmappable_examples, limit=10)
+
+    result: Dict[str, Any] = {
+        "present_count": present_count,
+        "missing_count": missing_count,
+        "coverage_rate": _safe_pct(present_count, total),
+        "source_counts": source_counts,
+        "metadata_conflicts_count": metadata_conflicts_count,
+        "top_unmappable": top_unmappable,
+    }
+    if metadata_conflict_sample:
+        result["metadata_conflict_sample"] = metadata_conflict_sample[:5]
+    return result
+
+
+def _get_category_key(position: Dict[str, Any]) -> str:
+    """Return the Polymarket category label, or 'Unknown' if absent/empty."""
+    return str(position.get("category") or "").strip() or _CATEGORY_UNKNOWN
+
+
+def _build_category_coverage(
+    positions: List[Dict[str, Any]],
+    backfilled_category_indices: Optional[set] = None,
+) -> Dict[str, Any]:
+    """Compute category coverage statistics from positions.
+
+    A position is considered *present* when ``category`` is non-empty after
+    any backfill has been applied.
+
+    Parameters
+    ----------
+    positions : list[dict]
+        Position records (call *after* ``backfill_market_metadata`` has run).
+    backfilled_category_indices : set[int] | None
+        Indices of positions where ``category`` was filled by backfill.
+    """
+    if backfilled_category_indices is None:
+        backfilled_category_indices = set()
+
+    present_count = 0
+    missing_count = 0
+    source_counts: Dict[str, int] = {"ingested": 0, "backfilled": 0, "unknown": 0}
+    unmappable_counts: Counter = Counter()
+    unmappable_examples: Dict[tuple[str, str], Dict[str, Any]] = {}
+
+    for idx, pos in enumerate(positions):
+        category = str(pos.get("category") or "").strip()
+        if category:
+            present_count += 1
+            if idx in backfilled_category_indices:
+                source_counts["backfilled"] += 1
+            else:
+                source_counts["ingested"] += 1
+        else:
+            missing_count += 1
+            source_counts["unknown"] += 1
+            identifier_key, identifier_value = _get_position_identifier(pos)
+            if identifier_value:
+                identifier = (identifier_key, identifier_value)
+                unmappable_counts[identifier] += 1
+                if identifier not in unmappable_examples:
+                    unmappable_examples[identifier] = {
+                        k: pos.get(k)
+                        for k in ("token_id", "resolved_token_id", "condition_id",
+                                  "resolution_outcome")
+                    }
+
+    total = len(positions)
+    top_unmappable = _rank_unmappable(unmappable_counts, unmappable_examples, limit=10)
+
+    return {
+        "present_count": present_count,
+        "missing_count": missing_count,
+        "coverage_rate": _safe_pct(present_count, total),
+        "source_counts": source_counts,
+        "top_unmappable": top_unmappable,
+    }
+
+
 def _safe_pct(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
@@ -93,6 +371,23 @@ def _coerce_int(value: Any) -> int:
 
 def _now_utc() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _normalize_fee_config(fee_config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    raw = fee_config if isinstance(fee_config, dict) else {}
+
+    rate = _safe_float(raw.get("profit_fee_rate"))
+    if rate is None or rate < 0:
+        rate = DEFAULT_PROFIT_FEE_RATE
+
+    source_label = str(raw.get("source_label") or "").strip()
+    if not source_label:
+        source_label = DEFAULT_FEE_SOURCE_LABEL
+
+    return {
+        "profit_fee_rate": float(rate),
+        "source_label": source_label,
+    }
 
 
 def _normalize_outcome(value: Any) -> str:
@@ -180,11 +475,17 @@ def _empty_segment_bucket() -> Dict[str, Any]:
         "losses": 0,
         "profit_exits": 0,
         "loss_exits": 0,
+        "total_pnl_gross": 0.0,
         "total_pnl_net": 0.0,
     }
 
 
-def _accumulate_segment_bucket(bucket: Dict[str, Any], outcome: str, pnl_net: float) -> None:
+def _accumulate_segment_bucket(
+    bucket: Dict[str, Any],
+    outcome: str,
+    pnl_net: float,
+    pnl_gross: float,
+) -> None:
     bucket["count"] += 1
     if outcome == "WIN":
         bucket["wins"] += 1
@@ -194,6 +495,7 @@ def _accumulate_segment_bucket(bucket: Dict[str, Any], outcome: str, pnl_net: fl
         bucket["profit_exits"] += 1
     elif outcome == "LOSS_EXIT":
         bucket["loss_exits"] += 1
+    bucket["total_pnl_gross"] += pnl_gross
     bucket["total_pnl_net"] += pnl_net
 
 
@@ -211,6 +513,7 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
         "profit_exits": profit_exits,
         "loss_exits": loss_exits,
         "win_rate": _safe_pct(numerator, denominator),
+        "total_pnl_gross": round(float(bucket.get("total_pnl_gross") or 0.0), 6),
         "total_pnl_net": round(float(bucket.get("total_pnl_net") or 0.0), 6),
     }
 
@@ -235,27 +538,43 @@ def _build_segment_analysis(
 
     by_league_raw: Dict[str, Dict[str, Any]] = {"unknown": _empty_segment_bucket()}
     by_sport_raw: Dict[str, Dict[str, Any]] = {"unknown": _empty_segment_bucket()}
+    by_category_raw: Dict[str, Dict[str, Any]] = {_CATEGORY_UNKNOWN: _empty_segment_bucket()}
+    by_market_slug_raw: Dict[str, Dict[str, Any]] = {}
 
     for position in positions:
         outcome = _normalize_outcome(position.get("resolution_outcome"))
-        pnl_net = _safe_float(position.get("realized_pnl_net"))
+        pnl_net = _safe_float(position.get("realized_pnl_net_estimated_fees"))
+        if pnl_net is None:
+            pnl_net = _safe_float(position.get("realized_pnl_net"))
+        pnl_gross = _safe_float(position.get("gross_pnl"))
         pnl_net_value = pnl_net if pnl_net is not None else 0.0
+        pnl_gross_value = pnl_gross if pnl_gross is not None else 0.0
 
         league = _detect_league(position)
         sport = _detect_sport(league)
         market_type = _detect_market_type(position)
         entry_price = _safe_float(position.get("entry_price"))
         entry_price_tier = _classify_entry_price_tier(entry_price, tiers)
+        category_key = _get_category_key(position)
+        market_slug = str(position.get("market_slug") or "").strip() or "unknown"
 
         by_league_raw.setdefault(league, _empty_segment_bucket())
         by_sport_raw.setdefault(sport, _empty_segment_bucket())
         by_market_type_raw.setdefault(market_type, _empty_segment_bucket())
         by_entry_price_tier_raw.setdefault(entry_price_tier, _empty_segment_bucket())
+        by_category_raw.setdefault(category_key, _empty_segment_bucket())
+        by_market_slug_raw.setdefault(market_slug, _empty_segment_bucket())
 
-        _accumulate_segment_bucket(by_entry_price_tier_raw[entry_price_tier], outcome, pnl_net_value)
-        _accumulate_segment_bucket(by_market_type_raw[market_type], outcome, pnl_net_value)
-        _accumulate_segment_bucket(by_league_raw[league], outcome, pnl_net_value)
-        _accumulate_segment_bucket(by_sport_raw[sport], outcome, pnl_net_value)
+        _accumulate_segment_bucket(
+            by_entry_price_tier_raw[entry_price_tier], outcome, pnl_net_value, pnl_gross_value
+        )
+        _accumulate_segment_bucket(
+            by_market_type_raw[market_type], outcome, pnl_net_value, pnl_gross_value
+        )
+        _accumulate_segment_bucket(by_league_raw[league], outcome, pnl_net_value, pnl_gross_value)
+        _accumulate_segment_bucket(by_sport_raw[sport], outcome, pnl_net_value, pnl_gross_value)
+        _accumulate_segment_bucket(by_category_raw[category_key], outcome, pnl_net_value, pnl_gross_value)
+        _accumulate_segment_bucket(by_market_slug_raw[market_slug], outcome, pnl_net_value, pnl_gross_value)
 
     by_entry_price_tier = {
         name: _finalize_segment_bucket(by_entry_price_tier_raw[name])
@@ -274,12 +593,51 @@ def _build_segment_analysis(
     sport_keys.append("unknown")
     by_sport = {name: _finalize_segment_bucket(by_sport_raw[name]) for name in sport_keys}
 
+    # by_category: Unknown bucket always last, others alphabetically
+    cat_keys = sorted(k for k in by_category_raw.keys() if k != _CATEGORY_UNKNOWN)
+    cat_keys.append(_CATEGORY_UNKNOWN)
+    by_category = {name: _finalize_segment_bucket(by_category_raw[name]) for name in cat_keys}
+
+    # by_market_slug: top-N tables (deterministic: sort by pnl desc then slug asc)
+    finalized_slugs = {
+        slug: _finalize_segment_bucket(bucket)
+        for slug, bucket in by_market_slug_raw.items()
+    }
+    _TOP_N = 10
+    def _market_row(slug: str, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "market_slug": slug,
+            "count": _coerce_int(metrics.get("count")),
+            "win_rate": float(metrics.get("win_rate") or 0.0),
+            "total_pnl_net": round(float(metrics.get("total_pnl_net") or 0.0), 6),
+        }
+
+    top_by_total_pnl_net = [
+        _market_row(slug, metrics)
+        for slug, metrics in sorted(
+            finalized_slugs.items(),
+            key=lambda item: (-item[1]["total_pnl_net"], item[0]),
+        )[:_TOP_N]
+    ]
+    top_by_count = [
+        _market_row(slug, metrics)
+        for slug, metrics in sorted(
+            finalized_slugs.items(),
+            key=lambda item: (-item[1]["count"], item[0]),
+        )[:_TOP_N]
+    ]
+
     return {
         "entry_price_tiers": tiers,
         "by_entry_price_tier": by_entry_price_tier,
         "by_market_type": by_market_type,
         "by_league": by_league,
         "by_sport": by_sport,
+        "by_category": by_category,
+        "by_market_slug": {
+            "top_by_total_pnl_net": top_by_total_pnl_net,
+            "top_by_count": top_by_count,
+        },
     }
 
 
@@ -290,6 +648,7 @@ def _collect_segment_rankings(segment_analysis: Dict[str, Any]) -> List[Dict[str
         ("market_type", "by_market_type"),
         ("league", "by_league"),
         ("sport", "by_sport"),
+        ("category", "by_category"),
     )
     for dimension_label, field in dimensions:
         buckets = segment_analysis.get(field)
@@ -299,41 +658,67 @@ def _collect_segment_rankings(segment_analysis: Dict[str, Any]) -> List[Dict[str
             if not isinstance(metrics, dict):
                 continue
             total_pnl_net = _safe_float(metrics.get("total_pnl_net"))
+            total_pnl_gross = _safe_float(metrics.get("total_pnl_gross"))
             if total_pnl_net is None:
                 continue
             ranked.append({
                 "segment": f"{dimension_label}:{bucket_name}",
                 "count": _coerce_int(metrics.get("count")),
                 "total_pnl_net": round(total_pnl_net, 6),
+                "total_pnl_gross": round(total_pnl_gross or 0.0, 6),
             })
 
     ranked.sort(key=lambda row: (-row["total_pnl_net"], row["segment"]))
     return ranked
 
 
-def normalize_fee_fields(position: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_fee_fields(
+    position: Dict[str, Any],
+    fee_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Ensure every position has explicit fee sourcing.
 
     Rules:
-      - If ``fees_actual`` is present and > 0  -> fees_source = "actual"
-      - Elif ``fees_estimated`` is present and > 0 -> fees_source = "estimated"
-      - Else -> fees_source = "unknown"
+      - If ``gross_pnl`` > 0:
+          fees_estimated = gross_pnl * profit_fee_rate
+          fees_source = source_label
+      - Else:
+          fees_estimated = 0.0
+          fees_source = "not_applicable"
+
+    Also materializes ``realized_pnl_net_estimated_fees``:
+
+      gross_pnl - fees_estimated
 
     Returns the position dict (mutated in place for convenience).
     """
-    fees_actual = float(position.get("fees_actual") or 0)
-    fees_estimated = float(position.get("fees_estimated") or 0)
+    normalized_fee_config = _normalize_fee_config(fee_config)
+    profit_fee_rate = float(normalized_fee_config["profit_fee_rate"])
+    source_label = str(normalized_fee_config["source_label"])
 
-    if fees_actual > 0:
-        position["fees_source"] = "actual"
-    elif fees_estimated > 0:
-        position["fees_source"] = "estimated"
+    gross_pnl = _safe_float(position.get("gross_pnl"))
+    if gross_pnl is None:
+        gross_pnl = _safe_float(position.get("realized_pnl_net"))
+    gross_pnl = gross_pnl if gross_pnl is not None else 0.0
+
+    fees_actual = _safe_float(position.get("fees_actual"))
+    if fees_actual is None:
+        fees_actual = 0.0
+
+    if gross_pnl > 0:
+        fees_estimated = gross_pnl * profit_fee_rate
+        fees_source = source_label
     else:
-        position.setdefault("fees_source", "unknown")
+        fees_estimated = 0.0
+        fees_source = NOT_APPLICABLE_FEE_SOURCE
 
-    # Ensure fields always exist
-    position.setdefault("fees_actual", 0.0)
-    position.setdefault("fees_estimated", 0.0)
+    realized_net_estimated_fees = gross_pnl - fees_estimated
+
+    position["gross_pnl"] = round(gross_pnl, 6)
+    position["fees_actual"] = round(fees_actual, 6)
+    position["fees_estimated"] = round(fees_estimated, 6)
+    position["fees_source"] = fees_source
+    position["realized_pnl_net_estimated_fees"] = round(realized_net_estimated_fees, 6)
     return position
 
 
@@ -345,6 +730,10 @@ def build_coverage_report(
     proxy_wallet: Optional[str] = None,
     resolution_enrichment_response: Optional[Dict[str, Any]] = None,
     entry_price_tiers: Optional[List[Dict[str, Any]]] = None,
+    fee_config: Optional[Dict[str, Any]] = None,
+    market_metadata_map: Optional[Dict[str, Dict[str, str]]] = None,
+    metadata_conflicts_count: int = 0,
+    metadata_conflict_sample: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build a Coverage & Reconciliation Report from position lifecycle data.
 
@@ -367,9 +756,36 @@ def build_coverage_report(
     resolution_enrichment_response : dict | None
         Optional enrichment summary payload used for diagnostics-only warnings.
     """
-    # --- Normalize fees on every position first ---
+    effective_fee_config = _normalize_fee_config(fee_config)
+
+    # --- Snapshot which positions already have category (before backfill) ---
+    had_category_before: set = {
+        i for i, pos in enumerate(positions)
+        if str(pos.get("category") or "").strip()
+    }
+
+    # --- Backfill missing market metadata + category from local mapping (deterministic, no network) ---
+    backfilled_indices = backfill_market_metadata(positions, market_metadata_map)
+
+    # --- Determine which positions had category filled by backfill ---
+    has_category_after: set = {
+        i for i, pos in enumerate(positions)
+        if str(pos.get("category") or "").strip()
+    }
+    backfilled_category_indices: set = has_category_after - had_category_before
+
+    # --- Pre-normalize settlement + fees on every position first ---
     for pos in positions:
-        normalize_fee_fields(pos)
+        outcome = pos.get("resolution_outcome", "UNKNOWN_RESOLUTION")
+        if outcome == "PENDING":
+            pos["settlement_price"] = None
+            if not pos.get("resolved_at"):
+                pos["resolved_at"] = None
+            if _coerce_int(pos.get("sell_count")) == 0:
+                pos["gross_pnl"] = 0.0
+                pos["realized_pnl_net"] = 0.0
+
+        normalize_fee_fields(pos, fee_config=effective_fee_config)
 
     total = len(positions)
 
@@ -430,31 +846,48 @@ def build_coverage_report(
     }
 
     # --- PnL ---
-    realized_total = 0.0
-    by_outcome: Dict[str, float] = {}
-    missing_pnl = 0
+    gross_total = 0.0
+    gross_by_outcome: Dict[str, float] = {}
+    estimated_net_total = 0.0
+    estimated_net_by_outcome: Dict[str, float] = {}
+    reported_net_total = 0.0
+    reported_net_by_outcome: Dict[str, float] = {}
+    missing_reported_pnl = 0
 
     for pos in positions:
         outcome = pos.get("resolution_outcome", "UNKNOWN_RESOLUTION")
-        if outcome == "PENDING":
-            pos["settlement_price"] = None
-            if not pos.get("resolved_at"):
-                pos["resolved_at"] = None
-            if _coerce_int(pos.get("sell_count")) == 0:
-                pos["gross_pnl"] = 0.0
-                pos["realized_pnl_net"] = 0.0
+        gross_pnl = _safe_float(pos.get("gross_pnl"))
+        gross_pnl_value = gross_pnl if gross_pnl is not None else 0.0
+        gross_total += gross_pnl_value
+        gross_by_outcome[outcome] = gross_by_outcome.get(outcome, 0.0) + gross_pnl_value
 
-        pnl = _safe_float(pos.get("realized_pnl_net"))
-        if pnl is None:
-            missing_pnl += 1
+        pnl_estimated = _safe_float(pos.get("realized_pnl_net_estimated_fees"))
+        if pnl_estimated is None:
+            pnl_estimated = gross_pnl_value - float(pos.get("fees_estimated") or 0.0)
+        estimated_net_total += pnl_estimated
+        estimated_net_by_outcome[outcome] = estimated_net_by_outcome.get(outcome, 0.0) + pnl_estimated
+
+        pnl_reported = _safe_float(pos.get("realized_pnl_net"))
+        if pnl_reported is None:
+            missing_reported_pnl += 1
             continue
-        realized_total += pnl
-        by_outcome[outcome] = by_outcome.get(outcome, 0.0) + pnl
+        reported_net_total += pnl_reported
+        reported_net_by_outcome[outcome] = reported_net_by_outcome.get(outcome, 0.0) + pnl_reported
 
     pnl_section = {
-        "realized_pnl_net_total": round(realized_total, 6),
-        "realized_pnl_net_by_outcome": {k: round(v, 6) for k, v in sorted(by_outcome.items())},
-        "missing_realized_pnl_count": missing_pnl,
+        "gross_pnl_total": round(gross_total, 6),
+        "gross_pnl_by_outcome": {k: round(v, 6) for k, v in sorted(gross_by_outcome.items())},
+        "realized_pnl_net_total": round(estimated_net_total, 6),
+        "realized_pnl_net_by_outcome": {k: round(v, 6) for k, v in sorted(estimated_net_by_outcome.items())},
+        "realized_pnl_net_estimated_fees_total": round(estimated_net_total, 6),
+        "realized_pnl_net_estimated_fees_by_outcome": {
+            k: round(v, 6) for k, v in sorted(estimated_net_by_outcome.items())
+        },
+        "reported_realized_pnl_net_total": round(reported_net_total, 6),
+        "reported_realized_pnl_net_by_outcome": {
+            k: round(v, 6) for k, v in sorted(reported_net_by_outcome.items())
+        },
+        "missing_realized_pnl_count": missing_reported_pnl,
     }
 
     # --- Fees ---
@@ -470,8 +903,12 @@ def build_coverage_report(
         if float(pos.get("fees_estimated") or 0) > 0:
             fees_estimated_count += 1
 
+    fee_source_counts = dict(fee_source_counter)
+    fee_source_counts.setdefault(str(effective_fee_config["source_label"]), 0)
+    fee_source_counts.setdefault(NOT_APPLICABLE_FEE_SOURCE, 0)
+
     fees_section = {
-        "fees_source_counts": dict(fee_source_counter),
+        "fees_source_counts": fee_source_counts,
         "fees_actual_present_count": fees_actual_count,
         "fees_estimated_present_count": fees_estimated_count,
     }
@@ -508,10 +945,8 @@ def build_coverage_report(
         warnings.append(
             f"UNKNOWN_RESOLUTION rate is {_safe_pct(unknown, total):.1%}, above 5% threshold"
         )
-    if missing_pnl > 0:
-        warnings.append(f"{missing_pnl} positions missing realized_pnl_net")
-    if fee_source_counter.get("unknown", 0) == total and total > 0:
-        warnings.append("All positions have fees_source=unknown; no actual or estimated fees")
+    if missing_reported_pnl > 0:
+        warnings.append(f"{missing_reported_pnl} positions missing realized_pnl_net")
 
     pending_count = outcome_counts.get("PENDING", 0)
     pending_pct = outcome_pcts.get("PENDING", 0.0)
@@ -534,6 +969,33 @@ def build_coverage_report(
         entry_price_tiers=entry_price_tiers,
     )
 
+    market_metadata_coverage = _build_market_metadata_coverage(
+        positions,
+        backfilled_indices,
+        metadata_conflicts_count=metadata_conflicts_count,
+        metadata_conflict_sample=metadata_conflict_sample,
+    )
+
+    missing_meta_count = market_metadata_coverage["missing_count"]
+    missing_meta_rate = _safe_pct(missing_meta_count, total)
+    if missing_meta_rate > 0.20 and total > 0:
+        warnings.append(
+            f"market_metadata_coverage missing rate is {missing_meta_rate:.1%} "
+            f"({missing_meta_count}/{total} positions lack market_slug/question/outcome_name). "
+            "Consider running with --ingest-markets or providing a market_metadata_map."
+        )
+
+    category_coverage = _build_category_coverage(positions, backfilled_category_indices)
+
+    missing_cat_count = category_coverage["missing_count"]
+    missing_cat_rate = _safe_pct(missing_cat_count, total)
+    if missing_cat_rate > 0.20 and total > 0:
+        warnings.append(
+            f"category_coverage missing rate is {missing_cat_rate:.1%} "
+            f"({missing_cat_count}/{total} positions lack a Polymarket category). "
+            "Ensure market_metadata_map includes the 'category' field."
+        )
+
     report = {
         "report_version": REPORT_VERSION,
         "generated_at": _now_utc(),
@@ -551,6 +1013,8 @@ def build_coverage_report(
         "pnl": pnl_section,
         "fees": fees_section,
         "resolution_coverage": resolution_section,
+        "market_metadata_coverage": market_metadata_coverage,
+        "category_coverage": category_coverage,
         "segment_analysis": segment_analysis,
         "warnings": warnings,
     }
@@ -621,14 +1085,23 @@ def _render_markdown(report: Dict[str, Any]) -> str:
 
     lines.append("## PnL Summary")
     pnl = report["pnl"]
-    lines.append(f"- Realized PnL (net, total): {pnl['realized_pnl_net_total']:.6f}")
-    lines.append(f"- Missing PnL: {pnl['missing_realized_pnl_count']}")
+    lines.append(f"- Gross PnL (total): {pnl['gross_pnl_total']:.6f}")
+    lines.append(
+        f"- Realized PnL (net after estimated fees, total): "
+        f"{pnl['realized_pnl_net_estimated_fees_total']:.6f}"
+    )
+    lines.append(
+        f"- Reported realized_pnl_net (source rows, total): "
+        f"{pnl['reported_realized_pnl_net_total']:.6f}"
+    )
+    lines.append(f"- Missing reported realized_pnl_net: {pnl['missing_realized_pnl_count']}")
     lines.append("")
 
     lines.append("## Fee Sourcing")
     fees = report["fees"]
     for src, cnt in sorted(fees["fees_source_counts"].items()):
         lines.append(f"- {src}: {cnt}")
+    lines.append(f"- fees_estimated_present_count: {fees['fees_estimated_present_count']}")
     lines.append("")
 
     lines.append("## Resolution Coverage")
@@ -639,7 +1112,11 @@ def _render_markdown(report: Dict[str, Any]) -> str:
     lines.append(f"- WIN+LOSS covered rate: {res['win_loss_covered_rate']:.2%}")
     lines.append("")
 
+    lines.extend(_render_market_metadata_coverage(report))
+    lines.extend(_render_category_coverage(report))
     lines.extend(_render_segment_highlights(report))
+    lines.extend(_render_top_categories(report))
+    lines.extend(_render_top_markets(report))
 
     if report["warnings"]:
         lines.append("## Warnings")
@@ -648,6 +1125,174 @@ def _render_markdown(report: Dict[str, Any]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _render_market_metadata_coverage(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Market Metadata Coverage")
+    lines.append("")
+
+    mmc = report.get("market_metadata_coverage")
+    if not isinstance(mmc, dict):
+        lines.append("- Market metadata coverage unavailable.")
+        lines.append("")
+        return lines
+
+    coverage_rate = float(mmc.get("coverage_rate") or 0.0)
+    present = _coerce_int(mmc.get("present_count"))
+    missing = _coerce_int(mmc.get("missing_count"))
+    total = present + missing
+    lines.append(f"- Coverage: {coverage_rate:.2%} ({present}/{total} positions have market metadata)")
+
+    source_counts = mmc.get("source_counts") or {}
+    lines.append(
+        f"- Sources: ingested={source_counts.get('ingested', 0)}, "
+        f"backfilled={source_counts.get('backfilled', 0)}, "
+        f"unknown={source_counts.get('unknown', 0)}"
+    )
+
+    missing_rate = _safe_pct(missing, total) if total > 0 else 0.0
+    if missing_rate > 0.20:
+        lines.append(
+            f"> **Warning:** {missing_rate:.1%} of positions lack market metadata. "
+            "Run with --ingest-markets or provide a market_metadata_map."
+        )
+
+    conflicts = _coerce_int(mmc.get("metadata_conflicts_count"))
+    if conflicts > 0:
+        lines.append(
+            f"> **Warning:** {conflicts} metadata map collision(s) detected "
+            "(same token/condition ID found with different values — first entry kept). "
+            "See `metadata_conflict_sample` in JSON report for details."
+        )
+
+    top_unmappable = mmc.get("top_unmappable") or []
+    if top_unmappable:
+        lines.append("")
+        lines.append("### Top Unmappable IDs")
+        for entry in top_unmappable[:5]:
+            identifier_key = "token_id"
+            identifier_value = str(entry.get("token_id") or "").strip()
+            if not identifier_value:
+                identifier_key = "condition_id"
+                identifier_value = str(entry.get("condition_id") or "").strip() or "?"
+            lines.append(
+                f"- `{identifier_key}={identifier_value}`: {entry.get('count', 0)} occurrence(s)"
+            )
+    lines.append("")
+
+    return lines
+
+
+def _render_category_coverage(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Category Coverage")
+    lines.append("")
+
+    cc = report.get("category_coverage")
+    if not isinstance(cc, dict):
+        lines.append("- Category coverage unavailable.")
+        lines.append("")
+        return lines
+
+    coverage_rate = float(cc.get("coverage_rate") or 0.0)
+    present = _coerce_int(cc.get("present_count"))
+    missing = _coerce_int(cc.get("missing_count"))
+    total = present + missing
+    lines.append(f"- Coverage: {coverage_rate:.2%} ({present}/{total} positions have a Polymarket category)")
+
+    source_counts = cc.get("source_counts") or {}
+    lines.append(
+        f"- Sources: ingested={source_counts.get('ingested', 0)}, "
+        f"backfilled={source_counts.get('backfilled', 0)}, "
+        f"unknown={source_counts.get('unknown', 0)}"
+    )
+
+    missing_rate = _safe_pct(missing, total) if total > 0 else 0.0
+    if missing_rate > 0.20:
+        lines.append(
+            f"> **Warning:** {missing_rate:.1%} of positions lack a Polymarket category. "
+            "Ensure the market_metadata_map includes the 'category' field."
+        )
+
+    top_unmappable = cc.get("top_unmappable") or []
+    if top_unmappable:
+        lines.append("")
+        lines.append("### Top Unmappable (no category)")
+        for entry in top_unmappable[:5]:
+            identifier_key = "token_id"
+            identifier_value = str(entry.get("token_id") or "").strip()
+            if not identifier_value:
+                identifier_key = "condition_id"
+                identifier_value = str(entry.get("condition_id") or "").strip() or "?"
+            lines.append(
+                f"- `{identifier_key}={identifier_value}`: {entry.get('count', 0)} occurrence(s)"
+            )
+    lines.append("")
+
+    return lines
+
+
+def _render_top_categories(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    segment_analysis = report.get("segment_analysis")
+    if not isinstance(segment_analysis, dict):
+        return lines
+
+    by_category = segment_analysis.get("by_category")
+    if not isinstance(by_category, dict):
+        return lines
+
+    # Top 10 by total_pnl_net (desc), then category name (asc)
+    rows = sorted(
+        by_category.items(),
+        key=lambda item: (-item[1].get("total_pnl_net", 0.0), item[0]),
+    )[:10]
+
+    if not rows:
+        return lines
+
+    lines.append("## Top Categories")
+    lines.append("")
+    lines.append("| Category | Count | Win Rate | Total PnL (net) |")
+    lines.append("| --- | ---: | ---: | ---: |")
+    for cat, metrics in rows:
+        count = _coerce_int(metrics.get("count"))
+        win_rate = float(metrics.get("win_rate") or 0.0)
+        total_pnl_net = float(metrics.get("total_pnl_net") or 0.0)
+        lines.append(f"| {cat} | {count} | {win_rate:.2%} | {total_pnl_net:.6f} |")
+    lines.append("")
+
+    return lines
+
+
+def _render_top_markets(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    segment_analysis = report.get("segment_analysis")
+    if not isinstance(segment_analysis, dict):
+        return lines
+
+    by_market_slug = segment_analysis.get("by_market_slug")
+    if not isinstance(by_market_slug, dict):
+        return lines
+
+    top_rows = by_market_slug.get("top_by_total_pnl_net") or []
+    if not top_rows:
+        return lines
+
+    lines.append("## Top Markets")
+    lines.append("")
+    lines.append("| Market Slug | Count | Win Rate | Total PnL (net) |")
+    lines.append("| --- | ---: | ---: | ---: |")
+    for row in top_rows[:10]:
+        slug = str(row.get("market_slug") or "")
+        count = _coerce_int(row.get("count"))
+        win_rate = float(row.get("win_rate") or 0.0)
+        total_pnl_net = float(row.get("total_pnl_net") or 0.0)
+        lines.append(f"| {slug} | {count} | {win_rate:.2%} | {total_pnl_net:.6f} |")
+    lines.append("")
+
+    return lines
 
 
 def _render_segment_highlights(report: Dict[str, Any]) -> List[str]:
@@ -665,21 +1310,23 @@ def _render_segment_highlights(report: Dict[str, Any]) -> List[str]:
     top_segments = ranked[:3]
     bottom_segments = sorted(ranked, key=lambda row: (row["total_pnl_net"], row["segment"]))[:3]
 
-    lines.append("### Top 3 Segments by total_pnl_net")
+    lines.append("### Top 3 Segments by total_pnl_net (estimated fees)")
     if top_segments:
         for row in top_segments:
             lines.append(
-                f"- {row['segment']}: pnl={row['total_pnl_net']:.6f}, count={row['count']}"
+                f"- {row['segment']}: net={row['total_pnl_net']:.6f}, "
+                f"gross={row['total_pnl_gross']:.6f}, count={row['count']}"
             )
     else:
         lines.append("- None")
     lines.append("")
 
-    lines.append("### Bottom 3 Segments by total_pnl_net")
+    lines.append("### Bottom 3 Segments by total_pnl_net (estimated fees)")
     if bottom_segments:
         for row in bottom_segments:
             lines.append(
-                f"- {row['segment']}: pnl={row['total_pnl_net']:.6f}, count={row['count']}"
+                f"- {row['segment']}: net={row['total_pnl_net']:.6f}, "
+                f"gross={row['total_pnl_gross']:.6f}, count={row['count']}"
             )
     else:
         lines.append("- None")
