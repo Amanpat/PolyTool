@@ -212,12 +212,49 @@ def _table_exists(clickhouse_client: Any, table_name: str) -> bool:
         return False
 
 
+def _table_non_empty_category_count(clickhouse_client: Any, table_name: str) -> int:
+    """Return count of rows whose category is non-empty, or zero if unavailable."""
+    try:
+        result = clickhouse_client.query(
+            f"SELECT countIf(category != '') FROM {table_name}"
+        )
+    except Exception:
+        return 0
+
+    rows = getattr(result, "result_rows", None) or []
+    if not rows or not rows[0]:
+        return 0
+
+    value = rows[0][0]
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 0
+
+
 def _resolve_category_tokens_table(clickhouse_client: Any) -> Optional[str]:
-    """Pick the category source table, preferring polymarket_tokens when present."""
-    for table_name in ("polymarket_tokens", "market_tokens"):
-        if _table_exists(clickhouse_client, table_name):
+    """Pick the best available category source table.
+
+    Preference order:
+      1) Any available table with non-empty category rows.
+      2) If both tables are empty, first existing table (legacy deterministic behavior).
+    """
+    existing_tables = [
+        table_name
+        for table_name in ("polymarket_tokens", "market_tokens")
+        if _table_exists(clickhouse_client, table_name)
+    ]
+    if not existing_tables:
+        return None
+
+    for table_name in existing_tables:
+        if _table_non_empty_category_count(clickhouse_client, table_name) > 0:
             return table_name
-    return None
+
+    return existing_tables[0]
 
 
 def _build_category_join_sql(clickhouse_client: Any) -> tuple[str, str]:
