@@ -640,6 +640,7 @@ class TestBuildCoverageReport:
 
         assert segment_analysis["by_market_type"]["moneyline"]["count"] == 1
         assert segment_analysis["by_market_type"]["spread"]["count"] == 1
+        assert segment_analysis["by_market_type"]["total"]["count"] == 0
         assert segment_analysis["by_market_type"]["unknown"]["count"] == 1
 
         assert segment_analysis["by_league"]["nba"]["count"] == 1
@@ -647,6 +648,50 @@ class TestBuildCoverageReport:
 
         assert segment_analysis["by_sport"]["basketball"]["count"] == 1
         assert segment_analysis["by_sport"]["unknown"]["count"] == 2
+
+    def test_market_type_vs_default_rule_conservative(self):
+        positions = [
+            {
+                "market_slug": "nba-nets-vs-magic-spread",
+                "question": "Nets vs Magic spread -1.5",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "nba-nets-vs-magic-total-points",
+                "question": "Nets vs Magic total points over/under 220.5?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "nba-nets-vs-magic-2026-02-19",
+                "question": "Brooklyn Nets vs Orlando Magic",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "mystery-nets-vs-magic-2026-02-19",
+                "question": "Nets vs Magic",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+        ]
+
+        report = build_coverage_report(
+            positions=positions,
+            run_id="segment-vs-moneyline-default",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        by_market_type = report["segment_analysis"]["by_market_type"]
+        assert by_market_type["spread"]["count"] == 1
+        assert by_market_type["total"]["count"] == 1
+        assert by_market_type["moneyline"]["count"] == 1
+        assert by_market_type["unknown"]["count"] == 1
 
     def test_segment_analysis_win_rate_denominator_excludes_pending_unknown_resolution(self):
         positions = [
