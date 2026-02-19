@@ -28,3 +28,7 @@ Segment aggregates are emitted in `coverage_reconciliation_report.json` and a de
 - Unknown-rate visibility makes coverage gaps explicit.
 - Classification stays conservative (no fuzzy sport/league guessing from question text).
 
+## Amendment (2026-02-19)
+
+2026-02-19: default `moneyline` for `vs`-matchups when league is known and no spread/total keywords.
+
