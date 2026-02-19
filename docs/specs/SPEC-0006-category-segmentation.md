@@ -173,3 +173,57 @@ A `> **Warning:**` blockquote is rendered in `## Category Coverage` when missing
 - **Deterministic**: output ordering is stable across runs with the same input.
 - **Non-destructive**: existing `market_metadata_coverage` section is unchanged.
 - **Unknown is explicit**: always present, never silently dropped.
+
+---
+
+## 9. Ingestion & Storage (Roadmap 4.6)
+
+### Source table
+
+Category labels are stored in the local ClickHouse table `polymarket_tokens`
+(`category String DEFAULT ''`). This table is populated by the market backfill
+pipeline in `packages/polymarket/backfill.py` via the Gamma API. No network call
+is required at scan time or audit time once the table has been populated.
+
+### Wiring into dossier positions
+
+Both lifecycle queries in `packages/polymarket/llm_research_packets.py` LEFT JOIN
+`polymarket_tokens` to pull `category` at dossier-build time:
+
+```sql
+LEFT JOIN (
+    SELECT token_id, any(category) AS category
+    FROM polymarket_tokens
+    GROUP BY token_id
+) t ON l.resolved_token_id = t.token_id
+```
+
+`COALESCE(t.category, '') AS category` is appended as the last selected column
+(index 26 in the enriched path, index 17 in the fallback path). The resulting
+`position_row` dict includes `"category": category_val`.
+
+### Graceful degradation
+
+When `polymarket_tokens` has never been backfilled (all rows absent), `category`
+falls back to `""` for all positions. Coverage reports correctly show a high missing
+rate and emit a `>20%` warning, prompting operators to run the market backfill.
+
+### Offline guarantee
+
+Because `category` is written into `dossier.json` at scan time, `audit-coverage`
+and all downstream coverage logic operate fully offline with no ClickHouse queries.
+
+### Audit sample enrichment
+
+`tools/cli/audit_coverage.py` applies `_enrich_position_for_audit()` to every
+position before sampling. This function mirrors the enrichment that `build_coverage_report()`
+applies at scan time:
+
+- Derives `league`, `sport`, `market_type`, `entry_price_tier` via shared helpers
+  from `polytool.reports.coverage`
+- Calls `normalize_fee_fields()` to compute `fees_estimated` and
+  `realized_pnl_net_estimated_fees` from `gross_pnl`
+
+This ensures audit sample rows show the same derived values that Quick Stats
+counts are based on, eliminating the historical mismatch between header counts
+and per-sample display.

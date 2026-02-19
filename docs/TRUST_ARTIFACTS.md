@@ -1,12 +1,13 @@
-# Trust Artifacts (Roadmap 2)
+# Trust Artifacts (Roadmap 2 / 4.6)
 
 Roadmap 2 made `python -m polytool scan` the canonical trust-artifact producer.
-The two public trust artifacts are:
+The trust artifacts are:
 
 - `coverage_reconciliation_report.json` (optional `coverage_reconciliation_report.md`)
 - `run_manifest.json`
+- `audit_coverage_report.md` (optional `.json`) - always emitted by `scan` (and by `audit-coverage`). Includes all positions by default; use `--audit-sample N` / `--sample N` to limit.
 
-Both are written into the scan run root:
+All are written into the scan run root:
 
 `artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/`
 
@@ -18,6 +19,8 @@ use runs where `run_manifest.json` has `command_name = "scan"`.
 ```powershell
 python -m polytool scan --user "@example"
 python -m polytool scan --user "@example" --debug-export
+# Limit audit to N positions (default is ALL):
+python -m polytool scan --user "@example" --audit-sample 25 --audit-seed 1337
 ```
 
 `--debug-export` prints wallet, endpoint, and hydration diagnostics that help
@@ -32,6 +35,20 @@ explain empty or low-coverage exports.
   optional human-readable rendering of the same report.
 - `run_manifest.json`:
   run provenance/reproducibility metadata and output paths.
+- `audit_coverage_report.md` (optional `.json`):
+  offline accuracy + trust sanity report produced by `scan` (always) or
+  `python -m polytool audit-coverage --user "@example"`.
+  Contains Quick Stats, Red Flags, and positions.
+  **Default: all positions** are included (heading: `## All Positions (N)`).
+  Pass `--audit-sample N` / `--sample N` to limit to a deterministic sample
+  (heading: `## Samples (N)`).
+  Written to the same `run_root` directory; no ClickHouse or network required.
+  **Roadmap 4.6**: dossier positions now carry `category` (from `polymarket_tokens`
+  via LEFT JOIN in the lifecycle query); audit samples are enriched with the same
+  `normalize_fee_fields()` and derived-field helpers (`league`, `sport`,
+  `market_type`, `entry_price_tier`) that the coverage report uses, so sample
+  values are consistent with Quick Stats header counts.
+  See `docs/specs/SPEC-0007-audit-coverage-cli.md`.
 
 ## coverage_reconciliation_report.json
 
@@ -144,7 +161,7 @@ endpoint context plus next checks (wallet mapping, lookback/history coverage).
   `output_paths` (includes `run_root`,
   `coverage_reconciliation_report_json`,
   `segment_analysis_json`,
-  and optional markdown path)
+  optional markdown paths, and `audit_coverage_report_md` (always present))
 - Reproducibility metadata:
   `effective_config_hash_sha256`, `polytool_version`, `git_commit`
 

@@ -22,6 +22,10 @@ from polytool.reports.coverage import (
     write_coverage_report,
 )
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
+from tools.cli.audit_coverage import (
+    DEFAULT_SEED as DEFAULT_AUDIT_SEED,
+    write_audit_coverage_report,
+)
 
 try:
     import yaml  # type: ignore
@@ -476,20 +480,28 @@ def _history_row_summaries(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
             continue
         dossier_payload = _parse_dossier_payload(row.get("dossier_json"))
         dossier_summary = _summarize_dossier_payload(dossier_payload)
+        positions_count_raw = _coerce_non_negative_int(row.get("positions_count"))
+        trades_count_raw = _coerce_non_negative_int(row.get("trades_count"))
+        declared_positions_count = (
+            _extract_declared_positions_count(dossier_payload)
+            if isinstance(dossier_payload, dict)
+            else 0
+        )
         positions_count = max(
-            _coerce_non_negative_int(row.get("positions_count")),
+            positions_count_raw,
+            declared_positions_count,
             dossier_summary["positions_len"],
         )
-        trades_count = max(
-            _coerce_non_negative_int(row.get("trades_count")),
-            dossier_summary["trades_len"],
-        )
+        trades_count = max(trades_count_raw, dossier_summary["trades_len"])
         summaries.append({
             "row": row,
             "dossier_payload": dossier_payload,
             "export_id": str(row.get("export_id") or ""),
             "positions_count": positions_count,
+            "positions_count_raw": positions_count_raw,
+            "declared_positions_count": declared_positions_count,
             "trades_count": trades_count,
+            "trades_count_raw": trades_count_raw,
             "positions_len": dossier_summary["positions_len"],
             "trades_len": dossier_summary["trades_len"],
         })
@@ -501,6 +513,14 @@ def _select_history_hydration_row(
     export_id: str,
 ) -> Optional[Dict[str, Any]]:
     matching = [s for s in summaries if s["export_id"] == export_id and s["dossier_payload"] is not None]
+    matching_with_positions_rows = [s for s in matching if s["positions_len"] > 0]
+    if matching_with_positions_rows:
+        return matching_with_positions_rows[0]
+
+    any_with_positions_rows = [s for s in summaries if s["dossier_payload"] is not None and s["positions_len"] > 0]
+    if any_with_positions_rows:
+        return any_with_positions_rows[0]
+
     matching_with_positions = [s for s in matching if s["positions_count"] > 0]
     if matching_with_positions:
         return matching_with_positions[0]
@@ -584,7 +604,13 @@ def _hydrate_dossier_from_history_if_needed(
     export_indicates_empty = export_positions_count == 0 if export_positions_count is not None else False
     should_query_history = local_payload is None or local_summary["positions_len"] == 0 or export_indicates_empty
     if not should_query_history:
-        return endpoints_used, local_summary, {"history_rows": 0, "hydrated": False}
+        return endpoints_used, local_summary, {
+            "history_rows": 0,
+            "hydrated": False,
+            "export_positions_count": export_positions_count,
+            "export_trades_count": export_trades_count,
+            "history_positions_fallback_used": False,
+        }
 
     history = get_json(
         config["api_base_url"],
@@ -605,7 +631,9 @@ def _hydrate_dossier_from_history_if_needed(
             config,
             "endpoint=/api/export/user_dossier/history "
             f"rows={len(summaries)} top_export_id={top['export_id']} "
-            f"top_positions_count={top['positions_count']} top_trades_count={top['trades_count']} "
+            f"top_positions_count={top['positions_count']} top_positions_count_raw={top['positions_count_raw']} "
+            f"top_declared_positions_count={top['declared_positions_count']} "
+            f"top_trades_count={top['trades_count']} "
             f"top_positions_len={top['positions_len']} top_trades_len={top['trades_len']}",
         )
     else:
@@ -613,27 +641,66 @@ def _hydrate_dossier_from_history_if_needed(
 
     export_id = str(dossier_export_response.get("export_id") or "")
     selected = _select_history_hydration_row(summaries, export_id)
+    selected_meta = {
+        "history_positions_count_raw": selected.get("positions_count_raw") if selected else None,
+        "history_positions_count": selected.get("positions_count") if selected else None,
+        "history_declared_positions_count": selected.get("declared_positions_count") if selected else None,
+        "history_positions_len": selected.get("positions_len") if selected else None,
+        "history_export_id": selected.get("export_id") if selected else None,
+    }
 
     if selected and selected["positions_count"] > 0:
         _write_hydrated_dossier(output_dir, selected)
         hydrated_summary = _summarize_dossier_payload(_load_dossier_payload(output_dir))
+        history_positions_fallback_used = (
+            selected.get("positions_count_raw", 0) == 0
+            and selected.get("declared_positions_count", 0) > 0
+            and hydrated_summary["positions_len"] > 0
+        )
         _debug_export(
             config,
             f"hydrated_from_history export_id={selected['export_id']} "
-            f"positions_len={hydrated_summary['positions_len']} trades_len={hydrated_summary['trades_len']}",
+            f"positions_len={hydrated_summary['positions_len']} trades_len={hydrated_summary['trades_len']} "
+            f"history_positions_fallback_used={history_positions_fallback_used}",
         )
-        return endpoints_used, hydrated_summary, {"history_rows": len(summaries), "hydrated": True}
+        return endpoints_used, hydrated_summary, {
+            "history_rows": len(summaries),
+            "hydrated": True,
+            "export_positions_count": export_positions_count,
+            "export_trades_count": export_trades_count,
+            "history_positions_fallback_used": history_positions_fallback_used,
+            **selected_meta,
+        }
 
     if local_payload is None:
         if selected:
             _write_hydrated_dossier(output_dir, selected)
             hydrated_summary = _summarize_dossier_payload(_load_dossier_payload(output_dir))
-            return endpoints_used, hydrated_summary, {"history_rows": len(summaries), "hydrated": True}
+            history_positions_fallback_used = (
+                selected.get("positions_count_raw", 0) == 0
+                and selected.get("declared_positions_count", 0) > 0
+                and hydrated_summary["positions_len"] > 0
+            )
+            return endpoints_used, hydrated_summary, {
+                "history_rows": len(summaries),
+                "hydrated": True,
+                "export_positions_count": export_positions_count,
+                "export_trades_count": export_trades_count,
+                "history_positions_fallback_used": history_positions_fallback_used,
+                **selected_meta,
+            }
         raise TrustArtifactError(
             f"Missing dossier.json at {output_dir / 'dossier.json'} and no usable history dossier payload found"
         )
 
-    return endpoints_used, local_summary, {"history_rows": len(summaries), "hydrated": False}
+    return endpoints_used, local_summary, {
+        "history_rows": len(summaries),
+        "hydrated": False,
+        "export_positions_count": export_positions_count,
+        "export_trades_count": export_trades_count,
+        "history_positions_fallback_used": False,
+        **selected_meta,
+    }
 
 
 def _materialize_dossier_if_missing(
@@ -823,6 +890,45 @@ def _emit_trust_artifacts(
         warnings = []
         coverage_report["warnings"] = warnings
 
+    if hydration_meta.get("history_positions_fallback_used"):
+        endpoints_text = ", ".join(endpoints_used) if endpoints_used else "(none)"
+        export_positions_count = hydration_meta.get("export_positions_count")
+        export_positions_text = (
+            str(_coerce_non_negative_int(export_positions_count))
+            if export_positions_count is not None
+            else "n/a"
+        )
+        history_positions_raw = hydration_meta.get("history_positions_count_raw")
+        history_positions_raw_text = (
+            str(_coerce_non_negative_int(history_positions_raw))
+            if history_positions_raw is not None
+            else "n/a"
+        )
+        history_declared_positions_count = hydration_meta.get("history_declared_positions_count")
+        declared_positions_text = (
+            str(_coerce_non_negative_int(history_declared_positions_count))
+            if history_declared_positions_count is not None
+            else "n/a"
+        )
+        history_positions_len = hydration_meta.get("history_positions_len")
+        history_positions_len_text = (
+            str(_coerce_non_negative_int(history_positions_len))
+            if history_positions_len is not None
+            else "n/a"
+        )
+        fallback_warning = (
+            "history_positions_fallback_used: /api/export/user_dossier/history reported "
+            f"positions_count={history_positions_raw_text}, but dossier payload declared "
+            f"positions_count={declared_positions_text} and contained positions_rows={history_positions_len_text}. "
+            "Using dossier positions list for coverage/segment/audit inputs. "
+            f"endpoints_used={endpoints_text}; "
+            f"/api/export/user_dossier positions_count={export_positions_text}; "
+            f"/api/export/user_dossier/history positions_count={history_positions_raw_text}."
+        )
+        if fallback_warning not in warnings:
+            warnings.append(fallback_warning)
+        print(f"Warning: {fallback_warning}", file=sys.stderr)
+
     positions_total = int(coverage_report.get("totals", {}).get("positions_total") or 0)
     if positions_total == 0:
         wallet_for_warning = proxy_wallet or str(resolve_response.get("proxy_wallet") or config["user"])
@@ -890,6 +996,21 @@ def _emit_trust_artifacts(
         json.dumps(parity_debug, indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    raw_seed = config.get("audit_seed")
+    audit_seed = raw_seed if isinstance(raw_seed, int) else DEFAULT_AUDIT_SEED
+    audit_sample = config.get("audit_sample")  # None => all positions; int => sample
+    audit_report_path = write_audit_coverage_report(
+        run_root=output_dir,
+        user_input=str(config["user"]),
+        user_slug=username_slug,
+        wallet=proxy_wallet,
+        run_id=run_id,
+        sample=audit_sample,
+        seed=audit_seed,
+        fmt="md",
+        output_path=output_dir / "audit_coverage_report.md",
+    )
+
     wallets = [w for w in dict.fromkeys([proxy_wallet, resolve_response.get("proxy_wallet")]) if w]
     output_paths = {
         "run_root": output_dir.as_posix(),
@@ -901,6 +1022,7 @@ def _emit_trust_artifacts(
     }
     if "md" in coverage_paths:
         output_paths["coverage_reconciliation_report_md"] = coverage_paths["md"]
+    output_paths["audit_coverage_report_md"] = audit_report_path.as_posix()
 
     effective_config = {
         **config,
@@ -931,6 +1053,8 @@ def _emit_trust_artifacts(
     }
     if "md" in coverage_paths:
         emitted["coverage_reconciliation_report_md"] = coverage_paths["md"]
+    if audit_report_path is not None:
+        emitted["audit_coverage_report_md"] = audit_report_path.as_posix()
     return emitted
 
 
@@ -1016,6 +1140,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=None,
         help="Print trust artifact export diagnostics (wallet, endpoints, counts)",
+    )
+    parser.add_argument(
+        "--audit-sample",
+        type=int,
+        metavar="N",
+        help=(
+            "Limit the audit report to a deterministic sample of N positions. "
+            "Omit to include ALL positions (default)."
+        ),
+    )
+    parser.add_argument(
+        "--audit-seed",
+        type=int,
+        metavar="INT",
+        help=f"Sampling seed when --audit-sample is set (default: {DEFAULT_AUDIT_SEED}).",
     )
     parser.add_argument(
         "--config",
@@ -1162,6 +1301,8 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "resolution_batch_size": resolution_batch_size,
         "resolution_max_concurrency": resolution_max_concurrency,
         "debug_export": debug_export,
+        "audit_sample": args.audit_sample,
+        "audit_seed": args.audit_seed,
         "entry_price_tiers": entry_price_tiers,
         "fee_config": fee_config,
         "api_base_url": api_base_url,
@@ -1183,6 +1324,13 @@ def validate_config(config: Dict[str, Any]) -> None:
         errors.append("SCAN_RESOLUTION_BATCH_SIZE must be a positive integer.")
     if not isinstance(config.get("resolution_max_concurrency"), int) or config["resolution_max_concurrency"] <= 0:
         errors.append("SCAN_RESOLUTION_MAX_CONCURRENCY must be a positive integer.")
+    audit_sample = config.get("audit_sample")
+    if audit_sample is not None:
+        if not isinstance(audit_sample, int) or audit_sample < 0:
+            errors.append("--audit-sample must be a non-negative integer.")
+    audit_seed = config.get("audit_seed")
+    if audit_seed is not None and not isinstance(audit_seed, int):
+        errors.append("--audit-seed must be an integer.")
     fee_config = config.get("fee_config")
     if not isinstance(fee_config, dict):
         errors.append("fee_config must be a mapping.")

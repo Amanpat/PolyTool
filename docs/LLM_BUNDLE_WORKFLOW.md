@@ -22,13 +22,17 @@ The bundle is written to:
 Use paths that match your actual dossier output. Do not paste private data into
 public docs; keep it local.
 
-1) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/memo.md`
-2) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/dossier.json`
+1) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/memo.md`
+2) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/dossier.json`
    - If the full file is large, paste only the key sections you need.
-3) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/manifest.json`
-4) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<case-id>/coverage_reconciliation_report.md`
+3) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/run_manifest.json`
+   (canonical scan runs use `run_manifest.json`; legacy examine runs may use `manifest.json`)
+4) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/coverage_reconciliation_report.md`
    (or `.json` fallback) - data quality / trust context from the latest scan run
-5) **10 to 18 curated RAG excerpts** with `file_path` headers
+5) `artifacts/dossiers/users/<slug>/<proxy_wallet>/<YYYY-MM-DD>/<run_id>/audit_coverage_report.md`
+   - offline accuracy + trust sanity report; always emitted by `scan` (Roadmap 4)
+   - includes all positions by default; use `--audit-sample N` to limit
+6) **10 to 18 curated RAG excerpts** with `file_path` headers
    - Each excerpt should be short (1 to 3 sentences).
    - Prefer the highest-signal snippets that directly support your conclusions.
 
@@ -59,9 +63,10 @@ Report requirements:
 Inputs (paste in this order):
 1) memo.md
 2) dossier.json (or key sections)
-3) manifest.json
+3) run_manifest.json
 4) coverage_reconciliation_report.md (or json summary)
-5) curated RAG excerpts with file_path headers
+5) audit_coverage_report.md (trust sanity + all positions)
+6) curated RAG excerpts with file_path headers
 ```
 
 ### Tips
