@@ -1662,6 +1662,43 @@ class TestCategoryCoverage:
         assert cc["source_counts"]["backfilled"] == 1
         assert positions[0]["category"] == "Baseball"
 
+    def test_category_backfill_updates_position_and_by_category_bucket(self):
+        """Backfilled category flows into segment_analysis.by_category."""
+        positions = [
+            {
+                "resolved_token_id": "tok-politics",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 2.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        mapping = {
+            "tok-politics": {
+                "market_slug": "election-market",
+                "question": "Will candidate win?",
+                "outcome_name": "Yes",
+                "category": "Politics",
+            }
+        }
+        report = build_coverage_report(
+            positions=positions,
+            run_id="cat-backfill-politics-segment",
+            user_slug="testuser",
+            wallet="0xabc",
+            market_metadata_map=mapping,
+        )
+
+        assert positions[0]["category"] == "Politics"
+
+        cc = report["category_coverage"]
+        assert cc["source_counts"]["backfilled"] == 1
+        assert cc["source_counts"]["ingested"] == 0
+        assert cc["source_counts"]["unknown"] == 0
+
+        by_category = report["segment_analysis"]["by_category"]
+        assert by_category["Politics"]["count"] == 1
+        assert by_category["Unknown"]["count"] == 0
+
     def test_category_backfilled_via_condition_id(self):
         """Category (market-level) can be filled from condition_id unlike outcome_name."""
         positions = [

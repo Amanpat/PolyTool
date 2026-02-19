@@ -253,11 +253,13 @@ class _FakeResult:
 class _FakeClickhouseClient:
     def __init__(self, lifecycle_rows=None):
         self.inserts = []
+        self.queries = []
         self.now = datetime(2026, 1, 15, 12, 0, 0)
         self.snapshot_ts = datetime(2026, 1, 14, 8, 0, 0)
         self.lifecycle_rows = lifecycle_rows or []
 
     def query(self, query, parameters=None):
+        self.queries.append(query)
         if "FROM user_trades_resolved" in query and "countDistinct" in query:
             return _FakeResult([[3, 2, 1, 2, 2]])
         if "FROM user_activity_resolved" in query:
@@ -331,6 +333,21 @@ class _CategoryTableFallbackClient(_FakeClickhouseClient):
             raise RuntimeError("Unexpected polymarket_tokens usage")
         if "SELECT 1 FROM market_tokens LIMIT 0" in query:
             return _FakeResult([[1]])
+        return super().query(query, parameters=parameters)
+
+
+class _CategoryTablePreferenceClient(_FakeClickhouseClient):
+    def query(self, query, parameters=None):
+        if "SELECT 1 FROM polymarket_tokens LIMIT 0" in query:
+            return _FakeResult([[1]])
+        if "SELECT 1 FROM market_tokens LIMIT 0" in query:
+            return _FakeResult([[1]])
+        if "countIf(category != '') FROM polymarket_tokens" in query:
+            return _FakeResult([[0]])
+        if "countIf(category != '') FROM market_tokens" in query:
+            return _FakeResult([[5]])
+        if "FROM polymarket_tokens" in query:
+            raise RuntimeError("Should not join polymarket_tokens when market_tokens has category data")
         return super().query(query, parameters=parameters)
 
 
@@ -525,6 +542,60 @@ class ResearchPacketExportTests(unittest.TestCase):
         positions = result.dossier.get("positions", {}).get("positions", [])
         self.assertEqual(len(positions), 1)
         self.assertEqual(positions[0].get("category"), "Sports")
+
+    def test_export_lifecycle_query_includes_category_join(self) -> None:
+        position = _sample_lifecycle_position(category="Politics")
+        client = _FakeClickhouseClient(lifecycle_rows=[_position_to_lifecycle_row(position)])
+
+        with _workspace_tempdir() as tmpdir:
+            export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+
+        lifecycle_query = next(
+            (q for q in client.queries if "FROM user_trade_lifecycle_enriched l" in q),
+            "",
+        )
+        self.assertTrue(lifecycle_query)
+        self.assertIn("COALESCE(mt.category, '') AS category", lifecycle_query)
+        self.assertIn("SELECT token_id, any(category) AS category", lifecycle_query)
+        self.assertIn("FROM polymarket_tokens", lifecycle_query)
+        self.assertIn("ON l.resolved_token_id = mt.token_id", lifecycle_query)
+
+    def test_export_prefers_market_tokens_when_polymarket_tokens_empty(self) -> None:
+        position = _sample_lifecycle_position(category="Sports")
+        client = _CategoryTablePreferenceClient(lifecycle_rows=[_position_to_lifecycle_row(position)])
+
+        with _workspace_tempdir() as tmpdir:
+            result = export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+
+        positions = result.dossier.get("positions", {}).get("positions", [])
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].get("category"), "Sports")
+
+        lifecycle_query = next(
+            (q for q in client.queries if "FROM user_trade_lifecycle_enriched l" in q),
+            "",
+        )
+        self.assertTrue(lifecycle_query)
+        self.assertIn("FROM market_tokens", lifecycle_query)
+        self.assertNotIn("FROM polymarket_tokens", lifecycle_query)
 
     def test_export_skips_malformed_lifecycle_row_without_dropping_valid_rows(self) -> None:
         valid_position = _sample_lifecycle_position(category="Politics")
