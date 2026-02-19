@@ -203,6 +203,40 @@ def _coerce_float_or_default(
     return rounded
 
 
+def _table_exists(clickhouse_client: Any, table_name: str) -> bool:
+    """Return whether a table is queryable in the current ClickHouse database."""
+    try:
+        clickhouse_client.query(f"SELECT 1 FROM {table_name} LIMIT 0")
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_category_tokens_table(clickhouse_client: Any) -> Optional[str]:
+    """Pick the category source table, preferring polymarket_tokens when present."""
+    for table_name in ("polymarket_tokens", "market_tokens"):
+        if _table_exists(clickhouse_client, table_name):
+            return table_name
+    return None
+
+
+def _build_category_join_sql(clickhouse_client: Any) -> tuple[str, str]:
+    """Return (select_expr, join_sql) for category enrichment."""
+    category_table = _resolve_category_tokens_table(clickhouse_client)
+    if not category_table:
+        return "'' AS category", ""
+    return (
+        "COALESCE(mt.category, '') AS category",
+        f"""
+        LEFT JOIN (
+            SELECT token_id, any(category) AS category
+            FROM {category_table}
+            GROUP BY token_id
+        ) mt ON l.resolved_token_id = mt.token_id
+        """,
+    )
+
+
 def normalize_position_for_export(position: Dict[str, Any], now_ts: datetime) -> Dict[str, Any]:
     normalized = dict(position)
 
@@ -1102,61 +1136,66 @@ def export_user_dossier(
 
     # Fetch position lifecycle with resolution data.
     # Prefer the enriched lifecycle view (Roadmap 3), then fall back to legacy.
-    positions_lifecycle_enriched_query = """
+    category_select_sql, category_join_sql = _build_category_join_sql(clickhouse_client)
+    positions_lifecycle_enriched_query = f"""
         SELECT
-            resolved_token_id,
-            market_slug,
-            question,
-            outcome_name,
-            entry_ts,
-            entry_price_avg,
-            total_bought,
-            total_cost,
-            exit_ts,
-            exit_price_avg,
-            total_sold,
-            total_proceeds,
-            hold_duration_seconds,
-            position_remaining,
-            trade_count,
-            buy_count,
-            sell_count,
-            settlement_price,
-            resolved_at,
-            resolution_source,
-            resolution_outcome,
-            gross_pnl,
-            realized_pnl_net,
-            fees_actual,
-            fees_estimated,
-            fees_source
-        FROM user_trade_lifecycle_enriched
-        WHERE proxy_wallet = {wallet:String}
-        ORDER BY entry_ts DESC
+            l.resolved_token_id,
+            l.market_slug,
+            l.question,
+            l.outcome_name,
+            l.entry_ts,
+            l.entry_price_avg,
+            l.total_bought,
+            l.total_cost,
+            l.exit_ts,
+            l.exit_price_avg,
+            l.total_sold,
+            l.total_proceeds,
+            l.hold_duration_seconds,
+            l.position_remaining,
+            l.trade_count,
+            l.buy_count,
+            l.sell_count,
+            l.settlement_price,
+            l.resolved_at,
+            l.resolution_source,
+            l.resolution_outcome,
+            l.gross_pnl,
+            l.realized_pnl_net,
+            l.fees_actual,
+            l.fees_estimated,
+            l.fees_source,
+            {category_select_sql}
+        FROM user_trade_lifecycle_enriched l
+        {category_join_sql}
+        WHERE l.proxy_wallet = {{wallet:String}}
+        ORDER BY l.entry_ts DESC
         LIMIT 100
     """
-    positions_lifecycle_fallback_query = """
+    positions_lifecycle_fallback_query = f"""
         SELECT
-            resolved_token_id,
-            market_slug,
-            question,
-            outcome_name,
-            entry_ts,
-            entry_price_avg,
-            total_bought,
-            total_cost,
-            exit_ts,
-            exit_price_avg,
-            total_sold,
-            total_proceeds,
-            hold_duration_seconds,
-            position_remaining,
-            trade_count,
-            buy_count,
-            sell_count
-        FROM user_trade_lifecycle
-        WHERE proxy_wallet = {wallet:String}
-        ORDER BY entry_ts DESC
+            l.resolved_token_id,
+            l.market_slug,
+            l.question,
+            l.outcome_name,
+            l.entry_ts,
+            l.entry_price_avg,
+            l.total_bought,
+            l.total_cost,
+            l.exit_ts,
+            l.exit_price_avg,
+            l.total_sold,
+            l.total_proceeds,
+            l.hold_duration_seconds,
+            l.position_remaining,
+            l.trade_count,
+            l.buy_count,
+            l.sell_count,
+            {category_select_sql}
+        FROM user_trade_lifecycle l
+        {category_join_sql}
+        WHERE l.proxy_wallet = {{wallet:String}}
+        ORDER BY l.entry_ts DESC
         LIMIT 100
     """
     positions_lifecycle_rows = []
@@ -1177,118 +1216,183 @@ def export_user_dossier(
             positions_lifecycle_result = None
             using_enriched_view = False
 
-    try:
-        if positions_lifecycle_result is None:
-            raise RuntimeError("No lifecycle result")
-
+    if positions_lifecycle_result is not None:
         for row in positions_lifecycle_result.result_rows:
-            entry_ts_iso = _optional_isoformat(row[4]) or ""
-            exit_ts_iso = _optional_isoformat(row[8])
-            sell_count_val = int(row[16] or 0)
-            buy_count_val = int(row[15] or 0)
-            resolved_at_raw: Any = None
-            if using_enriched_view:
-                settlement_price = _round_value(row[17]) if row[17] is not None else None
-                resolved_at_raw = row[18]
-                resolved_at = _optional_isoformat(resolved_at_raw)
-                resolution_source = row[19] or ""
-                resolution_outcome = row[20] or "UNKNOWN_RESOLUTION"
-                position_remaining_val = float(row[13] or 0)
-                gross_pnl = float(row[21] or 0)
-                realized_pnl_net = float(row[22]) if row[22] is not None else gross_pnl
-                fees_actual_val = float(row[23] or 0)
-                fees_estimated_val = float(row[24] or 0)
-                fees_source_val = row[25] or ""
-                # Guard against ClickHouse non-null defaults when the left-join misses.
-                # If resolution_source is empty, treat as unresolved and fall back to
-                # deterministic, non-fabricated classification.
-                if not resolution_source:
-                    settlement_price = None
+            try:
+                if using_enriched_view:
+                    if len(row) != 27:
+                        continue
+                    (
+                        resolved_token_id,
+                        market_slug,
+                        question,
+                        outcome_name,
+                        entry_ts_raw,
+                        entry_price_avg,
+                        total_bought_raw,
+                        total_cost_raw,
+                        exit_ts_raw,
+                        exit_price_avg,
+                        total_sold_raw,
+                        total_proceeds_raw,
+                        _hold_duration_seconds_raw,
+                        position_remaining_raw,
+                        trade_count_raw,
+                        buy_count_raw,
+                        sell_count_raw,
+                        settlement_price_raw,
+                        resolved_at_raw,
+                        resolution_source_raw,
+                        resolution_outcome_raw,
+                        gross_pnl_raw,
+                        realized_pnl_net_raw,
+                        fees_actual_raw,
+                        fees_estimated_raw,
+                        fees_source_raw,
+                        category_raw,
+                    ) = row
+                else:
+                    if len(row) != 18:
+                        continue
+                    (
+                        resolved_token_id,
+                        market_slug,
+                        question,
+                        outcome_name,
+                        entry_ts_raw,
+                        entry_price_avg,
+                        total_bought_raw,
+                        total_cost_raw,
+                        exit_ts_raw,
+                        exit_price_avg,
+                        total_sold_raw,
+                        total_proceeds_raw,
+                        _hold_duration_seconds_raw,
+                        position_remaining_raw,
+                        trade_count_raw,
+                        buy_count_raw,
+                        sell_count_raw,
+                        category_raw,
+                    ) = row
+                    settlement_price_raw = None
                     resolved_at_raw = None
+                    resolution_source_raw = ""
+                    resolution_outcome_raw = "UNKNOWN_RESOLUTION"
+                    gross_pnl_raw = None
+                    realized_pnl_net_raw = None
+                    fees_actual_raw = 0.0
+                    fees_estimated_raw = 0.0
+                    fees_source_raw = "unknown"
+
+                entry_ts_iso = _optional_isoformat(entry_ts_raw) or ""
+                exit_ts_iso = _optional_isoformat(exit_ts_raw)
+                sell_count_val = int(sell_count_raw or 0)
+                buy_count_val = int(buy_count_raw or 0)
+
+                if using_enriched_view:
+                    settlement_price = _round_value(settlement_price_raw) if settlement_price_raw is not None else None
+                    resolved_at = _optional_isoformat(resolved_at_raw)
+                    resolution_source = resolution_source_raw or ""
+                    resolution_outcome = resolution_outcome_raw or "UNKNOWN_RESOLUTION"
+                    position_remaining_val = float(position_remaining_raw or 0)
+                    gross_pnl = float(gross_pnl_raw or 0)
+                    realized_pnl_net = float(realized_pnl_net_raw) if realized_pnl_net_raw is not None else gross_pnl
+                    fees_actual_val = float(fees_actual_raw or 0)
+                    fees_estimated_val = float(fees_estimated_raw or 0)
+                    fees_source_val = fees_source_raw or ""
+                    # Guard against ClickHouse non-null defaults when the left-join misses.
+                    # If resolution_source is empty, treat as unresolved and fall back to
+                    # deterministic, non-fabricated classification.
+                    if not resolution_source:
+                        settlement_price = None
+                        resolved_at_raw = None
+                        resolved_at = None
+                        gross_pnl = float(total_proceeds_raw or 0) - float(total_cost_raw or 0)
+                        if position_remaining_val > 0:
+                            resolution_outcome = "PENDING"
+                        elif gross_pnl > 0:
+                            resolution_outcome = "PROFIT_EXIT"
+                        else:
+                            resolution_outcome = "LOSS_EXIT"
+                        realized_pnl_net = gross_pnl
+                else:
+                    settlement_price = None
                     resolved_at = None
-                    gross_pnl = float(row[11] or 0) - float(row[7] or 0)
+                    resolution_source = ""
+                    position_remaining_val = float(position_remaining_raw or 0)
+                    gross_pnl = float(total_proceeds_raw or 0) - float(total_cost_raw or 0)
+                    # Legacy fallback classification without settlement data.
                     if position_remaining_val > 0:
                         resolution_outcome = "PENDING"
                     elif gross_pnl > 0:
                         resolution_outcome = "PROFIT_EXIT"
                     else:
                         resolution_outcome = "LOSS_EXIT"
-                    realized_pnl_net = gross_pnl
-            else:
-                settlement_price = None
-                resolved_at = None
-                resolution_source = ""
-                gross_pnl = float(row[11] or 0) - float(row[7] or 0)
-                position_remaining_val = float(row[13] or 0)
-                # Legacy fallback classification without settlement data.
-                if position_remaining_val > 0:
-                    resolution_outcome = "PENDING"
-                elif gross_pnl > 0:
-                    resolution_outcome = "PROFIT_EXIT"
-                else:
-                    resolution_outcome = "LOSS_EXIT"
-                fees_actual_val = 0.0
-                fees_estimated_val = 0.0
-                fees_source_val = "unknown"
-                realized_pnl_net = gross_pnl
-
-            if not fees_source_val:
-                if fees_actual_val > 0:
-                    fees_source_val = "actual"
-                elif fees_estimated_val > 0:
-                    fees_source_val = "estimated"
-                else:
+                    fees_actual_val = 0.0
+                    fees_estimated_val = 0.0
                     fees_source_val = "unknown"
+                    realized_pnl_net = gross_pnl
 
-            if resolution_outcome == "PENDING":
-                settlement_price = None
-                resolved_at = None
-                resolved_at_raw = None
-                if sell_count_val == 0:
-                    # Pending positions without sells have no realized trading activity.
-                    # Keep both gross and realized PnL at zero to avoid fabricating losses.
-                    gross_pnl = 0.0
-                    realized_pnl_net = 0.0
+                category_val = str(category_raw or "").strip()
 
-            position_row = {
-                "resolved_token_id": row[0] or "",
-                "market_slug": row[1] or "",
-                "question": row[2] or "",
-                "outcome_name": row[3] or "",
-                "entry_ts": entry_ts_iso,
-                "entry_price": _round_value(row[5]),
-                "total_bought": _round_value(row[6]),
-                "total_cost": _round_value(row[7]),
-                "exit_ts": exit_ts_iso,
-                "exit_price": _round_value(row[9]),
-                "total_sold": _round_value(row[10]),
-                "total_proceeds": _round_value(row[11]),
-                "hold_duration_seconds": _compute_hold_duration_seconds(
-                    entry_ts=row[4],
-                    resolved_at=resolved_at_raw,
-                    exit_ts=row[8],
-                    now_ts=generated_at,
-                ),
-                "position_remaining": _round_value(row[13]),
-                "trade_count": int(row[14] or 0),
-                "buy_count": buy_count_val,
-                "sell_count": sell_count_val,
-                "settlement_price": settlement_price,
-                "resolved_at": resolved_at,
-                "resolution_source": resolution_source,
-                "gross_pnl": _round_value(gross_pnl),
-                "resolution_outcome": resolution_outcome,
-                "fees_actual": fees_actual_val,
-                "fees_estimated": fees_estimated_val,
-                "fees_source": fees_source_val,
-                "realized_pnl_net": _round_value(realized_pnl_net),
-            }
-            positions_lifecycle_rows.append(
-                normalize_position_for_export(position_row, now_ts=generated_at)
-            )
-    except Exception:
-        # Best-effort: if view doesn't exist yet, skip
-        pass
+                if not fees_source_val:
+                    if fees_actual_val > 0:
+                        fees_source_val = "actual"
+                    elif fees_estimated_val > 0:
+                        fees_source_val = "estimated"
+                    else:
+                        fees_source_val = "unknown"
+
+                if resolution_outcome == "PENDING":
+                    settlement_price = None
+                    resolved_at = None
+                    resolved_at_raw = None
+                    if sell_count_val == 0:
+                        # Pending positions without sells have no realized trading activity.
+                        # Keep both gross and realized PnL at zero to avoid fabricating losses.
+                        gross_pnl = 0.0
+                        realized_pnl_net = 0.0
+
+                position_row = {
+                    "resolved_token_id": resolved_token_id or "",
+                    "market_slug": market_slug or "",
+                    "question": question or "",
+                    "outcome_name": outcome_name or "",
+                    "entry_ts": entry_ts_iso,
+                    "entry_price": _round_value(entry_price_avg),
+                    "total_bought": _round_value(total_bought_raw),
+                    "total_cost": _round_value(total_cost_raw),
+                    "exit_ts": exit_ts_iso,
+                    "exit_price": _round_value(exit_price_avg),
+                    "total_sold": _round_value(total_sold_raw),
+                    "total_proceeds": _round_value(total_proceeds_raw),
+                    "hold_duration_seconds": _compute_hold_duration_seconds(
+                        entry_ts=entry_ts_raw,
+                        resolved_at=resolved_at_raw,
+                        exit_ts=exit_ts_raw,
+                        now_ts=generated_at,
+                    ),
+                    "position_remaining": _round_value(position_remaining_raw),
+                    "trade_count": int(trade_count_raw or 0),
+                    "buy_count": buy_count_val,
+                    "sell_count": sell_count_val,
+                    "settlement_price": settlement_price,
+                    "resolved_at": resolved_at,
+                    "resolution_source": resolution_source,
+                    "gross_pnl": _round_value(gross_pnl),
+                    "resolution_outcome": resolution_outcome,
+                    "fees_actual": fees_actual_val,
+                    "fees_estimated": fees_estimated_val,
+                    "fees_source": fees_source_val,
+                    "realized_pnl_net": _round_value(realized_pnl_net),
+                    "category": category_val,
+                }
+                positions_lifecycle_rows.append(
+                    normalize_position_for_export(position_row, now_ts=generated_at)
+                )
+            except (TypeError, ValueError, IndexError):
+                # Skip malformed rows without dropping the entire lifecycle export.
+                continue
 
     positions_summary = {
         "count": len(positions_lifecycle_rows),

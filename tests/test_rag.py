@@ -100,49 +100,52 @@ class RAGTests(unittest.TestCase):
             self.assertEqual(manifest["collection_name"], "test_coll")
 
     def test_query_returns_stable_structure(self) -> None:
-        repo_root = Path.cwd()
-        kb_root = repo_root / "kb" / "tmp_tests"
-        kb_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            repo_root = Path(tmpdir)
+            root_path = repo_root / "kb" / "tmp_tests" / "stable_structure"
+            root_path.mkdir(parents=True, exist_ok=True)
 
-        with tempfile.TemporaryDirectory(dir=kb_root) as tmpdir:
-            root_path = Path(tmpdir)
             sample_file = root_path / "notes.txt"
             sample_file.write_text("alpha beta gamma delta epsilon", encoding="utf-8")
 
-            index_dir = repo_root / "kb" / "rag" / "index" / f"test_{root_path.name}"
-            collection_name = sanitize_collection_name(f"test_{root_path.name}")
+            index_dir = repo_root / "kb" / "rag" / "index" / "test_stable_structure"
+            collection_name = sanitize_collection_name("test_stable_structure")
             manifest_path = root_path / "manifest.json"
             embedder = _FakeEmbedder()
 
-            build_index(
-                roots=[root_path.as_posix()],
-                embedder=embedder,
-                chunk_size=3,
-                overlap=1,
-                persist_directory=index_dir,
-                collection_name=collection_name,
-                rebuild=True,
-                manifest_path=manifest_path,
-            )
+            with patch("polymarket.rag.index._resolve_repo_root", lambda: repo_root), patch(
+                "polymarket.rag.query._resolve_repo_root",
+                lambda: repo_root,
+            ):
+                build_index(
+                    roots=[root_path.as_posix()],
+                    embedder=embedder,
+                    chunk_size=3,
+                    overlap=1,
+                    persist_directory=index_dir,
+                    collection_name=collection_name,
+                    rebuild=True,
+                    manifest_path=manifest_path,
+                )
 
-            results = query_index(
-                question="alpha",
-                embedder=embedder,
-                k=2,
-                persist_directory=index_dir,
-                collection_name=collection_name,
-                private_only=False,
-            )
+                results = query_index(
+                    question="alpha",
+                    embedder=embedder,
+                    k=2,
+                    persist_directory=index_dir,
+                    collection_name=collection_name,
+                    private_only=False,
+                )
 
-            self.assertTrue(results)
-            for result in results:
-                self.assertIn("file_path", result)
-                self.assertIn("chunk_id", result)
-                self.assertIn("chunk_index", result)
-                self.assertIn("doc_id", result)
-                self.assertIn("score", result)
-                self.assertIn("snippet", result)
-                self.assertIn("metadata", result)
+                self.assertTrue(results)
+                for result in results:
+                    self.assertIn("file_path", result)
+                    self.assertIn("chunk_id", result)
+                    self.assertIn("chunk_index", result)
+                    self.assertIn("doc_id", result)
+                    self.assertIn("score", result)
+                    self.assertIn("snippet", result)
+                    self.assertIn("metadata", result)
 
 
 # ---------------------------------------------------------------------------

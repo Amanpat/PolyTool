@@ -42,7 +42,8 @@
       "Bash(git status:*)",
       "Bash(where pytest:*)",
       "Bash(C:UserspatelAppDataLocalProgramsPythonPython313Scriptspytest.exe tests/test_scan_trust_artifacts.py tests/test_resolution_enrichment.py tests/test_coverage_report.py -v --tb=short)",
-      "Bash(py -3.13 -m pytest:*)"
+      "Bash(py -3.13 -m pytest:*)",
+      "Bash(npx get-shit-done-cc --global)"
     ]
   }
 }

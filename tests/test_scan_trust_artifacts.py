@@ -102,24 +102,31 @@ def test_run_scan_emits_trust_artifacts_from_canonical_scan_path(monkeypatch):
         )
 
         assert Path(emitted["coverage_reconciliation_report_json"]).exists()
+        assert Path(emitted["segment_analysis_json"]).exists()
         assert Path(emitted["run_manifest"]).exists()
 
         coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
         assert coverage["totals"]["positions_total"] > 0
         assert "deterministic_trade_uid_coverage" in coverage
         assert "fallback_uid_coverage" in coverage
+        assert "segment_analysis" in coverage
         assert "trade_uid_coverage" not in coverage
         assert coverage["deterministic_trade_uid_coverage"]["with_trade_uid"] == 1
         assert coverage["fallback_uid_coverage"]["with_fallback_uid"] == 2
         assert coverage["fallback_uid_coverage"]["fallback_only_count"] == 1
 
+        segment_analysis_payload = json.loads(Path(emitted["segment_analysis_json"]).read_text(encoding="utf-8"))
+        assert "segment_analysis" in segment_analysis_payload
+        assert "by_entry_price_tier" in segment_analysis_payload["segment_analysis"]
+
         manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
         assert manifest["command_name"] == "scan"
         assert manifest["run_id"] == "run-123"
-        assert manifest["output_paths"]["run_root"] == str(run_root)
+        assert manifest["output_paths"]["run_root"] == run_root.as_posix()
         assert manifest["output_paths"]["coverage_reconciliation_report_json"] == emitted[
             "coverage_reconciliation_report_json"
         ]
+        assert manifest["output_paths"]["segment_analysis_json"] == emitted["segment_analysis_json"]
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)
@@ -1018,6 +1025,142 @@ def test_scan_trust_artifacts_hydrates_from_history_when_export_is_empty(monkeyp
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+def test_scan_trust_artifacts_history_zero_count_uses_dossier_positions_with_warning(monkeypatch, capsys):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-07"
+            / "run-791"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        # Empty latest export payload on disk forces history lookup.
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "coverage": {"positions_count": 2, "trades_count": 4},
+                    "positions": {"count": 2, "positions": []},
+                    "trades": {"count": 4},
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        history_payload = {
+            "positions": {
+                "count": 2,
+                "positions": [
+                    {
+                        "trade_uid": "uid-hz",
+                        "resolved_token_id": "tok-hz",
+                        "resolution_outcome": "WIN",
+                        "realized_pnl_net": 3.25,
+                        "position_remaining": 0.0,
+                    }
+                ],
+            },
+            "trades": {"count": 4},
+            "coverage": {"positions_count": 2, "trades_count": 4},
+        }
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 4,
+                    "rows_written": 4,
+                    "distinct_trade_uids_total": 4,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-791",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                    "stats": {"positions_count": 2, "trades_count": 4},
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        def fake_get_json(base_url, path, params, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            assert path == "/api/export/user_dossier/history"
+            return {
+                "rows": [
+                    {
+                        "export_id": "run-791",
+                        "positions_count": 0,
+                        "trades_count": 4,
+                        "dossier_json": json.dumps(history_payload),
+                        "memo_md": "# history-fallback",
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+        monkeypatch.setattr(scan, "get_json", fake_get_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "debug_export": False,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser"],
+            started_at="2026-02-07T03:00:00+00:00",
+        )
+        captured = capsys.readouterr()
+
+        coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
+        assert coverage["totals"]["positions_total"] > 0
+        fallback_warnings = [
+            warning for warning in coverage["warnings"] if "history_positions_fallback_used" in warning
+        ]
+        assert fallback_warnings, "Expected history fallback warning in coverage warnings"
+        fallback_warning = fallback_warnings[0]
+        assert "/api/export/user_dossier" in fallback_warning
+        assert "/api/export/user_dossier/history" in fallback_warning
+        assert "positions_count=0" in fallback_warning
+        assert "positions_rows=1" in fallback_warning
+        assert "Using dossier positions list for coverage/segment/audit inputs" in fallback_warning
+        assert "history_positions_fallback_used" in captured.err
+
+        hydrated = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        hydrated_positions = hydrated["positions"]["positions"]
+        assert len(hydrated_positions) == 1
+        assert hydrated_positions[0]["trade_uid"] == "uid-hz"
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
 def test_scan_trust_artifacts_warns_when_positions_total_is_zero(monkeypatch, capsys):
     tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
     shutil.rmtree(tmp_path, ignore_errors=True)
@@ -1130,6 +1273,73 @@ def test_build_config_always_includes_resolution_knobs_without_explicit_flags(mo
     assert config["resolution_max_candidates"] == scan.DEFAULT_RESOLUTION_MAX_CANDIDATES
     assert config["resolution_batch_size"] == scan.DEFAULT_RESOLUTION_BATCH_SIZE
     assert config["resolution_max_concurrency"] == scan.DEFAULT_RESOLUTION_MAX_CONCURRENCY
+
+
+def test_build_config_loads_entry_price_tiers_from_polytool_yaml():
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        Path("polytool.yaml").write_text(
+            "\n".join(
+                [
+                    "segment_config:",
+                    "  entry_price_tiers:",
+                    '    - name: "cheap"',
+                    "      max: 0.25",
+                    '    - name: "expensive"',
+                    "      min: 0.25",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        parser = scan.build_parser()
+        args = parser.parse_args(["--user", "@TestUser"])
+        config = scan.build_config(args)
+        assert config["entry_price_tiers"] == [
+            {"name": "cheap", "max": 0.25},
+            {"name": "expensive", "min": 0.25},
+        ]
+        assert config["fee_config"] == {
+            "profit_fee_rate": scan.DEFAULT_PROFIT_FEE_RATE,
+            "source_label": scan.DEFAULT_FEE_SOURCE_LABEL,
+        }
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_build_config_loads_fee_config_from_polytool_yaml():
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        Path("polytool.yaml").write_text(
+            "\n".join(
+                [
+                    "fee_config:",
+                    "  profit_fee_rate: 0.05",
+                    '  source_label: "heuristic"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        parser = scan.build_parser()
+        args = parser.parse_args(["--user", "@TestUser"])
+        config = scan.build_config(args)
+        assert config["fee_config"] == {
+            "profit_fee_rate": 0.05,
+            "source_label": "heuristic",
+        }
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
 
 
 def test_effective_resolution_config_uses_defaults_when_keys_missing():
@@ -1327,7 +1537,7 @@ def test_parity_debug_artifact_emitted_with_enrichment(monkeypatch):
 
         # Verify run_manifest includes enrichment effective config.
         manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
-        assert manifest["output_paths"]["resolution_parity_debug_json"] == str(parity_path)
+        assert manifest["output_paths"]["resolution_parity_debug_json"] == parity_path.as_posix()
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)
@@ -1351,3 +1561,456 @@ def test_positions_identity_hash_differs_for_different_positions():
     positions_a = [{"resolved_token_id": "tok-1", "resolution_outcome": "WIN"}]
     positions_b = [{"resolved_token_id": "tok-99", "resolution_outcome": "WIN"}]
     assert scan._positions_identity_hash(positions_a) != scan._positions_identity_hash(positions_b)
+
+
+def test_run_scan_writes_audit_report_when_audit_sample_set(monkeypatch):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-18"
+            / "run-audit"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "token_id": "tok-1",
+                                "market_slug": "market-1",
+                                "resolution_outcome": "WIN",
+                                "gross_pnl": 10.0,
+                                "entry_price": 0.5,
+                            },
+                            {
+                                "token_id": "tok-2",
+                                "market_slug": "market-2",
+                                "resolution_outcome": "LOSS",
+                                "gross_pnl": -3.0,
+                                "entry_price": 0.4,
+                            },
+                            {
+                                "token_id": "tok-3",
+                                "market_slug": "market-3",
+                                "resolution_outcome": "PENDING",
+                                "gross_pnl": 0.0,
+                                "entry_price": 0.6,
+                            },
+                            {
+                                "token_id": "tok-4",
+                                "market_slug": "market-4",
+                                "resolution_outcome": "WIN",
+                                "gross_pnl": 4.0,
+                                "entry_price": 0.45,
+                            },
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 4,
+                    "rows_written": 4,
+                    "distinct_trade_uids_total": 4,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-audit",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            "audit_sample": 3,
+            "audit_seed": 77,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--audit-sample", "3", "--audit-seed", "77"],
+            started_at="2026-02-18T12:00:00+00:00",
+        )
+
+        assert "audit_coverage_report_md" in emitted
+        audit_path = Path(emitted["audit_coverage_report_md"])
+        assert audit_path.exists()
+        audit_text = audit_path.read_text(encoding="utf-8")
+        assert "## Samples (3)" in audit_text
+
+        manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
+        assert manifest["output_paths"]["audit_coverage_report_md"] == audit_path.as_posix()
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_audit_sampling_is_deterministic_with_seed(monkeypatch):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        positions = [
+            {
+                "token_id": f"tok-{i}",
+                "condition_id": f"cond-{i}",
+                "market_slug": f"market-{i}",
+                "resolution_outcome": "WIN" if i % 2 == 0 else "PENDING",
+                "gross_pnl": float(i + 1) if i % 2 == 0 else 0.0,
+                "entry_price": 0.5,
+            }
+            for i in range(10)
+        ]
+
+        run_root_a = (
+            tmp_path / "artifacts" / "dossiers" / "users" / "testuser" / "0xabc" / "2026-02-18" / "run-seed-a"
+        )
+        run_root_b = (
+            tmp_path / "artifacts" / "dossiers" / "users" / "testuser" / "0xabc" / "2026-02-18" / "run-seed-b"
+        )
+        for run_root in (run_root_a, run_root_b):
+            run_root.mkdir(parents=True, exist_ok=True)
+            (run_root / "dossier.json").write_text(
+                json.dumps({"positions": {"positions": positions}}, indent=2),
+                encoding="utf-8",
+            )
+
+        state = {"export_calls": 0}
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": len(positions),
+                    "rows_written": len(positions),
+                    "distinct_trade_uids_total": len(positions),
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                state["export_calls"] += 1
+                if state["export_calls"] == 1:
+                    return {
+                        "export_id": "run-seed-a",
+                        "artifact_path": str(run_root_a),
+                        "proxy_wallet": "0xabc",
+                        "username_slug": "testuser",
+                    }
+                return {
+                    "export_id": "run-seed-b",
+                    "artifact_path": str(run_root_b),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            "audit_sample": 5,
+            "audit_seed": 1337,
+        }
+
+        emitted_a = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--audit-sample", "5", "--audit-seed", "1337"],
+            started_at="2026-02-18T12:00:00+00:00",
+        )
+        emitted_b = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--audit-sample", "5", "--audit-seed", "1337"],
+            started_at="2026-02-18T12:10:00+00:00",
+        )
+
+        report_a = Path(emitted_a["audit_coverage_report_md"]).read_text(encoding="utf-8")
+        report_b = Path(emitted_b["audit_coverage_report_md"]).read_text(encoding="utf-8")
+
+        sampled_slugs_a = [
+            line.strip()
+            for line in report_a.splitlines()
+            if line.strip().startswith("- **market_slug**:")
+        ]
+        sampled_slugs_b = [
+            line.strip()
+            for line in report_b.splitlines()
+            if line.strip().startswith("- **market_slug**:")
+        ]
+
+        assert len(sampled_slugs_a) == 5
+        assert sampled_slugs_a == sampled_slugs_b
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_emits_audit_all_by_default(monkeypatch):
+    """scan emits audit_coverage_report.md by default (no --audit-sample) with ALL positions."""
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-18"
+            / "run-audit-default"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "token_id": f"tok-{i}",
+                                "market_slug": f"market-{i}",
+                                "resolution_outcome": "WIN" if i % 2 == 0 else "PENDING",
+                                "gross_pnl": 5.0 if i % 2 == 0 else 0.0,
+                                "entry_price": 0.5,
+                            }
+                            for i in range(4)
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 4,
+                    "rows_written": 4,
+                    "distinct_trade_uids_total": 4,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-audit-default",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            # No audit_sample key — default should emit ALL positions
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser"],
+            started_at="2026-02-18T12:00:00+00:00",
+        )
+
+        # Audit report must always be present in output_paths
+        assert "audit_coverage_report_md" in emitted
+        audit_path = Path(emitted["audit_coverage_report_md"])
+        assert audit_path.exists()
+        audit_text = audit_path.read_text(encoding="utf-8")
+
+        # Default mode shows "All Positions", not "Samples"
+        assert "## All Positions" in audit_text
+        assert "## Samples" not in audit_text
+
+        # All 4 positions must be present
+        position_blocks = [
+            line for line in audit_text.splitlines() if line.startswith("### Position ")
+        ]
+        assert len(position_blocks) == 4
+
+        manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
+        assert manifest["output_paths"]["audit_coverage_report_md"] == audit_path.as_posix()
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_audit_sample_3_uses_samples_heading(monkeypatch):
+    """scan --audit-sample 3 limits to 3 blocks and uses 'Samples' heading."""
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-18"
+            / "run-audit-sample3"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "token_id": f"tok-s{i}",
+                                "market_slug": f"market-s{i}",
+                                "resolution_outcome": "WIN",
+                                "gross_pnl": 5.0,
+                                "entry_price": 0.5,
+                            }
+                            for i in range(6)
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 6,
+                    "rows_written": 6,
+                    "distinct_trade_uids_total": 6,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-audit-sample3",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            "audit_sample": 3,
+            "audit_seed": 42,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--audit-sample", "3", "--audit-seed", "42"],
+            started_at="2026-02-18T12:00:00+00:00",
+        )
+
+        assert "audit_coverage_report_md" in emitted
+        audit_path = Path(emitted["audit_coverage_report_md"])
+        assert audit_path.exists()
+        audit_text = audit_path.read_text(encoding="utf-8")
+
+        # Explicit sample uses "Samples" heading
+        assert "## Samples (3)" in audit_text
+        assert "## All Positions" not in audit_text
+
+        # Exactly 3 position blocks
+        position_blocks = [
+            line for line in audit_text.splitlines() if line.startswith("### Position ")
+        ]
+        assert len(position_blocks) == 3
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)

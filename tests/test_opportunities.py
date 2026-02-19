@@ -6,6 +6,11 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+pytest.importorskip("fastapi")
+pytestmark = pytest.mark.optional_dep
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 

@@ -1,12 +1,13 @@
-# Trust Artifacts (Roadmap 2)
+# Trust Artifacts (Roadmap 2 / 4.6)
 
 Roadmap 2 made `python -m polytool scan` the canonical trust-artifact producer.
-The two public trust artifacts are:
+The trust artifacts are:
 
 - `coverage_reconciliation_report.json` (optional `coverage_reconciliation_report.md`)
 - `run_manifest.json`
+- `audit_coverage_report.md` (optional `.json`) - always emitted by `scan` (and by `audit-coverage`). Includes all positions by default; use `--audit-sample N` / `--sample N` to limit.
 
-Both are written into the scan run root:
+All are written into the scan run root:
 
 `artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/`
 
@@ -18,6 +19,8 @@ use runs where `run_manifest.json` has `command_name = "scan"`.
 ```powershell
 python -m polytool scan --user "@example"
 python -m polytool scan --user "@example" --debug-export
+# Limit audit to N positions (default is ALL):
+python -m polytool scan --user "@example" --audit-sample 25 --audit-seed 1337
 ```
 
 `--debug-export` prints wallet, endpoint, and hydration diagnostics that help
@@ -27,11 +30,25 @@ explain empty or low-coverage exports.
 
 - `coverage_reconciliation_report.json`:
   machine-readable trust report for outcome coverage, UID coverage, PnL/fees
-  sanity checks, resolution coverage, and warnings.
+  sanity checks, resolution coverage, segment analysis, and warnings.
 - `coverage_reconciliation_report.md`:
   optional human-readable rendering of the same report.
 - `run_manifest.json`:
   run provenance/reproducibility metadata and output paths.
+- `audit_coverage_report.md` (optional `.json`):
+  offline accuracy + trust sanity report produced by `scan` (always) or
+  `python -m polytool audit-coverage --user "@example"`.
+  Contains Quick Stats, Red Flags, and positions.
+  **Default: all positions** are included (heading: `## All Positions (N)`).
+  Pass `--audit-sample N` / `--sample N` to limit to a deterministic sample
+  (heading: `## Samples (N)`).
+  Written to the same `run_root` directory; no ClickHouse or network required.
+  **Roadmap 4.6**: dossier positions now carry `category` (from `polymarket_tokens`
+  via LEFT JOIN in the lifecycle query); audit samples are enriched with the same
+  `normalize_fee_fields()` and derived-field helpers (`league`, `sport`,
+  `market_type`, `entry_price_tier`) that the coverage report uses, so sample
+  values are consistent with Quick Stats header counts.
+  See `docs/specs/SPEC-0007-audit-coverage-cli.md`.
 
 ## coverage_reconciliation_report.json
 
@@ -60,8 +77,30 @@ explain empty or low-coverage exports.
   `resolution_coverage.unknown_resolution_rate`,
   `resolution_coverage.held_to_resolution_total`,
   `resolution_coverage.win_loss_covered_rate`
+- Market metadata coverage (Roadmap 4.4):
+  `market_metadata_coverage.present_count`,
+  `market_metadata_coverage.missing_count`,
+  `market_metadata_coverage.coverage_rate`,
+  `market_metadata_coverage.source_counts` (`ingested`, `backfilled`, `unknown`),
+  `market_metadata_coverage.top_unmappable`
+- Category coverage (Roadmap 4.5):
+  `category_coverage.present_count`,
+  `category_coverage.missing_count`,
+  `category_coverage.coverage_rate`,
+  `category_coverage.source_counts` (`ingested`, `backfilled`, `unknown`),
+  `category_coverage.top_unmappable`
+- Segment analysis:
+  `segment_analysis.by_entry_price_tier`,
+  `segment_analysis.by_market_type`,
+  `segment_analysis.by_league`,
+  `segment_analysis.by_sport`,
+  `segment_analysis.by_category`,
+  `segment_analysis.by_market_slug.top_by_total_pnl_net`,
+  `segment_analysis.by_market_slug.top_by_count`
 - Warnings:
   `warnings` (list of actionable strings)
+
+Current report schema version is `report_version = "1.4.0"`.
 
 ### Outcomes
 
@@ -101,6 +140,8 @@ Warnings are emitted when these conditions occur:
 - `UNKNOWN_RESOLUTION` rate is above 5%
 - one or more rows are missing `realized_pnl_net`
 - all rows have `fees_source=unknown`
+- `market_metadata_coverage` missing rate is above 20%
+- `category_coverage` missing rate is above 20%
 
 Scan adds an extra warning when `positions_total = 0` that includes wallet and
 endpoint context plus next checks (wallet mapping, lookback/history coverage).
@@ -118,7 +159,9 @@ endpoint context plus next checks (wallet mapping, lookback/history coverage).
   `user_input`, `user_slug`, `wallets`
 - Outputs:
   `output_paths` (includes `run_root`,
-  `coverage_reconciliation_report_json`, and optional markdown path)
+  `coverage_reconciliation_report_json`,
+  `segment_analysis_json`,
+  optional markdown paths, and `audit_coverage_report_md` (always present))
 - Reproducibility metadata:
   `effective_config_hash_sha256`, `polytool_version`, `git_commit`
 

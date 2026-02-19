@@ -5,6 +5,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+pytest.importorskip("fastapi")
+pytestmark = pytest.mark.optional_dep
 from fastapi import HTTPException
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

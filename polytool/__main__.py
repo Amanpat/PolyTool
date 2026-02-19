@@ -29,6 +29,7 @@ def print_usage() -> None:
     print("")
     print("Commands:")
     print("  scan              Run a one-shot scan via the PolyTool API")
+    print("  audit-coverage    Offline accuracy + trust sanity check from scan artifacts")
     print("  export-dossier    Export an LLM Research Packet dossier + memo")
     print("  export-clickhouse Export ClickHouse datasets for a user")
     print("  examine           Orchestrate full examination workflow (scan -> bundle -> prompt)")
@@ -47,6 +48,7 @@ def print_usage() -> None:
     print("")
     print("Examples:")
     print('  polytool scan --user "@DrPufferfish" --compute-pnl')
+    print('  polytool audit-coverage --user "@DrPufferfish" --sample 25')
     print('  polytool export-dossier --user "@DrPufferfish" --days 30')
     print('  polytool examine --user "@DrPufferfish" --days 30')
     print('  polytool llm-bundle --user "@DrPufferfish"')
@@ -83,6 +85,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Route to command handlers
     if command == "scan":
         return scan_main(argv[1:])
+    if command == "audit-coverage":
+        from tools.cli.audit_coverage import main as audit_coverage_main
+        return audit_coverage_main(argv[1:])
     if command == "export-dossier":
         return export_dossier_main(argv[1:])
     if command == "export-clickhouse":
