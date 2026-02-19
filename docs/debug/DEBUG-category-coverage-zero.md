@@ -1,7 +1,7 @@
 # DEBUG: category_coverage = 0% Despite market_metadata_coverage = 100%
 
 **Date:** 2026-02-18
-**Status:** Resolved (Roadmap 4.6)
+**Status:** Resolved (Roadmap 4.6, regression hardening 2026-02-19)
 **Symptom:** `coverage_reconciliation_report.json` showed `category_coverage.coverage_rate = 0.0` (all positions missing category) while `market_metadata_coverage.coverage_rate = 1.0`.
 
 ---
@@ -33,6 +33,34 @@ LEFT JOIN (
 `COALESCE(t.category, '') AS category` is added as the last selected column (index 26 for enriched, 17 for fallback). The `position_row` dict now includes `"category": category_val`.
 
 When `polymarket_tokens` has not been backfilled yet, `category` gracefully falls back to `""`, and coverage reports correctly show a high missing rate with a `>20%` warning, prompting operators to run the market backfill.
+
+---
+
+## Regression (2026-02-19)
+
+This is a new root cause layered on top of the original missing-join bug.
+
+`packages/polymarket/llm_research_packets.py` selected the category source table
+by existence only, with priority `polymarket_tokens` then `market_tokens`.
+In mixed-schema environments where both tables exist but only `market_tokens`
+is populated with category labels, the exporter still joined `polymarket_tokens`.
+That produced empty categories on lifecycle rows and reproduced the same symptom:
+`ingested=0`, `backfilled=0`, all positions `Unknown`.
+
+### Regression fix
+
+- `_resolve_category_tokens_table()` now checks non-empty category row counts and
+  chooses the first available table that actually has category data.
+- If both tables exist and only one is populated, lifecycle queries now join the
+  populated table.
+- Deterministic fallback remains: if both tables are empty, the first existing
+  table is used and category still degrades cleanly to `""`.
+
+### Regression tests
+
+- `tests/test_llm_research_packets.py::ResearchPacketExportTests::test_export_lifecycle_query_includes_category_join`
+- `tests/test_llm_research_packets.py::ResearchPacketExportTests::test_export_prefers_market_tokens_when_polymarket_tokens_empty`
+- `tests/test_coverage_report.py::TestCategoryCoverage::test_category_backfill_updates_position_and_by_category_bucket`
 
 ---
 
