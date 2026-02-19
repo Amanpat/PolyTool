@@ -61,7 +61,21 @@ LEAGUE_TO_SPORT: Dict[str, str] = {
 }
 
 MARKET_TYPE_SPREAD_HINTS = ("spread", "handicap")
+MARKET_TYPE_TOTAL_HINTS = ("total", "over/under", "over under", "o/u")
+MARKET_TYPE_PROP_HINTS = (
+    "player prop",
+    "player props",
+    "to score",
+    "to record",
+    "rebounds",
+    "assists",
+    "passing yards",
+    "rushing yards",
+    "receiving yards",
+    "strikeouts",
+)
 MONEYLINE_WILL_WIN_PATTERN = re.compile(r"will .* win", re.IGNORECASE)
+MATCHUP_VS_PATTERN = re.compile(r"\b(?:vs|v)\b", re.IGNORECASE)
 
 
 _MARKET_METADATA_FIELDS = ("market_slug", "question", "outcome_name")
@@ -449,9 +463,18 @@ def _detect_market_type(position: Dict[str, Any]) -> str:
 
     if any(hint in haystack for hint in MARKET_TYPE_SPREAD_HINTS):
         return "spread"
+    if any(hint in haystack for hint in MARKET_TYPE_TOTAL_HINTS):
+        return "total"
     if MONEYLINE_WILL_WIN_PATTERN.search(question):
         return "moneyline"
-    return "unknown"
+    league = _detect_league(position)
+    if league == "unknown":
+        return "unknown"
+    if not MATCHUP_VS_PATTERN.search(haystack):
+        return "unknown"
+    if any(hint in haystack for hint in MARKET_TYPE_PROP_HINTS):
+        return "unknown"
+    return "moneyline"
 
 
 def _classify_entry_price_tier(entry_price: Optional[float], tiers: List[Dict[str, Any]]) -> str:
@@ -533,6 +556,7 @@ def _build_segment_analysis(
     by_market_type_raw: Dict[str, Dict[str, Any]] = {
         "moneyline": _empty_segment_bucket(),
         "spread": _empty_segment_bucket(),
+        "total": _empty_segment_bucket(),
         "unknown": _empty_segment_bucket(),
     }
 
@@ -582,7 +606,7 @@ def _build_segment_analysis(
     }
     by_market_type = {
         name: _finalize_segment_bucket(by_market_type_raw[name])
-        for name in ("moneyline", "spread", "unknown")
+        for name in ("moneyline", "spread", "total", "unknown")
     }
 
     league_keys = sorted(k for k in by_league_raw.keys() if k != "unknown")
