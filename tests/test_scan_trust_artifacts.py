@@ -127,6 +127,9 @@ def test_run_scan_emits_trust_artifacts_from_canonical_scan_path(monkeypatch):
             "coverage_reconciliation_report_json"
         ]
         assert manifest["output_paths"]["segment_analysis_json"] == emitted["segment_analysis_json"]
+        assert "hypothesis_candidates_json" in manifest["output_paths"]
+        assert "hypothesis_candidates_json" in emitted
+        assert Path(emitted["hypothesis_candidates_json"]).exists()
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)

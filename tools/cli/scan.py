@@ -26,6 +26,7 @@ from polytool.reports.coverage import (
     build_coverage_report,
     normalize_fee_fields,
     write_coverage_report,
+    write_hypothesis_candidates,
 )
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
 from tools.cli.audit_coverage import (
@@ -1426,6 +1427,15 @@ def _emit_trust_artifacts(
 
     coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
 
+    hypothesis_candidates_path = write_hypothesis_candidates(
+        candidates=coverage_report.get("hypothesis_candidates", []),
+        output_dir=output_dir,
+        generated_at=coverage_report.get("generated_at", ""),
+        run_id=run_id,
+        user_slug=username_slug,
+        wallet=proxy_wallet,
+    )
+
     segment_analysis_path = output_dir / "segment_analysis.json"
     segment_analysis_payload = {
         "generated_at": coverage_report.get("generated_at"),
@@ -1476,6 +1486,7 @@ def _emit_trust_artifacts(
         "dossier_json": (output_dir / "dossier.json").as_posix(),
         "coverage_reconciliation_report_json": coverage_paths["json"],
         "segment_analysis_json": segment_analysis_path.as_posix(),
+        "hypothesis_candidates_json": hypothesis_candidates_path,
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
     if clv_preflight_artifact is not None:
@@ -1516,6 +1527,7 @@ def _emit_trust_artifacts(
     emitted = {
         "coverage_reconciliation_report_json": coverage_paths["json"],
         "segment_analysis_json": segment_analysis_path.as_posix(),
+        "hypothesis_candidates_json": hypothesis_candidates_path,
         "run_manifest": Path(manifest_path).as_posix(),
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
