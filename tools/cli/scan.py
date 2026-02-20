@@ -42,7 +42,7 @@ from packages.polymarket.clv import (
     MISSING_REASON_OFFLINE,
     classify_prices_history_error,
     clv_recommended_next_action,
-    enrich_positions_with_clv,
+    enrich_positions_with_dual_clv,
     format_prices_history_error_detail,
     normalize_prices_fidelity_minutes,
     resolve_close_ts,
@@ -1253,8 +1253,8 @@ def _apply_clv_enrichment(
     clv_interval: str,
     clv_fidelity: int,
 ) -> Dict[str, Any]:
-    """Enrich positions with CLV fields and persist back to dossier.json."""
-    summary = enrich_positions_with_clv(
+    """Enrich positions with dual CLV variant fields and persist back to dossier.json."""
+    summary = enrich_positions_with_dual_clv(
         positions,
         clickhouse_client=clickhouse_client,
         clob_client=clob_client,
@@ -1264,10 +1264,12 @@ def _apply_clv_enrichment(
         fidelity=clv_fidelity,
     )
     print(
-        "CLV enrichment: "
+        "CLV enrichment (dual variants): "
         f"positions={summary.get('positions_total', 0)}, "
         f"present={summary.get('clv_present_count', 0)}, "
         f"missing={summary.get('clv_missing_count', 0)}, "
+        f"settlement_present={summary.get('settlement_present_count', 0)}, "
+        f"pre_event_present={summary.get('pre_event_present_count', 0)}, "
         f"online={clv_online}",
         file=sys.stderr,
     )

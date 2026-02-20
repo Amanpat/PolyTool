@@ -456,6 +456,8 @@ def _render_position_block(pos: Dict[str, Any]) -> List[str]:
         f"  **closing_price**: {closing_price} | **closing_ts_observed**: {closing_ts_observed}",
         f"  **clv**: {clv_value} | **clv_pct**: {clv_pct} | **beat_close**: {beat_close}",
         f"  **clv_source**: {clv_source}",
+        f"  **clv_pct_settlement**: {_fmt_val(pos.get('clv_pct_settlement'))} | "
+        f"**clv_pct_pre_event**: {_fmt_val(pos.get('clv_pct_pre_event'))}",
         f"  **open_price**: {open_price} | **open_price_ts**: {open_price_ts}",
         "  **price_1h_before_entry**: "
         f"{price_1h_before_entry} | **price_1h_before_entry_ts**: {price_1h_before_entry_ts}",

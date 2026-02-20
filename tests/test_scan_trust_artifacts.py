@@ -2112,7 +2112,7 @@ def test_run_scan_compute_clv_persists_fields_into_dossier(monkeypatch):
                 }
             raise AssertionError(f"Unexpected scan API path: {path}")
 
-        def fake_enrich_positions_with_clv(positions, **kwargs):
+        def fake_enrich_positions_with_dual_clv(positions, **kwargs):
             for pos in positions:
                 pos["close_ts"] = "2026-02-19T12:00:00+00:00"
                 pos["close_ts_source"] = "onchain_resolved_at"
@@ -2123,16 +2123,29 @@ def test_run_scan_compute_clv_persists_fields_into_dossier(monkeypatch):
                 pos["beat_close"] = True
                 pos["clv_source"] = "prices_history|onchain_resolved_at"
                 pos["clv_missing_reason"] = None
+                # Dual variant fields
+                pos["clv_pct_settlement"] = 0.214286
+                pos["beat_close_settlement"] = True
+                pos["clv_source_settlement"] = "prices_history|onchain_resolved_at"
+                pos["clv_missing_reason_settlement"] = None
+                pos["clv_pct_pre_event"] = None
+                pos["beat_close_pre_event"] = None
+                pos["clv_source_pre_event"] = None
+                pos["clv_missing_reason_pre_event"] = "NO_PRE_EVENT_CLOSE_TS"
             return {
                 "positions_total": len(positions),
                 "clv_present_count": len(positions),
                 "clv_missing_count": 0,
                 "missing_reason_counts": {},
+                "settlement_present_count": len(positions),
+                "settlement_missing_count": 0,
+                "pre_event_present_count": 0,
+                "pre_event_missing_count": len(positions),
             }
 
         monkeypatch.setattr(scan, "post_json", fake_post_json)
         monkeypatch.setattr(scan, "_get_clickhouse_client", lambda: object())
-        monkeypatch.setattr(scan, "enrich_positions_with_clv", fake_enrich_positions_with_clv)
+        monkeypatch.setattr(scan, "enrich_positions_with_dual_clv", fake_enrich_positions_with_dual_clv)
 
         config = {
             "user": "@TestUser",

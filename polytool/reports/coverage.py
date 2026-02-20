@@ -354,6 +354,62 @@ def _build_category_coverage(
     }
 
 
+def _build_clv_variant_coverage(
+    positions: List[Dict[str, Any]],
+    variant: str,
+) -> Dict[str, Any]:
+    """Compute CLV coverage for a named variant (settlement or pre_event).
+
+    Reads clv_pct_{variant}, clv_missing_reason_{variant}, clv_source_{variant}.
+    Eligibility mirrors _build_clv_coverage: valid entry_price + token_id required.
+    """
+    eligible_positions = 0
+    clv_present_count = 0
+    clv_missing_count = 0
+    clv_source_counts: Counter = Counter()
+    missing_reason_counts: Counter = Counter()
+
+    clv_pct_field = f"clv_pct_{variant}"
+    clv_source_field = f"clv_source_{variant}"
+    clv_missing_reason_field = f"clv_missing_reason_{variant}"
+
+    for pos in positions:
+        entry_price = _safe_float(pos.get("entry_price"))
+        token_id = str(
+            pos.get("resolved_token_id")
+            or pos.get("token_id")
+            or pos.get("outcome_token_id")
+            or ""
+        ).strip()
+
+        if entry_price is None or not (0.0 < entry_price <= 1.0) or not token_id:
+            continue
+        eligible_positions += 1
+
+        clv_pct_value = _safe_float(pos.get(clv_pct_field))
+        if clv_pct_value is not None:
+            clv_present_count += 1
+            clv_source = str(pos.get(clv_source_field) or "").strip()
+            if clv_source:
+                clv_source_counts[clv_source] += 1
+        else:
+            clv_missing_count += 1
+            reason = (
+                str(pos.get(clv_missing_reason_field) or "UNSPECIFIED").strip() or "UNSPECIFIED"
+            )
+            missing_reason_counts[reason] += 1
+
+    return {
+        "variant": variant,
+        "eligible_positions": eligible_positions,
+        "clv_present_count": clv_present_count,
+        "clv_missing_count": clv_missing_count,
+        "coverage_rate": _safe_pct(clv_present_count, eligible_positions),
+        "clv_source_counts": dict(sorted(clv_source_counts.items())),
+        "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+    }
+
+
 def _build_clv_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compute CLV coverage + missingness from position-level CLV fields."""
     eligible_positions = 0
@@ -393,7 +449,7 @@ def _build_clv_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
             reason = str(pos.get("clv_missing_reason") or "UNSPECIFIED").strip() or "UNSPECIFIED"
             missing_reason_counts[reason] += 1
 
-    return {
+    result = {
         "eligible_positions": eligible_positions,
         "clv_present_count": clv_present_count,
         "clv_missing_count": clv_missing_count,
@@ -402,6 +458,10 @@ def _build_clv_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
         "clv_source_counts": dict(sorted(clv_source_counts.items())),
         "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
     }
+    # Embed dual-variant sub-dicts
+    result["settlement"] = _build_clv_variant_coverage(positions, "settlement")
+    result["pre_event"] = _build_clv_variant_coverage(positions, "pre_event")
+    return result
 
 
 def _build_entry_context_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -664,6 +724,20 @@ def _empty_segment_bucket() -> Dict[str, Any]:
         "notional_w_beat_close_weight": 0.0,
         "notional_w_entry_drift_pct_sum": 0.0,
         "notional_w_entry_drift_pct_weight": 0.0,
+        # Dual CLV variant accumulators (count-weighted)
+        "clv_pct_settlement_sum": 0.0,
+        "clv_pct_settlement_count": 0,
+        "beat_close_settlement_true_count": 0,
+        "beat_close_settlement_count": 0,
+        "clv_pct_pre_event_sum": 0.0,
+        "clv_pct_pre_event_count": 0,
+        "beat_close_pre_event_true_count": 0,
+        "beat_close_pre_event_count": 0,
+        # Dual CLV variant accumulators (notional-weighted)
+        "notional_w_clv_pct_settlement_sum": 0.0,
+        "notional_w_clv_pct_settlement_weight": 0.0,
+        "notional_w_clv_pct_pre_event_sum": 0.0,
+        "notional_w_clv_pct_pre_event_weight": 0.0,
     }
 
 
@@ -678,6 +752,10 @@ def _accumulate_segment_bucket(
     movement_direction: Optional[str] = None,
     minutes_to_close: Optional[float] = None,
     position_notional_usd: Optional[float] = None,
+    clv_pct_settlement: Optional[float] = None,
+    beat_close_settlement: Optional[bool] = None,
+    clv_pct_pre_event: Optional[float] = None,
+    beat_close_pre_event: Optional[bool] = None,
 ) -> None:
     bucket["count"] += 1
     if outcome == "WIN":
@@ -733,6 +811,29 @@ def _accumulate_segment_bucket(
         if entry_drift_pct is not None:
             bucket["notional_w_entry_drift_pct_sum"] += entry_drift_pct * w
             bucket["notional_w_entry_drift_pct_weight"] += w
+        # Dual variant notional-weighted accumulators
+        if clv_pct_settlement is not None:
+            bucket["notional_w_clv_pct_settlement_sum"] += clv_pct_settlement * w
+            bucket["notional_w_clv_pct_settlement_weight"] += w
+        if clv_pct_pre_event is not None:
+            bucket["notional_w_clv_pct_pre_event_sum"] += clv_pct_pre_event * w
+            bucket["notional_w_clv_pct_pre_event_weight"] += w
+
+    # Count-weighted dual variant CLV + beat_close
+    if clv_pct_settlement is not None:
+        bucket["clv_pct_settlement_sum"] += clv_pct_settlement
+        bucket["clv_pct_settlement_count"] += 1
+    if isinstance(beat_close_settlement, bool):
+        bucket["beat_close_settlement_count"] += 1
+        if beat_close_settlement:
+            bucket["beat_close_settlement_true_count"] += 1
+    if clv_pct_pre_event is not None:
+        bucket["clv_pct_pre_event_sum"] += clv_pct_pre_event
+        bucket["clv_pct_pre_event_count"] += 1
+    if isinstance(beat_close_pre_event, bool):
+        bucket["beat_close_pre_event_count"] += 1
+        if beat_close_pre_event:
+            bucket["beat_close_pre_event_true_count"] += 1
 
 
 def _compute_median(values: List[float]) -> Optional[float]:
@@ -823,6 +924,48 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
         if notional_w_entry_drift_weight > 0 else None
     )
 
+    # Dual CLV variant derived metrics (count-weighted)
+    clv_pct_settlement_count = int(bucket.get("clv_pct_settlement_count") or 0)
+    clv_pct_settlement_sum = float(bucket.get("clv_pct_settlement_sum") or 0.0)
+    avg_clv_pct_settlement = (
+        round(clv_pct_settlement_sum / clv_pct_settlement_count, 6)
+        if clv_pct_settlement_count > 0 else None
+    )
+    beat_close_settlement_count = int(bucket.get("beat_close_settlement_count") or 0)
+    beat_close_settlement_true_count = int(bucket.get("beat_close_settlement_true_count") or 0)
+    beat_close_rate_settlement = (
+        _safe_pct(beat_close_settlement_true_count, beat_close_settlement_count)
+        if beat_close_settlement_count > 0 else None
+    )
+
+    clv_pct_pre_event_count = int(bucket.get("clv_pct_pre_event_count") or 0)
+    clv_pct_pre_event_sum = float(bucket.get("clv_pct_pre_event_sum") or 0.0)
+    avg_clv_pct_pre_event = (
+        round(clv_pct_pre_event_sum / clv_pct_pre_event_count, 6)
+        if clv_pct_pre_event_count > 0 else None
+    )
+    beat_close_pre_event_count = int(bucket.get("beat_close_pre_event_count") or 0)
+    beat_close_pre_event_true_count = int(bucket.get("beat_close_pre_event_true_count") or 0)
+    beat_close_rate_pre_event = (
+        _safe_pct(beat_close_pre_event_true_count, beat_close_pre_event_count)
+        if beat_close_pre_event_count > 0 else None
+    )
+
+    # Dual CLV variant derived metrics (notional-weighted)
+    nw_clv_settlement_sum = float(bucket.get("notional_w_clv_pct_settlement_sum") or 0.0)
+    nw_clv_settlement_weight = float(bucket.get("notional_w_clv_pct_settlement_weight") or 0.0)
+    notional_weighted_avg_clv_pct_settlement = (
+        round(nw_clv_settlement_sum / nw_clv_settlement_weight, 6)
+        if nw_clv_settlement_weight > 0 else None
+    )
+
+    nw_clv_pre_event_sum = float(bucket.get("notional_w_clv_pct_pre_event_sum") or 0.0)
+    nw_clv_pre_event_weight = float(bucket.get("notional_w_clv_pct_pre_event_weight") or 0.0)
+    notional_weighted_avg_clv_pct_pre_event = (
+        round(nw_clv_pre_event_sum / nw_clv_pre_event_weight, 6)
+        if nw_clv_pre_event_weight > 0 else None
+    )
+
     return {
         "count": total_count,
         "wins": wins,
@@ -854,6 +997,20 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
         "notional_weighted_avg_entry_drift_pct": notional_weighted_avg_entry_drift_pct,
         "notional_weighted_avg_entry_drift_pct_weight_used": round(notional_w_entry_drift_weight, 6),
         "notional_w_total_weight_used": round(notional_w_total_weight, 6),
+        # Dual CLV variants (count-weighted)
+        "avg_clv_pct_settlement": avg_clv_pct_settlement,
+        "avg_clv_pct_settlement_count_used": clv_pct_settlement_count,
+        "beat_close_rate_settlement": beat_close_rate_settlement,
+        "beat_close_rate_settlement_count_used": beat_close_settlement_count,
+        "avg_clv_pct_pre_event": avg_clv_pct_pre_event,
+        "avg_clv_pct_pre_event_count_used": clv_pct_pre_event_count,
+        "beat_close_rate_pre_event": beat_close_rate_pre_event,
+        "beat_close_rate_pre_event_count_used": beat_close_pre_event_count,
+        # Dual CLV variants (notional-weighted)
+        "notional_weighted_avg_clv_pct_settlement": notional_weighted_avg_clv_pct_settlement,
+        "notional_weighted_avg_clv_pct_settlement_weight_used": round(nw_clv_settlement_weight, 6),
+        "notional_weighted_avg_clv_pct_pre_event": notional_weighted_avg_clv_pct_pre_event,
+        "notional_weighted_avg_clv_pct_pre_event_weight_used": round(nw_clv_pre_event_weight, 6),
     }
 
 
@@ -895,6 +1052,18 @@ def _build_segment_analysis(
         pnl_net_value = pnl_net if pnl_net is not None else 0.0
         pnl_gross_value = pnl_gross if pnl_gross is not None else 0.0
 
+        # Dual CLV variant fields
+        clv_pct_settlement = _safe_float(position.get("clv_pct_settlement"))
+        beat_close_settlement_raw = position.get("beat_close_settlement")
+        beat_close_settlement = (
+            beat_close_settlement_raw if isinstance(beat_close_settlement_raw, bool) else None
+        )
+        clv_pct_pre_event = _safe_float(position.get("clv_pct_pre_event"))
+        beat_close_pre_event_raw = position.get("beat_close_pre_event")
+        beat_close_pre_event = (
+            beat_close_pre_event_raw if isinstance(beat_close_pre_event_raw, bool) else None
+        )
+
         # Hypothesis-ready: entry_drift_pct
         price_at_entry = _safe_float(position.get("price_at_entry"))
         price_1h_before_entry = _safe_float(position.get("price_1h_before_entry"))
@@ -932,6 +1101,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
         _accumulate_segment_bucket(
             by_market_type_raw[market_type],
@@ -940,6 +1113,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
         _accumulate_segment_bucket(
             by_league_raw[league],
@@ -948,6 +1125,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
         _accumulate_segment_bucket(
             by_sport_raw[sport],
@@ -956,6 +1137,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
         _accumulate_segment_bucket(
             by_category_raw[category_key],
@@ -964,6 +1149,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
         _accumulate_segment_bucket(
             by_market_slug_raw[market_slug],
@@ -972,6 +1161,10 @@ def _build_segment_analysis(
             movement_direction=movement_direction,
             minutes_to_close=minutes_to_close,
             position_notional_usd=position_notional_usd,
+            clv_pct_settlement=clv_pct_settlement,
+            beat_close_settlement=beat_close_settlement,
+            clv_pct_pre_event=clv_pct_pre_event,
+            beat_close_pre_event=beat_close_pre_event,
         )
 
     by_entry_price_tier = {
@@ -1100,10 +1293,10 @@ def _build_hypothesis_candidates(
 ) -> List[Dict[str, Any]]:
     """Build top-N hypothesis candidate entries from segment_analysis.
 
-    Ranks segments by notional_weighted_avg_clv_pct desc (primary),
-    notional_weighted_beat_close_rate desc (secondary), segment_key asc (tertiary).
-    Only includes segments with count >= TOP_SEGMENT_MIN_COUNT and a non-None
-    notional_weighted_avg_clv_pct (or count-weighted fallback when weight is zero).
+    Ranking prefers notional_weighted_avg_clv_pct_pre_event when pre_event weight > 0,
+    falls back to notional_weighted_avg_clv_pct_settlement, then count-weighted fallback.
+    Secondary sort by notional_weighted_beat_close_rate desc, tertiary by segment_key asc.
+    Only includes segments with count >= TOP_SEGMENT_MIN_COUNT and a non-None CLV metric.
 
     Returns a list of up to top_n candidate dicts.
     """
@@ -1122,20 +1315,62 @@ def _build_hypothesis_candidates(
             count = _coerce_int(metrics.get("count"))
             if count < TOP_SEGMENT_MIN_COUNT:
                 continue
+
+            # Prefer pre_event variant when its notional weight > 0
+            pre_event_nw = _safe_float(
+                metrics.get("notional_weighted_avg_clv_pct_pre_event")
+            )
+            pre_event_nw_weight = _safe_float(
+                metrics.get("notional_weighted_avg_clv_pct_pre_event_weight_used")
+            ) or 0.0
+
+            settlement_nw = _safe_float(
+                metrics.get("notional_weighted_avg_clv_pct_settlement")
+            )
+            settlement_nw_weight = _safe_float(
+                metrics.get("notional_weighted_avg_clv_pct_settlement_weight_used")
+            ) or 0.0
+
+            # Also get the base (combined) notional CLV as final fallback
             notional_clv = _safe_float(metrics.get("notional_weighted_avg_clv_pct"))
             notional_clv_weight = _safe_float(
                 metrics.get("notional_weighted_avg_clv_pct_weight_used")
             ) or 0.0
-            # Use count-weighted fallback if notional weight is 0
-            if notional_clv is None:
-                fallback_clv = _safe_float(metrics.get("avg_clv_pct"))
-                if fallback_clv is None:
-                    continue
-                rank_clv = fallback_clv
-                weighting = "count"
-            else:
+
+            # Select best variant for ranking
+            if pre_event_nw is not None and pre_event_nw_weight > 0:
+                rank_clv = pre_event_nw
+                weighting = "notional"
+                clv_variant_used = "pre_event"
+                effective_weight = pre_event_nw_weight
+            elif settlement_nw is not None and settlement_nw_weight > 0:
+                rank_clv = settlement_nw
+                weighting = "notional"
+                clv_variant_used = "settlement"
+                effective_weight = settlement_nw_weight
+            elif notional_clv is not None and notional_clv_weight > 0:
                 rank_clv = notional_clv
-                weighting = "count" if notional_clv_weight == 0.0 else "notional"
+                weighting = "notional"
+                clv_variant_used = "combined"
+                effective_weight = notional_clv_weight
+            else:
+                # Count-weighted fallback: prefer pre_event, then settlement, then base
+                fallback_pre_event = _safe_float(metrics.get("avg_clv_pct_pre_event"))
+                fallback_settlement = _safe_float(metrics.get("avg_clv_pct_settlement"))
+                fallback_base = _safe_float(metrics.get("avg_clv_pct"))
+                if fallback_pre_event is not None:
+                    rank_clv = fallback_pre_event
+                    clv_variant_used = "pre_event"
+                elif fallback_settlement is not None:
+                    rank_clv = fallback_settlement
+                    clv_variant_used = "settlement"
+                elif fallback_base is not None:
+                    rank_clv = fallback_base
+                    clv_variant_used = "combined"
+                else:
+                    continue
+                weighting = "count"
+                effective_weight = 0.0
 
             notional_beat = _safe_float(metrics.get("notional_weighted_beat_close_rate"))
 
@@ -1145,7 +1380,8 @@ def _build_hypothesis_candidates(
                 "rank_beat": notional_beat,
                 "metrics_raw": metrics,
                 "weighting": weighting,
-                "notional_clv_weight": notional_clv_weight,
+                "notional_clv_weight": effective_weight,
+                "clv_variant_used": clv_variant_used,
             })
 
     # Sort: notional_weighted_avg_clv_pct desc (None last), beat_close_rate desc (None last), key asc
@@ -1169,6 +1405,8 @@ def _build_hypothesis_candidates(
         notional_clv_weight = raw["notional_clv_weight"]
         weighting = raw["weighting"]
 
+        clv_variant_used = raw.get("clv_variant_used", "combined")
+
         metrics_out: Dict[str, Any] = {
             "notional_weighted_avg_clv_pct": _safe_float(m.get("notional_weighted_avg_clv_pct")),
             "notional_weighted_avg_clv_pct_weight_used": float(
@@ -1191,6 +1429,21 @@ def _build_hypothesis_candidates(
             "minutes_to_close_count_used": _coerce_int(m.get("minutes_to_close_count_used")),
             "win_rate": float(m.get("win_rate") or 0.0),
             "count": count,
+            # Dual CLV variant metrics
+            "notional_weighted_avg_clv_pct_settlement": _safe_float(
+                m.get("notional_weighted_avg_clv_pct_settlement")
+            ),
+            "notional_weighted_avg_clv_pct_settlement_weight_used": float(
+                m.get("notional_weighted_avg_clv_pct_settlement_weight_used") or 0.0
+            ),
+            "notional_weighted_avg_clv_pct_pre_event": _safe_float(
+                m.get("notional_weighted_avg_clv_pct_pre_event")
+            ),
+            "notional_weighted_avg_clv_pct_pre_event_weight_used": float(
+                m.get("notional_weighted_avg_clv_pct_pre_event_weight_used") or 0.0
+            ),
+            "avg_clv_pct_settlement": _safe_float(m.get("avg_clv_pct_settlement")),
+            "avg_clv_pct_pre_event": _safe_float(m.get("avg_clv_pct_pre_event")),
         }
 
         denominators: Dict[str, Any] = {
@@ -1211,6 +1464,7 @@ def _build_hypothesis_candidates(
         result.append({
             "segment_key": raw["segment_key"],
             "rank": rank_idx,
+            "clv_variant_used": clv_variant_used,
             "metrics": metrics_out,
             "denominators": denominators,
             "falsification_plan": falsification_plan,
@@ -1908,6 +2162,46 @@ def _render_category_coverage(report: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _render_clv_variant_block(
+    coverage_dict: Dict[str, Any],
+    variant: str,
+    label: str,
+) -> List[str]:
+    """Render a markdown sub-block for a CLV variant (settlement or pre_event)."""
+    lines: List[str] = []
+    lines.append(f"### {label}")
+    lines.append("")
+    if not isinstance(coverage_dict, dict):
+        lines.append(f"- {label} coverage unavailable.")
+        lines.append("")
+        return lines
+
+    eligible = _coerce_int(coverage_dict.get("eligible_positions"))
+    present = _coerce_int(coverage_dict.get("clv_present_count"))
+    missing = _coerce_int(coverage_dict.get("clv_missing_count"))
+    coverage_rate = float(coverage_dict.get("coverage_rate") or 0.0)
+    lines.append(
+        f"- Coverage: {coverage_rate:.2%} ({present}/{eligible} eligible positions)"
+    )
+    lines.append(f"- Missing: {missing}")
+
+    clv_source_counts = coverage_dict.get("clv_source_counts") or {}
+    if clv_source_counts:
+        lines.append(f"- clv_source_counts: {json.dumps(clv_source_counts, sort_keys=True)}")
+
+    missing_reason_counts = coverage_dict.get("missing_reason_counts") or {}
+    if missing_reason_counts:
+        lines.append("- Top missing reasons:")
+        for reason, count in sorted(
+            missing_reason_counts.items(),
+            key=lambda item: (-_coerce_int(item[1]), str(item[0])),
+        )[:5]:
+            lines.append(f"  - {reason}: {count}")
+
+    lines.append("")
+    return lines
+
+
 def _render_clv_coverage(report: Dict[str, Any]) -> List[str]:
     lines: List[str] = []
     lines.append("## CLV Coverage")
@@ -1953,6 +2247,14 @@ def _render_clv_coverage(report: Dict[str, Any]) -> List[str]:
         )
 
     lines.append("")
+
+    # Render dual variant sub-blocks
+    settlement_cov = clv.get("settlement")
+    lines.extend(_render_clv_variant_block(settlement_cov, "settlement", "CLV Settlement"))
+
+    pre_event_cov = clv.get("pre_event")
+    lines.extend(_render_clv_variant_block(pre_event_cov, "pre_event", "CLV Pre-Event"))
+
     return lines
 
 
