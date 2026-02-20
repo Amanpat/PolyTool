@@ -1342,6 +1342,38 @@ def test_build_config_loads_fee_config_from_polytool_yaml():
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+def test_build_config_includes_clv_defaults():
+    parser = scan.build_parser()
+    args = parser.parse_args(["--user", "@TestUser"])
+    config = scan.build_config(args)
+    assert config["compute_clv"] is scan.DEFAULT_COMPUTE_CLV
+    assert config["warm_clv_cache"] is scan.DEFAULT_WARM_CLV_CACHE
+    assert config["clv_online"] is scan.DEFAULT_CLV_ONLINE
+    assert config["clv_window_minutes"] == scan.DEFAULT_CLV_WINDOW_MINUTES
+    assert config["clv_interval"] == scan.DEFAULT_CLV_INTERVAL
+    assert config["clv_fidelity"] == scan.DEFAULT_CLV_FIDELITY
+
+
+def test_build_config_overrides_clv_flags():
+    parser = scan.build_parser()
+    args = parser.parse_args(
+        [
+            "--user",
+            "@TestUser",
+            "--compute-clv",
+            "--warm-clv-cache",
+            "--clv-offline",
+            "--clv-window-minutes",
+            "90",
+        ]
+    )
+    config = scan.build_config(args)
+    assert config["compute_clv"] is True
+    assert config["warm_clv_cache"] is True
+    assert config["clv_online"] is False
+    assert config["clv_window_minutes"] == 90
+
+
 def test_effective_resolution_config_uses_defaults_when_keys_missing():
     """_effective_resolution_config falls back to defaults for missing config keys."""
     config = {"enrich_resolutions": True}
@@ -2011,6 +2043,281 @@ def test_run_scan_audit_sample_3_uses_samples_heading(monkeypatch):
             line for line in audit_text.splitlines() if line.startswith("### Position ")
         ]
         assert len(position_blocks) == 3
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_compute_clv_persists_fields_into_dossier(monkeypatch):
+    """When --compute-clv is enabled, scan persists CLV fields into dossier positions."""
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-19"
+            / "run-clv"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "resolved_token_id": "tok-clv",
+                                "market_slug": "market-clv",
+                                "resolution_outcome": "WIN",
+                                "entry_price": 0.42,
+                                "resolved_at": "2026-02-19T12:00:00Z",
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 1,
+                    "rows_written": 1,
+                    "distinct_trade_uids_total": 1,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-clv",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        def fake_enrich_positions_with_clv(positions, **kwargs):
+            for pos in positions:
+                pos["close_ts"] = "2026-02-19T12:00:00+00:00"
+                pos["close_ts_source"] = "onchain_resolved_at"
+                pos["closing_price"] = 0.51
+                pos["closing_ts_observed"] = "2026-02-19T11:58:00+00:00"
+                pos["clv"] = 0.09
+                pos["clv_pct"] = 0.214286
+                pos["beat_close"] = True
+                pos["clv_source"] = "prices_history|onchain_resolved_at"
+                pos["clv_missing_reason"] = None
+            return {
+                "positions_total": len(positions),
+                "clv_present_count": len(positions),
+                "clv_missing_count": 0,
+                "missing_reason_counts": {},
+            }
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+        monkeypatch.setattr(scan, "_get_clickhouse_client", lambda: object())
+        monkeypatch.setattr(scan, "enrich_positions_with_clv", fake_enrich_positions_with_clv)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "compute_clv": True,
+            "clv_online": False,
+            "clv_window_minutes": 1440,
+            "clv_interval": "1m",
+            "clv_fidelity": "high",
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            "audit_sample": 3,
+            "audit_seed": 42,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--compute-clv"],
+            started_at="2026-02-19T12:00:00+00:00",
+        )
+
+        dossier = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        pos = dossier["positions"]["positions"][0]
+        assert pos["closing_price"] == 0.51
+        assert pos["clv_pct"] == 0.214286
+        assert pos["clv_source"] == "prices_history|onchain_resolved_at"
+
+        coverage = json.loads(Path(emitted["coverage_reconciliation_report_json"]).read_text(encoding="utf-8"))
+        assert "clv_coverage" in coverage
+        assert coverage["clv_coverage"]["clv_present_count"] == 1
+
+        assert "clv_preflight_json" in emitted
+        preflight = json.loads(Path(emitted["clv_preflight_json"]).read_text(encoding="utf-8"))
+        assert preflight["endpoint_used"] == "/prices-history"
+        assert preflight["auth_present"] is False
+        assert preflight["error_class"] == "OFFLINE"
+
+        manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
+        assert manifest["output_paths"]["clv_preflight_json"] == emitted["clv_preflight_json"]
+        assert manifest["diagnostics"]["clv_preflight"]["error_class"] == "OFFLINE"
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(tmp_path, ignore_errors=True)
+
+
+def test_run_scan_warm_clv_cache_emits_summary_artifact(monkeypatch):
+    tmp_path = Path("artifacts") / "_pytest_scan_trust" / uuid.uuid4().hex
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+
+        run_root = (
+            tmp_path
+            / "artifacts"
+            / "dossiers"
+            / "users"
+            / "testuser"
+            / "0xabc"
+            / "2026-02-19"
+            / "run-warm-clv"
+        )
+        run_root.mkdir(parents=True, exist_ok=True)
+        (run_root / "dossier.json").write_text(
+            json.dumps(
+                {
+                    "positions": {
+                        "positions": [
+                            {
+                                "resolved_token_id": "tok-warm",
+                                "market_slug": "market-clv",
+                                "resolution_outcome": "WIN",
+                                "entry_price": 0.42,
+                                "resolved_at": "2026-02-19T12:00:00Z",
+                            }
+                        ]
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        class _QueryResult:
+            result_rows = []
+
+        class _FakeClickHouse:
+            def __init__(self):
+                self.inserts = []
+
+            def query(self, query, parameters=None):
+                return _QueryResult()
+
+            def insert(self, table, rows, column_names=None):
+                self.inserts.append((table, list(rows), tuple(column_names or ())))
+
+        class _FakeClobClient:
+            def __init__(self, *args, **kwargs):
+                self.calls = 0
+
+            def has_auth_headers(self):
+                return False
+
+            def get_prices_history(self, **kwargs):
+                self.calls += 1
+                close_ts = kwargs["end_ts"]
+                return {
+                    "history": [
+                        {"t": int(close_ts.timestamp()) - 60, "p": 0.51},
+                        {"t": int(close_ts.timestamp()) - 120, "p": 0.50},
+                    ]
+                }
+
+        fake_clickhouse = _FakeClickHouse()
+
+        def fake_post_json(base_url, path, payload, timeout=120.0, retries=3, backoff_seconds=1.0):
+            if path == "/api/resolve":
+                return {"username": "TestUser", "proxy_wallet": "0xabc"}
+            if path == "/api/ingest/trades":
+                return {
+                    "pages_fetched": 1,
+                    "rows_fetched_total": 1,
+                    "rows_written": 1,
+                    "distinct_trade_uids_total": 1,
+                }
+            if path == "/api/run/detectors":
+                return {"results": [], "backfill_stats": None}
+            if path == "/api/export/user_dossier":
+                return {
+                    "export_id": "run-warm-clv",
+                    "artifact_path": str(run_root),
+                    "proxy_wallet": "0xabc",
+                    "username_slug": "testuser",
+                }
+            raise AssertionError(f"Unexpected scan API path: {path}")
+
+        monkeypatch.setattr(scan, "post_json", fake_post_json)
+        monkeypatch.setattr(scan, "_get_clickhouse_client", lambda: fake_clickhouse)
+        monkeypatch.setattr(scan, "ClobClient", _FakeClobClient)
+
+        config = {
+            "user": "@TestUser",
+            "max_pages": 10,
+            "bucket": "day",
+            "backfill": True,
+            "ingest_markets": False,
+            "ingest_activity": False,
+            "ingest_positions": False,
+            "compute_pnl": False,
+            "compute_opportunities": False,
+            "snapshot_books": False,
+            "warm_clv_cache": True,
+            "api_base_url": "http://localhost:8000",
+            "timeout_seconds": 30.0,
+            "audit_sample": 3,
+            "audit_seed": 42,
+        }
+
+        emitted = scan.run_scan(
+            config=config,
+            argv=["--user", "@TestUser", "--warm-clv-cache"],
+            started_at="2026-02-19T12:00:00+00:00",
+        )
+
+        assert "clv_warm_cache_summary_json" in emitted
+        warm_payload = json.loads(
+            Path(emitted["clv_warm_cache_summary_json"]).read_text(encoding="utf-8")
+        )
+        assert warm_payload["attempted"] == 1
+        assert warm_payload["succeeded"] == 1
+        assert warm_payload["failed"] == 0
+        assert len(fake_clickhouse.inserts) >= 1
+
+        manifest = json.loads(Path(emitted["run_manifest"]).read_text(encoding="utf-8"))
+        assert (
+            manifest["output_paths"]["clv_warm_cache_summary_json"]
+            == emitted["clv_warm_cache_summary_json"]
+        )
+        assert manifest["diagnostics"]["clv_warm_cache"]["succeeded"] == 1
     finally:
         os.chdir(original_cwd)
         shutil.rmtree(tmp_path, ignore_errors=True)

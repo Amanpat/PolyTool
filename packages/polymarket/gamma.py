@@ -26,6 +26,9 @@ class MarketToken:
     market_slug: str
     question: str
     category: str
+    subcategory: str
+    category_source: str
+    subcategory_source: str
     event_slug: str
     end_date_iso: Optional[datetime]
     active: bool
@@ -56,9 +59,14 @@ class Market:
     question: str
     description: str
     category: str
+    subcategory: str
+    category_source: str
+    subcategory_source: str
     tags: list[str]
     event_slug: str
     event_title: str
+    event_ids: list[str]
+    event_slugs: list[str]
     outcomes: list[str]
     clob_token_ids: list[str]
     alias_token_ids: list[str]
@@ -85,6 +93,9 @@ class Market:
                 market_slug=self.market_slug,
                 question=self.question,
                 category=self.category,
+                subcategory=self.subcategory,
+                category_source=self.category_source,
+                subcategory_source=self.subcategory_source,
                 event_slug=self.event_slug,
                 end_date_iso=self.end_date_iso,
                 active=self.active,
@@ -128,6 +139,7 @@ class MarketsFetchResult:
     token_aliases: list[TokenAlias]
     pages_fetched: int
     total_markets: int
+    gamma_markets_sample: Optional[dict] = None
 
 
 @dataclass
@@ -302,9 +314,11 @@ class GammaClient:
         Returns:
             List of raw market dictionaries
         """
-        params = {"limit": limit, "offset": offset}
-        if active_only:
-            params["closed"] = "false"
+        params = self._build_markets_page_params(
+            limit=limit,
+            offset=offset,
+            active_only=active_only,
+        )
 
         try:
             response = self.client.get_json("/markets", params=params)
@@ -318,6 +332,71 @@ class GammaClient:
         elif isinstance(response, dict):
             return response.get("data", response.get("markets", []))
         return []
+
+    def _build_markets_page_params(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        active_only: bool,
+    ) -> dict[str, object]:
+        params: dict[str, object] = {"limit": limit, "offset": offset}
+        if active_only:
+            params["closed"] = "false"
+        return params
+
+    @staticmethod
+    def _first_event_from_market_raw(raw_market: dict) -> dict:
+        events = raw_market.get("events")
+        if isinstance(events, str):
+            try:
+                events = json.loads(events)
+            except json.JSONDecodeError:
+                events = []
+        if isinstance(events, list):
+            for item in events:
+                if isinstance(item, dict):
+                    return item
+        return {}
+
+    def _build_gamma_markets_sample(
+        self,
+        *,
+        raw_markets: list[dict],
+        request_params: dict[str, object],
+        max_items: int = 10,
+    ) -> dict:
+        sample_rows: list[dict[str, object]] = []
+        for raw in raw_markets[:max_items]:
+            if not isinstance(raw, dict):
+                continue
+            first_event = self._first_event_from_market_raw(raw)
+            sample_rows.append(
+                {
+                    "keys": sorted(str(key) for key in raw.keys()),
+                    "id": raw.get("id"),
+                    "slug": raw.get("slug"),
+                    "conditionId": raw.get("conditionId") or raw.get("condition_id"),
+                    "clobTokenIds": raw.get("clobTokenIds"),
+                    "category": raw.get("category"),
+                    "events_0_category": first_event.get("category"),
+                    "events_0_subcategory": (
+                        first_event.get("subcategory")
+                        or first_event.get("subCategory")
+                        or first_event.get("sub_category")
+                    ),
+                }
+            )
+
+        return {
+            "request": {
+                "url": f"{self.client.base_url}/markets",
+                "params": dict(request_params),
+            },
+            "sample_limit": max_items,
+            "sample_count": len(sample_rows),
+            "markets": sample_rows,
+        }
 
     def fetch_markets_filtered(
         self,
@@ -362,6 +441,8 @@ class GammaClient:
             market = self._parse_market(raw)
             if market:
                 markets.append(market)
+
+        self._hydrate_markets_with_event_taxonomy(markets)
         return markets
 
     def fetch_all_markets(
@@ -369,6 +450,7 @@ class GammaClient:
         max_pages: int = 50,
         page_size: int = 100,
         active_only: bool = True,
+        capture_debug_sample: bool = False,
     ) -> MarketsFetchResult:
         """
         Fetch all markets with pagination.
@@ -391,10 +473,22 @@ class GammaClient:
         offset = 0
 
         for page in range(max_pages):
+            request_params = self._build_markets_page_params(
+                limit=page_size,
+                offset=offset,
+                active_only=active_only,
+            )
             raw_markets = self.fetch_markets_page(
                 limit=page_size, offset=offset, active_only=active_only
             )
             result.pages_fetched += 1
+
+            if capture_debug_sample and result.gamma_markets_sample is None:
+                result.gamma_markets_sample = self._build_gamma_markets_sample(
+                    raw_markets=raw_markets,
+                    request_params=request_params,
+                    max_items=10,
+                )
 
             if not raw_markets:
                 break
@@ -403,8 +497,6 @@ class GammaClient:
                 market = self._parse_market(raw)
                 if market:
                     result.markets.append(market)
-                    result.market_tokens.extend(market.to_market_tokens())
-                    result.token_aliases.extend(market.to_token_aliases())
                     result.total_markets += 1
 
             logger.info(f"Fetched page {page + 1}: {len(raw_markets)} markets")
@@ -414,11 +506,166 @@ class GammaClient:
 
             offset += page_size
 
+        self._hydrate_markets_with_event_taxonomy(result.markets)
+
+        result.market_tokens = []
+        result.token_aliases = []
+        for market in result.markets:
+            result.market_tokens.extend(market.to_market_tokens())
+            result.token_aliases.extend(market.to_token_aliases())
+
         logger.info(
             f"Completed fetching markets: {result.total_markets} markets, "
             f"{len(result.market_tokens)} tokens in {result.pages_fetched} pages"
         )
         return result
+
+    @staticmethod
+    def _collect_event_identifiers(raw_event: dict) -> tuple[str, str]:
+        event_id = str(
+            raw_event.get("id")
+            or raw_event.get("eventId")
+            or raw_event.get("event_id")
+            or ""
+        ).strip()
+        event_slug = str(
+            raw_event.get("slug")
+            or raw_event.get("eventSlug")
+            or raw_event.get("event_slug")
+            or ""
+        ).strip()
+        return event_id, event_slug
+
+    @staticmethod
+    def _collect_event_taxonomy(raw_event: dict) -> tuple[str, str]:
+        category = str(
+            raw_event.get("category")
+            or raw_event.get("marketCategory")
+            or raw_event.get("market_category")
+            or ""
+        ).strip()
+        subcategory = str(
+            raw_event.get("subcategory")
+            or raw_event.get("subCategory")
+            or raw_event.get("sub_category")
+            or ""
+        ).strip()
+        return category, subcategory
+
+    def _fetch_events(
+        self,
+        *,
+        event_ids: list[str],
+        event_slugs: list[str],
+        limit: int = 200,
+    ) -> list[dict]:
+        query_params: list[dict[str, object]] = []
+        if event_ids:
+            query_params.append({"id": event_ids, "limit": limit})
+            query_params.append({"event_id": event_ids, "limit": limit})
+        if event_slugs:
+            query_params.append({"slug": event_slugs, "limit": limit})
+            query_params.append({"event_slug": event_slugs, "limit": limit})
+
+        collected: list[dict] = []
+        seen: set[str] = set()
+        for params in query_params:
+            try:
+                response = self.client.get_json("/events", params=params)
+            except Exception as exc:
+                logger.debug(f"Skipping /events query {params}: {exc}")
+                continue
+
+            if isinstance(response, list):
+                raw_events = response
+            elif isinstance(response, dict):
+                raw_events = response.get("data", response.get("events", []))
+            else:
+                raw_events = []
+
+            for raw_event in raw_events:
+                if not isinstance(raw_event, dict):
+                    continue
+                event_id, event_slug = self._collect_event_identifiers(raw_event)
+                dedupe_key = f"{event_id}|{event_slug}"
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                collected.append(raw_event)
+        return collected
+
+    def _hydrate_markets_with_event_taxonomy(self, markets: list[Market]) -> None:
+        if not markets:
+            return
+
+        needs_lookup = [
+            market
+            for market in markets
+            if (
+                market.category_source == "none"
+                or market.subcategory_source == "none"
+            )
+            and (market.event_ids or market.event_slugs)
+        ]
+        if not needs_lookup:
+            return
+
+        event_ids: list[str] = []
+        event_slugs: list[str] = []
+        for market in needs_lookup:
+            for event_id in market.event_ids:
+                if event_id and event_id not in event_ids:
+                    event_ids.append(event_id)
+            for event_slug in market.event_slugs:
+                if event_slug and event_slug not in event_slugs:
+                    event_slugs.append(event_slug)
+
+        # Bound network usage to only events needed for this batch/page pass.
+        max_event_lookups = 200
+        fetched_events = self._fetch_events(
+            event_ids=event_ids[:max_event_lookups],
+            event_slugs=event_slugs[:max_event_lookups],
+            limit=max_event_lookups,
+        )
+        if not fetched_events:
+            return
+
+        taxonomy_by_id: dict[str, tuple[str, str]] = {}
+        taxonomy_by_slug: dict[str, tuple[str, str]] = {}
+        for raw_event in fetched_events:
+            event_id, event_slug = self._collect_event_identifiers(raw_event)
+            category, subcategory = self._collect_event_taxonomy(raw_event)
+            if not category and not subcategory:
+                continue
+            if event_id and event_id not in taxonomy_by_id:
+                taxonomy_by_id[event_id] = (category, subcategory)
+            if event_slug and event_slug not in taxonomy_by_slug:
+                taxonomy_by_slug[event_slug] = (category, subcategory)
+
+        if not taxonomy_by_id and not taxonomy_by_slug:
+            return
+
+        for market in needs_lookup:
+            taxonomy: Optional[tuple[str, str]] = None
+            for event_id in market.event_ids:
+                taxonomy = taxonomy_by_id.get(event_id)
+                if taxonomy:
+                    break
+            if taxonomy is None:
+                for event_slug in market.event_slugs:
+                    taxonomy = taxonomy_by_slug.get(event_slug)
+                    if taxonomy:
+                        break
+            if taxonomy is None:
+                continue
+
+            event_category, event_subcategory = taxonomy
+            if market.category_source == "none" and event_category:
+                market.category = event_category
+                market.category_source = "event"
+            if market.subcategory_source == "none" and event_subcategory:
+                market.subcategory = event_subcategory
+                market.subcategory_source = "event"
 
     def _parse_market(self, raw: dict) -> Optional[Market]:
         """
@@ -519,8 +766,53 @@ class GammaClient:
         if not clob_token_ids:
             return None
 
-        # Extract category from various possible locations
-        category = raw.get("category", "")
+        def parse_event_list(value: object) -> list[dict]:
+            parsed = parse_list_field(value)
+            events: list[dict] = []
+            for item in parsed:
+                if isinstance(item, dict):
+                    events.append(item)
+            return events
+
+        def append_unique(target: list[str], value: object) -> None:
+            cleaned = str(value or "").strip()
+            if cleaned and cleaned not in target:
+                target.append(cleaned)
+
+        market_category = str(
+            raw.get("category")
+            or raw.get("marketCategory")
+            or raw.get("market_category")
+            or ""
+        ).strip()
+        category_source = "market" if market_category else "none"
+
+        events = parse_event_list(raw.get("events"))
+        first_event = events[0] if events else {}
+        event_category, event_subcategory = self._collect_event_taxonomy(first_event) if first_event else ("", "")
+
+        category = market_category
+        if not category and event_category:
+            category = event_category
+            category_source = "event"
+
+        # Subcategory is event-derived only (no guessing from unrelated fields).
+        subcategory = event_subcategory
+        subcategory_source = "event" if subcategory else "none"
+
+        event_ids: list[str] = []
+        event_slugs: list[str] = []
+        for key in ("eventId", "eventID", "event_id"):
+            append_unique(event_ids, raw.get(key))
+        for key in ("eventSlug", "event_slug"):
+            append_unique(event_slugs, raw.get(key))
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_id, event_slug = self._collect_event_identifiers(event)
+            append_unique(event_ids, event_id)
+            append_unique(event_slugs, event_slug)
+
         raw_tags = raw.get("tags", [])
         if isinstance(raw_tags, str):
             try:
@@ -538,19 +830,21 @@ class GammaClient:
                 elif isinstance(tag, str):
                     tags.append(tag)
 
-        if not category and tags:
-            category = tags[0]
-
         event_title = (
             raw.get("eventTitle")
             or raw.get("event_title")
             or raw.get("groupItemTitle")
+            or first_event.get("title")
+            or first_event.get("name")
             or raw.get("event", "")
         )
         event_slug = (
             raw.get("eventSlug")
             or raw.get("event_slug")
             or raw.get("groupItemSlug")
+            or first_event.get("slug")
+            or first_event.get("eventSlug")
+            or first_event.get("event_slug")
             or raw.get("groupItemTitle", "")
         )
 
@@ -595,9 +889,14 @@ class GammaClient:
             question=raw.get("question", ""),
             description=raw.get("description", ""),
             category=category,
+            subcategory=subcategory,
+            category_source=category_source,
+            subcategory_source=subcategory_source,
             tags=tags,
             event_slug=event_slug,
             event_title=event_title or "",
+            event_ids=event_ids,
+            event_slugs=event_slugs,
             outcomes=outcomes,
             clob_token_ids=clob_token_ids,
             alias_token_ids=alias_token_ids,

@@ -22,7 +22,7 @@ LLM-assisted examination of individual trader behavior.
 | **Explainability** | Every analytic output (detector label, PnL bucket, hypothesis) must include evidence fields that trace back to specific trades or data points. No black-box scores. |
 | **Local-first** | All data stays on the operator's machine. No external LLM API calls from the toolchain. RAG, embedding, and reranking run locally. |
 | **AWS later** | Cloud deployment (AWS) is a future consideration but not in scope for any current roadmap milestone. Architecture should not preclude it but must not require it. |
-| **No multi-account** | Analysis is single-user-at-a-time. Multi-user comparison is deferred to Roadmap 6. No portfolio aggregation until then. |
+| **No multi-account** | Analysis is single-user-at-a-time. Multi-user comparison is deferred to Roadmap 8. No portfolio aggregation until then. |
 | **No trading signals** | PolyTool is a research and reverse-engineering tool. It does NOT provide trading recommendations, claim alpha, or make predictions. |
 
 ---
@@ -147,8 +147,11 @@ Timing-sensitive hypotheses must note this limitation.
 Market categorization depends on Gamma API tags which are incomplete.
 
 **Current mitigation**: Slippage estimates use current orderbook, flagged as
-non-historical. Category mapping uses keyword heuristics as fallback.
-Both limitations are documented in every relevant detector and dossier.
+non-historical. `by_category` segmentation uses Polymarket's own `category`
+field verbatim (ADR-0009); positions without a category value are bucketed as
+`"Unknown"`. League and sport parsing for `by_league`/`by_sport` remain
+slug-prefix heuristics (ADR-0006). Both limitations are documented in every
+relevant detector and dossier.
 
 ---
 
@@ -337,7 +340,8 @@ A hypothesis is `backtest_ready = true` only when:
 - All evidence trade_uids reference trades with resolution outcomes != UNKNOWN_RESOLUTION.
 - The sample size is >= 30 resolved positions.
 
-Until Roadmap 3 (Hypothesis Validation Loop), no hypotheses will be backtest_ready.
+Until hypothesis validation loop features are shipped (llm-save schema enforcement,
+hypothesis diff, falsification harness), no hypotheses will be backtest_ready.
 This field exists to signal future readiness.
 
 See `docs/HYPOTHESIS_STANDARD.md` for the full prompt template and quality rubric.
@@ -416,7 +420,7 @@ orchestration commands when needed.
 without manual copy-paste. This is a convenience layer, not the primary workflow.
 
 **The manual workflow remains primary** until MCP is fully stable and tested
-across multiple real examination runs. MCP is tracked separately in Roadmap 5.
+across multiple real examination runs. MCP hardening is tracked separately in Roadmap 7.
 
 ---
 
@@ -426,7 +430,7 @@ Backtesting is explicitly **out of scope** for all current roadmap milestones.
 
 ### What "Phase Later" Will Be
 
-When backtesting is eventually implemented (post-Roadmap 3), it will:
+When backtesting is eventually implemented (post-hypothesis-validation-loop), it will:
 
 1. **Replay historical trades** against historical market state to validate
    hypotheses with out-of-sample data.
@@ -440,14 +444,15 @@ When backtesting is eventually implemented (post-Roadmap 3), it will:
 
 - Gap H (historical microstructure data) blocks meaningful backtesting.
 - Gap C (exact realized PnL) means backtest results would be approximate.
-- The hypothesis validation loop (Roadmap 3) must exist first to standardize
+- The hypothesis validation loop must exist first to standardize
   what "validating a hypothesis" means.
 - Premature backtesting encourages overfitting to in-sample data.
 
 ### Kill Condition
 
 Do NOT start any backtesting work until:
-- Roadmap 3 (Hypothesis Validation Loop) is fully shipped.
+- Hypothesis validation loop features are fully shipped (llm-save schema enforcement,
+  hypothesis diff, falsification harness).
 - Historical orderbook data is available (either from a provider or on-chain).
 - At least 3 complete examination runs have been saved and indexed.
 

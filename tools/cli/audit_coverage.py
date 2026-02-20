@@ -38,6 +38,16 @@ RESOLVED_OUTCOMES = frozenset({"WIN", "LOSS", "PROFIT_EXIT", "LOSS_EXIT"})
 DEFAULT_SAMPLE = 25
 DEFAULT_SEED = 1337
 
+# Canonical size/notional field names written by _enrich_size_notional().
+_CANONICAL_SIZE_FIELD = "position_size"
+_CANONICAL_NOTIONAL_FIELD = "position_notional_usd"
+_NOTIONAL_SOURCE_FIELD = "notional_source"
+_NOTIONAL_MISSING_REASON_FIELD = "notional_missing_reason"
+
+NOTIONAL_SOURCE_DIRECT = "direct"
+NOTIONAL_SOURCE_DERIVED = "derived_from_size_price"
+MISSING_REASON_UPSTREAM = "MISSING_UPSTREAM_FIELDS"
+
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -75,6 +85,15 @@ def _fmt_pct(rate: Optional[float], default: str = "N/A") -> str:
 
 def _fmt_val(value: Any, default: str = "N/A") -> str:
     if value is None:
+        return default
+    return str(value)
+
+
+def _fmt_val_with_reason(value: Any, reason: Any, *, default: str = "N/A") -> str:
+    if value is None:
+        reason_text = str(reason or "").strip()
+        if reason_text:
+            return f"{default} ({reason_text})"
         return default
     return str(value)
 
@@ -227,6 +246,56 @@ def sample_positions(
 # Position enrichment
 # ---------------------------------------------------------------------------
 
+def _enrich_size_notional(pos: Dict[str, Any]) -> None:
+    """Populate canonical position_size and position_notional_usd fields in-place.
+
+    Precedence for position_size (shares):
+      1. pos["position_size"]  — already canonical
+      2. pos["total_bought"]   — dossier.json lifecycle field
+      3. pos["size"]           — trade-level field / legacy
+
+    Precedence for position_notional_usd (USD cost basis):
+      1. pos["position_notional_usd"]  — already canonical
+      2. pos["initialValue"]           — reserved future schema field
+      3. pos["total_cost"]             — dossier.json lifecycle field
+      4. abs(position_size) * entry_price  — derived fallback
+         (sets notional_source = "derived_from_size_price")
+      5. null + notional_missing_reason = "MISSING_UPSTREAM_FIELDS"
+
+    Sets notional_source = "direct" for cases 1-3.
+    """
+    # -- position_size --
+    if pos.get(_CANONICAL_SIZE_FIELD) is None:
+        for key in ("total_bought", "size"):
+            val = _safe_float(pos.get(key))
+            if val is not None:
+                pos[_CANONICAL_SIZE_FIELD] = val
+                break
+
+    # -- position_notional_usd --
+    if pos.get(_CANONICAL_NOTIONAL_FIELD) is None:
+        notional_set = False
+        for key in ("initialValue", "total_cost"):
+            val = _safe_float(pos.get(key))
+            if val is not None:
+                pos[_CANONICAL_NOTIONAL_FIELD] = val
+                pos[_NOTIONAL_SOURCE_FIELD] = NOTIONAL_SOURCE_DIRECT
+                notional_set = True
+                break
+
+        if not notional_set:
+            sz = _safe_float(pos.get(_CANONICAL_SIZE_FIELD))
+            ep = _safe_float(pos.get("entry_price"))
+            if sz is not None and ep is not None:
+                pos[_CANONICAL_NOTIONAL_FIELD] = abs(sz) * ep
+                pos[_NOTIONAL_SOURCE_FIELD] = NOTIONAL_SOURCE_DERIVED
+            else:
+                pos[_CANONICAL_NOTIONAL_FIELD] = None
+                pos[_NOTIONAL_MISSING_REASON_FIELD] = MISSING_REASON_UPSTREAM
+    elif _NOTIONAL_SOURCE_FIELD not in pos:
+        pos[_NOTIONAL_SOURCE_FIELD] = NOTIONAL_SOURCE_DIRECT
+
+
 def _enrich_position_for_audit(pos: Dict[str, Any]) -> Dict[str, Any]:
     """Return an enriched copy of a position with derived fields applied.
 
@@ -264,6 +333,9 @@ def _enrich_position_for_audit(pos: Dict[str, Any]) -> Dict[str, Any]:
     # Always recompute fee fields so audit samples agree with coverage stats.
     _coverage_normalize_fee_fields(enriched)
 
+    # Populate canonical size/notional fields from whatever upstream fields exist.
+    _enrich_size_notional(enriched)
+
     return enriched
 
 
@@ -298,10 +370,75 @@ def _render_position_block(pos: Dict[str, Any]) -> List[str]:
     market_type = _safe_str(pos.get("market_type"))
     entry_price_tier = _safe_str(pos.get("entry_price_tier"))
     resolution_outcome = _safe_str(pos.get("resolution_outcome"))
+    clv_missing_reason = pos.get("clv_missing_reason")
 
     entry_price = _fmt_val(pos.get("entry_price"))
-    size_val = pos.get("size") if pos.get("size") is not None else pos.get("notional")
-    size = _fmt_val(size_val)
+    close_ts = _fmt_val_with_reason(pos.get("close_ts"), clv_missing_reason)
+    close_ts_source = _fmt_val(pos.get("close_ts_source"))
+    closing_price = _fmt_val_with_reason(pos.get("closing_price"), clv_missing_reason)
+    closing_ts_observed = _fmt_val_with_reason(
+        pos.get("closing_ts_observed"),
+        clv_missing_reason,
+    )
+    clv_value = _fmt_val_with_reason(pos.get("clv"), clv_missing_reason)
+    clv_pct = _fmt_val_with_reason(pos.get("clv_pct"), clv_missing_reason)
+    clv_source = _fmt_val_with_reason(pos.get("clv_source"), clv_missing_reason)
+
+    beat_close_raw = pos.get("beat_close")
+    if isinstance(beat_close_raw, bool):
+        beat_close = str(beat_close_raw)
+    else:
+        beat_close = _fmt_val_with_reason(None, clv_missing_reason)
+
+    open_price = _fmt_val_with_reason(
+        pos.get("open_price"),
+        pos.get("open_price_missing_reason"),
+    )
+    open_price_ts = _fmt_val_with_reason(
+        pos.get("open_price_ts"),
+        pos.get("open_price_missing_reason"),
+    )
+    price_1h_before_entry = _fmt_val_with_reason(
+        pos.get("price_1h_before_entry"),
+        pos.get("price_1h_before_entry_missing_reason"),
+    )
+    price_1h_before_entry_ts = _fmt_val_with_reason(
+        pos.get("price_1h_before_entry_ts"),
+        pos.get("price_1h_before_entry_missing_reason"),
+    )
+    price_at_entry = _fmt_val_with_reason(
+        pos.get("price_at_entry"),
+        pos.get("price_at_entry_missing_reason"),
+    )
+    price_at_entry_ts = _fmt_val_with_reason(
+        pos.get("price_at_entry_ts"),
+        pos.get("price_at_entry_missing_reason"),
+    )
+    movement_direction = _fmt_val_with_reason(
+        pos.get("movement_direction"),
+        pos.get("movement_direction_missing_reason"),
+    )
+    minutes_to_close = _fmt_val_with_reason(
+        pos.get("minutes_to_close"),
+        pos.get("minutes_to_close_missing_reason"),
+    )
+
+    # Use canonical size/notional fields populated by _enrich_size_notional().
+    position_size = pos.get(_CANONICAL_SIZE_FIELD)
+    position_notional = pos.get(_CANONICAL_NOTIONAL_FIELD)
+    notional_source = pos.get(_NOTIONAL_SOURCE_FIELD)
+    missing_reason = pos.get(_NOTIONAL_MISSING_REASON_FIELD)
+
+    size = _fmt_val(position_size)  # shares
+
+    if position_notional is not None:
+        notional_str = str(round(position_notional, 4))
+        if notional_source == NOTIONAL_SOURCE_DERIVED:
+            notional_str += f" ({NOTIONAL_SOURCE_DERIVED})"
+    elif missing_reason:
+        notional_str = f"N/A ({missing_reason})"
+    else:
+        notional_str = "N/A"
 
     gross_pnl = _fmt_val(pos.get("gross_pnl"))
     fees_est = _fmt_val(pos.get("fees_estimated"))
@@ -313,10 +450,34 @@ def _render_position_block(pos: Dict[str, Any]) -> List[str]:
         f"  **outcome_name**: {outcome_name}",
         f"  **category**: {category} | **league**: {league} | **sport**: {sport}",
         f"  **market_type**: {market_type} | **entry_price_tier**: {entry_price_tier}",
-        f"  **entry_price**: {entry_price} | **size/notional**: {size}",
+        f"  **entry_price**: {entry_price} | **size/notional**: {size} shs / {notional_str} USD",
         f"  **resolution_outcome**: {resolution_outcome}",
+        f"  **close_ts**: {close_ts} | **close_ts_source**: {close_ts_source}",
+        f"  **closing_price**: {closing_price} | **closing_ts_observed**: {closing_ts_observed}",
+        f"  **clv**: {clv_value} | **clv_pct**: {clv_pct} | **beat_close**: {beat_close}",
+        f"  **clv_source**: {clv_source}",
+        f"  **open_price**: {open_price} | **open_price_ts**: {open_price_ts}",
+        "  **price_1h_before_entry**: "
+        f"{price_1h_before_entry} | **price_1h_before_entry_ts**: {price_1h_before_entry_ts}",
+        f"  **price_at_entry**: {price_at_entry} | **price_at_entry_ts**: {price_at_entry_ts}",
+        f"  **movement_direction**: {movement_direction} | **minutes_to_close**: {minutes_to_close}",
         f"  **gross_pnl**: {gross_pnl} | **fees_estimated**: {fees_est} | **net_estimated_fees**: {net_fees}",
     ]
+
+
+def _compute_size_notional_stats(positions: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Count size/notional coverage over a list of enriched positions."""
+    missing_count = 0
+    derived_count = 0
+    for pos in positions:
+        if pos.get(_CANONICAL_NOTIONAL_FIELD) is None:
+            missing_count += 1
+        elif pos.get(_NOTIONAL_SOURCE_FIELD) == NOTIONAL_SOURCE_DERIVED:
+            derived_count += 1
+    return {
+        "notional_missing_count": missing_count,
+        "notional_derived_count": derived_count,
+    }
 
 
 def _build_quick_stats(
@@ -356,6 +517,22 @@ def _build_quick_stats(
     fees_estimated_count = _safe_int(fees.get("fees_estimated_present_count"))
     fee_source_counts = fees.get("fees_source_counts") or {}
 
+    clv_cov = coverage_report.get("clv_coverage") or {}
+    clv_eligible = _safe_int(clv_cov.get("eligible_positions"))
+    clv_present = _safe_int(clv_cov.get("clv_present_count"))
+    clv_missing = _safe_int(clv_cov.get("clv_missing_count"))
+    clv_rate = _safe_float(clv_cov.get("coverage_rate"))
+    clv_missing_reasons = clv_cov.get("missing_reason_counts") or {}
+
+    entry_context_cov = coverage_report.get("entry_context_coverage") or {}
+    entry_context_eligible = _safe_int(entry_context_cov.get("eligible_positions"))
+    open_price_present = _safe_int(entry_context_cov.get("open_price_present_count"))
+    price_1h_present = _safe_int(entry_context_cov.get("price_1h_before_entry_present_count"))
+    price_at_entry_present = _safe_int(entry_context_cov.get("price_at_entry_present_count"))
+    movement_present = _safe_int(entry_context_cov.get("movement_direction_present_count"))
+    minutes_present = _safe_int(entry_context_cov.get("minutes_to_close_present_count"))
+    entry_context_missing_reasons = entry_context_cov.get("missing_reason_counts") or {}
+
     stats["positions_total"] = positions_total
     stats["resolved_count"] = resolved_count
     stats["pending_count"] = pending_count
@@ -365,6 +542,18 @@ def _build_quick_stats(
     stats["market_metadata_conflicts_count"] = mm_conflicts
     stats["fees_estimated_present_count"] = fees_estimated_count
     stats["fee_source_counts"] = fee_source_counts
+    stats["clv_eligible_positions"] = clv_eligible
+    stats["clv_present_count"] = clv_present
+    stats["clv_missing_count"] = clv_missing
+    stats["clv_coverage_rate"] = clv_rate
+    stats["clv_missing_reason_counts"] = clv_missing_reasons
+    stats["entry_context_eligible_positions"] = entry_context_eligible
+    stats["open_price_present_count"] = open_price_present
+    stats["price_1h_before_entry_present_count"] = price_1h_present
+    stats["price_at_entry_present_count"] = price_at_entry_present
+    stats["movement_direction_present_count"] = movement_present
+    stats["minutes_to_close_present_count"] = minutes_present
+    stats["entry_context_missing_reason_counts"] = entry_context_missing_reasons
     stats["positive_pnl_with_zero_fee_count"] = _count_positive_pnl_with_zero_fee(
         raw_positions or []
     )
@@ -420,6 +609,13 @@ def _build_red_flags(stats: Dict[str, Any]) -> List[str]:
     if mm_conflicts > 0:
         flags.append(
             f"market_metadata_conflicts_count={mm_conflicts} (expected 0)"
+        )
+
+    clv_eligible = stats.get("clv_eligible_positions") or 0
+    clv_rate = stats.get("clv_coverage_rate")
+    if clv_eligible > 0 and clv_rate is not None and clv_rate < 0.30:
+        flags.append(
+            f"clv_coverage_rate={_fmt_pct(clv_rate)} below 30% threshold"
         )
 
     positive_pnl_with_zero_fee_count = stats.get("positive_pnl_with_zero_fee_count") or 0
@@ -530,6 +726,54 @@ def render_report_md(
             lines.append(f"- unknown_market_type_rate: {_fmt_pct(um)}")
             lines.append("")
 
+        lines.append("**CLV Coverage**")
+        lines.append(
+            f"- eligible_positions: {_fmt_val(stats.get('clv_eligible_positions'))}"
+        )
+        lines.append(
+            f"- clv_present_count: {_fmt_val(stats.get('clv_present_count'))}"
+        )
+        lines.append(
+            f"- clv_missing_count: {_fmt_val(stats.get('clv_missing_count'))}"
+        )
+        lines.append(
+            f"- coverage_rate: {_fmt_pct(stats.get('clv_coverage_rate'))}"
+        )
+        clv_reasons = stats.get("clv_missing_reason_counts")
+        if clv_reasons:
+            lines.append(
+                f"- missing_reason_counts: {json.dumps(clv_reasons, separators=(',', ':'))}"
+            )
+        lines.append("")
+
+        lines.append("**Entry Context Coverage**")
+        lines.append(
+            f"- eligible_positions: {_fmt_val(stats.get('entry_context_eligible_positions'))}"
+        )
+        lines.append(
+            f"- open_price_present_count: {_fmt_val(stats.get('open_price_present_count'))}"
+        )
+        lines.append(
+            "- price_1h_before_entry_present_count: "
+            f"{_fmt_val(stats.get('price_1h_before_entry_present_count'))}"
+        )
+        lines.append(
+            f"- price_at_entry_present_count: {_fmt_val(stats.get('price_at_entry_present_count'))}"
+        )
+        lines.append(
+            "- movement_direction_present_count: "
+            f"{_fmt_val(stats.get('movement_direction_present_count'))}"
+        )
+        lines.append(
+            f"- minutes_to_close_present_count: {_fmt_val(stats.get('minutes_to_close_present_count'))}"
+        )
+        entry_context_reasons = stats.get("entry_context_missing_reason_counts")
+        if entry_context_reasons:
+            lines.append(
+                f"- missing_reason_counts: {json.dumps(entry_context_reasons, separators=(',', ':'))}"
+            )
+        lines.append("")
+
         lines.append("**Fee Stats**")
         lines.append(
             f"- fees_estimated_present_count: {_fmt_val(stats.get('fees_estimated_present_count'))}"
@@ -546,6 +790,19 @@ def render_report_md(
         lines.append(
             "- note: fees_estimated is only applied when gross_pnl > 0 "
             "(losses, zero, and pending positions intentionally show fees_estimated=0)."
+        )
+        lines.append("")
+
+        # Size/Notional coverage stats (computed over enriched positions).
+        sn_stats = _compute_size_notional_stats(positions)
+        lines.append("**Size / Notional Coverage**")
+        lines.append(
+            f"- notional_missing_count: {sn_stats['notional_missing_count']}"
+            + (" ⚠ (MISSING_UPSTREAM_FIELDS)" if sn_stats["notional_missing_count"] > 0 else "")
+        )
+        lines.append(
+            f"- notional_derived_count: {sn_stats['notional_derived_count']}"
+            + (" (estimated from size × entry_price)" if sn_stats["notional_derived_count"] > 0 else "")
         )
         lines.append("")
 
@@ -625,6 +882,7 @@ def render_report_json(
         segment_data,
         raw_positions=raw_positions,
     )
+    stats.update(_compute_size_notional_stats(positions))
     flags = _build_red_flags(stats) if coverage_report is not None else []
     sampled = sample_positions(positions, n, seed)
 

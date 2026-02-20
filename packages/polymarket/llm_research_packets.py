@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 DEFAULT_WINDOW_DAYS = 30
 DEFAULT_MAX_TRADES = 200
 DEFAULT_TREND_POINTS = 7
+CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT = 200
 
 NOTIONAL_BUCKETS = [
     {"label": "0-25", "min": 0, "max": 25},
@@ -235,33 +236,155 @@ def _table_non_empty_category_count(clickhouse_client: Any, table_name: str) -> 
             return 0
 
 
-def _resolve_category_tokens_table(clickhouse_client: Any) -> Optional[str]:
-    """Pick the best available category source table.
+def _table_non_empty_category_count_for_tokens(
+    clickhouse_client: Any,
+    table_name: str,
+    token_ids: List[str],
+) -> int:
+    """Return non-empty category count for the provided token_ids."""
+    if not token_ids:
+        return 0
+    try:
+        result = clickhouse_client.query(
+            f"""
+            SELECT countIf(category != '')
+            FROM {table_name}
+            WHERE token_id IN {{tokens:Array(String)}}
+            """,
+            parameters={"tokens": token_ids},
+        )
+    except Exception:
+        return 0
 
-    Preference order:
-      1) Any available table with non-empty category rows.
-      2) If both tables are empty, first existing table (legacy deterministic behavior).
-    """
+    rows = getattr(result, "result_rows", None) or []
+    if not rows or not rows[0]:
+        return 0
+
+    value = rows[0][0]
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _resolve_run_category_probe_token_ids(
+    clickhouse_client: Any,
+    proxy_wallet: str,
+    *,
+    sample_limit: int = CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT,
+) -> List[str]:
+    """Fetch a bounded, run-scoped token sample from lifecycle rows."""
+    limit = max(1, int(sample_limit))
+    query_templates = (
+        f"""
+        SELECT DISTINCT resolved_token_id
+        FROM user_trade_lifecycle_enriched
+        WHERE proxy_wallet = {{wallet:String}}
+          AND resolved_token_id != ''
+        ORDER BY resolved_token_id ASC
+        LIMIT {limit}
+        """,
+        f"""
+        SELECT DISTINCT resolved_token_id
+        FROM user_trade_lifecycle
+        WHERE proxy_wallet = {{wallet:String}}
+          AND resolved_token_id != ''
+        ORDER BY resolved_token_id ASC
+        LIMIT {limit}
+        """,
+    )
+    for query in query_templates:
+        try:
+            result = clickhouse_client.query(query, parameters={"wallet": proxy_wallet})
+        except Exception:
+            continue
+
+        token_ids: List[str] = []
+        seen: set[str] = set()
+        for row in getattr(result, "result_rows", None) or []:
+            if not row:
+                continue
+            token_id = str(row[0] or "").strip()
+            if token_id and token_id not in seen:
+                seen.add(token_id)
+                token_ids.append(token_id)
+        if token_ids:
+            return token_ids
+    return []
+
+
+def _resolve_category_tokens_table(
+    clickhouse_client: Any,
+    run_token_ids: Optional[List[str]] = None,
+) -> tuple[Optional[str], str, Dict[str, int]]:
+    """Pick category source table by run-scoped coverage, then deterministic fallback."""
     existing_tables = [
         table_name
         for table_name in ("polymarket_tokens", "market_tokens")
         if _table_exists(clickhouse_client, table_name)
     ]
     if not existing_tables:
-        return None
+        return None, "none_available", {}
+
+    normalized_run_token_ids = list(
+        dict.fromkeys(
+            str(token or "").strip()
+            for token in (run_token_ids or [])
+            if str(token or "").strip()
+        )
+    )
+    run_counts: Dict[str, int] = {}
+
+    if normalized_run_token_ids:
+        for table_name in existing_tables:
+            run_counts[table_name] = _table_non_empty_category_count_for_tokens(
+                clickhouse_client,
+                table_name,
+                normalized_run_token_ids,
+            )
+
+        best_count = max(run_counts.values(), default=0)
+        best_tables = [
+            table_name
+            for table_name in existing_tables
+            if run_counts.get(table_name, 0) == best_count
+        ]
+        if best_count > 0 and len(best_tables) == 1:
+            return best_tables[0], "run_scoped_best_coverage", run_counts
+        if best_count > 0 and len(best_tables) > 1:
+            return best_tables[0], "run_scoped_tie_fallback", run_counts
 
     for table_name in existing_tables:
         if _table_non_empty_category_count(clickhouse_client, table_name) > 0:
-            return table_name
+            if normalized_run_token_ids:
+                return table_name, "none_available", run_counts
+            return table_name, "global_nonempty_fallback", run_counts
 
-    return existing_tables[0]
+    if normalized_run_token_ids:
+        return existing_tables[0], "none_available", run_counts
+    return existing_tables[0], "global_empty_fallback", run_counts
 
 
-def _build_category_join_sql(clickhouse_client: Any) -> tuple[str, str]:
-    """Return (select_expr, join_sql) for category enrichment."""
-    category_table = _resolve_category_tokens_table(clickhouse_client)
+def _build_category_join_sql(
+    clickhouse_client: Any,
+    *,
+    proxy_wallet: str,
+) -> tuple[str, str, str, str, Dict[str, int], int]:
+    """Return category join SQL plus selection metadata for explainability."""
+    run_token_ids = _resolve_run_category_probe_token_ids(
+        clickhouse_client,
+        proxy_wallet,
+        sample_limit=CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT,
+    )
+    category_table, category_source_reason, run_counts = _resolve_category_tokens_table(
+        clickhouse_client,
+        run_token_ids=run_token_ids,
+    )
     if not category_table:
-        return "'' AS category", ""
+        return "'' AS category", "", "", category_source_reason, run_counts, len(run_token_ids)
     return (
         "COALESCE(mt.category, '') AS category",
         f"""
@@ -271,7 +394,65 @@ def _build_category_join_sql(clickhouse_client: Any) -> tuple[str, str]:
             GROUP BY token_id
         ) mt ON l.resolved_token_id = mt.token_id
         """,
+        category_table,
+        category_source_reason,
+        run_counts,
+        len(run_token_ids),
     )
+
+
+def _build_close_ts_join_sql(
+    clickhouse_client: Any,
+) -> tuple[str, str]:
+    """Return optional JOIN/select SQL that exposes close-ts fallback columns."""
+    has_market_tokens = _table_exists(clickhouse_client, "market_tokens")
+    has_markets_enriched = _table_exists(clickhouse_client, "markets_enriched")
+
+    select_parts = [
+        "NULL AS gamma_close_date_iso",
+        "NULL AS gamma_end_date_iso",
+        "NULL AS gamma_uma_end_date",
+    ]
+    join_parts: list[str] = []
+
+    if has_market_tokens:
+        select_parts[1] = "mt_close.end_date_iso AS gamma_end_date_iso"
+        join_parts.append(
+            """
+        LEFT JOIN (
+            SELECT
+                token_id,
+                any(condition_id) AS condition_id,
+                any(end_date_iso) AS end_date_iso
+            FROM market_tokens
+            GROUP BY token_id
+        ) mt_close ON l.resolved_token_id = mt_close.token_id
+        """
+        )
+
+    if has_market_tokens and has_markets_enriched:
+        select_parts[0] = "me_close.close_date_iso AS gamma_close_date_iso"
+        join_parts.append(
+            """
+        LEFT JOIN (
+            SELECT
+                condition_id,
+                any(close_date_iso) AS close_date_iso
+            FROM markets_enriched
+            GROUP BY condition_id
+        ) me_close ON if(
+            startsWith(lowerUTF8(trimBoth(mt_close.condition_id)), '0x'),
+            concat('0x', substring(lowerUTF8(trimBoth(mt_close.condition_id)), 3)),
+            concat('0x', lowerUTF8(trimBoth(mt_close.condition_id)))
+        ) = if(
+            startsWith(lowerUTF8(trimBoth(me_close.condition_id)), '0x'),
+            concat('0x', substring(lowerUTF8(trimBoth(me_close.condition_id)), 3)),
+            concat('0x', lowerUTF8(trimBoth(me_close.condition_id)))
+        )
+        """
+        )
+
+    return ",\n            ".join(select_parts), "\n".join(join_parts)
 
 
 def normalize_position_for_export(position: Dict[str, Any], now_ts: datetime) -> Dict[str, Any]:
@@ -1173,7 +1354,22 @@ def export_user_dossier(
 
     # Fetch position lifecycle with resolution data.
     # Prefer the enriched lifecycle view (Roadmap 3), then fall back to legacy.
-    category_select_sql, category_join_sql = _build_category_join_sql(clickhouse_client)
+    (
+        category_select_sql,
+        category_join_sql,
+        category_source_table,
+        category_source_reason,
+        category_source_run_counts,
+        category_source_probe_token_count,
+    ) = _build_category_join_sql(
+        clickhouse_client,
+        proxy_wallet=proxy_wallet,
+    )
+    close_ts_select_sql, close_ts_join_sql = _build_close_ts_join_sql(clickhouse_client)
+    coverage["category_source"] = category_source_reason
+    coverage["category_source_table"] = category_source_table
+    coverage["category_source_run_probe_token_count"] = category_source_probe_token_count
+    coverage["category_source_run_non_empty_counts"] = category_source_run_counts
     positions_lifecycle_enriched_query = f"""
         SELECT
             l.resolved_token_id,
@@ -1202,9 +1398,11 @@ def export_user_dossier(
             l.fees_actual,
             l.fees_estimated,
             l.fees_source,
-            {category_select_sql}
+            {category_select_sql},
+            {close_ts_select_sql}
         FROM user_trade_lifecycle_enriched l
         {category_join_sql}
+        {close_ts_join_sql}
         WHERE l.proxy_wallet = {{wallet:String}}
         ORDER BY l.entry_ts DESC
         LIMIT 100
@@ -1228,9 +1426,11 @@ def export_user_dossier(
             l.trade_count,
             l.buy_count,
             l.sell_count,
-            {category_select_sql}
+            {category_select_sql},
+            {close_ts_select_sql}
         FROM user_trade_lifecycle l
         {category_join_sql}
+        {close_ts_join_sql}
         WHERE l.proxy_wallet = {{wallet:String}}
         ORDER BY l.entry_ts DESC
         LIMIT 100
@@ -1257,7 +1457,7 @@ def export_user_dossier(
         for row in positions_lifecycle_result.result_rows:
             try:
                 if using_enriched_view:
-                    if len(row) != 27:
+                    if len(row) != 30:
                         continue
                     (
                         resolved_token_id,
@@ -1287,9 +1487,12 @@ def export_user_dossier(
                         fees_estimated_raw,
                         fees_source_raw,
                         category_raw,
+                        gamma_close_date_iso_raw,
+                        gamma_end_date_iso_raw,
+                        gamma_uma_end_date_raw,
                     ) = row
                 else:
-                    if len(row) != 18:
+                    if len(row) != 21:
                         continue
                     (
                         resolved_token_id,
@@ -1310,6 +1513,9 @@ def export_user_dossier(
                         buy_count_raw,
                         sell_count_raw,
                         category_raw,
+                        gamma_close_date_iso_raw,
+                        gamma_end_date_iso_raw,
+                        gamma_uma_end_date_raw,
                     ) = row
                     settlement_price_raw = None
                     resolved_at_raw = None
@@ -1423,6 +1629,13 @@ def export_user_dossier(
                     "fees_source": fees_source_val,
                     "realized_pnl_net": _round_value(realized_pnl_net),
                     "category": category_val,
+                    # Close-ts fallback fields used by CLV ladder when resolved_at is absent.
+                    "gamma_close_date_iso": _optional_isoformat(gamma_close_date_iso_raw),
+                    "close_date_iso": _optional_isoformat(gamma_close_date_iso_raw),
+                    "gamma_end_date_iso": _optional_isoformat(gamma_end_date_iso_raw),
+                    "end_date_iso": _optional_isoformat(gamma_end_date_iso_raw),
+                    "gamma_uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
+                    "uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
                 }
                 positions_lifecycle_rows.append(
                     normalize_position_for_export(position_row, now_ts=generated_at)

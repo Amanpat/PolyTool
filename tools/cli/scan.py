@@ -11,10 +11,16 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
+
+try:
+    import clickhouse_connect
+except ImportError:  # pragma: no cover - optional at runtime
+    clickhouse_connect = None  # type: ignore
 
 from polytool.reports.coverage import (
     build_coverage_report,
@@ -25,6 +31,22 @@ from polytool.reports.manifest import build_run_manifest, write_run_manifest
 from tools.cli.audit_coverage import (
     DEFAULT_SEED as DEFAULT_AUDIT_SEED,
     write_audit_coverage_report,
+)
+from packages.polymarket.clob import ClobClient
+from packages.polymarket.clv import (
+    DEFAULT_CLOSING_WINDOW_SECONDS,
+    DEFAULT_PRICES_FIDELITY,
+    DEFAULT_PRICES_INTERVAL,
+    MISSING_REASON_AUTH_MISSING,
+    MISSING_REASON_OFFLINE,
+    classify_prices_history_error,
+    clv_recommended_next_action,
+    enrich_positions_with_clv,
+    format_prices_history_error_detail,
+    normalize_prices_fidelity_minutes,
+    resolve_close_ts,
+    resolve_outcome_token_id,
+    warm_clv_snapshot_cache,
 )
 
 try:
@@ -53,6 +75,15 @@ DEFAULT_FEE_SOURCE_LABEL = "estimated"
 MAX_BODY_SNIPPET = 800
 TRUST_ARTIFACT_WINDOW_DAYS = 30
 TRUST_ARTIFACT_MAX_TRADES = 200
+DEFAULT_COMPUTE_CLV = False
+DEFAULT_WARM_CLV_CACHE = False
+DEFAULT_CLV_ONLINE = True
+DEFAULT_CLV_WINDOW_MINUTES = int(DEFAULT_CLOSING_WINDOW_SECONDS / 60)
+DEFAULT_CLV_INTERVAL = DEFAULT_PRICES_INTERVAL
+DEFAULT_CLV_FIDELITY = DEFAULT_PRICES_FIDELITY
+DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
+DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
+DEFAULT_CLOB_API_BASE = "https://clob.polymarket.com"
 
 
 class ApiError(Exception):
@@ -160,6 +191,44 @@ def apply_env_defaults(env: Dict[str, str]) -> None:
     """Populate os.environ with defaults from .env without overriding existing vars."""
     for key, value in env.items():
         os.environ.setdefault(key, value)
+
+
+def _running_in_docker() -> bool:
+    if os.environ.get("POLYTOOL_IN_DOCKER") == "1":
+        return True
+    return Path("/.dockerenv").exists()
+
+
+def _resolve_clickhouse_host() -> str:
+    host = os.environ.get("CLICKHOUSE_HOST")
+    if host:
+        return host
+    return "clickhouse" if _running_in_docker() else "localhost"
+
+
+def _resolve_clickhouse_port() -> int:
+    port = os.environ.get("CLICKHOUSE_PORT") or os.environ.get("CLICKHOUSE_HTTP_PORT")
+    return int(port) if port else 8123
+
+
+def _resolve_clickhouse_database() -> str:
+    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polyttool"
+
+
+def _get_clickhouse_client():
+    if clickhouse_connect is None:
+        return None
+    try:
+        return clickhouse_connect.get_client(
+            host=_resolve_clickhouse_host(),
+            port=_resolve_clickhouse_port(),
+            username=os.getenv("CLICKHOUSE_USER", DEFAULT_CLICKHOUSE_USER),
+            password=os.getenv("CLICKHOUSE_PASSWORD", DEFAULT_CLICKHOUSE_PASSWORD),
+            database=_resolve_clickhouse_database(),
+        )
+    except Exception as exc:
+        print(f"Warning: Could not connect to ClickHouse for CLV cache: {exc}", file=sys.stderr)
+        return None
 
 
 def parse_bool(value: Optional[str], key: str) -> Optional[bool]:
@@ -286,6 +355,37 @@ def _now_utc_iso() -> str:
 def _debug_export(config: Dict[str, Any], message: str) -> None:
     if config.get("debug_export"):
         print(f"[debug-export] {message}", file=sys.stderr)
+
+
+def _extract_gamma_markets_sample(ingest_markets_response: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(ingest_markets_response, dict):
+        return None
+    sample = ingest_markets_response.get("gamma_markets_sample")
+    if isinstance(sample, dict):
+        return sample
+    return None
+
+
+def _write_gamma_markets_sample(
+    *,
+    output_dir: Path,
+    config: Dict[str, Any],
+    ingest_markets_response: Optional[Dict[str, Any]],
+) -> Optional[Path]:
+    if not config.get("debug_export"):
+        return None
+    sample = _extract_gamma_markets_sample(ingest_markets_response)
+    if sample is None:
+        _debug_export(config, "gamma_markets_sample unavailable in ingest-markets response")
+        return None
+
+    output_path = output_dir / "gamma_markets_sample.json"
+    output_path.write_text(
+        json.dumps(sample, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
+    _debug_export(config, f"gamma_markets_sample_path={output_path}")
+    return output_path
 
 
 def _coerce_non_negative_int(value: Any) -> int:
@@ -574,6 +674,62 @@ def _load_dossier_positions(dossier_root: Path) -> list[dict[str, Any]]:
     return normalized
 
 
+def _load_dossier_json(dossier_root: Path) -> Dict[str, Any]:
+    dossier_json_path = dossier_root / "dossier.json"
+    if not dossier_json_path.exists():
+        raise TrustArtifactError(f"Missing dossier.json at {dossier_json_path}")
+    try:
+        dossier = json.loads(dossier_json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise TrustArtifactError(f"Invalid dossier JSON at {dossier_json_path}: {exc}") from exc
+    if not isinstance(dossier, dict):
+        raise TrustArtifactError(f"dossier.json at {dossier_json_path} is not a JSON object")
+    return dossier
+
+
+def _replace_positions_payload(dossier: Dict[str, Any], positions: list[dict[str, Any]]) -> None:
+    """Replace dossier position payload while preserving existing shape when possible."""
+    replacement = [dict(pos) for pos in positions]
+
+    positions_section = dossier.get("positions")
+    if isinstance(positions_section, dict):
+        if "positions" in positions_section or isinstance(positions_section.get("positions"), list):
+            positions_section["positions"] = replacement
+            positions_section["count"] = len(replacement)
+            dossier["positions"] = positions_section
+            return
+        if "items" in positions_section or isinstance(positions_section.get("items"), list):
+            positions_section["items"] = replacement
+            positions_section["count"] = len(replacement)
+            dossier["positions"] = positions_section
+            return
+    elif isinstance(positions_section, list):
+        dossier["positions"] = replacement
+        return
+
+    for key in ("positions_lifecycle", "position_lifecycle", "position_lifecycles"):
+        alt = dossier.get(key)
+        if isinstance(alt, list):
+            dossier[key] = replacement
+            return
+        if isinstance(alt, dict):
+            if "positions" in alt or isinstance(alt.get("positions"), list):
+                alt["positions"] = replacement
+                alt["count"] = len(replacement)
+                dossier[key] = alt
+                return
+
+    dossier["positions"] = {"count": len(replacement), "positions": replacement}
+
+
+def _write_dossier_json(dossier_root: Path, dossier: Dict[str, Any]) -> None:
+    dossier_json_path = dossier_root / "dossier.json"
+    dossier_json_path.write_text(
+        json.dumps(dossier, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
+
+
 def _hydrate_dossier_from_history_if_needed(
     output_dir: Path,
     config: Dict[str, Any],
@@ -812,12 +968,241 @@ def _build_metadata_map_from_positions(
     }
 
 
+def _build_clob_auth_headers() -> Dict[str, str]:
+    """Build optional CLOB auth headers from env without exposing secret values."""
+    headers: Dict[str, str] = {}
+
+    raw_header_name = str(os.getenv("CLOB_AUTH_HEADER") or "").strip()
+    raw_header_value = str(os.getenv("CLOB_AUTH_VALUE") or "").strip()
+    if raw_header_name and raw_header_value:
+        headers[raw_header_name] = raw_header_value
+
+    bearer = str(
+        os.getenv("CLOB_API_BEARER_TOKEN")
+        or os.getenv("CLOB_API_KEY")
+        or ""
+    ).strip()
+    if bearer and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {bearer}"
+
+    x_api_key = str(os.getenv("CLOB_X_API_KEY") or "").strip()
+    if x_api_key and "X-API-Key" not in headers:
+        headers["X-API-Key"] = x_api_key
+
+    return headers
+
+
+def _build_clv_runtime(config: Dict[str, Any]) -> Dict[str, Any]:
+    clickhouse_client = _get_clickhouse_client()
+    clv_online = bool(config.get("clv_online", DEFAULT_CLV_ONLINE))
+    clob_headers = _build_clob_auth_headers()
+    clob_client = (
+        ClobClient(
+            base_url=os.getenv("CLOB_API_BASE", DEFAULT_CLOB_API_BASE),
+            default_headers=clob_headers,
+        )
+        if clv_online
+        else None
+    )
+
+    clv_window_minutes = int(config.get("clv_window_minutes") or DEFAULT_CLV_WINDOW_MINUTES)
+    clv_window_seconds = max(clv_window_minutes, 1) * 60
+    clv_interval = str(config.get("clv_interval") or DEFAULT_CLV_INTERVAL).strip() or DEFAULT_CLV_INTERVAL
+    clv_fidelity = normalize_prices_fidelity_minutes(
+        config.get("clv_fidelity", DEFAULT_CLV_FIDELITY)
+    )
+
+    return {
+        "clickhouse_client": clickhouse_client,
+        "clob_client": clob_client,
+        "clv_online": clv_online,
+        "clv_window_seconds": clv_window_seconds,
+        "clv_interval": clv_interval,
+        "clv_fidelity": clv_fidelity,
+    }
+
+
+def _extract_prices_history_points_count(payload: Any) -> int:
+    if isinstance(payload, list):
+        return len(payload)
+    if not isinstance(payload, dict):
+        return 0
+    for key in ("history", "prices", "priceHistory", "prices_history", "data", "result"):
+        candidate = payload.get(key)
+        if isinstance(candidate, list):
+            return len(candidate)
+    return 0
+
+
+def _select_clv_preflight_probe(positions: list[Dict[str, Any]]) -> tuple[Optional[str], Optional[datetime]]:
+    for pos in positions:
+        token_id = resolve_outcome_token_id(pos)
+        close_ts, _ = resolve_close_ts(pos)
+        if token_id and close_ts is not None:
+            return token_id, close_ts
+    return None, None
+
+
+def _run_clv_preflight(
+    *,
+    output_dir: Path,
+    positions: list[Dict[str, Any]],
+    clob_client: Any,
+    clv_online: bool,
+    clv_interval: str,
+    clv_fidelity: int,
+) -> Dict[str, Any]:
+    endpoint_used = "/prices-history"
+    auth_present = bool(
+        clob_client is not None
+        and getattr(clob_client, "has_auth_headers", lambda: False)()
+    )
+    payload: Dict[str, Any] = {
+        "generated_at": _now_utc_iso(),
+        "endpoint_used": endpoint_used,
+        "clv_online": bool(clv_online),
+        "clv_interval": clv_interval,
+        "clv_fidelity_minutes": int(clv_fidelity),
+        "auth_present": auth_present,
+        "preflight_ok": False,
+        "error_class": None,
+        "recommended_next_action": None,
+    }
+
+    if not clv_online:
+        payload["error_class"] = MISSING_REASON_OFFLINE
+        payload["recommended_next_action"] = clv_recommended_next_action(MISSING_REASON_OFFLINE)
+    elif clob_client is None:
+        payload["error_class"] = MISSING_REASON_AUTH_MISSING
+        payload["recommended_next_action"] = clv_recommended_next_action(MISSING_REASON_AUTH_MISSING)
+    else:
+        token_id, close_ts = _select_clv_preflight_probe(positions)
+        payload["probe_token_id"] = token_id
+        payload["probe_close_ts"] = close_ts.replace(microsecond=0).isoformat() if close_ts else None
+        if not token_id or close_ts is None:
+            payload["error_class"] = "NO_ELIGIBLE_POSITION"
+            payload["recommended_next_action"] = (
+                "No eligible position with token_id + close_ts was available for preflight. "
+                "Run with --enrich-resolutions and ensure at least one resolved market is present."
+            )
+        else:
+            try:
+                probe_start = close_ts - timedelta(minutes=5)
+                response_payload = clob_client.get_prices_history(
+                    token_id=token_id,
+                    start_ts=probe_start,
+                    end_ts=close_ts,
+                    fidelity=clv_fidelity,
+                )
+                payload["preflight_ok"] = True
+                payload["error_class"] = None
+                payload["response_points_count"] = _extract_prices_history_points_count(response_payload)
+                payload["recommended_next_action"] = (
+                    "Preflight succeeded. Proceed with CLV compute or warm-cache."
+                )
+            except Exception as exc:
+                reason = classify_prices_history_error(exc)
+                payload["error_class"] = reason
+                payload["recommended_next_action"] = clv_recommended_next_action(reason)
+                payload["error_detail"] = format_prices_history_error_detail(exc)
+
+    output_path = output_dir / "clv_preflight.json"
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
+    return {
+        "path": output_path.as_posix(),
+        "payload": payload,
+    }
+
+
+def _run_clv_warm_cache(
+    *,
+    output_dir: Path,
+    positions: list[Dict[str, Any]],
+    clickhouse_client: Any,
+    clob_client: Any,
+    clv_online: bool,
+    clv_window_seconds: int,
+    clv_interval: str,
+    clv_fidelity: int,
+) -> Dict[str, Any]:
+    summary = warm_clv_snapshot_cache(
+        positions,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=clv_online,
+        closing_window_seconds=clv_window_seconds,
+        interval=clv_interval,
+        fidelity=clv_fidelity,
+    )
+    payload = {
+        "generated_at": _now_utc_iso(),
+        "online_enabled": bool(clv_online),
+        **summary,
+    }
+    output_path = output_dir / "clv_warm_cache_summary.json"
+    output_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False),
+        encoding="utf-8",
+    )
+    print(
+        "CLV warm-cache: "
+        f"attempted={payload.get('attempted', 0)}, "
+        f"succeeded={payload.get('succeeded', 0)}, "
+        f"failed={payload.get('failed', 0)}",
+        file=sys.stderr,
+    )
+    return {
+        "path": output_path.as_posix(),
+        "payload": payload,
+    }
+
+
+def _apply_clv_enrichment(
+    *,
+    output_dir: Path,
+    positions: list[Dict[str, Any]],
+    clickhouse_client: Any,
+    clob_client: Any,
+    clv_online: bool,
+    clv_window_seconds: int,
+    clv_interval: str,
+    clv_fidelity: int,
+) -> Dict[str, Any]:
+    """Enrich positions with CLV fields and persist back to dossier.json."""
+    summary = enrich_positions_with_clv(
+        positions,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=clv_online,
+        closing_window_seconds=clv_window_seconds,
+        interval=clv_interval,
+        fidelity=clv_fidelity,
+    )
+    print(
+        "CLV enrichment: "
+        f"positions={summary.get('positions_total', 0)}, "
+        f"present={summary.get('clv_present_count', 0)}, "
+        f"missing={summary.get('clv_missing_count', 0)}, "
+        f"online={clv_online}",
+        file=sys.stderr,
+    )
+
+    dossier = _load_dossier_json(output_dir)
+    _replace_positions_payload(dossier, positions)
+    _write_dossier_json(output_dir, dossier)
+    return summary
+
+
 def _emit_trust_artifacts(
     config: Dict[str, Any],
     argv: list[str],
     started_at: str,
     resolve_response: Dict[str, Any],
     dossier_export_response: Dict[str, Any],
+    ingest_markets_response: Optional[Dict[str, Any]] = None,
     resolution_enrichment_response: Optional[Dict[str, Any]] = None,
     effective_enrichment_config: Optional[Dict[str, int]] = None,
     enrichment_request_payload: Optional[Dict[str, Any]] = None,
@@ -855,6 +1240,47 @@ def _emit_trust_artifacts(
         else 0
     )
     positions = _load_dossier_positions(output_dir)
+    clv_preflight_artifact: Optional[Dict[str, Any]] = None
+    clv_warm_cache_artifact: Optional[Dict[str, Any]] = None
+    clv_runtime: Optional[Dict[str, Any]] = None
+    if bool(config.get("compute_clv", DEFAULT_COMPUTE_CLV)) or bool(
+        config.get("warm_clv_cache", DEFAULT_WARM_CLV_CACHE)
+    ):
+        clv_runtime = _build_clv_runtime(config)
+
+    if bool(config.get("compute_clv", DEFAULT_COMPUTE_CLV)) and clv_runtime is not None:
+        clv_preflight_artifact = _run_clv_preflight(
+            output_dir=output_dir,
+            positions=positions,
+            clob_client=clv_runtime["clob_client"],
+            clv_online=bool(clv_runtime["clv_online"]),
+            clv_interval=str(clv_runtime["clv_interval"]),
+            clv_fidelity=int(clv_runtime["clv_fidelity"]),
+        )
+
+    if bool(config.get("warm_clv_cache", DEFAULT_WARM_CLV_CACHE)) and clv_runtime is not None:
+        clv_warm_cache_artifact = _run_clv_warm_cache(
+            output_dir=output_dir,
+            positions=positions,
+            clickhouse_client=clv_runtime["clickhouse_client"],
+            clob_client=clv_runtime["clob_client"],
+            clv_online=bool(clv_runtime["clv_online"]),
+            clv_window_seconds=int(clv_runtime["clv_window_seconds"]),
+            clv_interval=str(clv_runtime["clv_interval"]),
+            clv_fidelity=int(clv_runtime["clv_fidelity"]),
+        )
+
+    if bool(config.get("compute_clv", DEFAULT_COMPUTE_CLV)) and clv_runtime is not None:
+        _apply_clv_enrichment(
+            output_dir=output_dir,
+            positions=positions,
+            clickhouse_client=clv_runtime["clickhouse_client"],
+            clob_client=clv_runtime["clob_client"],
+            clv_online=bool(clv_runtime["clv_online"]),
+            clv_window_seconds=int(clv_runtime["clv_window_seconds"]),
+            clv_interval=str(clv_runtime["clv_interval"]),
+            clv_fidelity=int(clv_runtime["clv_fidelity"]),
+        )
     # Build a local market-metadata map from positions that already carry metadata.
     # When backfill is enabled this lets the coverage builder fill in missing
     # market_slug/question/outcome_name from sibling records in the same dossier.
@@ -889,6 +1315,32 @@ def _emit_trust_artifacts(
     if not isinstance(warnings, list):
         warnings = []
         coverage_report["warnings"] = warnings
+
+    if clv_preflight_artifact is not None:
+        preflight_payload = clv_preflight_artifact.get("payload", {})
+        preflight_ok = bool(preflight_payload.get("preflight_ok"))
+        if not preflight_ok:
+            error_class = str(preflight_payload.get("error_class") or "UNKNOWN")
+            next_action = str(preflight_payload.get("recommended_next_action") or "").strip()
+            warning = f"clv_preflight_failed: error_class={error_class}"
+            if next_action:
+                warning = f"{warning}. {next_action}"
+            if warning not in warnings:
+                warnings.append(warning)
+            print(f"Warning: {warning}", file=sys.stderr)
+
+    if clv_warm_cache_artifact is not None:
+        warm_payload = clv_warm_cache_artifact.get("payload", {})
+        warm_failed = _coerce_non_negative_int(warm_payload.get("failed"))
+        if warm_failed > 0:
+            reasons = warm_payload.get("failure_reason_counts") or {}
+            warning = (
+                "clv_warm_cache_failures: "
+                f"failed={warm_failed}, reasons={json.dumps(reasons, separators=(',', ':'))}"
+            )
+            if warning not in warnings:
+                warnings.append(warning)
+            print(f"Warning: {warning}", file=sys.stderr)
 
     if hydration_meta.get("history_positions_fallback_used"):
         endpoints_text = ", ".join(endpoints_used) if endpoints_used else "(none)"
@@ -996,6 +1448,12 @@ def _emit_trust_artifacts(
         json.dumps(parity_debug, indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    gamma_sample_path = _write_gamma_markets_sample(
+        output_dir=output_dir,
+        config=config,
+        ingest_markets_response=ingest_markets_response,
+    )
+
     raw_seed = config.get("audit_seed")
     audit_seed = raw_seed if isinstance(raw_seed, int) else DEFAULT_AUDIT_SEED
     audit_sample = config.get("audit_sample")  # None => all positions; int => sample
@@ -1020,6 +1478,12 @@ def _emit_trust_artifacts(
         "segment_analysis_json": segment_analysis_path.as_posix(),
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
+    if clv_preflight_artifact is not None:
+        output_paths["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
+    if clv_warm_cache_artifact is not None:
+        output_paths["clv_warm_cache_summary_json"] = str(clv_warm_cache_artifact.get("path"))
+    if gamma_sample_path is not None:
+        output_paths["gamma_markets_sample_json"] = gamma_sample_path.as_posix()
     if "md" in coverage_paths:
         output_paths["coverage_reconciliation_report_md"] = coverage_paths["md"]
     output_paths["audit_coverage_report_md"] = audit_report_path.as_posix()
@@ -1043,6 +1507,10 @@ def _emit_trust_artifacts(
         effective_config=effective_config,
         finished_at=_now_utc_iso(),
     )
+    manifest["diagnostics"] = {
+        "clv_preflight": (clv_preflight_artifact or {}).get("payload"),
+        "clv_warm_cache": (clv_warm_cache_artifact or {}).get("payload"),
+    }
     manifest_path = write_run_manifest(manifest, output_dir)
 
     emitted = {
@@ -1051,6 +1519,12 @@ def _emit_trust_artifacts(
         "run_manifest": Path(manifest_path).as_posix(),
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
     }
+    if clv_preflight_artifact is not None:
+        emitted["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
+    if clv_warm_cache_artifact is not None:
+        emitted["clv_warm_cache_summary_json"] = str(clv_warm_cache_artifact.get("path"))
+    if gamma_sample_path is not None:
+        emitted["gamma_markets_sample_json"] = gamma_sample_path.as_posix()
     if "md" in coverage_paths:
         emitted["coverage_reconciliation_report_md"] = coverage_paths["md"]
     if audit_report_path is not None:
@@ -1121,6 +1595,36 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--compute-clv",
+        action="store_true",
+        default=None,
+        help=(
+            "Compute per-position CLV fields from cache-first CLOB /prices-history "
+            "and persist into dossier + coverage artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--warm-clv-cache",
+        action="store_true",
+        default=None,
+        help=(
+            "Warm market_price_snapshots via bounded /prices-history fetches before CLV compute. "
+            "Writes a warm-cache summary artifact and never blocks the scan."
+        ),
+    )
+    parser.add_argument(
+        "--clv-offline",
+        action="store_true",
+        default=None,
+        help="Disable live /prices-history fetches; resolve CLV from ClickHouse cache only.",
+    )
+    parser.add_argument(
+        "--clv-window-minutes",
+        type=int,
+        metavar="MINUTES",
+        help=f"Closing-price lookback window in minutes (default: {DEFAULT_CLV_WINDOW_MINUTES}).",
+    )
+    parser.add_argument(
         "--resolution-max-candidates",
         type=int,
         help="Hard cap on tokens to enrich (default: 500)",
@@ -1184,6 +1688,15 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     env_enrich_resolutions = parse_bool(
         os.getenv("SCAN_ENRICH_RESOLUTIONS"), "SCAN_ENRICH_RESOLUTIONS"
     )
+    env_compute_clv = parse_bool(os.getenv("SCAN_COMPUTE_CLV"), "SCAN_COMPUTE_CLV")
+    env_warm_clv_cache = parse_bool(os.getenv("SCAN_WARM_CLV_CACHE"), "SCAN_WARM_CLV_CACHE")
+    env_clv_offline = parse_bool(os.getenv("SCAN_CLV_OFFLINE"), "SCAN_CLV_OFFLINE")
+    env_clv_window_minutes = parse_int(
+        os.getenv("SCAN_CLV_WINDOW_MINUTES"),
+        "SCAN_CLV_WINDOW_MINUTES",
+    )
+    env_clv_interval = os.getenv("SCAN_CLV_INTERVAL")
+    env_clv_fidelity = os.getenv("SCAN_CLV_FIDELITY")
     env_resolution_max_candidates = parse_int(
         os.getenv("SCAN_RESOLUTION_MAX_CANDIDATES"),
         "SCAN_RESOLUTION_MAX_CANDIDATES",
@@ -1262,6 +1775,37 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         enrich_resolutions = DEFAULT_ENRICH_RESOLUTIONS
 
+    if args.compute_clv is True:
+        compute_clv = True
+    elif env_compute_clv is not None:
+        compute_clv = env_compute_clv
+    else:
+        compute_clv = DEFAULT_COMPUTE_CLV
+
+    if args.warm_clv_cache is True:
+        warm_clv_cache = True
+    elif env_warm_clv_cache is not None:
+        warm_clv_cache = env_warm_clv_cache
+    else:
+        warm_clv_cache = DEFAULT_WARM_CLV_CACHE
+
+    if args.clv_offline is True:
+        clv_online = False
+    elif env_clv_offline is not None:
+        clv_online = not env_clv_offline
+    else:
+        clv_online = DEFAULT_CLV_ONLINE
+
+    clv_window_minutes = (
+        args.clv_window_minutes
+        or env_clv_window_minutes
+        or DEFAULT_CLV_WINDOW_MINUTES
+    )
+    clv_interval = str(env_clv_interval or DEFAULT_CLV_INTERVAL).strip() or DEFAULT_CLV_INTERVAL
+    clv_fidelity: Any = env_clv_fidelity if env_clv_fidelity is not None else DEFAULT_CLV_FIDELITY
+    if isinstance(clv_fidelity, str):
+        clv_fidelity = clv_fidelity.strip() or DEFAULT_CLV_FIDELITY
+
     resolution_max_candidates = (
         args.resolution_max_candidates
         or env_resolution_max_candidates
@@ -1297,6 +1841,12 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "compute_opportunities": compute_opportunities,
         "snapshot_books": snapshot_books,
         "enrich_resolutions": enrich_resolutions,
+        "compute_clv": compute_clv,
+        "warm_clv_cache": warm_clv_cache,
+        "clv_online": clv_online,
+        "clv_window_minutes": clv_window_minutes,
+        "clv_interval": clv_interval,
+        "clv_fidelity": clv_fidelity,
         "resolution_max_candidates": resolution_max_candidates,
         "resolution_batch_size": resolution_batch_size,
         "resolution_max_concurrency": resolution_max_concurrency,
@@ -1324,6 +1874,14 @@ def validate_config(config: Dict[str, Any]) -> None:
         errors.append("SCAN_RESOLUTION_BATCH_SIZE must be a positive integer.")
     if not isinstance(config.get("resolution_max_concurrency"), int) or config["resolution_max_concurrency"] <= 0:
         errors.append("SCAN_RESOLUTION_MAX_CONCURRENCY must be a positive integer.")
+    if not isinstance(config.get("clv_window_minutes"), int) or config["clv_window_minutes"] <= 0:
+        errors.append("SCAN_CLV_WINDOW_MINUTES must be a positive integer.")
+    clv_interval = str(config.get("clv_interval") or "").strip()
+    if not clv_interval:
+        errors.append("SCAN_CLV_INTERVAL must be a non-empty string.")
+    clv_fidelity = str(config.get("clv_fidelity") or "").strip()
+    if not clv_fidelity:
+        errors.append("SCAN_CLV_FIDELITY must be a non-empty string.")
     audit_sample = config.get("audit_sample")
     if audit_sample is not None:
         if not isinstance(audit_sample, int) or audit_sample < 0:
@@ -1543,11 +2101,15 @@ def run_scan(
     safe_argv = argv or []
     started_at_value = started_at or _now_utc_iso()
 
+    ingest_markets_response = None
     if config["ingest_markets"]:
-        post_json(
+        ingest_markets_response = post_json(
             api_base_url,
             "/api/ingest/markets",
-            {"active_only": True},
+            {
+                "active_only": True,
+                "debug_sample": bool(config.get("debug_export")),
+            },
             timeout=timeout_seconds,
         )
 
@@ -1648,6 +2210,7 @@ def run_scan(
         started_at=started_at_value,
         resolve_response=resolve_response,
         dossier_export_response=dossier_export_response,
+        ingest_markets_response=ingest_markets_response,
         resolution_enrichment_response=resolution_enrichment_response,
         effective_enrichment_config=effective_enrichment_config,
         enrichment_request_payload=enrichment_request_payload,

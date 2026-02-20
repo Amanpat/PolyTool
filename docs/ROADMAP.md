@@ -99,25 +99,61 @@ markets covered), defer on-chain provider to a future milestone.
 
 ---
 
-### Roadmap 4 - Hypothesis Validation Loop [NOT STARTED]
+### Roadmap 4 - Segment Analysis, Fees & Audit Hardening [COMPLETE]
 
-- [ ] Reduce `UNKNOWN_RESOLUTION` by improving resolution coverage and settlement enrichment
-- [ ] Improve outcome coverage reliability for held-to-resolution classification
-- [ ] Reduce `missing_realized_pnl_count` and `fees_source = unknown` rates where data allows
-- [ ] Automatic schema validation on `llm-save` (reject non-conforming JSON)
-- [ ] Summary bullet extraction from report for LLM_notes
-- [ ] Hypothesis diff comparison across runs (detect claim drift)
-- [ ] Falsification test harness (automated threshold checks)
+- [x] Segment analysis with breakdowns by `entry_price_tier`, `market_type`, `league`, `sport`, `category`
+- [x] `segment_analysis.json` artifact emitted alongside coverage report (Spec-0003, ADR-0006)
+- [x] YAML-configurable entry price tiers (`polytool.yaml` `segment_config.entry_price_tiers`)
+- [x] Fee estimation: 2 % on gross profit, configurable via `fee_config.profit_fee_rate` (ADR-0007)
+- [x] Market metadata backfill (self-referential, no network call) with `market_metadata_coverage` in report
+- [x] Category segmentation: Polymarket `category` field verbatim; absent â†’ `"Unknown"` (ADR-0009)
+- [x] Category ingestion fix: LEFT JOIN `polymarket_tokens` in lifecycle query (was reporting 0 % coverage)
+- [x] `audit-coverage` CLI: offline trust sanity, reads latest run artifacts, no ClickHouse/network (Spec-0007)
+- [x] Scan auto-audit: every `scan` emits `audit_coverage_report.md` unconditionally (Spec-0008)
+- [x] Audit default: all positions, not a fixed sample (ADR-0011)
+- [x] History position-count fallback: use body rows when history row reports 0 (ADR-0010)
+- [x] Root `README.md` with canonical quickstart runbook
 
-**Acceptance**: `llm-save` rejects invalid hypothesis.json. Hypothesis diff
-between two runs produces a readable changelog. Coverage quality trends down for
-`UNKNOWN_RESOLUTION` and other known gap metrics.
+**Acceptance**: All scan runs emit `segment_analysis.json` and `audit_coverage_report.md`.
+`audit-coverage` runs fully offline. Category coverage is non-zero after the market
+backfill pipeline has run. Schema version `1.4.0`.
 
-**Kill condition**: Do not start backtesting until this milestone is shipped.
+**Evidence**: See `docs/pdr/PDR-ROADMAP4-WRAPUP.md` and ADRs 0006â€“0011.
 
 ---
 
-### Roadmap 5 - Source Caching & Crawl [NOT STARTED]
+### Roadmap 5 - CLV & Time/Price Context Signals [NOT STARTED]
+
+#### 5.0 Prerequisites
+
+- [ ] Confirm category coverage > 0 % post-backfill (regression from 4.6 confirmed fixed)
+- [ ] Default `market_type` moneyline rule for team-vs-team markets
+- [ ] Surface notional/size end-to-end (USDC position size in dossier and audit report)
+
+#### 5.1 CLV Capture
+
+- [ ] Add `scan --compute-clv` enrichment stage (cache-first; explicit missingness)
+- [ ] Capture closing-line price snapshot per market before resolution
+- [ ] Compute CLV per position: `closing_price âˆ’ entry_price` (binary markets)
+- [ ] Store price snapshots in ClickHouse; populate at scan time when markets close
+- [ ] Report CLV coverage rate in `coverage_reconciliation_report`
+- [ ] Surface CLV in `segment_analysis.by_entry_price_tier` breakdown
+
+#### 5.2 Time/Price Context
+
+- [ ] Track price trajectory over hold period (from ClickHouse snapshot cadence)
+- [ ] Minimal snapshot caching (TTL-based; no crawl depth)
+
+**Acceptance**: `segment_analysis.json` includes `clv` for positions where snapshot
+data is available. Coverage report includes CLV coverage rate. Positions without
+closing-line data report `clv: null`, not missing.
+
+**Kill condition**: If snapshot capture rate is < 30 % after 3 scan runs, document
+the gap and defer CLV computation.
+
+---
+
+### Roadmap 6 - Source Caching & Crawl [NOT STARTED]
 
 - [ ] Full robots.txt parsing (currently basic)
 - [ ] Crawl depth support (follow links within domain)
@@ -133,7 +169,7 @@ defer this milestone.
 
 ---
 
-### Roadmap 6 - MCP Hardening [NOT STARTED]
+### Roadmap 7 - MCP Hardening [NOT STARTED]
 
 - [ ] HTTP transport (currently stdio only)
 - [ ] Authentication for multi-user scenarios
@@ -147,7 +183,7 @@ unauthorized access when exposed on network.
 
 ---
 
-### Roadmap 7 - Multi-User & Comparison [NOT STARTED]
+### Roadmap 8 - Multi-User & Comparison [NOT STARTED]
 
 - [ ] Compare users side-by-side
 - [ ] Portfolio-level aggregation
@@ -160,7 +196,7 @@ report.
 
 ---
 
-### Roadmap 8 - CLI & Dashboard Polish [NOT STARTED]
+### Roadmap 9 - CLI & Dashboard Polish [NOT STARTED]
 
 - [ ] Progress bars for long operations
 - [ ] JSON output mode for all commands
@@ -177,7 +213,7 @@ breakdown and lifecycle panels.
 
 ---
 
-### Roadmap 9 - CI & Testing [NOT STARTED]
+### Roadmap 10 - CI & Testing [NOT STARTED]
 
 - [ ] Integration tests for scan-first workflow (legacy examine smoke kept separate)
 - [ ] Mock ClickHouse for CI (no Docker dependency)
@@ -196,7 +232,7 @@ tests cover edge cases.
 These guard against feature creep. Do NOT start the next milestone until the
 current one is fully shipped.
 
-- **No backtesting** until Roadmap 4 hypothesis validation is done.
+- **No backtesting** until Roadmap 5 CLV and context signal capture is shipped.
 - **No real-time monitoring** (out of scope entirely; see TODO.md).
 - **No external LLM API calls** (remains local-only forever).
 - **No mobile app / web UI** (out of scope entirely).
@@ -212,3 +248,4 @@ The `polyttool` backward-compatibility shim (double-t typo) will be removed
 after version 0.2.0. Until then, `python -m polyttool` still works but prints
 a deprecation warning. All new docs and scripts must use `python -m polytool`.
 See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md) for details.
+

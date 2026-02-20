@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-REPORT_VERSION = "1.4.0"
+REPORT_VERSION = "1.5.0"
 PENDING_COVERAGE_INVALID_WARNING = (
     "All positions are PENDING despite strong identifier coverage. "
     "This often indicates resolution enrichment did not apply to the relevant tokens "
@@ -353,6 +353,117 @@ def _build_category_coverage(
     }
 
 
+def _build_clv_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compute CLV coverage + missingness from position-level CLV fields."""
+    eligible_positions = 0
+    clv_present_count = 0
+    clv_missing_count = 0
+
+    close_ts_source_counts: Counter = Counter()
+    clv_source_counts: Counter = Counter()
+    missing_reason_counts: Counter = Counter()
+
+    for pos in positions:
+        entry_price = _safe_float(pos.get("entry_price"))
+        token_id = str(
+            pos.get("resolved_token_id")
+            or pos.get("token_id")
+            or pos.get("outcome_token_id")
+            or ""
+        ).strip()
+
+        # Eligibility: binary probability-like rows with a token id and valid entry price.
+        if entry_price is None or not (0.0 < entry_price <= 1.0) or not token_id:
+            continue
+        eligible_positions += 1
+
+        close_ts_source = str(pos.get("close_ts_source") or "").strip()
+        if close_ts_source:
+            close_ts_source_counts[close_ts_source] += 1
+
+        clv_value = _safe_float(pos.get("clv"))
+        if clv_value is not None:
+            clv_present_count += 1
+            clv_source = str(pos.get("clv_source") or "").strip()
+            if clv_source:
+                clv_source_counts[clv_source] += 1
+        else:
+            clv_missing_count += 1
+            reason = str(pos.get("clv_missing_reason") or "UNSPECIFIED").strip() or "UNSPECIFIED"
+            missing_reason_counts[reason] += 1
+
+    return {
+        "eligible_positions": eligible_positions,
+        "clv_present_count": clv_present_count,
+        "clv_missing_count": clv_missing_count,
+        "coverage_rate": _safe_pct(clv_present_count, eligible_positions),
+        "close_ts_source_counts": dict(sorted(close_ts_source_counts.items())),
+        "clv_source_counts": dict(sorted(clv_source_counts.items())),
+        "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+    }
+
+
+def _build_entry_context_coverage(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compute entry price/time context coverage from position-level fields."""
+    eligible_positions = len(positions)
+    open_price_present_count = 0
+    price_1h_before_entry_present_count = 0
+    price_at_entry_present_count = 0
+    movement_direction_present_count = 0
+    minutes_to_close_present_count = 0
+    missing_reason_counts: Counter = Counter()
+
+    def _reason_or_unspecified(position: Dict[str, Any], reason_field: str) -> str:
+        return str(position.get(reason_field) or "UNSPECIFIED").strip() or "UNSPECIFIED"
+
+    for pos in positions:
+        open_price = _safe_float(pos.get("open_price"))
+        if open_price is not None:
+            open_price_present_count += 1
+        else:
+            missing_reason_counts[_reason_or_unspecified(pos, "open_price_missing_reason")] += 1
+
+        price_1h_before_entry = _safe_float(pos.get("price_1h_before_entry"))
+        if price_1h_before_entry is not None:
+            price_1h_before_entry_present_count += 1
+        else:
+            missing_reason_counts[
+                _reason_or_unspecified(pos, "price_1h_before_entry_missing_reason")
+            ] += 1
+
+        price_at_entry = _safe_float(pos.get("price_at_entry"))
+        if price_at_entry is not None:
+            price_at_entry_present_count += 1
+        else:
+            missing_reason_counts[_reason_or_unspecified(pos, "price_at_entry_missing_reason")] += 1
+
+        movement_direction = str(pos.get("movement_direction") or "").strip().lower()
+        if movement_direction in {"up", "down", "flat"}:
+            movement_direction_present_count += 1
+        else:
+            missing_reason_counts[
+                _reason_or_unspecified(pos, "movement_direction_missing_reason")
+            ] += 1
+
+        minutes_to_close = _safe_float(pos.get("minutes_to_close"))
+        if minutes_to_close is not None:
+            minutes_to_close_present_count += 1
+        else:
+            missing_reason_counts[
+                _reason_or_unspecified(pos, "minutes_to_close_missing_reason")
+            ] += 1
+
+    return {
+        "eligible_positions": eligible_positions,
+        "open_price_present_count": open_price_present_count,
+        "price_1h_before_entry_present_count": price_1h_before_entry_present_count,
+        "price_at_entry_present_count": price_at_entry_present_count,
+        "movement_direction_present_count": movement_direction_present_count,
+        "minutes_to_close_present_count": minutes_to_close_present_count,
+        "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+    }
+
+
 def _safe_pct(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
@@ -500,6 +611,10 @@ def _empty_segment_bucket() -> Dict[str, Any]:
         "loss_exits": 0,
         "total_pnl_gross": 0.0,
         "total_pnl_net": 0.0,
+        "clv_pct_sum": 0.0,
+        "clv_pct_count": 0,
+        "beat_close_true_count": 0,
+        "beat_close_count": 0,
     }
 
 
@@ -508,6 +623,8 @@ def _accumulate_segment_bucket(
     outcome: str,
     pnl_net: float,
     pnl_gross: float,
+    clv_pct: Optional[float],
+    beat_close: Optional[bool],
 ) -> None:
     bucket["count"] += 1
     if outcome == "WIN":
@@ -520,6 +637,13 @@ def _accumulate_segment_bucket(
         bucket["loss_exits"] += 1
     bucket["total_pnl_gross"] += pnl_gross
     bucket["total_pnl_net"] += pnl_net
+    if clv_pct is not None:
+        bucket["clv_pct_sum"] += clv_pct
+        bucket["clv_pct_count"] += 1
+    if isinstance(beat_close, bool):
+        bucket["beat_close_count"] += 1
+        if beat_close:
+            bucket["beat_close_true_count"] += 1
 
 
 def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
@@ -529,6 +653,11 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
     loss_exits = int(bucket.get("loss_exits") or 0)
     denominator = wins + losses + profit_exits + loss_exits
     numerator = wins + profit_exits
+    clv_pct_count = int(bucket.get("clv_pct_count") or 0)
+    beat_close_count = int(bucket.get("beat_close_count") or 0)
+    beat_close_true_count = int(bucket.get("beat_close_true_count") or 0)
+    clv_pct_sum = float(bucket.get("clv_pct_sum") or 0.0)
+
     return {
         "count": int(bucket.get("count") or 0),
         "wins": wins,
@@ -538,6 +667,10 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
         "win_rate": _safe_pct(numerator, denominator),
         "total_pnl_gross": round(float(bucket.get("total_pnl_gross") or 0.0), 6),
         "total_pnl_net": round(float(bucket.get("total_pnl_net") or 0.0), 6),
+        "avg_clv_pct": round(clv_pct_sum / clv_pct_count, 6) if clv_pct_count > 0 else None,
+        "beat_close_rate": _safe_pct(beat_close_true_count, beat_close_count)
+        if beat_close_count > 0
+        else None,
     }
 
 
@@ -571,6 +704,9 @@ def _build_segment_analysis(
         if pnl_net is None:
             pnl_net = _safe_float(position.get("realized_pnl_net"))
         pnl_gross = _safe_float(position.get("gross_pnl"))
+        clv_pct = _safe_float(position.get("clv_pct"))
+        beat_close_raw = position.get("beat_close")
+        beat_close = beat_close_raw if isinstance(beat_close_raw, bool) else None
         pnl_net_value = pnl_net if pnl_net is not None else 0.0
         pnl_gross_value = pnl_gross if pnl_gross is not None else 0.0
 
@@ -590,15 +726,53 @@ def _build_segment_analysis(
         by_market_slug_raw.setdefault(market_slug, _empty_segment_bucket())
 
         _accumulate_segment_bucket(
-            by_entry_price_tier_raw[entry_price_tier], outcome, pnl_net_value, pnl_gross_value
+            by_entry_price_tier_raw[entry_price_tier],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
         )
         _accumulate_segment_bucket(
-            by_market_type_raw[market_type], outcome, pnl_net_value, pnl_gross_value
+            by_market_type_raw[market_type],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
         )
-        _accumulate_segment_bucket(by_league_raw[league], outcome, pnl_net_value, pnl_gross_value)
-        _accumulate_segment_bucket(by_sport_raw[sport], outcome, pnl_net_value, pnl_gross_value)
-        _accumulate_segment_bucket(by_category_raw[category_key], outcome, pnl_net_value, pnl_gross_value)
-        _accumulate_segment_bucket(by_market_slug_raw[market_slug], outcome, pnl_net_value, pnl_gross_value)
+        _accumulate_segment_bucket(
+            by_league_raw[league],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
+        )
+        _accumulate_segment_bucket(
+            by_sport_raw[sport],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
+        )
+        _accumulate_segment_bucket(
+            by_category_raw[category_key],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
+        )
+        _accumulate_segment_bucket(
+            by_market_slug_raw[market_slug],
+            outcome,
+            pnl_net_value,
+            pnl_gross_value,
+            clv_pct,
+            beat_close,
+        )
 
     by_entry_price_tier = {
         name: _finalize_segment_bucket(by_entry_price_tier_raw[name])
@@ -1020,6 +1194,16 @@ def build_coverage_report(
             "Ensure market_metadata_map includes the 'category' field."
         )
 
+    clv_coverage = _build_clv_coverage(positions)
+    clv_eligible = int(clv_coverage.get("eligible_positions") or 0)
+    clv_rate = float(clv_coverage.get("coverage_rate") or 0.0)
+    if clv_eligible > 0 and clv_rate < 0.30:
+        warnings.append(
+            f"clv_coverage rate is {clv_rate:.1%} ({clv_coverage['clv_present_count']}/{clv_eligible}), "
+            "below 30% threshold."
+        )
+    entry_context_coverage = _build_entry_context_coverage(positions)
+
     report = {
         "report_version": REPORT_VERSION,
         "generated_at": _now_utc(),
@@ -1039,6 +1223,8 @@ def build_coverage_report(
         "resolution_coverage": resolution_section,
         "market_metadata_coverage": market_metadata_coverage,
         "category_coverage": category_coverage,
+        "clv_coverage": clv_coverage,
+        "entry_context_coverage": entry_context_coverage,
         "segment_analysis": segment_analysis,
         "warnings": warnings,
     }
@@ -1138,6 +1324,8 @@ def _render_markdown(report: Dict[str, Any]) -> str:
 
     lines.extend(_render_market_metadata_coverage(report))
     lines.extend(_render_category_coverage(report))
+    lines.extend(_render_clv_coverage(report))
+    lines.extend(_render_entry_context_coverage(report))
     lines.extend(_render_segment_highlights(report))
     lines.extend(_render_top_categories(report))
     lines.extend(_render_top_markets(report))
@@ -1252,6 +1440,112 @@ def _render_category_coverage(report: Dict[str, Any]) -> List[str]:
             lines.append(
                 f"- `{identifier_key}={identifier_value}`: {entry.get('count', 0)} occurrence(s)"
             )
+    lines.append("")
+
+    return lines
+
+
+def _render_clv_coverage(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## CLV Coverage")
+    lines.append("")
+
+    clv = report.get("clv_coverage")
+    if not isinstance(clv, dict):
+        lines.append("- CLV coverage unavailable.")
+        lines.append("")
+        return lines
+
+    eligible = _coerce_int(clv.get("eligible_positions"))
+    present = _coerce_int(clv.get("clv_present_count"))
+    missing = _coerce_int(clv.get("clv_missing_count"))
+    coverage_rate = float(clv.get("coverage_rate") or 0.0)
+    lines.append(
+        f"- Coverage: {coverage_rate:.2%} ({present}/{eligible} eligible positions with CLV)"
+    )
+    lines.append(f"- Missing: {missing}")
+
+    close_ts_source_counts = clv.get("close_ts_source_counts") or {}
+    if close_ts_source_counts:
+        lines.append(
+            f"- close_ts_source_counts: {json.dumps(close_ts_source_counts, sort_keys=True)}"
+        )
+
+    clv_source_counts = clv.get("clv_source_counts") or {}
+    if clv_source_counts:
+        lines.append(f"- clv_source_counts: {json.dumps(clv_source_counts, sort_keys=True)}")
+
+    missing_reason_counts = clv.get("missing_reason_counts") or {}
+    if missing_reason_counts:
+        lines.append("- Top missing reasons:")
+        for reason, count in sorted(
+            missing_reason_counts.items(),
+            key=lambda item: (-_coerce_int(item[1]), str(item[0])),
+        )[:5]:
+            lines.append(f"  - {reason}: {count}")
+
+    if eligible > 0 and coverage_rate < 0.30:
+        lines.append(
+            f"> **Warning:** CLV coverage below 30% ({coverage_rate:.1%}; {present}/{eligible})."
+        )
+
+    lines.append("")
+    return lines
+
+
+def _render_entry_context_coverage(report: Dict[str, Any]) -> List[str]:
+    lines: List[str] = []
+    lines.append("## Entry Context Coverage")
+    lines.append("")
+
+    context = report.get("entry_context_coverage")
+    if not isinstance(context, dict):
+        lines.append("- Entry context coverage unavailable.")
+        lines.append("")
+        return lines
+
+    eligible = _coerce_int(context.get("eligible_positions"))
+    open_present = _coerce_int(context.get("open_price_present_count"))
+    one_hour_present = _coerce_int(context.get("price_1h_before_entry_present_count"))
+    at_entry_present = _coerce_int(context.get("price_at_entry_present_count"))
+    movement_present = _coerce_int(context.get("movement_direction_present_count"))
+    minutes_present = _coerce_int(context.get("minutes_to_close_present_count"))
+
+    lines.append(f"- Eligible positions: {eligible}")
+    lines.append(
+        f"- open_price_present_count: {open_present} ({_safe_pct(open_present, eligible):.2%})"
+        if eligible > 0
+        else f"- open_price_present_count: {open_present}"
+    )
+    lines.append(
+        f"- price_1h_before_entry_present_count: {one_hour_present} ({_safe_pct(one_hour_present, eligible):.2%})"
+        if eligible > 0
+        else f"- price_1h_before_entry_present_count: {one_hour_present}"
+    )
+    lines.append(
+        f"- price_at_entry_present_count: {at_entry_present} ({_safe_pct(at_entry_present, eligible):.2%})"
+        if eligible > 0
+        else f"- price_at_entry_present_count: {at_entry_present}"
+    )
+    lines.append(
+        f"- movement_direction_present_count: {movement_present} ({_safe_pct(movement_present, eligible):.2%})"
+        if eligible > 0
+        else f"- movement_direction_present_count: {movement_present}"
+    )
+    lines.append(
+        f"- minutes_to_close_present_count: {minutes_present} ({_safe_pct(minutes_present, eligible):.2%})"
+        if eligible > 0
+        else f"- minutes_to_close_present_count: {minutes_present}"
+    )
+
+    missing_reason_counts = context.get("missing_reason_counts") or {}
+    if missing_reason_counts:
+        lines.append("- Top missing reasons:")
+        for reason, count in sorted(
+            missing_reason_counts.items(),
+            key=lambda item: (-_coerce_int(item[1]), str(item[0])),
+        )[:8]:
+            lines.append(f"  - {reason}: {count}")
     lines.append("")
 
     return lines

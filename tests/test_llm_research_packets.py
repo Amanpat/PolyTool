@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import shutil
 import sys
@@ -209,7 +209,10 @@ def _position_to_lifecycle_row(position: dict):
         position.get("fees_actual", 0.0),  # 23
         position.get("fees_estimated", 0.0),  # 24
         position.get("fees_source", "unknown"),  # 25
-        position.get("category", ""),  # 26 — Roadmap 4.6: category from polymarket_tokens JOIN
+        position.get("category", ""),  # 26
+        _parse_iso8601(position.get("gamma_close_date_iso") or position.get("close_date_iso")),  # 27
+        _parse_iso8601(position.get("gamma_end_date_iso") or position.get("end_date_iso")),  # 28
+        _parse_iso8601(position.get("gamma_uma_end_date") or position.get("uma_end_date")),  # 29
     ]
 
 
@@ -342,12 +345,38 @@ class _CategoryTablePreferenceClient(_FakeClickhouseClient):
             return _FakeResult([[1]])
         if "SELECT 1 FROM market_tokens LIMIT 0" in query:
             return _FakeResult([[1]])
+        if "WHERE token_id IN {tokens:Array(String)}" in query and "FROM polymarket_tokens" in query:
+            return _FakeResult([[0]])
+        if "WHERE token_id IN {tokens:Array(String)}" in query and "FROM market_tokens" in query:
+            return _FakeResult([[5]])
         if "countIf(category != '') FROM polymarket_tokens" in query:
             return _FakeResult([[0]])
         if "countIf(category != '') FROM market_tokens" in query:
             return _FakeResult([[5]])
         if "FROM polymarket_tokens" in query:
             raise RuntimeError("Should not join polymarket_tokens when market_tokens has category data")
+        return super().query(query, parameters=parameters)
+
+
+class _CategoryTableRunScopedRegressionClient(_FakeClickhouseClient):
+    def query(self, query, parameters=None):
+        if "SELECT 1 FROM polymarket_tokens LIMIT 0" in query:
+            return _FakeResult([[1]])
+        if "SELECT 1 FROM market_tokens LIMIT 0" in query:
+            return _FakeResult([[1]])
+        if "WHERE token_id IN {tokens:Array(String)}" in query and "FROM polymarket_tokens" in query:
+            return _FakeResult([[0]])
+        if "WHERE token_id IN {tokens:Array(String)}" in query and "FROM market_tokens" in query:
+            return _FakeResult([[2]])
+        if "countIf(category != '') FROM polymarket_tokens" in query:
+            return _FakeResult([[999]])
+        if "countIf(category != '') FROM market_tokens" in query:
+            return _FakeResult([[1]])
+        if (
+            "FROM polymarket_tokens" in query
+            and "SELECT token_id, any(category) AS category" in query
+        ):
+            raise RuntimeError("Run-scoped selector should avoid polymarket_tokens join in this regression case")
         return super().query(query, parameters=parameters)
 
 
@@ -597,6 +626,50 @@ class ResearchPacketExportTests(unittest.TestCase):
         self.assertIn("FROM market_tokens", lifecycle_query)
         self.assertNotIn("FROM polymarket_tokens", lifecycle_query)
 
+    def test_export_prefers_market_tokens_when_run_scope_coverage_is_higher(self) -> None:
+        position = _sample_lifecycle_position(category="Sports")
+        position["resolved_token_id"] = "tok-run-scope"
+        client = _CategoryTableRunScopedRegressionClient(
+            lifecycle_rows=[_position_to_lifecycle_row(position)]
+        )
+
+        with _workspace_tempdir() as tmpdir:
+            result = export_user_dossier(
+                clickhouse_client=client,
+                proxy_wallet="0xabc",
+                user_input="@tester",
+                username="@Tester",
+                window_days=30,
+                max_trades=3,
+                artifacts_base_path=tmpdir,
+                generated_at=client.now,
+            )
+
+        positions = result.dossier.get("positions", {}).get("positions", [])
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0].get("category"), "Sports")
+
+        lifecycle_query = next(
+            (q for q in client.queries if "FROM user_trade_lifecycle_enriched l" in q),
+            "",
+        )
+        self.assertTrue(lifecycle_query)
+        self.assertIn("FROM market_tokens", lifecycle_query)
+        self.assertNotIn("FROM polymarket_tokens", lifecycle_query)
+
+        coverage = result.dossier.get("coverage", {})
+        self.assertEqual(coverage.get("category_source"), "run_scoped_best_coverage")
+        self.assertEqual(coverage.get("category_source_table"), "market_tokens")
+        self.assertEqual(coverage.get("category_source_run_probe_token_count"), 1)
+        self.assertEqual(
+            coverage.get("category_source_run_non_empty_counts", {}).get("polymarket_tokens"),
+            0,
+        )
+        self.assertEqual(
+            coverage.get("category_source_run_non_empty_counts", {}).get("market_tokens"),
+            2,
+        )
+
     def test_export_skips_malformed_lifecycle_row_without_dropping_valid_rows(self) -> None:
         valid_position = _sample_lifecycle_position(category="Politics")
         lifecycle_rows = [
@@ -624,3 +697,4 @@ class ResearchPacketExportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

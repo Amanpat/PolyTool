@@ -14,7 +14,7 @@ import clickhouse_connect
 # Add packages to path for local imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 
-from polymarket.gamma import GammaClient
+from polymarket.gamma import GammaClient, MarketToken
 from polymarket.data_api import DataApiClient
 from polymarket.clob import ClobClient
 from polymarket.features import (
@@ -116,6 +116,210 @@ def get_clickhouse_client():
         password=CLICKHOUSE_PASSWORD,
         database=CLICKHOUSE_DATABASE,
     )
+
+
+def _market_tokens_available_columns(client) -> set[str]:
+    """Return available market_tokens columns (best-effort)."""
+    try:
+        result = client.query(
+            """
+            SELECT name
+            FROM system.columns
+            WHERE database = {database:String}
+              AND table = 'market_tokens'
+            """,
+            parameters={"database": CLICKHOUSE_DATABASE},
+        )
+        columns = {str(row[0]) for row in result.result_rows if row and row[0]}
+        if columns:
+            return columns
+    except Exception:
+        pass
+
+    # Fallback to expected schema when metadata introspection is unavailable.
+    return {
+        "token_id",
+        "condition_id",
+        "outcome_index",
+        "outcome_name",
+        "market_slug",
+        "question",
+        "category",
+        "subcategory",
+        "category_source",
+        "subcategory_source",
+        "event_slug",
+        "end_date_iso",
+        "active",
+        "enable_order_book",
+        "accepting_orders",
+        "raw_json",
+        "ingested_at",
+    }
+
+
+def _load_existing_market_taxonomy_by_token(
+    client,
+    token_ids: list[str],
+    available_columns: set[str],
+) -> dict[str, dict[str, str]]:
+    if not token_ids:
+        return {}
+
+    unique = list(dict.fromkeys(str(token_id) for token_id in token_ids if token_id))
+    if not unique:
+        return {}
+
+    taxonomy_fields = [
+        field
+        for field in ("category", "subcategory", "category_source", "subcategory_source")
+        if field in available_columns
+    ]
+    if not taxonomy_fields:
+        return {}
+
+    select_fields = ",\n                ".join(
+        f"argMax({field}, ingested_at) AS {field}" for field in taxonomy_fields
+    )
+    query = f"""
+        SELECT
+            token_id,
+            {select_fields}
+        FROM market_tokens
+        WHERE token_id IN {{tokens:Array(String)}}
+        GROUP BY token_id
+    """
+    try:
+        result = client.query(query, parameters={"tokens": unique})
+    except Exception:
+        return {}
+
+    rows = result.result_rows
+    taxonomy_by_token: dict[str, dict[str, str]] = {}
+    for row in rows:
+        if not row:
+            continue
+        token_id = str(row[0] or "").strip()
+        if not token_id:
+            continue
+        taxonomy: dict[str, str] = {}
+        for idx, field in enumerate(taxonomy_fields, start=1):
+            taxonomy[field] = str(row[idx] or "").strip()
+        taxonomy_by_token[token_id] = taxonomy
+    return taxonomy_by_token
+
+
+def _resolve_market_token_taxonomy(
+    token: MarketToken,
+    existing_taxonomy: dict[str, str],
+) -> dict[str, str]:
+    category = str(token.category or "").strip()
+    existing_category = str(existing_taxonomy.get("category") or "").strip()
+    if existing_category:
+        category = existing_category
+
+    subcategory = str(token.subcategory or "").strip()
+    existing_subcategory = str(existing_taxonomy.get("subcategory") or "").strip()
+    if existing_subcategory:
+        subcategory = existing_subcategory
+
+    category_source = str(token.category_source or "none").strip() or "none"
+    existing_category_source = str(existing_taxonomy.get("category_source") or "").strip()
+    if existing_category_source in {"market", "event"}:
+        category_source = existing_category_source
+    if not category:
+        category_source = "none"
+    elif category_source not in {"market", "event"}:
+        category_source = "none"
+
+    subcategory_source = str(token.subcategory_source or "none").strip() or "none"
+    existing_subcategory_source = str(existing_taxonomy.get("subcategory_source") or "").strip()
+    if existing_subcategory_source == "event":
+        subcategory_source = "event"
+    if not subcategory:
+        subcategory_source = "none"
+    elif subcategory_source != "event":
+        subcategory_source = "none"
+
+    return {
+        "category": category,
+        "subcategory": subcategory,
+        "category_source": category_source,
+        "subcategory_source": subcategory_source,
+    }
+
+
+def _market_tokens_insert_columns(available_columns: set[str]) -> list[str]:
+    columns: list[str] = [
+        "token_id",
+        "condition_id",
+        "outcome_index",
+        "outcome_name",
+        "market_slug",
+        "question",
+    ]
+    for field in ("category", "subcategory", "category_source", "subcategory_source"):
+        if field in available_columns:
+            columns.append(field)
+    columns.extend(
+        [
+            "event_slug",
+            "end_date_iso",
+            "active",
+        ]
+    )
+    if "enable_order_book" in available_columns:
+        columns.append("enable_order_book")
+    if "accepting_orders" in available_columns:
+        columns.append("accepting_orders")
+    columns.extend(["raw_json", "ingested_at"])
+    return columns
+
+
+def _build_market_token_insert_rows(
+    market_tokens: list[MarketToken],
+    existing_taxonomy_by_token: dict[str, dict[str, str]],
+    insert_columns: list[str],
+) -> list[list[object]]:
+    rows: list[list[object]] = []
+    for mt in market_tokens:
+        taxonomy = _resolve_market_token_taxonomy(
+            mt,
+            existing_taxonomy_by_token.get(str(mt.token_id), {}),
+        )
+        row_data: dict[str, object] = {
+            "token_id": mt.token_id,
+            "condition_id": mt.condition_id,
+            "outcome_index": mt.outcome_index,
+            "outcome_name": mt.outcome_name,
+            "market_slug": mt.market_slug,
+            "question": mt.question,
+            "category": taxonomy["category"],
+            "subcategory": taxonomy["subcategory"],
+            "category_source": taxonomy["category_source"],
+            "subcategory_source": taxonomy["subcategory_source"],
+            "event_slug": mt.event_slug,
+            "end_date_iso": mt.end_date_iso,
+            "active": 1 if mt.active else 0,
+            "enable_order_book": (
+                1
+                if mt.enable_order_book
+                else 0
+                if mt.enable_order_book is not None
+                else None
+            ),
+            "accepting_orders": (
+                1
+                if mt.accepting_orders
+                else 0
+                if mt.accepting_orders is not None
+                else None
+            ),
+            "raw_json": json.dumps(mt.raw_json),
+            "ingested_at": datetime.utcnow(),
+        }
+        rows.append([row_data[column] for column in insert_columns])
+    return rows
 
 
 class MissingClickHouseSchemaError(RuntimeError):
@@ -938,6 +1142,10 @@ class IngestMarketsRequest(BaseModel):
 
     active_only: bool = Field(default=True, description="Only fetch active/non-closed markets")
     max_pages: int = Field(default=50, ge=1, le=200, description="Maximum pages to fetch")
+    debug_sample: bool = Field(
+        default=False,
+        description="Include compact raw /markets sample payload in response",
+    )
 
 
 class IngestMarketsResponse(BaseModel):
@@ -946,6 +1154,7 @@ class IngestMarketsResponse(BaseModel):
     pages_fetched: int
     markets_total: int
     market_tokens_written: int
+    gamma_markets_sample: Optional[dict] = None
 
 
 class RunDetectorsRequest(BaseModel):
@@ -1218,6 +1427,7 @@ async def ingest_markets(request: IngestMarketsRequest):
     result = gamma_client.fetch_all_markets(
         max_pages=request.max_pages,
         active_only=request.active_only,
+        capture_debug_sample=request.debug_sample,
     )
 
     logger.info(f"Fetched {result.total_markets} markets, {len(result.market_tokens)} tokens")
@@ -1226,36 +1436,25 @@ async def ingest_markets(request: IngestMarketsRequest):
     tokens_written = 0
     try:
         client = get_clickhouse_client()
+        available_market_token_columns = _market_tokens_available_columns(client)
 
         if result.market_tokens:
-            rows = []
-            for mt in result.market_tokens:
-                rows.append([
-                    mt.token_id,
-                    mt.condition_id,
-                    mt.outcome_index,
-                    mt.outcome_name,
-                    mt.market_slug,
-                    mt.question,
-                    mt.category,
-                    mt.event_slug,
-                    mt.end_date_iso,
-                    1 if mt.active else 0,
-                    1 if mt.enable_order_book else 0 if mt.enable_order_book is not None else None,
-                    1 if mt.accepting_orders else 0 if mt.accepting_orders is not None else None,
-                    json.dumps(mt.raw_json),
-                    datetime.utcnow(),
-                ])
+            existing_taxonomy_by_token = _load_existing_market_taxonomy_by_token(
+                client,
+                [mt.token_id for mt in result.market_tokens],
+                available_market_token_columns,
+            )
+            token_insert_columns = _market_tokens_insert_columns(available_market_token_columns)
+            rows = _build_market_token_insert_rows(
+                result.market_tokens,
+                existing_taxonomy_by_token,
+                token_insert_columns,
+            )
 
             client.insert(
                 "market_tokens",
                 rows,
-                column_names=[
-                    "token_id", "condition_id", "outcome_index", "outcome_name",
-                    "market_slug", "question", "category", "event_slug",
-                    "end_date_iso", "active", "enable_order_book", "accepting_orders",
-                    "raw_json", "ingested_at"
-                ],
+                column_names=token_insert_columns,
             )
             tokens_written = len(rows)
             logger.info(f"Inserted {tokens_written} market tokens")
@@ -1337,6 +1536,7 @@ async def ingest_markets(request: IngestMarketsRequest):
         pages_fetched=result.pages_fetched,
         markets_total=result.total_markets,
         market_tokens_written=tokens_written,
+        gamma_markets_sample=result.gamma_markets_sample if request.debug_sample else None,
     )
 
 

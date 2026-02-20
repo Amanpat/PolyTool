@@ -201,3 +201,24 @@ When `--format json` the report is written as a structured object:
 - Does not modify existing report schemas.
 - Does not re-compute coverage from raw positions — reads the pre-built
   `coverage_reconciliation_report.json` for summary stats.
+
+---
+
+## Amendment — Canonical size/notional field names (2026-02-19)
+
+The `size/notional` field in position blocks is resolved via a prioritised fallback chain.
+The implementation stores results in two canonical fields before rendering:
+
+| Canonical field | Meaning | Upstream sources (in order) |
+|-----------------|---------|------------------------------|
+| `position_size` | Shares held | `position_size` → `total_bought` → `size` |
+| `position_notional_usd` | USD cost basis | `position_notional_usd` → `initialValue` → `total_cost` → derived |
+
+When `position_notional_usd` cannot be sourced directly, it is derived as
+`abs(position_size) × entry_price` and the position block shows the source flag
+`(derived_from_size_price)`.  When no data exists at all, the position block shows
+`N/A (MISSING_UPSTREAM_FIELDS)` — never a silent `N/A`.
+
+The Quick Stats section gains a **Size / Notional Coverage** block reporting
+`notional_missing_count` and `notional_derived_count` across all positions in the run.
+These two fields are also added to the `quick_stats` object in JSON output.
