@@ -3128,4 +3128,97 @@ class TestBuildHypothesisCandidates:
             wallet="0xabc",
         )
         assert "hypothesis_candidates" in report
+
+
+class TestExtractPositionNotionalUsd:
+    """Unit tests for extract_position_notional_usd fallback chain."""
+
+    def test_total_cost_used_when_no_explicit_notional(self):
+        """Positions with total_cost but no position_notional_usd should yield a positive weight."""
+        pos = {
+            "token_id": "tok_tc_001",
+            "total_cost": 47.50,
+            "resolution_outcome": "WIN",
+            "clv_pct": 0.12,
+            "beat_close": True,
+        }
+        result = extract_position_notional_usd(pos)
+        assert result == pytest.approx(47.50), (
+            "Expected total_cost to be returned when position_notional_usd absent"
+        )
+
+    def test_string_total_cost_coerces_to_float(self):
+        """total_cost stored as a numeric string should coerce cleanly; non-numeric should return None."""
+        pos_numeric_str = {"total_cost": "25.00"}
+        assert extract_position_notional_usd(pos_numeric_str) == pytest.approx(25.0)
+
+        pos_bad_str = {"total_cost": "N/A"}
+        assert extract_position_notional_usd(pos_bad_str) is None, (
+            "Non-numeric string total_cost should return None, not raise"
+        )
+
+
+class TestNotionalWeightInCoverageReport:
+    """Integration: build_coverage_report produces non-null notional metrics when total_cost present."""
+
+    def _make_positions_with_total_cost(self):
+        """Positions that have total_cost but NOT position_notional_usd."""
+        base = [
+            {
+                "resolved_token_id": f"tok_{i:03d}",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 5.0,
+                "total_cost": 20.0 + i,
+                "clv_pct": 0.10 + i * 0.01,
+                "beat_close": True,
+                "fees_actual": 0.0,
+                "fees_estimated": 0.0,
+                "fees_source": "unknown",
+                "position_remaining": 0.0,
+            }
+            for i in range(6)  # 6 positions > TOP_SEGMENT_MIN_COUNT=5
+        ]
+        return base
+
+    def test_notional_weight_total_global_nonzero_with_total_cost(self):
+        """After injecting position_notional_usd from total_cost, hypothesis_meta weight > 0."""
+        from tools.cli.scan import _normalize_position_notional
+
+        positions = self._make_positions_with_total_cost()
+        # Simulate scan.py normalization step
+        _normalize_position_notional(positions)
+
+        # All positions should now have position_notional_usd set
+        for pos in positions:
+            assert "position_notional_usd" in pos and pos["position_notional_usd"] > 0
+
+        report = build_coverage_report(positions=positions, run_id="test-run", user_slug="testuser", wallet="0xabc")
+        hyp_meta = report.get("segment_analysis", {}).get("hypothesis_meta", {})
+        weight = hyp_meta.get("notional_weight_total_global", 0.0)
+        assert weight > 0, (
+            f"Expected notional_weight_total_global > 0, got {weight}. "
+            "Likely total_cost normalization did not propagate."
+        )
+
+    def test_notional_weighted_metrics_non_null_after_normalization(self):
+        """Segment metrics include non-null notional-weighted fields after normalization."""
+        from tools.cli.scan import _normalize_position_notional
+
+        positions = self._make_positions_with_total_cost()
+        _normalize_position_notional(positions)
+
+        report = build_coverage_report(positions=positions, run_id="test-run2", user_slug="testuser2", wallet="0xdef")
+        segment_analysis = report.get("segment_analysis", {})
+        # At least one segment bucket should have a non-null notional_weighted_avg_clv_pct
+        any_weighted = any(
+            v.get("notional_weighted_avg_clv_pct") is not None
+            for bucket_group in segment_analysis.values()
+            if isinstance(bucket_group, dict)
+            for v in bucket_group.values()
+            if isinstance(v, dict)
+        )
+        assert any_weighted, (
+            "Expected at least one segment bucket to have non-null notional_weighted_avg_clv_pct "
+            "after total_cost normalization."
+        )
         assert isinstance(report["hypothesis_candidates"], list)
