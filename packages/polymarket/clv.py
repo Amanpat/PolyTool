@@ -33,6 +33,8 @@ _LEGACY_FIDELITY_MINUTES = {
 _MAX_HTTP_ERROR_BODY_CHARS = 800
 
 MISSING_REASON_NO_CLOSE_TS = "NO_CLOSE_TS"
+MISSING_REASON_NO_SETTLEMENT_CLOSE_TS = "NO_SETTLEMENT_CLOSE_TS"
+MISSING_REASON_NO_PRE_EVENT_CLOSE_TS = "NO_PRE_EVENT_CLOSE_TS"
 MISSING_REASON_OFFLINE = "OFFLINE"
 MISSING_REASON_AUTH_MISSING = "AUTH_MISSING"
 MISSING_REASON_CONNECTIVITY = "CONNECTIVITY"
@@ -100,6 +102,14 @@ _CLOSE_TS_LADDER: Sequence[Tuple[str, Sequence[str]]] = (
         ),
     ),
 )
+
+# Settlement sub-ladder: ONLY onchain_resolved_at stage
+_SETTLEMENT_TS_LADDER: Sequence[Tuple[str, Sequence[str]]] = (
+    _CLOSE_TS_LADDER[0],  # ("onchain_resolved_at", ("resolved_at", "resolvedAt", ...))
+)
+
+# Pre-event sub-ladder: closedTime/endDate/umaEndDate (skip resolution stage)
+_PRE_EVENT_TS_LADDER: Sequence[Tuple[str, Sequence[str]]] = _CLOSE_TS_LADDER[1:]
 
 
 @dataclass(frozen=True)
@@ -389,6 +399,51 @@ def resolve_close_ts(position: Dict[str, Any]) -> Tuple[Optional[datetime], Opti
     """Resolve close_ts from the canonical ladder."""
     close_ts, close_ts_source, _, _ = resolve_close_ts_with_diagnostics(position)
     return close_ts, close_ts_source
+
+
+def _resolve_close_ts_from_ladder(
+    position: Dict[str, Any],
+    ladder: Sequence[Tuple[str, Sequence[str]]],
+) -> Tuple[Optional[datetime], Optional[str], List[str], Optional[str]]:
+    """Resolve close_ts from an explicit ladder sequence.
+
+    Returns (ts, source_label, attempted_sources, failure_reason).
+    Mirrors resolve_close_ts_with_diagnostics but accepts a custom ladder.
+    """
+    attempted_sources = [label for label, _ in ladder]
+    saw_non_empty_unparsed = False
+
+    for source_label, keys in ladder:
+        for key in keys:
+            raw_value = position.get(key)
+            parsed = _parse_timestamp(raw_value)
+            if parsed is not None:
+                return parsed, source_label, attempted_sources, None
+            if raw_value not in (None, "") and str(raw_value).strip():
+                saw_non_empty_unparsed = True
+
+    failure_reason = (
+        "INVALID_CLOSE_TS_FORMAT"
+        if saw_non_empty_unparsed
+        else "MISSING_CLOSE_TS_FIELDS"
+    )
+    return None, None, attempted_sources, failure_reason
+
+
+def resolve_close_ts_settlement(
+    position: Dict[str, Any],
+) -> Tuple[Optional[datetime], Optional[str]]:
+    """Resolve close_ts using only the onchain_resolved_at stage (settlement anchor)."""
+    ts, source, _, _ = _resolve_close_ts_from_ladder(position, _SETTLEMENT_TS_LADDER)
+    return ts, source
+
+
+def resolve_close_ts_pre_event(
+    position: Dict[str, Any],
+) -> Tuple[Optional[datetime], Optional[str]]:
+    """Resolve close_ts using the gamma closedTime/endDate/umaEndDate ladder (pre-event anchor)."""
+    ts, source, _, _ = _resolve_close_ts_from_ladder(position, _PRE_EVENT_TS_LADDER)
+    return ts, source
 
 
 def classify_prices_history_error(exc: Exception) -> str:
@@ -1328,6 +1383,219 @@ def enrich_positions_with_clv(
         "clv_present_count": clv_present_count,
         "clv_missing_count": len(positions) - clv_present_count,
         "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+    }
+
+
+def _set_missing_clv_variant_fields(
+    position: Dict[str, Any],
+    variant: str,
+    reason: str,
+) -> None:
+    """Write all 6 per-variant CLV fields as None/reason."""
+    position[f"closing_price_{variant}"] = None
+    position[f"closing_ts_{variant}"] = None
+    position[f"clv_pct_{variant}"] = None
+    position[f"beat_close_{variant}"] = None
+    position[f"clv_source_{variant}"] = None
+    position[f"clv_missing_reason_{variant}"] = reason
+
+
+def _apply_clv_variant(
+    position: Dict[str, Any],
+    variant: str,
+    close_ts: Optional[datetime],
+    close_ts_source: Optional[str],
+    entry_price: float,
+    token_id: str,
+    *,
+    clickhouse_client: Any,
+    clob_client: Any = None,
+    allow_online: bool = True,
+    closing_window_seconds: int = DEFAULT_CLOSING_WINDOW_SECONDS,
+    interval: str = DEFAULT_PRICES_INTERVAL,
+    fidelity: Any = DEFAULT_PRICES_FIDELITY,
+) -> None:
+    """Resolve closing price for a specific variant and write the 6 per-variant fields."""
+    if close_ts is None:
+        missing_reason = (
+            MISSING_REASON_NO_SETTLEMENT_CLOSE_TS
+            if variant == "settlement"
+            else MISSING_REASON_NO_PRE_EVENT_CLOSE_TS
+        )
+        _set_missing_clv_variant_fields(position, variant, missing_reason)
+        return
+
+    resolved = resolve_closing_price(
+        token_id,
+        close_ts,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=allow_online,
+        closing_window_seconds=closing_window_seconds,
+        interval=interval,
+        fidelity=fidelity,
+    )
+
+    if resolved.closing_price is None:
+        _set_missing_clv_variant_fields(
+            position,
+            variant,
+            resolved.reason_if_missing or MISSING_REASON_OUTSIDE_WINDOW,
+        )
+        return
+
+    closing_price = float(resolved.closing_price)
+    clv_value = closing_price - entry_price
+    position[f"closing_price_{variant}"] = round(closing_price, 6)
+    position[f"closing_ts_{variant}"] = _isoformat(resolved.closing_ts_observed)
+    position[f"clv_pct_{variant}"] = round(clv_value / entry_price, 6)
+    position[f"beat_close_{variant}"] = bool(entry_price < closing_price)
+    position[f"clv_source_{variant}"] = f"prices_history|{close_ts_source or 'unknown'}"
+    position[f"clv_missing_reason_{variant}"] = None
+
+
+def enrich_position_with_dual_clv(
+    position: Dict[str, Any],
+    *,
+    clickhouse_client: Any,
+    clob_client: Any = None,
+    allow_online: bool = True,
+    closing_window_seconds: int = DEFAULT_CLOSING_WINDOW_SECONDS,
+    interval: str = DEFAULT_PRICES_INTERVAL,
+    fidelity: Any = DEFAULT_PRICES_FIDELITY,
+) -> Dict[str, Any]:
+    """Mutate one position with dual CLV variant fields (settlement + pre_event).
+
+    Calls enrich_position_with_clv first to preserve all existing fields,
+    then applies settlement and pre_event variant fields separately.
+    """
+    # Preserve existing CLV fields (close_ts, entry context, etc.)
+    enrich_position_with_clv(
+        position,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=allow_online,
+        closing_window_seconds=closing_window_seconds,
+        interval=interval,
+        fidelity=fidelity,
+    )
+
+    token_id = resolve_outcome_token_id(position)
+    entry_price = _safe_float(position.get("entry_price"))
+
+    # Guard: if missing entry_price or token_id, fill both variants as missing
+    if not token_id:
+        _set_missing_clv_variant_fields(
+            position, "settlement", MISSING_REASON_MISSING_OUTCOME_TOKEN_ID
+        )
+        _set_missing_clv_variant_fields(
+            position, "pre_event", MISSING_REASON_MISSING_OUTCOME_TOKEN_ID
+        )
+        return position
+
+    if entry_price is None:
+        _set_missing_clv_variant_fields(
+            position, "settlement", MISSING_REASON_MISSING_ENTRY_PRICE
+        )
+        _set_missing_clv_variant_fields(
+            position, "pre_event", MISSING_REASON_MISSING_ENTRY_PRICE
+        )
+        return position
+
+    if not (0.0 < entry_price <= 1.0):
+        _set_missing_clv_variant_fields(
+            position, "settlement", MISSING_REASON_INVALID_ENTRY_PRICE_RANGE
+        )
+        _set_missing_clv_variant_fields(
+            position, "pre_event", MISSING_REASON_INVALID_ENTRY_PRICE_RANGE
+        )
+        return position
+
+    # Settlement variant: anchor = onchain_resolved_at only
+    settlement_ts, settlement_source = resolve_close_ts_settlement(position)
+    _apply_clv_variant(
+        position,
+        "settlement",
+        settlement_ts,
+        settlement_source,
+        entry_price,
+        token_id,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=allow_online,
+        closing_window_seconds=closing_window_seconds,
+        interval=interval,
+        fidelity=fidelity,
+    )
+
+    # Pre-event variant: anchor = closedTime/endDate/umaEndDate ladder
+    pre_event_ts, pre_event_source = resolve_close_ts_pre_event(position)
+    _apply_clv_variant(
+        position,
+        "pre_event",
+        pre_event_ts,
+        pre_event_source,
+        entry_price,
+        token_id,
+        clickhouse_client=clickhouse_client,
+        clob_client=clob_client,
+        allow_online=allow_online,
+        closing_window_seconds=closing_window_seconds,
+        interval=interval,
+        fidelity=fidelity,
+    )
+
+    return position
+
+
+def enrich_positions_with_dual_clv(
+    positions: List[Dict[str, Any]],
+    *,
+    clickhouse_client: Any,
+    clob_client: Any = None,
+    allow_online: bool = True,
+    closing_window_seconds: int = DEFAULT_CLOSING_WINDOW_SECONDS,
+    interval: str = DEFAULT_PRICES_INTERVAL,
+    fidelity: Any = DEFAULT_PRICES_FIDELITY,
+) -> Dict[str, Any]:
+    """Enrich a list of positions with dual CLV variant fields and return a summary."""
+    missing_reason_counts: Dict[str, int] = {}
+    clv_present_count = 0
+    settlement_present_count = 0
+    pre_event_present_count = 0
+
+    for position in positions:
+        enrich_position_with_dual_clv(
+            position,
+            clickhouse_client=clickhouse_client,
+            clob_client=clob_client,
+            allow_online=allow_online,
+            closing_window_seconds=closing_window_seconds,
+            interval=interval,
+            fidelity=fidelity,
+        )
+        # Track base CLV
+        if _safe_float(position.get("clv")) is None:
+            reason = str(position.get("clv_missing_reason") or "UNSPECIFIED")
+            missing_reason_counts[reason] = missing_reason_counts.get(reason, 0) + 1
+        else:
+            clv_present_count += 1
+        # Track settlement variant
+        if _safe_float(position.get("clv_pct_settlement")) is not None:
+            settlement_present_count += 1
+        # Track pre_event variant
+        if _safe_float(position.get("clv_pct_pre_event")) is not None:
+            pre_event_present_count += 1
+
+    return {
+        "positions_total": len(positions),
+        "clv_present_count": clv_present_count,
+        "clv_missing_count": len(positions) - clv_present_count,
+        "missing_reason_counts": dict(sorted(missing_reason_counts.items())),
+        "settlement_present_count": settlement_present_count,
+        "settlement_missing_count": len(positions) - settlement_present_count,
+        "pre_event_present_count": pre_event_present_count,
+        "pre_event_missing_count": len(positions) - pre_event_present_count,
     }
 
 
