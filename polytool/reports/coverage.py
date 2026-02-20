@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 REPORT_VERSION = "1.5.0"
 TOP_SEGMENT_MIN_COUNT = 5  # Minimum positions in a segment to appear in Top Segments tables
+MAX_ROBUST_VALUES = 500  # Memory cap for raw value lists used in robust stats
 PENDING_COVERAGE_INVALID_WARNING = (
     "All positions are PENDING despite strong identifier coverage. "
     "This often indicates resolution enrichment did not apply to the relevant tokens "
@@ -716,6 +717,8 @@ def _empty_segment_bucket() -> Dict[str, Any]:
         "minutes_to_close_sum": 0.0,
         "minutes_to_close_count": 0,
         "_minutes_to_close_values": [],  # raw list for median; not emitted in finalized output
+        "_clv_pct_values": [],           # raw list for robust stats; capped, not emitted
+        "_entry_drift_pct_values": [],   # raw list for robust stats; capped, not emitted
         # Notional-weighted accumulators
         "notional_w_total_weight": 0.0,
         "notional_w_clv_pct_sum": 0.0,
@@ -773,6 +776,8 @@ def _accumulate_segment_bucket(
     if clv_pct is not None:
         bucket["clv_pct_sum"] += clv_pct
         bucket["clv_pct_count"] += 1
+        if len(bucket["_clv_pct_values"]) < MAX_ROBUST_VALUES:
+            bucket["_clv_pct_values"].append(clv_pct)
     if isinstance(beat_close, bool):
         bucket["beat_close_count"] += 1
         if beat_close:
@@ -782,6 +787,8 @@ def _accumulate_segment_bucket(
     if entry_drift_pct is not None:
         bucket["entry_drift_pct_sum"] += entry_drift_pct
         bucket["entry_drift_pct_count"] += 1
+        if len(bucket["_entry_drift_pct_values"]) < MAX_ROBUST_VALUES:
+            bucket["_entry_drift_pct_values"].append(entry_drift_pct)
 
     # Movement direction
     md = (movement_direction or "").strip().lower()
@@ -848,6 +855,41 @@ def _compute_median(values: List[float]) -> Optional[float]:
     return round((sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0, 6)
 
 
+def _compute_robust_stats(values: List[float]) -> Dict[str, Any]:
+    """Compute median, 10% trimmed mean (count-based), p25, p75 from a value list.
+
+    Returns a dict with keys: median, trimmed_mean, p25, p75, count_used.
+    All floats rounded to 6 decimal places. Returns all-None if list is empty.
+    Trim removes floor(n * 0.10) values from each tail (count-based, symmetric).
+    """
+    if not values:
+        return {"median": None, "trimmed_mean": None, "p25": None, "p75": None, "count_used": 0}
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    # Median
+    mid = n // 2
+    if n % 2 == 1:
+        median = round(sorted_vals[mid], 6)
+    else:
+        median = round((sorted_vals[mid - 1] + sorted_vals[mid]) / 2.0, 6)
+    # 10% trimmed mean (count-based symmetric trim)
+    trim_k = math.floor(n * 0.10)
+    trimmed = sorted_vals[trim_k: n - trim_k] if trim_k > 0 else sorted_vals
+    trimmed_mean = round(sum(trimmed) / len(trimmed), 6) if trimmed else None
+    # p25 and p75 (nearest-rank, 1-indexed)
+    p25_idx = max(0, math.ceil(n * 0.25) - 1)
+    p75_idx = max(0, math.ceil(n * 0.75) - 1)
+    p25 = round(sorted_vals[p25_idx], 6)
+    p75 = round(sorted_vals[p75_idx], 6)
+    return {
+        "median": median,
+        "trimmed_mean": trimmed_mean,
+        "p25": p25,
+        "p75": p75,
+        "count_used": n,
+    }
+
+
 def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
     wins = int(bucket.get("wins") or 0)
     losses = int(bucket.get("losses") or 0)
@@ -909,6 +951,11 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
     avg_minutes_to_close = (round(minutes_to_close_sum / minutes_to_close_count, 6)
                             if minutes_to_close_count > 0 else None)
     median_minutes_to_close = _compute_median(minutes_to_close_values)
+
+    # Robust stats for CLV
+    clv_robust = _compute_robust_stats(list(bucket.get("_clv_pct_values") or []))
+    # Robust stats for entry drift
+    entry_drift_robust = _compute_robust_stats(list(bucket.get("_entry_drift_pct_values") or []))
 
     # Derived notional-weighted metrics
     notional_weighted_avg_clv_pct = (
@@ -978,10 +1025,20 @@ def _finalize_segment_bucket(bucket: Dict[str, Any]) -> Dict[str, Any]:
         # Count-weighted
         "avg_clv_pct": avg_clv_pct,
         "avg_clv_pct_count_used": clv_pct_count,
+        "median_clv_pct": clv_robust["median"],
+        "trimmed_mean_clv_pct": clv_robust["trimmed_mean"],
+        "p25_clv_pct": clv_robust["p25"],
+        "p75_clv_pct": clv_robust["p75"],
+        "robust_clv_pct_count_used": clv_robust["count_used"],
         "beat_close_rate": beat_close_rate,
         "beat_close_rate_count_used": beat_close_count,
         "avg_entry_drift_pct": avg_entry_drift_pct,
         "avg_entry_drift_pct_count_used": entry_drift_pct_count,
+        "median_entry_drift_pct": entry_drift_robust["median"],
+        "trimmed_mean_entry_drift_pct": entry_drift_robust["trimmed_mean"],
+        "p25_entry_drift_pct": entry_drift_robust["p25"],
+        "p75_entry_drift_pct": entry_drift_robust["p75"],
+        "robust_entry_drift_pct_count_used": entry_drift_robust["count_used"],
         "movement_up_rate": movement_up_rate,
         "movement_down_rate": movement_down_rate,
         "movement_flat_rate": movement_flat_rate,
@@ -1420,6 +1477,16 @@ def _build_hypothesis_candidates(
             ),
             "avg_clv_pct": _safe_float(m.get("avg_clv_pct")),
             "avg_clv_pct_count_used": _coerce_int(m.get("avg_clv_pct_count_used")),
+            "median_clv_pct": _safe_float(m.get("median_clv_pct")),
+            "trimmed_mean_clv_pct": _safe_float(m.get("trimmed_mean_clv_pct")),
+            "p25_clv_pct": _safe_float(m.get("p25_clv_pct")),
+            "p75_clv_pct": _safe_float(m.get("p75_clv_pct")),
+            "robust_clv_pct_count_used": _coerce_int(m.get("robust_clv_pct_count_used")),
+            "median_entry_drift_pct": _safe_float(m.get("median_entry_drift_pct")),
+            "trimmed_mean_entry_drift_pct": _safe_float(m.get("trimmed_mean_entry_drift_pct")),
+            "p25_entry_drift_pct": _safe_float(m.get("p25_entry_drift_pct")),
+            "p75_entry_drift_pct": _safe_float(m.get("p75_entry_drift_pct")),
+            "robust_entry_drift_pct_count_used": _coerce_int(m.get("robust_entry_drift_pct_count_used")),
             "beat_close_rate": _safe_float(m.get("beat_close_rate")),
             "beat_close_rate_count_used": _coerce_int(m.get("beat_close_rate_count_used")),
             "avg_entry_drift_pct": _safe_float(m.get("avg_entry_drift_pct")),
