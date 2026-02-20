@@ -12,6 +12,7 @@ from polytool.reports.coverage import (
     PENDING_COVERAGE_INVALID_WARNING,
     REPORT_VERSION,
     TOP_SEGMENT_MIN_COUNT,
+    MAX_ROBUST_VALUES,
     backfill_market_metadata,
     build_coverage_report,
     extract_position_notional_usd,
@@ -20,6 +21,7 @@ from polytool.reports.coverage import (
     _get_category_key,
     _collect_top_segments_by_metric,
     _compute_median,
+    _compute_robust_stats,
     _build_clv_coverage,
     _build_hypothesis_candidates,
     write_hypothesis_candidates,
@@ -3341,3 +3343,90 @@ class TestDualClvHypothesisCandidates:
         candidates = _build_hypothesis_candidates(seg)
         for c in candidates:
             assert "clv_variant_used" in c
+
+
+class TestRobustStats:
+    def test_median_odd(self):
+        r = _compute_robust_stats([3.0, 1.0, 2.0])
+        assert r["median"] == 2.0
+        assert r["count_used"] == 3
+
+    def test_median_even(self):
+        r = _compute_robust_stats([1.0, 2.0, 3.0, 4.0])
+        assert r["median"] == 2.5
+
+    def test_trimmed_mean_10pct(self):
+        # 10 values: trim floor(10*0.10)=1 from each tail -> 8 values used
+        vals = [float(i) for i in range(1, 11)]  # [1..10]
+        r = _compute_robust_stats(vals)
+        # trimmed slice: [2,3,4,5,6,7,8,9] -> mean = 5.5
+        assert r["trimmed_mean"] == 5.5
+
+    def test_trimmed_mean_small_no_trim(self):
+        # 5 values: floor(5*0.10)=0 -> no trim, mean = all values
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        r = _compute_robust_stats(vals)
+        assert r["trimmed_mean"] == 3.0
+
+    def test_iqr(self):
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        r = _compute_robust_stats(vals)
+        # p25: ceil(5*0.25)-1 = ceil(1.25)-1 = 2-1 = 1 -> sorted_vals[1] = 2.0
+        assert r["p25"] == 2.0
+        # p75: ceil(5*0.75)-1 = ceil(3.75)-1 = 4-1 = 3 -> sorted_vals[3] = 4.0
+        assert r["p75"] == 4.0
+
+    def test_single_value(self):
+        r = _compute_robust_stats([7.5])
+        assert r["median"] == 7.5
+        assert r["trimmed_mean"] == 7.5
+        assert r["p25"] == 7.5
+        assert r["p75"] == 7.5
+
+    def test_empty(self):
+        r = _compute_robust_stats([])
+        assert r["median"] is None
+        assert r["trimmed_mean"] is None
+        assert r["count_used"] == 0
+
+    def test_cap_deterministic(self):
+        # Accumulating MAX_ROBUST_VALUES+10 values should cap at MAX_ROBUST_VALUES
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, MAX_ROBUST_VALUES
+        b = _empty_segment_bucket()
+        for i in range(MAX_ROBUST_VALUES + 10):
+            _accumulate_segment_bucket(
+                b,
+                outcome="WIN",
+                pnl_net=0.0,
+                pnl_gross=0.0,
+                clv_pct=float(i),
+                beat_close=None,
+            )
+        assert len(b["_clv_pct_values"]) == MAX_ROBUST_VALUES
+
+    def test_finalized_bucket_has_robust_fields(self):
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, _finalize_segment_bucket
+        b = _empty_segment_bucket()
+        for v in [0.1, 0.2, 0.3]:
+            _accumulate_segment_bucket(b, "WIN", 0.0, 0.0, clv_pct=v, beat_close=None, entry_drift_pct=v * 0.5)
+        f = _finalize_segment_bucket(b)
+        for field in ["median_clv_pct", "trimmed_mean_clv_pct", "p25_clv_pct", "p75_clv_pct",
+                      "robust_clv_pct_count_used", "median_entry_drift_pct",
+                      "trimmed_mean_entry_drift_pct", "robust_entry_drift_pct_count_used"]:
+            assert field in f, f"Missing: {field}"
+        assert f["robust_clv_pct_count_used"] == 3
+        assert f["median_clv_pct"] == 0.2
+
+    def test_deterministic_output_ordering(self):
+        # Same values appended in same order => same robust stats across two identical runs
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, _finalize_segment_bucket
+        vals = [0.05, -0.1, 0.3, 0.0, 0.15]
+        def _make():
+            b = _empty_segment_bucket()
+            for v in vals:
+                _accumulate_segment_bucket(b, "WIN", 0.0, 0.0, clv_pct=v, beat_close=None)
+            return _finalize_segment_bucket(b)
+        f1 = _make()
+        f2 = _make()
+        assert f1["median_clv_pct"] == f2["median_clv_pct"]
+        assert f1["trimmed_mean_clv_pct"] == f2["trimmed_mean_clv_pct"]
