@@ -154,6 +154,110 @@ def _filter_missing_slugs(clickhouse_client, slugs: list[str]) -> list[str]:
     existing = {row[0] for row in result.result_rows if row and row[0]}
     return [slug for slug in unique if slug not in existing]
 
+
+def _load_existing_taxonomy_by_token(clickhouse_client, token_ids: list[str]) -> dict[str, dict[str, str]]:
+    """Load latest taxonomy fields so backfill never overwrites non-empty values."""
+    if not token_ids:
+        return {}
+    unique = list(dict.fromkeys(str(token_id) for token_id in token_ids if token_id))
+    if not unique:
+        return {}
+
+    try:
+        result = clickhouse_client.query(
+            """
+            SELECT
+                token_id,
+                argMax(category, ingested_at) AS category,
+                argMax(subcategory, ingested_at) AS subcategory,
+                argMax(category_source, ingested_at) AS category_source,
+                argMax(subcategory_source, ingested_at) AS subcategory_source
+            FROM polyttool.market_tokens
+            WHERE token_id IN {tokens:Array(String)}
+            GROUP BY token_id
+            """,
+            parameters={"tokens": unique},
+        )
+        rows = result.result_rows
+        has_subcategory = True
+        has_category_source = True
+        has_subcategory_source = True
+    except Exception:
+        # Backward-compatible query when source marker columns are not yet available.
+        try:
+            result = clickhouse_client.query(
+                """
+                SELECT
+                    token_id,
+                    argMax(category, ingested_at) AS category,
+                    argMax(subcategory, ingested_at) AS subcategory
+                FROM polyttool.market_tokens
+                WHERE token_id IN {tokens:Array(String)}
+                GROUP BY token_id
+                """,
+                parameters={"tokens": unique},
+            )
+            rows = result.result_rows
+            has_subcategory = True
+            has_category_source = False
+            has_subcategory_source = False
+        except Exception:
+            # Backward-compatible query when only category exists.
+            try:
+                result = clickhouse_client.query(
+                    """
+                    SELECT
+                        token_id,
+                        argMax(category, ingested_at) AS category
+                    FROM polyttool.market_tokens
+                    WHERE token_id IN {tokens:Array(String)}
+                    GROUP BY token_id
+                    """,
+                    parameters={"tokens": unique},
+                )
+                rows = result.result_rows
+                has_subcategory = False
+                has_category_source = False
+                has_subcategory_source = False
+            except Exception:
+                return {}
+
+    taxonomy_by_token: dict[str, dict[str, str]] = {}
+    for row in rows:
+        if not row:
+            continue
+        token_id = str(row[0] or "").strip()
+        if not token_id:
+            continue
+        category = str(row[1] or "").strip() if len(row) > 1 else ""
+        subcategory = str(row[2] or "").strip() if has_subcategory and len(row) > 2 else ""
+        category_source = (
+            str(row[3] or "").strip()
+            if has_category_source and len(row) > 3
+            else "none"
+        )
+        subcategory_source = (
+            str(row[4] or "").strip()
+            if has_subcategory_source and len(row) > 4
+            else "none"
+        )
+        if not category:
+            category_source = "none"
+        elif category_source not in {"market", "event"}:
+            category_source = "none"
+        if not subcategory:
+            subcategory_source = "none"
+        elif subcategory_source != "event":
+            subcategory_source = "none"
+        taxonomy_by_token[token_id] = {
+            "category": category,
+            "subcategory": subcategory,
+            "category_source": category_source,
+            "subcategory_source": subcategory_source,
+        }
+    return taxonomy_by_token
+
+
 def get_all_missing_condition_ids_sql(limit: int = 1000) -> str:
     """
     Generate SQL to find all condition_ids across all users that are missing from market_tokens.
@@ -318,25 +422,66 @@ def backfill_missing_mappings(
         }
 
     # Insert market_tokens
-    token_rows = []
+    market_tokens = []
     for market in markets:
-        for mt in market.to_market_tokens():
-            token_rows.append([
-                mt.token_id,
-                mt.condition_id,
-                mt.outcome_index,
-                mt.outcome_name,
-                mt.market_slug,
-                mt.question,
-                mt.category,
-                mt.event_slug,
-                mt.end_date_iso,
-                1 if mt.active else 0,
-                1 if mt.enable_order_book else 0 if mt.enable_order_book is not None else None,
-                1 if mt.accepting_orders else 0 if mt.accepting_orders is not None else None,
-                json.dumps(mt.raw_json),
-                datetime.utcnow(),
-            ])
+        market_tokens.extend(market.to_market_tokens())
+
+    existing_taxonomy_by_token = _load_existing_taxonomy_by_token(
+        clickhouse_client,
+        [mt.token_id for mt in market_tokens],
+    )
+
+    token_rows = []
+    for mt in market_tokens:
+        existing_taxonomy = existing_taxonomy_by_token.get(str(mt.token_id), {})
+
+        category = str(mt.category or "").strip()
+        existing_category = str(existing_taxonomy.get("category") or "").strip()
+        if existing_category:
+            category = existing_category
+
+        subcategory = str(mt.subcategory or "").strip()
+        existing_subcategory = str(existing_taxonomy.get("subcategory") or "").strip()
+        if existing_subcategory:
+            subcategory = existing_subcategory
+
+        category_source = str(mt.category_source or "none").strip() or "none"
+        existing_category_source = str(existing_taxonomy.get("category_source") or "").strip()
+        if existing_category_source in {"market", "event"}:
+            category_source = existing_category_source
+        if not category:
+            category_source = "none"
+        elif category_source not in {"market", "event"}:
+            category_source = "none"
+
+        subcategory_source = str(mt.subcategory_source or "none").strip() or "none"
+        existing_subcategory_source = str(existing_taxonomy.get("subcategory_source") or "").strip()
+        if existing_subcategory_source == "event":
+            subcategory_source = existing_subcategory_source
+        if not subcategory:
+            subcategory_source = "none"
+        elif subcategory_source != "event":
+            subcategory_source = "none"
+
+        token_rows.append([
+            mt.token_id,
+            mt.condition_id,
+            mt.outcome_index,
+            mt.outcome_name,
+            mt.market_slug,
+            mt.question,
+            category,
+            subcategory,
+            category_source,
+            subcategory_source,
+            mt.event_slug,
+            mt.end_date_iso,
+            1 if mt.active else 0,
+            1 if mt.enable_order_book else 0 if mt.enable_order_book is not None else None,
+            1 if mt.accepting_orders else 0 if mt.accepting_orders is not None else None,
+            json.dumps(mt.raw_json),
+            datetime.utcnow(),
+        ])
 
     if token_rows:
         clickhouse_client.insert(
@@ -344,7 +489,8 @@ def backfill_missing_mappings(
             token_rows,
             column_names=[
                 "token_id", "condition_id", "outcome_index", "outcome_name",
-                "market_slug", "question", "category", "event_slug",
+                "market_slug", "question", "category", "subcategory",
+                "category_source", "subcategory_source", "event_slug",
                 "end_date_iso", "active", "enable_order_book", "accepting_orders",
                 "raw_json", "ingested_at"
             ],

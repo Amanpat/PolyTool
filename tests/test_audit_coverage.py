@@ -602,6 +602,136 @@ def test_fee_sanity_red_flag_when_positive_pnl_has_zero_estimated_fee(tmp_path, 
     assert "fees_estimated is only applied when gross_pnl > 0" in text
 
 
+def test_audit_position_block_includes_clv_and_entry_context_fields_and_missing_reason(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    slug = "audituser"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / slug
+
+    positions = [
+        {
+            "token_id": "tok_clv_ok",
+            "market_slug": "sports-market-clv",
+            "question": "Will team A win?",
+            "outcome_name": "Yes",
+            "category": "Sports",
+            "resolution_outcome": "WIN",
+            "entry_price": 0.40,
+            "close_ts": "2026-02-19T12:00:00+00:00",
+            "close_ts_source": "onchain_resolved_at",
+            "closing_price": 0.52,
+            "closing_ts_observed": "2026-02-19T11:55:00+00:00",
+            "clv": 0.12,
+            "clv_pct": 0.30,
+            "beat_close": True,
+            "clv_source": "prices_history|onchain_resolved_at",
+            "open_price": 0.36,
+            "open_price_ts": "2026-02-19T10:05:00+00:00",
+            "price_1h_before_entry": 0.39,
+            "price_1h_before_entry_ts": "2026-02-19T11:00:00+00:00",
+            "price_at_entry": 0.41,
+            "price_at_entry_ts": "2026-02-19T11:59:00+00:00",
+            "movement_direction": "up",
+            "minutes_to_close": 60,
+        },
+        {
+            "token_id": "tok_clv_missing",
+            "market_slug": "sports-market-clv-missing",
+            "question": "Will team B win?",
+            "outcome_name": "No",
+            "category": "Sports",
+            "resolution_outcome": "PENDING",
+            "entry_price": 0.55,
+            "clv": None,
+            "clv_pct": None,
+            "beat_close": None,
+            "clv_source": None,
+            "clv_missing_reason": "NO_CLOSE_TS",
+            "open_price": None,
+            "open_price_missing_reason": "NO_PRICE_IN_LOOKBACK_WINDOW",
+            "price_1h_before_entry": None,
+            "price_1h_before_entry_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+            "price_at_entry": None,
+            "price_at_entry_missing_reason": "NO_PRIOR_PRICE_BEFORE_ENTRY",
+            "movement_direction": None,
+            "movement_direction_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+            "minutes_to_close": None,
+            "minutes_to_close_missing_reason": "NO_CLOSE_TS",
+        },
+    ]
+    run_dir = _make_run_dir(base, "run_clv_fields", positions=positions)
+
+    coverage = _default_coverage_report("run_clv_fields", slug, "0xabc123", positions)
+    coverage["clv_coverage"] = {
+        "eligible_positions": 2,
+        "clv_present_count": 1,
+        "clv_missing_count": 1,
+        "coverage_rate": 0.5,
+        "close_ts_source_counts": {"onchain_resolved_at": 1},
+        "clv_source_counts": {"prices_history|onchain_resolved_at": 1},
+        "missing_reason_counts": {"NO_CLOSE_TS": 1},
+    }
+    coverage["entry_context_coverage"] = {
+        "eligible_positions": 2,
+        "open_price_present_count": 1,
+        "price_1h_before_entry_present_count": 1,
+        "price_at_entry_present_count": 1,
+        "movement_direction_present_count": 1,
+        "minutes_to_close_present_count": 1,
+        "missing_reason_counts": {
+            "NO_CLOSE_TS": 1,
+            "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW": 2,
+            "NO_PRICE_IN_LOOKBACK_WINDOW": 1,
+            "NO_PRIOR_PRICE_BEFORE_ENTRY": 1,
+        },
+    }
+    _write_json(run_dir / "coverage_reconciliation_report.json", coverage)
+
+    rc = audit_coverage.main(["--user", "@audituser", "--sample", "5"])
+    assert rc == 0
+
+    text = (run_dir / "audit_coverage_report.md").read_text(encoding="utf-8")
+    assert "**close_ts**" in text
+    assert "**clv**" in text
+    assert "**clv_source**" in text
+    assert "**open_price**" in text
+    assert "**price_1h_before_entry**" in text
+    assert "**price_at_entry**" in text
+    assert "**movement_direction**" in text
+    assert "**minutes_to_close**" in text
+    assert "NO_CLOSE_TS" in text
+    assert "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW" in text
+
+
+def test_audit_red_flag_when_clv_coverage_below_threshold(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    slug = "audituser"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / slug
+
+    positions = _default_positions(n=5)
+    run_dir = _make_run_dir(base, "run_clv_flag", positions=positions)
+
+    coverage = _default_coverage_report("run_clv_flag", slug, "0xabc123", positions)
+    coverage["clv_coverage"] = {
+        "eligible_positions": 5,
+        "clv_present_count": 1,
+        "clv_missing_count": 4,
+        "coverage_rate": 0.2,
+        "close_ts_source_counts": {},
+        "clv_source_counts": {"prices_history|onchain_resolved_at": 1},
+        "missing_reason_counts": {"OFFLINE": 4},
+    }
+    _write_json(run_dir / "coverage_reconciliation_report.json", coverage)
+
+    rc = audit_coverage.main(["--user", "@audituser", "--sample", "3"])
+    assert rc == 0
+
+    text = (run_dir / "audit_coverage_report.md").read_text(encoding="utf-8")
+    assert "clv_coverage_rate=20.0% below 30% threshold" in text
+
+
 def test_deterministic_sampling_same_seed_yields_same_first_sample_key(tmp_path):
     """Same seed always yields same first sample key (stable sort key check)."""
     positions = _default_positions(n=15)
@@ -638,6 +768,110 @@ def test_default_includes_all_positions(tmp_path, monkeypatch):
     # All 8 position blocks must be present
     position_blocks = [line for line in text.splitlines() if line.startswith("### Position ")]
     assert len(position_blocks) == 8
+
+
+# ---------------------------------------------------------------------------
+# Roadmap 5.0A: size/notional enrichment tests
+# ---------------------------------------------------------------------------
+
+
+def test_size_notional_case_a_total_bought_total_cost(tmp_path, monkeypatch):
+    """Case A: position with total_bought + total_cost → position_size + notional populated directly."""
+    monkeypatch.chdir(tmp_path)
+    slug = "audituser"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / slug
+
+    # Simulate a real dossier.json lifecycle position (no "size" / "notional" fields).
+    positions = [
+        {
+            "token_id": "tok_lc_0",
+            "market_slug": "nba-lakers-celtics",
+            "question": "Will Lakers win?",
+            "outcome_name": "Yes",
+            "category": "Sports",
+            "resolution_outcome": "WIN",
+            "entry_price": 0.55,
+            "total_bought": 100.0,   # shares — maps to position_size
+            "total_cost": 55.0,      # USD — maps to position_notional_usd (direct)
+            "gross_pnl": 45.0,
+        }
+    ]
+    run_dir = _make_run_dir(base, "run_case_a", positions=positions)
+
+    rc = audit_coverage.main(["--user", "@audituser"])
+    assert rc == 0
+
+    text = (run_dir / "audit_coverage_report.md").read_text(encoding="utf-8")
+    # Numeric size and notional must appear; no N/A for this position
+    assert "100.0 shs" in text
+    assert "55.0 USD" in text
+    # Must NOT show MISSING_UPSTREAM_FIELDS for this position block
+    assert "MISSING_UPSTREAM_FIELDS" not in text
+
+    # Notional stats: 0 missing, 0 derived
+    assert "notional_missing_count: 0" in text
+    assert "notional_derived_count: 0" in text
+
+
+def test_size_notional_case_b_size_entry_price_derived(tmp_path, monkeypatch):
+    """Case B: position has size + entry_price but no total_cost → notional derived with source flag."""
+    monkeypatch.chdir(tmp_path)
+    slug = "audituser"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / slug
+
+    positions = [
+        {
+            "token_id": "tok_trade_0",
+            "market_slug": "trade-level-market",
+            "question": "Will this resolve?",
+            "outcome_name": "Yes",
+            "category": "",
+            "resolution_outcome": "PENDING",
+            "entry_price": 0.40,
+            "size": 50.0,   # shares — NO total_cost available
+        }
+    ]
+    run_dir = _make_run_dir(base, "run_case_b", positions=positions)
+
+    rc = audit_coverage.main(["--user", "@audituser"])
+    assert rc == 0
+
+    text = (run_dir / "audit_coverage_report.md").read_text(encoding="utf-8")
+    # Derived notional = abs(50.0) * 0.40 = 20.0; source flag must appear in format:
+    # "50.0 shs / 20.0 (derived_from_size_price) USD"
+    assert "50.0 shs" in text
+    assert "20.0 (derived_from_size_price) USD" in text
+    # Notional stats: 0 missing, 1 derived
+    assert "notional_derived_count: 1" in text
+
+
+def test_size_notional_case_c_missing_fields(tmp_path, monkeypatch):
+    """Case C: position has no size/cost/price fields → null notional + MISSING_UPSTREAM_FIELDS."""
+    monkeypatch.chdir(tmp_path)
+    slug = "audituser"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / slug
+
+    positions = [
+        {
+            "token_id": "tok_empty_0",
+            "market_slug": "mystery-market",
+            "question": "Unknown event?",
+            "outcome_name": "Yes",
+            "category": "Other",
+            "resolution_outcome": "PENDING",
+            # No size, no total_bought, no total_cost, no entry_price
+        }
+    ]
+    run_dir = _make_run_dir(base, "run_case_c", positions=positions)
+
+    rc = audit_coverage.main(["--user", "@audituser"])
+    assert rc == 0
+
+    text = (run_dir / "audit_coverage_report.md").read_text(encoding="utf-8")
+    # Notional must show explicit missing reason
+    assert "MISSING_UPSTREAM_FIELDS" in text
+    # Notional stats: 1 missing
+    assert "notional_missing_count: 1" in text
 
 
 def test_explicit_sample_uses_samples_heading(tmp_path, monkeypatch):

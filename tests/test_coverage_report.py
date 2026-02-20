@@ -545,7 +545,8 @@ class TestBuildCoverageReport:
             "outcome_percentages", "deterministic_trade_uid_coverage",
             "fallback_uid_coverage", "pnl",
             "fees", "resolution_coverage", "market_metadata_coverage",
-            "category_coverage", "segment_analysis", "warnings",
+            "category_coverage", "clv_coverage", "entry_context_coverage",
+            "segment_analysis", "warnings",
         ]
         for field in required:
             assert field in report, f"Missing required field: {field}"
@@ -640,6 +641,7 @@ class TestBuildCoverageReport:
 
         assert segment_analysis["by_market_type"]["moneyline"]["count"] == 1
         assert segment_analysis["by_market_type"]["spread"]["count"] == 1
+        assert segment_analysis["by_market_type"]["total"]["count"] == 0
         assert segment_analysis["by_market_type"]["unknown"]["count"] == 1
 
         assert segment_analysis["by_league"]["nba"]["count"] == 1
@@ -647,6 +649,50 @@ class TestBuildCoverageReport:
 
         assert segment_analysis["by_sport"]["basketball"]["count"] == 1
         assert segment_analysis["by_sport"]["unknown"]["count"] == 2
+
+    def test_market_type_vs_default_rule_conservative(self):
+        positions = [
+            {
+                "market_slug": "nba-nets-vs-magic-spread",
+                "question": "Nets vs Magic spread -1.5",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "nba-nets-vs-magic-total-points",
+                "question": "Nets vs Magic total points over/under 220.5?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "nba-nets-vs-magic-2026-02-19",
+                "question": "Brooklyn Nets vs Orlando Magic",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "market_slug": "mystery-nets-vs-magic-2026-02-19",
+                "question": "Nets vs Magic",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+        ]
+
+        report = build_coverage_report(
+            positions=positions,
+            run_id="segment-vs-moneyline-default",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        by_market_type = report["segment_analysis"]["by_market_type"]
+        assert by_market_type["spread"]["count"] == 1
+        assert by_market_type["total"]["count"] == 1
+        assert by_market_type["moneyline"]["count"] == 1
+        assert by_market_type["unknown"]["count"] == 1
 
     def test_segment_analysis_win_rate_denominator_excludes_pending_unknown_resolution(self):
         positions = [
@@ -1553,11 +1599,143 @@ class TestMetadataConflictDetection:
             shutil.rmtree(output_dir, ignore_errors=True)
 
 
+    def test_clv_coverage_counts_and_missing_reasons(self):
+        positions = [
+            {
+                "resolved_token_id": "tok_clv_1",
+                "resolution_outcome": "WIN",
+                "entry_price": 0.40,
+                "clv": 0.06,
+                "clv_pct": 0.15,
+                "beat_close": True,
+                "close_ts_source": "onchain_resolved_at",
+                "clv_source": "prices_history|onchain_resolved_at",
+            },
+            {
+                "resolved_token_id": "tok_clv_2",
+                "resolution_outcome": "LOSS",
+                "entry_price": 0.55,
+                "clv": None,
+                "clv_pct": None,
+                "beat_close": None,
+                "clv_missing_reason": "NO_CLOSE_TS",
+            },
+            {
+                "resolved_token_id": "tok_not_eligible",
+                "resolution_outcome": "PENDING",
+                "entry_price": 1.25,
+                "clv": None,
+                "clv_missing_reason": "INVALID_ENTRY_PRICE_RANGE",
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="clv-coverage",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        clv = report["clv_coverage"]
+        assert clv["eligible_positions"] == 2
+        assert clv["clv_present_count"] == 1
+        assert clv["clv_missing_count"] == 1
+        assert clv["coverage_rate"] == 0.5
+        assert clv["missing_reason_counts"] == {"NO_CLOSE_TS": 1}
+        assert clv["close_ts_source_counts"] == {"onchain_resolved_at": 1}
+        assert clv["clv_source_counts"] == {"prices_history|onchain_resolved_at": 1}
+
+    def test_entry_context_coverage_counts_and_missing_reasons(self):
+        positions = [
+            {
+                "resolved_token_id": "tok_ctx_1",
+                "entry_price": 0.40,
+                "open_price": 0.32,
+                "price_1h_before_entry": 0.38,
+                "price_at_entry": 0.41,
+                "movement_direction": "up",
+                "minutes_to_close": 120,
+            },
+            {
+                "resolved_token_id": "tok_ctx_2",
+                "entry_price": 0.55,
+                "open_price": None,
+                "open_price_missing_reason": "NO_PRICE_IN_LOOKBACK_WINDOW",
+                "price_1h_before_entry": None,
+                "price_1h_before_entry_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+                "price_at_entry": 0.52,
+                "movement_direction": None,
+                "movement_direction_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+                "minutes_to_close": None,
+                "minutes_to_close_missing_reason": "NO_CLOSE_TS",
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="entry-context-coverage",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        context = report["entry_context_coverage"]
+        assert context["eligible_positions"] == 2
+        assert context["open_price_present_count"] == 1
+        assert context["price_1h_before_entry_present_count"] == 1
+        assert context["price_at_entry_present_count"] == 2
+        assert context["movement_direction_present_count"] == 1
+        assert context["minutes_to_close_present_count"] == 1
+        assert context["missing_reason_counts"] == {
+            "NO_CLOSE_TS": 1,
+            "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW": 2,
+            "NO_PRICE_IN_LOOKBACK_WINDOW": 1,
+        }
+
+    def test_segment_analysis_includes_avg_clv_pct_and_beat_close_rate(self):
+        positions = [
+            {
+                "resolved_token_id": "seg_clv_1",
+                "entry_price": 0.40,
+                "market_slug": "nba-a-b-2026-01-01-a",
+                "question": "Will Team A win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 2.0,
+                "clv_pct": 0.10,
+                "beat_close": True,
+            },
+            {
+                "resolved_token_id": "seg_clv_2",
+                "entry_price": 0.42,
+                "market_slug": "nba-a-b-2026-01-01-b",
+                "question": "Will Team B win?",
+                "resolution_outcome": "LOSS",
+                "realized_pnl_net": -1.0,
+                "clv_pct": -0.05,
+                "beat_close": False,
+            },
+            {
+                "resolved_token_id": "seg_clv_3",
+                "entry_price": 0.41,
+                "market_slug": "nba-a-b-2026-01-01-c",
+                "question": "Will Team C win?",
+                "resolution_outcome": "PENDING",
+                "realized_pnl_net": 0.0,
+                "clv_pct": None,
+                "beat_close": None,
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="segment-clv",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        underdog = report["segment_analysis"]["by_entry_price_tier"]["underdog"]
+        assert underdog["avg_clv_pct"] == pytest.approx(0.025, rel=0, abs=1e-9)
+        assert underdog["beat_close_rate"] == pytest.approx(0.5, rel=0, abs=1e-9)
+
+
 class TestCategoryCoverage:
     """Roadmap 4.5: category coverage section tests."""
 
-    def test_report_version_is_1_4_0(self):
-        assert REPORT_VERSION == "1.4.0"
+    def test_report_version_is_1_5_0(self):
+        assert REPORT_VERSION == "1.5.0"
 
     def test_get_category_key_returns_category_when_present(self):
         pos = {"category": "Sports"}
@@ -1661,6 +1839,43 @@ class TestCategoryCoverage:
         assert cc["present_count"] == 1
         assert cc["source_counts"]["backfilled"] == 1
         assert positions[0]["category"] == "Baseball"
+
+    def test_category_backfill_updates_position_and_by_category_bucket(self):
+        """Backfilled category flows into segment_analysis.by_category."""
+        positions = [
+            {
+                "resolved_token_id": "tok-politics",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 2.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        mapping = {
+            "tok-politics": {
+                "market_slug": "election-market",
+                "question": "Will candidate win?",
+                "outcome_name": "Yes",
+                "category": "Politics",
+            }
+        }
+        report = build_coverage_report(
+            positions=positions,
+            run_id="cat-backfill-politics-segment",
+            user_slug="testuser",
+            wallet="0xabc",
+            market_metadata_map=mapping,
+        )
+
+        assert positions[0]["category"] == "Politics"
+
+        cc = report["category_coverage"]
+        assert cc["source_counts"]["backfilled"] == 1
+        assert cc["source_counts"]["ingested"] == 0
+        assert cc["source_counts"]["unknown"] == 0
+
+        by_category = report["segment_analysis"]["by_category"]
+        assert by_category["Politics"]["count"] == 1
+        assert by_category["Unknown"]["count"] == 0
 
     def test_category_backfilled_via_condition_id(self):
         """Category (market-level) can be filled from condition_id unlike outcome_name."""
@@ -2060,6 +2275,90 @@ class TestCategoryCoverage:
             assert "## Category Coverage" in md
             assert "Coverage:" in md
             assert "Sources:" in md
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_markdown_includes_clv_coverage_section(self):
+        positions = [
+            {
+                "resolved_token_id": "tok-md-clv-1",
+                "entry_price": 0.45,
+                "resolution_outcome": "WIN",
+                "clv": 0.05,
+                "clv_pct": 0.111111,
+                "beat_close": True,
+                "close_ts_source": "onchain_resolved_at",
+                "clv_source": "prices_history|onchain_resolved_at",
+            },
+            {
+                "resolved_token_id": "tok-md-clv-2",
+                "entry_price": 0.52,
+                "resolution_outcome": "LOSS",
+                "clv": None,
+                "clv_missing_reason": "OFFLINE",
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="clv-md",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        output_dir = Path("artifacts") / "_pytest_clv_md"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_coverage_report(report, output_dir, write_markdown=True)
+            md = Path(paths["md"]).read_text(encoding="utf-8")
+            assert "## CLV Coverage" in md
+            assert "Top missing reasons" in md
+            assert "OFFLINE" in md
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_markdown_includes_entry_context_coverage_section(self):
+        positions = [
+            {
+                "resolved_token_id": "tok-md-ctx-1",
+                "entry_price": 0.45,
+                "open_price": 0.41,
+                "price_1h_before_entry": 0.43,
+                "price_at_entry": 0.46,
+                "movement_direction": "up",
+                "minutes_to_close": 180,
+                "resolution_outcome": "WIN",
+            },
+            {
+                "resolved_token_id": "tok-md-ctx-2",
+                "entry_price": 0.52,
+                "open_price": None,
+                "open_price_missing_reason": "NO_PRICE_IN_LOOKBACK_WINDOW",
+                "price_1h_before_entry": None,
+                "price_1h_before_entry_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+                "price_at_entry": None,
+                "price_at_entry_missing_reason": "NO_PRIOR_PRICE_BEFORE_ENTRY",
+                "movement_direction": None,
+                "movement_direction_missing_reason": "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW",
+                "minutes_to_close": None,
+                "minutes_to_close_missing_reason": "NO_CLOSE_TS",
+                "resolution_outcome": "LOSS",
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="entry-context-md",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        output_dir = Path("artifacts") / "_pytest_entry_context_md"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_coverage_report(report, output_dir, write_markdown=True)
+            md = Path(paths["md"]).read_text(encoding="utf-8")
+            assert "## Entry Context Coverage" in md
+            assert "open_price_present_count" in md
+            assert "NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW" in md
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
