@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import copy
 import json
 import sys
@@ -553,6 +554,107 @@ def _build_markdown(leaderboard: Dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _resolve_run_roots(path: Path) -> list[Path]:
+    """Resolve run root directories from a directory or a file listing paths.
+
+    If ``path`` is a directory, all immediate subdirectories are returned (non-
+    recursive; plain files inside are skipped).  If ``path`` is a file, each
+    non-blank, non-comment line is interpreted as a path to a run root
+    directory.  Raises ``FileNotFoundError`` if any resolved run root does not
+    exist as a directory.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"--run-roots path does not exist: {path}")
+
+    if path.is_dir():
+        roots = [child for child in sorted(path.iterdir()) if child.is_dir()]
+    else:
+        # Treat as a text file with one run-root path per line.
+        roots = []
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            roots.append(Path(line))
+
+    # Validate all resolved roots exist as directories.
+    for root in roots:
+        if not root.is_dir():
+            raise FileNotFoundError(f"Run root directory does not exist: {root}")
+
+    return roots
+
+
+def aggregate_from_roots(
+    run_roots: list[Path],
+) -> tuple[list[Dict[str, Any]], Dict[str, list[Dict[str, Any]]]]:
+    """Aggregate per-user results and segment contributions from existing run root directories.
+
+    Returns ``(per_user_results, segment_contributions)`` using the same shape
+    that ``BatchRunner.run_batch`` builds internally.  The user slug is read
+    from ``hypothesis_candidates.json`` (``user_slug`` field) when present;
+    otherwise the directory name is used as the slug.
+    """
+    per_user_results: list[Dict[str, Any]] = []
+    segment_contributions: Dict[str, list[Dict[str, Any]]] = {}
+
+    for run_root in run_roots:
+        # Determine user slug.
+        candidates_path = run_root / "hypothesis_candidates.json"
+        try:
+            candidates_payload = _read_json(candidates_path)
+        except Exception:
+            candidates_payload = {}
+        user = str(candidates_payload.get("user_slug") or run_root.name).strip() or run_root.name
+
+        try:
+            success_result, candidates = _success_user_result(user=user, run_root=run_root)
+            per_user_results.append(success_result)
+            for candidate in candidates:
+                segment_key = str(candidate.get("segment_key") or "").strip()
+                if not segment_key:
+                    continue
+                contribution = {
+                    "user": user,
+                    "rank": _to_int(candidate.get("rank")) or 0,
+                    "weighting": str(
+                        (candidate.get("denominators") or {}).get("weighting") or ""
+                    ).strip(),
+                    "metrics": candidate.get("metrics") or {},
+                    "denominators": candidate.get("denominators") or {},
+                }
+                segment_contributions.setdefault(segment_key, []).append(contribution)
+        except Exception as exc:
+            error_text = f"{type(exc).__name__}: {exc}"
+            per_user_results.append(_failure_user_result(user=user, error=error_text))
+
+    return per_user_results, segment_contributions
+
+
+def aggregate_only(
+    *,
+    run_roots: list[Path],
+    output_root: Path,
+    batch_id: str,
+    now_provider: Optional[Callable[[], datetime]] = None,
+) -> Dict[str, str]:
+    """Re-aggregate existing run roots into a leaderboard without running scans.
+
+    Constructs a ``BatchRunner`` and delegates to ``run_batch`` with
+    ``run_roots_override`` set so the scan loop is bypassed entirely.
+    """
+    runner = BatchRunner(now_provider=now_provider)
+    return runner.run_batch(
+        users=[],
+        users_file=Path(""),
+        output_root=output_root,
+        batch_id=batch_id,
+        continue_on_error=True,
+        scan_flags={},
+        run_roots_override=run_roots,
+    )
+
+
 class BatchRunner:
     """Execute multi-user scans and aggregate hypothesis candidates."""
 
@@ -573,6 +675,8 @@ class BatchRunner:
         batch_id: str,
         continue_on_error: bool,
         scan_flags: Dict[str, Any],
+        run_roots_override: Optional[list[Path]] = None,
+        workers: int = 1,
     ) -> Dict[str, str]:
         now = self._now_provider()
         created_at = _iso_utc(now)
@@ -583,30 +687,67 @@ class BatchRunner:
         per_user_results: list[Dict[str, Any]] = []
         segment_contributions: Dict[str, list[Dict[str, Any]]] = {}
 
-        for user in users:
-            try:
-                run_root = Path(self._scan_callable(user, scan_flags))
-                success_result, candidates = _success_user_result(user=user, run_root=run_root)
-                per_user_results.append(success_result)
-                for candidate in candidates:
-                    segment_key = str(candidate.get("segment_key") or "").strip()
-                    if not segment_key:
-                        continue
-                    contribution = {
-                        "user": user,
-                        "rank": _to_int(candidate.get("rank")) or 0,
-                        "weighting": str(
-                            (candidate.get("denominators") or {}).get("weighting") or ""
-                        ).strip(),
-                        "metrics": candidate.get("metrics") or {},
-                        "denominators": candidate.get("denominators") or {},
-                    }
-                    segment_contributions.setdefault(segment_key, []).append(contribution)
-            except Exception as exc:
-                error_text = f"{type(exc).__name__}: {exc}"
-                per_user_results.append(_failure_user_result(user=user, error=error_text))
-                if not continue_on_error:
-                    raise
+        if run_roots_override is not None:
+            # Aggregate-only mode: skip scanning, read from existing run roots.
+            per_user_results, segment_contributions = aggregate_from_roots(run_roots_override)
+        elif workers > 1:
+            # Parallel scan mode: submit one future per user, collect in original order.
+            futures: list[concurrent.futures.Future[tuple[Dict[str, Any], list[Dict[str, Any]]]]] = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                for user in users:
+                    future = executor.submit(self._scan_user, user, scan_flags, continue_on_error)
+                    futures.append(future)
+
+                # Collect in submission order to guarantee determinism.
+                for user, future in zip(users, futures):
+                    try:
+                        success_result, candidates = future.result()
+                        per_user_results.append(success_result)
+                        for candidate in candidates:
+                            segment_key = str(candidate.get("segment_key") or "").strip()
+                            if not segment_key:
+                                continue
+                            contribution = {
+                                "user": user,
+                                "rank": _to_int(candidate.get("rank")) or 0,
+                                "weighting": str(
+                                    (candidate.get("denominators") or {}).get("weighting") or ""
+                                ).strip(),
+                                "metrics": candidate.get("metrics") or {},
+                                "denominators": candidate.get("denominators") or {},
+                            }
+                            segment_contributions.setdefault(segment_key, []).append(contribution)
+                    except Exception as exc:
+                        error_text = f"{type(exc).__name__}: {exc}"
+                        per_user_results.append(_failure_user_result(user=user, error=error_text))
+                        if not continue_on_error:
+                            raise
+        else:
+            # Sequential scan mode (original behaviour).
+            for user in users:
+                try:
+                    run_root = Path(self._scan_callable(user, scan_flags))
+                    success_result, candidates = _success_user_result(user=user, run_root=run_root)
+                    per_user_results.append(success_result)
+                    for candidate in candidates:
+                        segment_key = str(candidate.get("segment_key") or "").strip()
+                        if not segment_key:
+                            continue
+                        contribution = {
+                            "user": user,
+                            "rank": _to_int(candidate.get("rank")) or 0,
+                            "weighting": str(
+                                (candidate.get("denominators") or {}).get("weighting") or ""
+                            ).strip(),
+                            "metrics": candidate.get("metrics") or {},
+                            "denominators": candidate.get("denominators") or {},
+                        }
+                        segment_contributions.setdefault(segment_key, []).append(contribution)
+                except Exception as exc:
+                    error_text = f"{type(exc).__name__}: {exc}"
+                    per_user_results.append(_failure_user_result(user=user, error=error_text))
+                    if not continue_on_error:
+                        raise
 
         segment_rows = _segment_rows_from_candidates(segment_contributions)
         top_lists = {
@@ -631,7 +772,7 @@ class BatchRunner:
             "users_succeeded": users_succeeded,
             "users_failed": users_failed,
             "inputs": {
-                "users_file": users_file.as_posix(),
+                "users_file": users_file.as_posix() if users_file != Path("") else None,
                 "scan_flags": scan_flags,
             },
             "per_user": per_user_results,
@@ -686,6 +827,16 @@ class BatchRunner:
             "per_user_results_json": per_user_results_path.as_posix(),
         }
 
+    def _scan_user(
+        self,
+        user: str,
+        scan_flags: Dict[str, Any],
+        continue_on_error: bool,
+    ) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
+        """Run scan for a single user; raises on failure (caller handles continue_on_error)."""
+        run_root = Path(self._scan_callable(user, scan_flags))
+        return _success_user_result(user=user, run_root=run_root)
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -696,7 +847,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--users",
-        required=True,
+        required=False,
         help="Path to a file containing one @handle per line.",
     )
     parser.add_argument(
@@ -719,6 +870,25 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Optional safety cap on number of users loaded from --users.",
     )
+    parser.add_argument(
+        "--aggregate-only",
+        action="store_true",
+        default=False,
+        help="Skip scanning; aggregate existing run roots into a leaderboard.",
+    )
+    parser.add_argument(
+        "--run-roots",
+        help=(
+            "Path to a directory of run roots OR a file listing run root paths, "
+            "one per line. Required when --aggregate-only is set."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel scan workers (default: 1, sequential).",
+    )
     _clone_scan_passthrough_actions(parser)
     return parser
 
@@ -727,34 +897,61 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    users_file = Path(args.users)
     output_root = Path(args.output_root)
     batch_id = str(args.batch_id or uuid.uuid4())
-    scan_flags = _scan_flags_from_args(args)
 
-    try:
-        users = _parse_users_file(users_file, max_users=args.max_users)
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+    if args.aggregate_only:
+        if args.run_roots is None:
+            print("Error: --run-roots is required when --aggregate-only is set.", file=sys.stderr)
+            return 1
+        try:
+            run_roots = _resolve_run_roots(Path(args.run_roots))
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
 
-    if not users:
-        print("Error: users file produced zero users after filtering blank/comment lines.", file=sys.stderr)
-        return 1
+        runner = BatchRunner()
+        try:
+            output_paths = aggregate_only(
+                run_roots=run_roots,
+                output_root=output_root,
+                batch_id=batch_id,
+            )
+        except Exception as exc:
+            print(f"Aggregate-only run failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        if not args.users:
+            print("Error: --users is required when not using --aggregate-only.", file=sys.stderr)
+            return 1
 
-    runner = BatchRunner()
-    try:
-        output_paths = runner.run_batch(
-            users=users,
-            users_file=users_file,
-            output_root=output_root,
-            batch_id=batch_id,
-            continue_on_error=bool(args.continue_on_error),
-            scan_flags=scan_flags,
-        )
-    except Exception as exc:
-        print(f"Batch run failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        users_file = Path(args.users)
+        scan_flags = _scan_flags_from_args(args)
+
+        try:
+            users = _parse_users_file(users_file, max_users=args.max_users)
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        if not users:
+            print("Error: users file produced zero users after filtering blank/comment lines.", file=sys.stderr)
+            return 1
+
+        runner = BatchRunner()
+        try:
+            output_paths = runner.run_batch(
+                users=users,
+                users_file=users_file,
+                output_root=output_root,
+                batch_id=batch_id,
+                continue_on_error=bool(args.continue_on_error),
+                scan_flags=scan_flags,
+                workers=args.workers,
+            )
+        except Exception as exc:
+            print(f"Batch run failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
 
     print("Batch run complete")
     print(f"Batch root: {output_paths['batch_root']}")
