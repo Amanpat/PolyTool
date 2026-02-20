@@ -434,6 +434,87 @@ def _positions_identity_hash(positions: list[Dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _normalize_position_notional(positions: list[dict[str, Any]]) -> None:
+    """Inject canonical position_notional_usd onto every position dict in-place.
+
+    Uses the same priority chain as coverage.extract_position_notional_usd:
+      1. existing position_notional_usd (if positive finite float)
+      2. total_cost (if positive finite float)
+      3. size * entry_price (if both present and entry_price > 0)
+
+    Positions that yield None from all three sources are left unchanged
+    (position_notional_usd absent); the debug artifact records why.
+    """
+    from polytool.reports.coverage import extract_position_notional_usd
+    for pos in positions:
+        existing = pos.get("position_notional_usd")
+        # Avoid overwriting a valid value already present
+        try:
+            ev = float(existing) if existing is not None else None
+        except (TypeError, ValueError):
+            ev = None
+        if ev is not None and ev > 0:
+            continue
+        extracted = extract_position_notional_usd(pos)
+        if extracted is not None:
+            pos["position_notional_usd"] = extracted
+
+
+def _build_notional_weight_debug(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the notional_weight_debug.json payload from already-normalized positions."""
+    import math as _math
+
+    WEIGHT_FIELDS = ("position_notional_usd", "total_cost", "size", "entry_price")
+    total = len(positions)
+    extracted_total = 0.0
+    count_missing = 0
+    missing_reasons: dict[str, int] = {}
+    samples = []
+
+    for pos in positions:
+        pnu = pos.get("position_notional_usd")
+        try:
+            v = float(pnu) if pnu is not None else None
+        except (TypeError, ValueError):
+            v = None
+
+        if v is not None and v > 0 and _math.isfinite(v):
+            extracted_total += v
+        else:
+            count_missing += 1
+            # Classify reason
+            has_tc = pos.get("total_cost") is not None
+            has_size = pos.get("size") is not None
+            has_ep = pos.get("entry_price") is not None
+            if not has_tc and not has_size:
+                reason = "NO_FIELDS"
+            elif pnu is not None and v is None:
+                reason = "NON_NUMERIC"
+            elif v is not None and v <= 0:
+                reason = "ZERO_OR_NEGATIVE"
+            else:
+                reason = "FALLBACK_FAILED"
+            missing_reasons[reason] = missing_reasons.get(reason, 0) + 1
+
+        if len(samples) < 10:
+            sample_fields = {k: pos.get(k) for k in WEIGHT_FIELDS if pos.get(k) is not None}
+            samples.append({
+                "token_id": pos.get("token_id") or pos.get("resolved_token_id"),
+                "market_slug": pos.get("market_slug"),
+                "fields_present": list(sample_fields.keys()),
+                "extracted_position_notional_usd": v if (v is not None and v > 0) else None,
+            })
+
+    top_missing = sorted(missing_reasons.items(), key=lambda x: -x[1])
+    return {
+        "total_positions": total,
+        "extracted_weight_total": round(extracted_total, 6),
+        "count_missing_weight": count_missing,
+        "top_missing_reasons": [{"reason": r, "count": c} for r, c in top_missing],
+        "samples": samples,
+    }
+
+
 def _build_parity_debug(
     positions: list[Dict[str, Any]],
     enrichment_request_payload: Dict[str, Any],
@@ -1293,6 +1374,10 @@ def _emit_trust_artifacts(
         market_metadata_map = metadata_result["map"]
         metadata_conflicts_count = metadata_result["conflicts_count"]
         metadata_conflict_sample = metadata_result["conflict_sample"]
+    # Normalize position_notional_usd so weighted metrics are non-null.
+    _normalize_position_notional(positions)
+    notional_debug = _build_notional_weight_debug(positions)
+
     coverage_report = build_coverage_report(
         positions=positions,
         run_id=run_id,
@@ -1458,6 +1543,11 @@ def _emit_trust_artifacts(
         json.dumps(parity_debug, indent=2, sort_keys=True), encoding="utf-8"
     )
 
+    notional_debug_path = output_dir / "notional_weight_debug.json"
+    notional_debug_path.write_text(
+        json.dumps(notional_debug, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
     gamma_sample_path = _write_gamma_markets_sample(
         output_dir=output_dir,
         config=config,
@@ -1488,6 +1578,7 @@ def _emit_trust_artifacts(
         "segment_analysis_json": segment_analysis_path.as_posix(),
         "hypothesis_candidates_json": hypothesis_candidates_path,
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
+        "notional_weight_debug_json": notional_debug_path.as_posix(),
     }
     if clv_preflight_artifact is not None:
         output_paths["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
@@ -1530,6 +1621,7 @@ def _emit_trust_artifacts(
         "hypothesis_candidates_json": hypothesis_candidates_path,
         "run_manifest": Path(manifest_path).as_posix(),
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
+        "notional_weight_debug_json": notional_debug_path.as_posix(),
     }
     if clv_preflight_artifact is not None:
         emitted["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
