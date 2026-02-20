@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from tools.cli.batch_run import BatchRunner, _build_markdown
+from tools.cli.batch_run import (
+    BatchRunner,
+    _build_markdown,
+    _resolve_run_roots,
+    aggregate_only,
+)
 
 
 FIXED_NOW = datetime(2026, 2, 20, 18, 0, 0, tzinfo=timezone.utc)
@@ -476,3 +481,266 @@ def test_build_markdown_includes_robust_clv_stats():
     assert "median_clv_pct" in md
     assert "trimmed_mean_clv_pct" in md
     assert "0.040000" in md  # median value formatted
+
+
+# ---------------------------------------------------------------------------
+# New tests: aggregate-only mode
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_only_from_run_roots(tmp_path):
+    """aggregate_only() builds a leaderboard from two existing run roots (no scans)."""
+    run_root_u1 = _make_run_root(
+        tmp_path,
+        "run-u1",
+        [
+            _candidate(
+                "sport:tennis",
+                rank=1,
+                weighting="notional",
+                metric_value=0.15,
+                beat_close_value=0.6,
+                count=10,
+                count_used=10,
+                weight_used=100.0,
+            )
+        ],
+    )
+    run_root_u2 = _make_run_root(
+        tmp_path,
+        "run-u2",
+        [
+            _candidate(
+                "sport:cricket",
+                rank=1,
+                weighting="notional",
+                metric_value=0.20,
+                beat_close_value=0.65,
+                count=12,
+                count_used=12,
+                weight_used=120.0,
+            )
+        ],
+    )
+
+    output_paths = aggregate_only(
+        run_roots=[run_root_u1, run_root_u2],
+        output_root=tmp_path / "out",
+        batch_id="batch-agg",
+        now_provider=lambda: FIXED_NOW,
+    )
+
+    assert Path(output_paths["hypothesis_leaderboard_json"]).exists()
+    assert Path(output_paths["batch_manifest_json"]).exists()
+
+    leaderboard = _load_json(output_paths["hypothesis_leaderboard_json"])
+    assert leaderboard["users_attempted"] == 2
+    assert leaderboard["users_succeeded"] == 2
+
+    segment_keys = {row["segment_key"] for row in leaderboard["segments"]}
+    assert "sport:tennis" in segment_keys
+    assert "sport:cricket" in segment_keys
+
+
+def test_aggregate_only_directory_input(tmp_path):
+    """_resolve_run_roots() returns all immediate subdirs of a directory."""
+    roots_dir = tmp_path / "roots"
+    roots_dir.mkdir()
+
+    # Create two subdirectories (simulate run roots).
+    (roots_dir / "run-a").mkdir()
+    (roots_dir / "run-b").mkdir()
+    # A plain file inside should be ignored.
+    (roots_dir / "not_a_dir.txt").write_text("ignore me", encoding="utf-8")
+
+    resolved = _resolve_run_roots(roots_dir)
+    assert len(resolved) == 2
+    assert all(p.is_dir() for p in resolved)
+    resolved_names = {p.name for p in resolved}
+    assert resolved_names == {"run-a", "run-b"}
+
+
+def test_aggregate_only_file_input(tmp_path):
+    """_resolve_run_roots() reads paths from a text file (one per line)."""
+    run_a = tmp_path / "run-a"
+    run_b = tmp_path / "run-b"
+    run_a.mkdir()
+    run_b.mkdir()
+
+    roots_file = tmp_path / "roots.txt"
+    roots_file.write_text(
+        f"# comment\n{run_a.as_posix()}\n\n{run_b.as_posix()}\n",
+        encoding="utf-8",
+    )
+
+    resolved = _resolve_run_roots(roots_file)
+    assert len(resolved) == 2
+    resolved_paths = {p.resolve() for p in resolved}
+    assert run_a.resolve() in resolved_paths
+    assert run_b.resolve() in resolved_paths
+
+
+# ---------------------------------------------------------------------------
+# New tests: --workers parallel scans
+# ---------------------------------------------------------------------------
+
+
+def test_workers_ordering_matches_serial(tmp_path):
+    """Per-user result order from workers=3 is identical to workers=1 (serial)."""
+    users = ["@u1", "@u2", "@u3"]
+    users_file = _write_users_file(tmp_path / "users.txt", users)
+
+    run_roots = {
+        "@u1": _make_run_root(
+            tmp_path,
+            "run-u1",
+            [
+                _candidate(
+                    "sport:football",
+                    rank=1,
+                    weighting="notional",
+                    metric_value=0.10,
+                    beat_close_value=0.55,
+                    count=10,
+                    count_used=10,
+                    weight_used=100.0,
+                )
+            ],
+        ),
+        "@u2": _make_run_root(
+            tmp_path,
+            "run-u2",
+            [
+                _candidate(
+                    "sport:baseball",
+                    rank=1,
+                    weighting="notional",
+                    metric_value=0.20,
+                    beat_close_value=0.60,
+                    count=15,
+                    count_used=15,
+                    weight_used=150.0,
+                )
+            ],
+        ),
+        "@u3": _make_run_root(
+            tmp_path,
+            "run-u3",
+            [
+                _candidate(
+                    "sport:hockey",
+                    rank=1,
+                    weighting="notional",
+                    metric_value=0.30,
+                    beat_close_value=0.70,
+                    count=20,
+                    count_used=20,
+                    weight_used=200.0,
+                )
+            ],
+        ),
+    }
+
+    def fake_scan(user: str, _flags: dict) -> str:
+        return run_roots[user].as_posix()
+
+    runner = BatchRunner(scan_callable=fake_scan, now_provider=lambda: FIXED_NOW)
+
+    out_serial = runner.run_batch(
+        users=users,
+        users_file=users_file,
+        output_root=tmp_path / "out",
+        batch_id="batch-serial",
+        continue_on_error=True,
+        scan_flags={"api_base_url": "http://127.0.0.1:8000"},
+        workers=1,
+    )
+    out_parallel = runner.run_batch(
+        users=users,
+        users_file=users_file,
+        output_root=tmp_path / "out",
+        batch_id="batch-par",
+        continue_on_error=True,
+        scan_flags={"api_base_url": "http://127.0.0.1:8000"},
+        workers=3,
+    )
+
+    lb_serial = _load_json(out_serial["hypothesis_leaderboard_json"])
+    lb_parallel = _load_json(out_parallel["hypothesis_leaderboard_json"])
+
+    # Per-user order must match.
+    serial_users = [row["user"] for row in lb_serial["per_user"]]
+    parallel_users = [row["user"] for row in lb_parallel["per_user"]]
+    assert serial_users == parallel_users == users
+
+    # Top-lists must be identical.
+    assert lb_serial["top_lists"] == lb_parallel["top_lists"]
+
+
+def test_workers_continue_on_error_parallel(tmp_path):
+    """Under workers>1, continue_on_error=True records failures without dropping users."""
+    users = ["@ok1", "@bad", "@ok2"]
+    users_file = _write_users_file(tmp_path / "users.txt", users)
+
+    run_root_ok1 = _make_run_root(
+        tmp_path,
+        "run-ok1",
+        [
+            _candidate(
+                "sport:tennis",
+                rank=1,
+                weighting="notional",
+                metric_value=0.15,
+                beat_close_value=0.6,
+                count=10,
+                count_used=10,
+                weight_used=100.0,
+            )
+        ],
+    )
+    run_root_ok2 = _make_run_root(
+        tmp_path,
+        "run-ok2",
+        [
+            _candidate(
+                "sport:cricket",
+                rank=1,
+                weighting="notional",
+                metric_value=0.20,
+                beat_close_value=0.65,
+                count=12,
+                count_used=12,
+                weight_used=120.0,
+            )
+        ],
+    )
+
+    run_root_map = {"@ok1": run_root_ok1, "@ok2": run_root_ok2}
+
+    def fake_scan(user: str, _flags: dict) -> str:
+        if user == "@bad":
+            raise RuntimeError("intentional failure")
+        return run_root_map[user].as_posix()
+
+    runner = BatchRunner(scan_callable=fake_scan, now_provider=lambda: FIXED_NOW)
+    output_paths = runner.run_batch(
+        users=users,
+        users_file=users_file,
+        output_root=tmp_path / "out",
+        batch_id="batch-par-error",
+        continue_on_error=True,
+        scan_flags={"api_base_url": "http://127.0.0.1:8000"},
+        workers=2,
+    )
+
+    leaderboard = _load_json(output_paths["hypothesis_leaderboard_json"])
+    assert leaderboard["users_attempted"] == 3
+    assert leaderboard["users_succeeded"] == 2
+    assert leaderboard["users_failed"] == 1
+
+    bad_row = next(row for row in leaderboard["per_user"] if row["user"] == "@bad")
+    assert bad_row["status"] == "failure"
+
+    # Per-user order must preserve original user list order.
+    per_user_order = [row["user"] for row in leaderboard["per_user"]]
+    assert per_user_order == users
