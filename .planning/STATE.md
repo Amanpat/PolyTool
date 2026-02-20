@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-20 - Completed quick-005: fix notional-weighted metrics null by normalizing position_notional_usd in scan.py
+Last activity: 2026-02-20 - Completed quick-006: dual CLV variants (clv_settlement + clv_pre_event) with hypothesis ranking preference
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -25,6 +25,8 @@ Last activity: 2026-02-20 - Completed quick-005: fix notional-weighted metrics n
 - No web3.py: raw JSON-RPC for on-chain reads (lighter dependency footprint)
 - Resolution reason field for debugging/traceability
 - Roadmap renumbering: Resolution Coverage as Roadmap 3 (data quality before analysis quality)
+- Dual CLV variants: settlement sub-ladder (onchain_resolved_at only), pre-event sub-ladder (gamma closedTime/endDate/umaEndDate)
+- Hypothesis ranking cascade: pre_event notional-weighted > settlement notional-weighted > combined > count-weighted fallback
 
 ### Blockers/Concerns
 None currently.
@@ -37,3 +39,4 @@ None currently.
 | 002 | Resolution provider chain (OnChainCTF + Subgraph) | 2026-02-10 | 81f17d7 | [002-resolution-provider-chain](./quick/002-resolution-provider-chain/) |
 | 004 | hypothesis_candidates.json artifact + Hypothesis Candidates markdown section | 2026-02-20 | eaa39f2 | [4-build-hypothesis-candidates-json-artifac](./quick/4-build-hypothesis-candidates-json-artifac/) |
 | 005 | Fix notional-weighted metrics null by normalizing position_notional_usd in scan.py | 2026-02-20 | b592d94 | [5-fix-notional-weighted-metrics-null-by-no](./quick/5-fix-notional-weighted-metrics-null-by-no/) |
+| 006 | Dual CLV variants (clv_settlement + clv_pre_event) with hypothesis ranking preference | 2026-02-20 | 0407007 | [6-add-dual-clv-variants-clv-settlement-anc](./quick/6-add-dual-clv-variants-clv-settlement-anc/) |
