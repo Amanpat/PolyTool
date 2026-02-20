@@ -20,6 +20,7 @@ from polytool.reports.coverage import (
     _get_category_key,
     _collect_top_segments_by_metric,
     _compute_median,
+    _build_clv_coverage,
     _build_hypothesis_candidates,
     write_hypothesis_candidates,
 )
@@ -3222,3 +3223,121 @@ class TestNotionalWeightInCoverageReport:
             "after total_cost normalization."
         )
         assert isinstance(report["hypothesis_candidates"], list)
+
+
+class TestDualClvVariantCoverage:
+    """Unit tests for dual CLV variant sub-dicts in _build_clv_coverage."""
+
+    def _make_positions_with_variants(self):
+        return [
+            {
+                "resolved_token_id": "tok_s1",
+                "entry_price": 0.42,
+                "clv": 0.09,
+                "clv_pct": 0.214,
+                "clv_source": "prices_history|onchain_resolved_at",
+                "clv_missing_reason": None,
+                "clv_pct_settlement": 0.214,
+                "clv_missing_reason_settlement": None,
+                "clv_source_settlement": "prices_history|onchain_resolved_at",
+                "clv_pct_pre_event": None,
+                "clv_missing_reason_pre_event": "NO_PRE_EVENT_CLOSE_TS",
+                "clv_source_pre_event": None,
+            },
+            {
+                "resolved_token_id": "tok_s2",
+                "entry_price": 0.35,
+                "clv": None,
+                "clv_pct": None,
+                "clv_source": None,
+                "clv_missing_reason": "NO_CLOSE_TS",
+                "clv_pct_settlement": None,
+                "clv_missing_reason_settlement": "NO_SETTLEMENT_CLOSE_TS",
+                "clv_source_settlement": None,
+                "clv_pct_pre_event": 0.05,
+                "clv_missing_reason_pre_event": None,
+                "clv_source_pre_event": "prices_history|gamma_closedTime",
+            },
+        ]
+
+    def test_build_clv_coverage_includes_settlement_and_pre_event_sub_dicts(self):
+        positions = self._make_positions_with_variants()
+        result = _build_clv_coverage(positions)
+        assert "settlement" in result
+        assert "pre_event" in result
+        settlement = result["settlement"]
+        pre_event = result["pre_event"]
+        assert settlement["clv_present_count"] == 1
+        assert settlement["clv_missing_count"] == 1
+        assert pre_event["clv_present_count"] == 1
+        assert pre_event["clv_missing_count"] == 1
+
+    def test_clv_variant_coverage_rate_computed_correctly(self):
+        positions = self._make_positions_with_variants()
+        result = _build_clv_coverage(positions)
+        settlement = result["settlement"]
+        assert settlement["eligible_positions"] == 2
+        assert settlement["coverage_rate"] == 0.5
+
+
+class TestDualClvHypothesisCandidates:
+    """Unit tests for pre_event preference and settlement fallback in hypothesis ranking."""
+
+    def _seg_with_pre_event(self, pre_event_nw=0.20, pre_event_weight=100.0,
+                             settlement_nw=0.10, settlement_weight=100.0):
+        return {
+            "by_entry_price_tier": {
+                "coinflip": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.10,
+                    "notional_weighted_avg_clv_pct_weight_used": 100.0,
+                    "notional_weighted_beat_close_rate": 0.6,
+                    "notional_weighted_beat_close_rate_weight_used": 100.0,
+                    "avg_clv_pct": 0.08,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.55,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.6,
+                    "notional_weighted_avg_clv_pct_pre_event": pre_event_nw,
+                    "notional_weighted_avg_clv_pct_pre_event_weight_used": pre_event_weight,
+                    "notional_weighted_avg_clv_pct_settlement": settlement_nw,
+                    "notional_weighted_avg_clv_pct_settlement_weight_used": settlement_weight,
+                    "avg_clv_pct_pre_event": 0.18,
+                    "avg_clv_pct_settlement": 0.09,
+                }
+            }
+        }
+
+    def test_build_hypothesis_candidates_prefers_pre_event_when_denom_positive(self):
+        """When pre_event weight > 0, clv_variant_used should be 'pre_event'."""
+        seg = self._seg_with_pre_event(pre_event_nw=0.20, pre_event_weight=100.0)
+        candidates = _build_hypothesis_candidates(seg)
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["clv_variant_used"] == "pre_event"
+        assert c["rank"] == 1
+
+    def test_build_hypothesis_candidates_falls_back_to_settlement(self):
+        """When pre_event weight == 0 and settlement weight > 0, uses settlement."""
+        seg = self._seg_with_pre_event(
+            pre_event_nw=None, pre_event_weight=0.0,
+            settlement_nw=0.10, settlement_weight=100.0
+        )
+        # pre_event_nw=None means it won't match the pre_event condition
+        seg["by_entry_price_tier"]["coinflip"]["notional_weighted_avg_clv_pct_pre_event"] = None
+        candidates = _build_hypothesis_candidates(seg)
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["clv_variant_used"] == "settlement"
+
+    def test_build_hypothesis_candidates_includes_clv_variant_used_field(self):
+        """All candidates include the clv_variant_used field."""
+        seg = self._seg_with_pre_event()
+        candidates = _build_hypothesis_candidates(seg)
+        for c in candidates:
+            assert "clv_variant_used" in c
