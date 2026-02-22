@@ -86,6 +86,28 @@ DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
 DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
 DEFAULT_CLOB_API_BASE = "https://clob.polymarket.com"
 
+SCAN_STAGE_FLAG_TO_ATTR: dict[str, str] = {
+    "--ingest-markets": "ingest_markets",
+    "--ingest-activity": "ingest_activity",
+    "--ingest-positions": "ingest_positions",
+    "--compute-pnl": "compute_pnl",
+    "--compute-opportunities": "compute_opportunities",
+    "--snapshot-books": "snapshot_books",
+    "--enrich-resolutions": "enrich_resolutions",
+    "--warm-clv-cache": "warm_clv_cache",
+    "--compute-clv": "compute_clv",
+}
+SCAN_STAGE_FLAGS = tuple(SCAN_STAGE_FLAG_TO_ATTR.keys())
+FULL_PIPELINE_STAGE_ATTRS = tuple(SCAN_STAGE_FLAG_TO_ATTR.values())
+FULL_PIPELINE_STAGE_SET = frozenset(FULL_PIPELINE_STAGE_ATTRS)
+LITE_PIPELINE_STAGE_ATTRS = (
+    "ingest_positions",
+    "compute_pnl",
+    "enrich_resolutions",
+    "compute_clv",
+)
+LITE_PIPELINE_STAGE_SET = frozenset(LITE_PIPELINE_STAGE_ATTRS)
+
 
 class ApiError(Exception):
     """Raised when the API returns a non-200 response."""
@@ -260,6 +282,21 @@ def parse_float(value: Optional[str], key: str) -> Optional[float]:
         return float(value)
     except ValueError as exc:
         raise ValueError(f"{key} must be a number, got: {value}") from exc
+
+
+def _resolve_bool_flag(
+    arg_value: Optional[bool],
+    env_value: Optional[bool],
+    default_value: bool,
+) -> bool:
+    """Resolve a tri-state CLI bool (True/False/None) with env fallback."""
+    if arg_value is True:
+        return True
+    if arg_value is False:
+        return False
+    if env_value is not None:
+        return env_value
+    return default_value
 
 
 def request_with_retry(
@@ -1638,9 +1675,52 @@ def _emit_trust_artifacts(
     return emitted
 
 
+def _stage_flags_from_args(args: argparse.Namespace) -> list[str]:
+    flags: list[str] = []
+    for flag, attr in SCAN_STAGE_FLAG_TO_ATTR.items():
+        if getattr(args, attr, None) is True:
+            flags.append(flag)
+    return flags
+
+
+def _apply_stage_profile(
+    args: argparse.Namespace,
+    enabled_attrs: frozenset[str],
+    *,
+    disable_non_enabled: bool = False,
+) -> None:
+    for attr in FULL_PIPELINE_STAGE_ATTRS:
+        if attr in enabled_attrs:
+            setattr(args, attr, True)
+        elif disable_non_enabled:
+            setattr(args, attr, False)
+
+
+def apply_scan_defaults(args: argparse.Namespace, argv: list[str]) -> argparse.Namespace:
+    """Apply scan stage defaults from raw argv with explicit flag detection."""
+    normalized_argv = list(argv) if argv else _stage_flags_from_args(args)
+    explicit_stage_requested = any(flag in normalized_argv for flag in SCAN_STAGE_FLAGS)
+
+    if bool(getattr(args, "full", False)):
+        _apply_stage_profile(args, FULL_PIPELINE_STAGE_SET)
+        return args
+
+    if bool(getattr(args, "lite", False)):
+        _apply_stage_profile(args, LITE_PIPELINE_STAGE_SET, disable_non_enabled=True)
+        return args
+
+    if not explicit_stage_requested:
+        _apply_stage_profile(args, FULL_PIPELINE_STAGE_SET)
+
+    return args
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a one-shot Polymarket scan via the PolyTool API.",
+        description=(
+            "Run a one-shot Polymarket scan via the PolyTool API. "
+            "If you don't pass any stage flags, scan runs the full pipeline by default."
+        ),
     )
     parser.add_argument("--user", help="Target Polymarket username (@name) or wallet address")
     parser.add_argument("--max-pages", type=int, help="Max pages to fetch for trade ingestion")
@@ -1654,6 +1734,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=None,
         help="Disable backfill of missing market mappings",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Force the full pipeline, even when stage flags are also provided.",
+    )
+    parser.add_argument(
+        "--lite",
+        action="store_true",
+        default=False,
+        help="Run a fast minimal pipeline: positions + pnl + resolutions + compute-clv.",
     )
     parser.add_argument(
         "--ingest-markets",
@@ -1832,68 +1924,27 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         backfill = DEFAULT_BACKFILL
 
-    if args.ingest_markets is True:
-        ingest_markets = True
-    elif env_ingest_markets is not None:
-        ingest_markets = env_ingest_markets
-    else:
-        ingest_markets = DEFAULT_INGEST_MARKETS
-
-    if args.ingest_activity is True:
-        ingest_activity = True
-    elif env_ingest_activity is not None:
-        ingest_activity = env_ingest_activity
-    else:
-        ingest_activity = DEFAULT_INGEST_ACTIVITY
-
-    if args.ingest_positions is True:
-        ingest_positions = True
-    elif env_ingest_positions is not None:
-        ingest_positions = env_ingest_positions
-    else:
-        ingest_positions = DEFAULT_INGEST_POSITIONS
-
-    if args.compute_pnl is True:
-        compute_pnl = True
-    elif env_compute_pnl is not None:
-        compute_pnl = env_compute_pnl
-    else:
-        compute_pnl = DEFAULT_COMPUTE_PNL
-
-    if args.compute_opportunities is True:
-        compute_opportunities = True
-    elif env_compute_opportunities is not None:
-        compute_opportunities = env_compute_opportunities
-    else:
-        compute_opportunities = DEFAULT_COMPUTE_OPPORTUNITIES
-
-    if args.snapshot_books is True:
-        snapshot_books = True
-    elif env_snapshot_books is not None:
-        snapshot_books = env_snapshot_books
-    else:
-        snapshot_books = DEFAULT_SNAPSHOT_BOOKS
-
-    if args.enrich_resolutions is True:
-        enrich_resolutions = True
-    elif env_enrich_resolutions is not None:
-        enrich_resolutions = env_enrich_resolutions
-    else:
-        enrich_resolutions = DEFAULT_ENRICH_RESOLUTIONS
-
-    if args.compute_clv is True:
-        compute_clv = True
-    elif env_compute_clv is not None:
-        compute_clv = env_compute_clv
-    else:
-        compute_clv = DEFAULT_COMPUTE_CLV
-
-    if args.warm_clv_cache is True:
-        warm_clv_cache = True
-    elif env_warm_clv_cache is not None:
-        warm_clv_cache = env_warm_clv_cache
-    else:
-        warm_clv_cache = DEFAULT_WARM_CLV_CACHE
+    ingest_markets = _resolve_bool_flag(args.ingest_markets, env_ingest_markets, DEFAULT_INGEST_MARKETS)
+    ingest_activity = _resolve_bool_flag(args.ingest_activity, env_ingest_activity, DEFAULT_INGEST_ACTIVITY)
+    ingest_positions = _resolve_bool_flag(
+        args.ingest_positions,
+        env_ingest_positions,
+        DEFAULT_INGEST_POSITIONS,
+    )
+    compute_pnl = _resolve_bool_flag(args.compute_pnl, env_compute_pnl, DEFAULT_COMPUTE_PNL)
+    compute_opportunities = _resolve_bool_flag(
+        args.compute_opportunities,
+        env_compute_opportunities,
+        DEFAULT_COMPUTE_OPPORTUNITIES,
+    )
+    snapshot_books = _resolve_bool_flag(args.snapshot_books, env_snapshot_books, DEFAULT_SNAPSHOT_BOOKS)
+    enrich_resolutions = _resolve_bool_flag(
+        args.enrich_resolutions,
+        env_enrich_resolutions,
+        DEFAULT_ENRICH_RESOLUTIONS,
+    )
+    compute_clv = _resolve_bool_flag(args.compute_clv, env_compute_clv, DEFAULT_COMPUTE_CLV)
+    warm_clv_cache = _resolve_bool_flag(args.warm_clv_cache, env_warm_clv_cache, DEFAULT_WARM_CLV_CACHE)
 
     if args.clv_offline is True:
         clv_online = False
@@ -1928,12 +1979,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         or DEFAULT_RESOLUTION_MAX_CONCURRENCY
     )
 
-    if args.debug_export is True:
-        debug_export = True
-    elif env_debug_export is not None:
-        debug_export = env_debug_export
-    else:
-        debug_export = False
+    debug_export = _resolve_bool_flag(args.debug_export, env_debug_export, False)
 
     return {
         "user": user,
@@ -2344,12 +2390,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     apply_env_defaults(env_values)
 
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    args = parser.parse_args(raw_argv)
+    args = apply_scan_defaults(args, raw_argv)
 
     try:
         config = build_config(args)
         validate_config(config)
-        run_scan(config, argv=argv or [], started_at=_now_utc_iso())
+        run_scan(config, argv=raw_argv, started_at=_now_utc_iso())
         return 0
     except ApiError as exc:
         print(

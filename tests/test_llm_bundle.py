@@ -106,6 +106,7 @@ def test_llm_bundle_builds_bundle_and_manifest(tmp_path, monkeypatch):
     assert rag_path.exists()
 
     bundle_text = bundle_path.read_text(encoding="utf-8")
+    assert "## manifest.json" in bundle_text
     assert "new memo" in bundle_text
     assert "[file_path: kb/users/herewego446/notes/2026-02-02.md]" in bundle_text
 
@@ -303,3 +304,88 @@ def test_bundle_no_scan_run_shows_not_found(tmp_path, monkeypatch):
 
     assert "## Coverage & Reconciliation" in bundle_text
     assert "Coverage report not found" in bundle_text
+
+
+def test_llm_bundle_supports_run_manifest_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+
+    user_slug = "herewego446"
+    base = tmp_path / "artifacts" / "dossiers" / "users" / user_slug
+
+    older_dir = base / "0xabc" / "2026-02-01" / "oldrun"
+    _write_text(older_dir / "memo.md", "old memo")
+    _write_text(older_dir / "dossier.json", '{"old": true}')
+    _write_json(older_dir / "manifest.json", {"created_at_utc": "2026-02-01T00:00:00Z"})
+
+    latest_dir = base / "0xabc" / "2026-02-03" / "newrun"
+    _write_text(latest_dir / "memo.md", "new memo")
+    _write_text(latest_dir / "dossier.json", '{"new": true}')
+    _write_json(
+        latest_dir / "run_manifest.json",
+        {"created_at_utc": "2026-02-03T12:00:00Z", "started_at": "2026-02-03T12:00:00Z"},
+    )
+
+    fixed_now = datetime(2026, 2, 3, 21, 0, 0)
+    monkeypatch.setattr(llm_bundle, "_utcnow", lambda: fixed_now)
+    monkeypatch.setattr(llm_bundle, "_short_uuid", lambda: "runnew1")
+    monkeypatch.setattr(llm_bundle, "_run_rag_queries", _fake_rag_queries)
+
+    exit_code = llm_bundle.main(["--user", "@HereWeGo446", "--no-devlog"])
+    assert exit_code == 0
+
+    bundle_path = (
+        tmp_path / "kb" / "users" / user_slug / "llm_bundles" / "2026-02-03" / "runnew1" / "bundle.md"
+    )
+    bundle_text = bundle_path.read_text(encoding="utf-8")
+    assert "## run_manifest.json" in bundle_text
+    assert "new memo" in bundle_text
+    assert "old memo" not in bundle_text
+
+
+def test_llm_bundle_run_root_wins_over_user_lookup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+
+    user_slug = "herewego446"
+    _setup_dossier_dirs(tmp_path, user_slug)
+
+    override_dir = tmp_path / "custom_run" / "manual_run"
+    _write_text(override_dir / "memo.md", "override memo")
+    _write_text(override_dir / "dossier.json", '{"override": true}')
+    _write_json(override_dir / "run_manifest.json", {"created_at_utc": "2026-02-01T00:00:00Z"})
+
+    fixed_now = datetime(2026, 2, 3, 21, 0, 0)
+    monkeypatch.setattr(llm_bundle, "_utcnow", lambda: fixed_now)
+    monkeypatch.setattr(llm_bundle, "_short_uuid", lambda: "runroot1")
+    monkeypatch.setattr(llm_bundle, "_run_rag_queries", _fake_rag_queries)
+
+    exit_code = llm_bundle.main(
+        ["--user", "@HereWeGo446", "--run-root", str(override_dir), "--no-devlog"]
+    )
+    assert exit_code == 0
+
+    bundle_path = (
+        tmp_path / "kb" / "users" / user_slug / "llm_bundles" / "2026-02-03" / "runroot1" / "bundle.md"
+    )
+    bundle_text = bundle_path.read_text(encoding="utf-8")
+    assert "override memo" in bundle_text
+    assert "new memo" not in bundle_text
+
+
+def test_llm_bundle_errors_when_manifest_missing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+
+    user_slug = "herewego446"
+    run_dir = tmp_path / "artifacts" / "dossiers" / "users" / user_slug / "0xabc" / "2026-02-03" / "newrun"
+    _write_text(run_dir / "memo.md", "memo only")
+    _write_text(run_dir / "dossier.json", '{"new": true}')
+
+    exit_code = llm_bundle.main(["--user", "@HereWeGo446", "--no-devlog"])
+    assert exit_code == 1
+
+    err = capsys.readouterr().err
+    assert "run_manifest.json" in err
+    assert "manifest.json" in err
+    assert "--run-root" in err

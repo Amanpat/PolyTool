@@ -22,6 +22,8 @@ TOP_EXAMPLES_PER_SEGMENT = 5
 
 SCAN_PASSTHROUGH_OPTIONS = [
     "--api-base-url",
+    "--full",
+    "--lite",
     "--ingest-positions",
     "--compute-pnl",
     "--enrich-resolutions",
@@ -129,6 +131,8 @@ def _parse_users_file(path: Path, max_users: Optional[int] = None) -> list[str]:
 def _scan_flags_from_args(args: argparse.Namespace) -> Dict[str, Any]:
     return {
         "api_base_url": args.api_base_url,
+        "full": bool(getattr(args, "full", False)),
+        "lite": bool(getattr(args, "lite", False)),
         "ingest_positions": bool(args.ingest_positions),
         "compute_pnl": bool(args.compute_pnl),
         "enrich_resolutions": bool(args.enrich_resolutions),
@@ -143,6 +147,10 @@ def _scan_argv_for_user(user: str, scan_flags: Dict[str, Any]) -> list[str]:
     api_base_url = str(scan_flags.get("api_base_url") or "").strip()
     if api_base_url:
         argv.extend(["--api-base-url", api_base_url])
+    if scan_flags.get("full"):
+        argv.append("--full")
+    if scan_flags.get("lite"):
+        argv.append("--lite")
     if scan_flags.get("ingest_positions"):
         argv.append("--ingest-positions")
     if scan_flags.get("compute_pnl"):
@@ -181,6 +189,7 @@ def _default_scan_callable(user: str, scan_flags: Dict[str, Any]) -> str:
     scan_argv = _scan_argv_for_user(user, scan_flags)
     scan_parser = scan.build_parser()
     scan_args = scan_parser.parse_args(scan_argv)
+    scan_args = scan.apply_scan_defaults(scan_args, scan_argv)
     scan_config = scan.build_config(scan_args)
     scan.validate_config(scan_config)
     emitted = scan.run_scan(config=scan_config, argv=scan_argv, started_at=_iso_utc(_utcnow()))
