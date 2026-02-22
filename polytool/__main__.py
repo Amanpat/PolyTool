@@ -12,6 +12,7 @@ from typing import Optional
 from tools.cli.export_clickhouse import main as export_clickhouse_main
 from tools.cli.export_dossier import main as export_dossier_main
 from tools.cli.agent_run import main as agent_run_main
+from tools.cli.batch_run import main as batch_run_main
 from tools.cli.llm_bundle import main as llm_bundle_main
 from tools.cli.llm_save import main as llm_save_main
 from tools.cli.rag_index import main as rag_index_main
@@ -29,6 +30,7 @@ def print_usage() -> None:
     print("")
     print("Commands:")
     print("  scan              Run a one-shot scan via the PolyTool API")
+    print("  batch-run         Batch-run scans and aggregate a hypothesis leaderboard")
     print("  audit-coverage    Offline accuracy + trust sanity check from scan artifacts")
     print("  export-dossier    Export an LLM Research Packet dossier + memo")
     print("  export-clickhouse Export ClickHouse datasets for a user")
@@ -48,6 +50,7 @@ def print_usage() -> None:
     print("")
     print("Examples:")
     print('  polytool scan --user "@DrPufferfish" --compute-pnl')
+    print('  polytool batch-run --users users.txt --compute-pnl --compute-clv')
     print('  polytool audit-coverage --user "@DrPufferfish" --sample 25')
     print('  polytool export-dossier --user "@DrPufferfish" --days 30')
     print('  polytool examine --user "@DrPufferfish" --days 30')
@@ -85,6 +88,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Route to command handlers
     if command == "scan":
         return scan_main(argv[1:])
+    if command == "batch-run":
+        return batch_run_main(argv[1:])
     if command == "audit-coverage":
         from tools.cli.audit_coverage import main as audit_coverage_main
         return audit_coverage_main(argv[1:])

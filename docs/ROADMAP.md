@@ -122,27 +122,34 @@ backfill pipeline has run. Schema version `1.4.0`.
 
 ---
 
-### Roadmap 5 - CLV & Time/Price Context Signals [NOT STARTED]
+### Roadmap 5 - CLV & Time/Price Context Signals [COMPLETE]
 
 #### 5.0 Prerequisites
 
-- [ ] Confirm category coverage > 0 % post-backfill (regression from 4.6 confirmed fixed)
-- [ ] Default `market_type` moneyline rule for team-vs-team markets
-- [ ] Surface notional/size end-to-end (USDC position size in dossier and audit report)
+- [x] Confirm category coverage > 0 % post-backfill (regression from 4.6 confirmed fixed)
+- [x] Default `market_type` moneyline rule for team-vs-team markets
+- [x] Surface notional/size end-to-end (USDC position size in dossier and audit report)
 
 #### 5.1 CLV Capture
 
-- [ ] Add `scan --compute-clv` enrichment stage (cache-first; explicit missingness)
-- [ ] Capture closing-line price snapshot per market before resolution
-- [ ] Compute CLV per position: `closing_price âˆ’ entry_price` (binary markets)
-- [ ] Store price snapshots in ClickHouse; populate at scan time when markets close
-- [ ] Report CLV coverage rate in `coverage_reconciliation_report`
-- [ ] Surface CLV in `segment_analysis.by_entry_price_tier` breakdown
+- [x] Add `scan --compute-clv` enrichment stage (cache-first; explicit missingness)
+- [x] Capture closing-line price snapshot per market before resolution
+- [x] Compute CLV per position: `closing_price âˆ’ entry_price` (binary markets)
+- [x] Store price snapshots in ClickHouse; populate at scan time when markets close
+- [x] Report CLV coverage rate in `coverage_reconciliation_report`
+- [x] Surface CLV in `segment_analysis.by_entry_price_tier` breakdown
 
 #### 5.2 Time/Price Context
 
 - [ ] Track price trajectory over hold period (from ClickHouse snapshot cadence)
 - [ ] Minimal snapshot caching (TTL-based; no crawl depth)
+
+#### 5.5 Batch-Run Harness + Hypothesis Leaderboard [COMPLETE]
+
+- [x] `python -m polytool batch-run` command with multi-user input file support
+- [x] Deterministic leaderboard artifacts: JSON + Markdown
+- [x] Batch trust artifact: `batch_manifest.json` with output path/run-root traceability
+- [x] Offline-safe tests via injected scan callable (no network / no ClickHouse)
 
 **Acceptance**: `segment_analysis.json` includes `clv` for positions where snapshot
 data is available. Coverage report includes CLV coverage rate. Positions without
@@ -150,6 +157,8 @@ closing-line data report `clv: null`, not missing.
 
 **Kill condition**: If snapshot capture rate is < 30 % after 3 scan runs, document
 the gap and defer CLV computation.
+
+**Evidence**: See `docs/pdr/PDR-ROADMAP5-WRAPUP.md` and associated PDRs for CLV verification and prerequisite checks.
 
 ---
 

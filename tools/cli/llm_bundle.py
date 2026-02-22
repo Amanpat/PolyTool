@@ -35,6 +35,7 @@ from polytool.user_context import UserContext, resolve_user_context
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_HINT = "opus-4.5"
+RUN_MANIFEST_FILENAMES: tuple[str, str] = ("run_manifest.json", "manifest.json")
 
 DEFAULT_QUESTIONS: List[Dict[str, str]] = [
     {"label": "profile", "question": "Summarize the user's profile and recent activity context."},
@@ -140,6 +141,36 @@ def _read_text(path: Path, label: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _manifest_sort_key(path: Path) -> tuple[float, str]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        payload = {}
+
+    raw_ts = payload.get("started_at") or payload.get("created_at_utc") or payload.get("created_at")
+    parsed = _parse_utc_timestamp(raw_ts) if isinstance(raw_ts, str) else None
+    if parsed is None:
+        try:
+            ts = path.stat().st_mtime
+        except OSError:
+            ts = 0.0
+    else:
+        ts = parsed.timestamp()
+    return (float(ts), path.as_posix())
+
+
+def find_run_manifest(run_root: Path) -> Path:
+    for filename in RUN_MANIFEST_FILENAMES:
+        candidate = run_root / filename
+        if candidate.exists():
+            return candidate
+    expected = ", ".join(RUN_MANIFEST_FILENAMES)
+    raise FileNotFoundError(
+        f"No run manifest found in {run_root}; expected one of: {expected}. "
+        "Run 'python -m polytool scan --user ...' first or provide --run-root."
+    )
+
+
 def _append_block(lines: List[str], text: str) -> None:
     if text:
         lines.append(text.rstrip("\n"))
@@ -210,7 +241,18 @@ def _write_devlog(
     return devlog_path
 
 
-def _resolve_dossier_dir(user_ctx: UserContext, dossier_path: Optional[str]) -> Path:
+def _resolve_dossier_dir(
+    user_ctx: UserContext,
+    dossier_path: Optional[str],
+    run_root: Optional[str],
+) -> Path:
+    if run_root:
+        path = Path(run_root)
+        if path.is_file():
+            path = path.parent
+        if not path.exists():
+            raise FileNotFoundError(f"Run root not found: {path}")
+        return path
     if dossier_path:
         path = Path(dossier_path)
         if path.is_file():
@@ -226,28 +268,24 @@ def _find_latest_dossier_dir(user_ctx: UserContext) -> Path:
     if not base.exists():
         raise FileNotFoundError(f"No dossier exports found under {base}")
 
-    manifests = list(base.rglob("manifest.json"))
-    if not manifests:
-        raise FileNotFoundError(f"No dossier manifest.json found under {base}")
+    manifests_by_run_dir: Dict[Path, Path] = {}
+    for manifest_name in RUN_MANIFEST_FILENAMES:
+        for manifest_path in base.rglob(manifest_name):
+            run_dir = manifest_path.parent
+            if not (run_dir / "memo.md").exists() or not (run_dir / "dossier.json").exists():
+                continue
+            existing = manifests_by_run_dir.get(run_dir)
+            if existing is None or manifest_path.name == "run_manifest.json":
+                manifests_by_run_dir[run_dir] = manifest_path
 
-    def _manifest_key(path: Path) -> tuple[float, str]:
-        ts = None
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            payload = {}
-        raw_ts = payload.get("created_at_utc", "")
-        parsed = _parse_utc_timestamp(raw_ts)
-        if parsed is None:
-            try:
-                ts = path.stat().st_mtime
-            except OSError:
-                ts = 0.0
-        else:
-            ts = parsed.timestamp()
-        return (float(ts), path.as_posix())
+    if not manifests_by_run_dir:
+        expected = ", ".join(RUN_MANIFEST_FILENAMES)
+        raise FileNotFoundError(
+            f"No dossier run with memo.md, dossier.json, and one of ({expected}) found under {base}. "
+            "Run 'python -m polytool scan --user ...' first or provide --run-root."
+        )
 
-    latest_manifest = max(manifests, key=_manifest_key)
+    latest_manifest = max(manifests_by_run_dir.values(), key=_manifest_sort_key)
     return latest_manifest.parent
 
 
@@ -281,17 +319,7 @@ def _find_latest_scan_run(user_ctx: UserContext) -> Optional[Path]:
     if not candidates:
         return None
 
-    def _key(path: Path) -> tuple[float, str]:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            payload = {}
-        raw_ts = payload.get("started_at", "") or payload.get("created_at_utc", "")
-        parsed = _parse_utc_timestamp(raw_ts)
-        ts = parsed.timestamp() if parsed else path.stat().st_mtime
-        return (ts, path.as_posix())
-
-    return max(candidates, key=_key).parent
+    return max(candidates, key=_manifest_sort_key).parent
 
 
 def _summarize_coverage_json(data: dict) -> str:
@@ -514,6 +542,7 @@ def _render_bundle(
     dossier_path: str,
     memo_text: str,
     dossier_text: str,
+    manifest_label: str,
     manifest_text: str,
     coverage_section: str,
     excerpts: List[Dict[str, str]],
@@ -539,7 +568,7 @@ def _render_bundle(
     _append_block(lines, dossier_text)
     lines.append("")
 
-    lines.append("## manifest.json")
+    lines.append(f"## {manifest_label}")
     lines.append("")
     _append_block(lines, manifest_text)
     lines.append("")
@@ -571,6 +600,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Build an LLM evidence bundle from the latest dossier export and RAG excerpts.",
     )
     parser.add_argument("--user", required=True, help="Target user handle (with or without @).")
+    parser.add_argument(
+        "--run-root",
+        help="Optional run root override; takes precedence over --dossier-path and user lookup.",
+    )
     parser.add_argument("--dossier-path", help="Optional dossier export path override.")
     parser.add_argument("--questions-file", help="JSON/YAML file listing RAG questions to run.")
     parser.add_argument(
@@ -615,19 +648,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     try:
-        dossier_dir = _resolve_dossier_dir(user_ctx, args.dossier_path)
+        dossier_dir = _resolve_dossier_dir(user_ctx, args.dossier_path, args.run_root)
+        manifest_path = find_run_manifest(dossier_dir)
     except FileNotFoundError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     memo_path = dossier_dir / "memo.md"
     dossier_json_path = dossier_dir / "dossier.json"
-    manifest_path = dossier_dir / "manifest.json"
 
     try:
         memo_text = _read_text(memo_path, "memo.md")
         dossier_text = _read_text(dossier_json_path, "dossier.json")
-        manifest_text = _read_text(manifest_path, "manifest.json")
+        manifest_text = _read_text(manifest_path, manifest_path.name)
     except (FileNotFoundError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -673,6 +706,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         dossier_path=dossier_rel,
         memo_text=memo_text,
         dossier_text=dossier_text,
+        manifest_label=manifest_path.name,
         manifest_text=manifest_text,
         coverage_section=coverage_section,
         excerpts=excerpts,

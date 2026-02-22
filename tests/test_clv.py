@@ -17,6 +17,8 @@ from packages.polymarket.clv import (
     MISSING_REASON_NO_PRICE_1H_BEFORE_ENTRY_IN_WINDOW,
     MISSING_REASON_NO_PRICE_IN_LOOKBACK_WINDOW,
     MISSING_REASON_NO_PRIOR_PRICE_BEFORE_ENTRY,
+    MISSING_REASON_NO_PRE_EVENT_CLOSE_TS,
+    MISSING_REASON_NO_SETTLEMENT_CLOSE_TS,
     MISSING_REASON_OFFLINE,
     MISSING_REASON_OUTSIDE_WINDOW,
     MISSING_REASON_RATE_LIMITED,
@@ -26,8 +28,11 @@ from packages.polymarket.clv import (
     build_cache_lookup_sql,
     classify_movement_direction,
     enrich_position_with_clv,
+    enrich_position_with_dual_clv,
     format_prices_history_error_detail,
     normalize_prices_fidelity_minutes,
+    resolve_close_ts_settlement,
+    resolve_close_ts_pre_event,
     resolve_entry_price_context,
     resolve_closing_price,
     select_last_price_le_anchor,
@@ -655,3 +660,144 @@ def test_entry_context_minutes_to_close_reason_when_entry_after_close():
         enriched["minutes_to_close_missing_reason"]
         == MISSING_REASON_INVALID_TIME_ORDER_ENTRY_AFTER_CLOSE
     )
+
+
+# ---------------------------------------------------------------------------
+# Dual CLV variant tests
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_close_ts_settlement_uses_only_onchain_resolved_at():
+    """Settlement resolver should return resolved_at, not closedTime."""
+    position = {
+        "resolved_at": "2026-02-19T12:00:00Z",
+        "closedTime": "2026-02-18T20:00:00Z",
+    }
+    ts, source = resolve_close_ts_settlement(position)
+    assert ts is not None
+    assert source == "onchain_resolved_at"
+    assert ts.hour == 12  # from resolved_at, not closedTime hour 20
+
+
+def test_resolve_close_ts_settlement_missing_when_no_onchain():
+    """Settlement resolver returns None when only closedTime is available."""
+    position = {
+        "resolved_at": None,
+        "closedTime": "2026-02-18T20:00:00Z",
+    }
+    ts, source = resolve_close_ts_settlement(position)
+    assert ts is None
+    assert source is None
+
+
+def test_resolve_close_ts_pre_event_skips_onchain_resolved_at():
+    """Pre-event resolver returns closedTime, not resolved_at."""
+    position = {
+        "resolved_at": "2026-02-19T12:00:00Z",  # should be ignored
+        "closedTime": "2026-02-18T20:00:00Z",
+    }
+    ts, source = resolve_close_ts_pre_event(position)
+    assert ts is not None
+    assert source == "gamma_closedTime"
+    assert ts.hour == 20  # from closedTime
+
+
+def test_resolve_close_ts_pre_event_ladder_fallback():
+    """Pre-event resolver falls back to endDate when closedTime is missing."""
+    position = {
+        "resolved_at": "2026-02-19T12:00:00Z",
+        "endDate": "2026-02-17T18:00:00Z",
+    }
+    ts, source = resolve_close_ts_pre_event(position)
+    assert ts is not None
+    assert source == "gamma_endDate"
+    assert ts.day == 17
+
+
+def test_enrich_position_with_dual_clv_both_variants_present():
+    """Both settlement and pre_event variants populate all 12 fields when both timestamps exist."""
+    position = {
+        "resolved_token_id": "tok-dual-both",
+        "entry_price": 0.42,
+        "entry_ts": "2026-02-18T10:00:00Z",
+        "resolved_at": "2026-02-19T12:00:00Z",
+        "closedTime": "2026-02-19T11:00:00Z",
+    }
+    close_ts_epoch = int(_utc(day=19, hour=11, minute=0).timestamp())
+    fake_price_row = {"t": close_ts_epoch, "p": 0.55}
+    clob = _FakeClob(payload={"history": [fake_price_row]})
+
+    # CH cache misses so it falls to clob
+    enriched = enrich_position_with_dual_clv(
+        position,
+        clickhouse_client=_FakeClickHouse(rows=[]),
+        clob_client=clob,
+        allow_online=True,
+    )
+
+    # Both variant CLV fields should be set
+    assert enriched.get("clv_pct_settlement") is not None
+    assert enriched.get("clv_pct_pre_event") is not None
+    assert enriched.get("closing_price_settlement") is not None
+    assert enriched.get("closing_price_pre_event") is not None
+    assert enriched.get("beat_close_settlement") is not None
+    assert enriched.get("beat_close_pre_event") is not None
+    assert enriched.get("clv_source_settlement") is not None
+    assert enriched.get("clv_source_pre_event") is not None
+    assert enriched.get("clv_missing_reason_settlement") is None
+    assert enriched.get("clv_missing_reason_pre_event") is None
+
+
+def test_enrich_position_with_dual_clv_settlement_missing_pre_event_present():
+    """When no resolved_at, settlement is missing but pre_event is populated."""
+    position = {
+        "resolved_token_id": "tok-dual-pre-only",
+        "entry_price": 0.40,
+        "entry_ts": "2026-02-18T10:00:00Z",
+        "resolved_at": None,
+        "closedTime": "2026-02-19T11:00:00Z",
+    }
+    close_ts_epoch = int(_utc(day=19, hour=11, minute=0).timestamp())
+    clob = _FakeClob(payload={"history": [{"t": close_ts_epoch, "p": 0.52}]})
+
+    enriched = enrich_position_with_dual_clv(
+        position,
+        clickhouse_client=_FakeClickHouse(rows=[]),
+        clob_client=clob,
+        allow_online=True,
+    )
+
+    # Settlement variant must be missing
+    assert enriched.get("clv_pct_settlement") is None
+    assert enriched.get("clv_missing_reason_settlement") == MISSING_REASON_NO_SETTLEMENT_CLOSE_TS
+
+    # Pre-event variant should be populated
+    assert enriched.get("clv_pct_pre_event") is not None
+    assert enriched.get("clv_missing_reason_pre_event") is None
+
+
+def test_enrich_position_with_dual_clv_preserves_existing_clv_fields():
+    """Dual enrichment does not remove existing base CLV fields."""
+    position = {
+        "resolved_token_id": "tok-dual-preserve",
+        "entry_price": 0.45,
+        "entry_ts": "2026-02-18T10:00:00Z",
+        "resolved_at": "2026-02-19T12:00:00Z",
+    }
+    enriched = enrich_position_with_dual_clv(
+        position,
+        clickhouse_client=_FakeClickHouse(rows=[]),
+        clob_client=None,
+        allow_online=False,
+    )
+
+    # Base fields must still be present
+    assert "clv" in enriched
+    assert "clv_pct" in enriched
+    assert "beat_close" in enriched
+    assert "close_ts" in enriched
+    assert "close_ts_source" in enriched
+    assert "clv_missing_reason" in enriched
+    # Variant fields must be present too
+    assert "clv_pct_settlement" in enriched
+    assert "clv_pct_pre_event" in enriched

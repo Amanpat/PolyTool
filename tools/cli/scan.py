@@ -26,6 +26,7 @@ from polytool.reports.coverage import (
     build_coverage_report,
     normalize_fee_fields,
     write_coverage_report,
+    write_hypothesis_candidates,
 )
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
 from tools.cli.audit_coverage import (
@@ -41,7 +42,7 @@ from packages.polymarket.clv import (
     MISSING_REASON_OFFLINE,
     classify_prices_history_error,
     clv_recommended_next_action,
-    enrich_positions_with_clv,
+    enrich_positions_with_dual_clv,
     format_prices_history_error_detail,
     normalize_prices_fidelity_minutes,
     resolve_close_ts,
@@ -84,6 +85,28 @@ DEFAULT_CLV_FIDELITY = DEFAULT_PRICES_FIDELITY
 DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
 DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
 DEFAULT_CLOB_API_BASE = "https://clob.polymarket.com"
+
+SCAN_STAGE_FLAG_TO_ATTR: dict[str, str] = {
+    "--ingest-markets": "ingest_markets",
+    "--ingest-activity": "ingest_activity",
+    "--ingest-positions": "ingest_positions",
+    "--compute-pnl": "compute_pnl",
+    "--compute-opportunities": "compute_opportunities",
+    "--snapshot-books": "snapshot_books",
+    "--enrich-resolutions": "enrich_resolutions",
+    "--warm-clv-cache": "warm_clv_cache",
+    "--compute-clv": "compute_clv",
+}
+SCAN_STAGE_FLAGS = tuple(SCAN_STAGE_FLAG_TO_ATTR.keys())
+FULL_PIPELINE_STAGE_ATTRS = tuple(SCAN_STAGE_FLAG_TO_ATTR.values())
+FULL_PIPELINE_STAGE_SET = frozenset(FULL_PIPELINE_STAGE_ATTRS)
+LITE_PIPELINE_STAGE_ATTRS = (
+    "ingest_positions",
+    "compute_pnl",
+    "enrich_resolutions",
+    "compute_clv",
+)
+LITE_PIPELINE_STAGE_SET = frozenset(LITE_PIPELINE_STAGE_ATTRS)
 
 
 class ApiError(Exception):
@@ -261,6 +284,21 @@ def parse_float(value: Optional[str], key: str) -> Optional[float]:
         raise ValueError(f"{key} must be a number, got: {value}") from exc
 
 
+def _resolve_bool_flag(
+    arg_value: Optional[bool],
+    env_value: Optional[bool],
+    default_value: bool,
+) -> bool:
+    """Resolve a tri-state CLI bool (True/False/None) with env fallback."""
+    if arg_value is True:
+        return True
+    if arg_value is False:
+        return False
+    if env_value is not None:
+        return env_value
+    return default_value
+
+
 def request_with_retry(
     method: str,
     url: str,
@@ -431,6 +469,87 @@ def _positions_identity_hash(positions: list[Dict[str, Any]]) -> str:
     identity_tuples.sort()
     canonical = "\n".join(identity_tuples)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _normalize_position_notional(positions: list[dict[str, Any]]) -> None:
+    """Inject canonical position_notional_usd onto every position dict in-place.
+
+    Uses the same priority chain as coverage.extract_position_notional_usd:
+      1. existing position_notional_usd (if positive finite float)
+      2. total_cost (if positive finite float)
+      3. size * entry_price (if both present and entry_price > 0)
+
+    Positions that yield None from all three sources are left unchanged
+    (position_notional_usd absent); the debug artifact records why.
+    """
+    from polytool.reports.coverage import extract_position_notional_usd
+    for pos in positions:
+        existing = pos.get("position_notional_usd")
+        # Avoid overwriting a valid value already present
+        try:
+            ev = float(existing) if existing is not None else None
+        except (TypeError, ValueError):
+            ev = None
+        if ev is not None and ev > 0:
+            continue
+        extracted = extract_position_notional_usd(pos)
+        if extracted is not None:
+            pos["position_notional_usd"] = extracted
+
+
+def _build_notional_weight_debug(positions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the notional_weight_debug.json payload from already-normalized positions."""
+    import math as _math
+
+    WEIGHT_FIELDS = ("position_notional_usd", "total_cost", "size", "entry_price")
+    total = len(positions)
+    extracted_total = 0.0
+    count_missing = 0
+    missing_reasons: dict[str, int] = {}
+    samples = []
+
+    for pos in positions:
+        pnu = pos.get("position_notional_usd")
+        try:
+            v = float(pnu) if pnu is not None else None
+        except (TypeError, ValueError):
+            v = None
+
+        if v is not None and v > 0 and _math.isfinite(v):
+            extracted_total += v
+        else:
+            count_missing += 1
+            # Classify reason
+            has_tc = pos.get("total_cost") is not None
+            has_size = pos.get("size") is not None
+            has_ep = pos.get("entry_price") is not None
+            if not has_tc and not has_size:
+                reason = "NO_FIELDS"
+            elif pnu is not None and v is None:
+                reason = "NON_NUMERIC"
+            elif v is not None and v <= 0:
+                reason = "ZERO_OR_NEGATIVE"
+            else:
+                reason = "FALLBACK_FAILED"
+            missing_reasons[reason] = missing_reasons.get(reason, 0) + 1
+
+        if len(samples) < 10:
+            sample_fields = {k: pos.get(k) for k in WEIGHT_FIELDS if pos.get(k) is not None}
+            samples.append({
+                "token_id": pos.get("token_id") or pos.get("resolved_token_id"),
+                "market_slug": pos.get("market_slug"),
+                "fields_present": list(sample_fields.keys()),
+                "extracted_position_notional_usd": v if (v is not None and v > 0) else None,
+            })
+
+    top_missing = sorted(missing_reasons.items(), key=lambda x: -x[1])
+    return {
+        "total_positions": total,
+        "extracted_weight_total": round(extracted_total, 6),
+        "count_missing_weight": count_missing,
+        "top_missing_reasons": [{"reason": r, "count": c} for r, c in top_missing],
+        "samples": samples,
+    }
 
 
 def _build_parity_debug(
@@ -1171,8 +1290,8 @@ def _apply_clv_enrichment(
     clv_interval: str,
     clv_fidelity: int,
 ) -> Dict[str, Any]:
-    """Enrich positions with CLV fields and persist back to dossier.json."""
-    summary = enrich_positions_with_clv(
+    """Enrich positions with dual CLV variant fields and persist back to dossier.json."""
+    summary = enrich_positions_with_dual_clv(
         positions,
         clickhouse_client=clickhouse_client,
         clob_client=clob_client,
@@ -1182,10 +1301,12 @@ def _apply_clv_enrichment(
         fidelity=clv_fidelity,
     )
     print(
-        "CLV enrichment: "
+        "CLV enrichment (dual variants): "
         f"positions={summary.get('positions_total', 0)}, "
         f"present={summary.get('clv_present_count', 0)}, "
         f"missing={summary.get('clv_missing_count', 0)}, "
+        f"settlement_present={summary.get('settlement_present_count', 0)}, "
+        f"pre_event_present={summary.get('pre_event_present_count', 0)}, "
         f"online={clv_online}",
         file=sys.stderr,
     )
@@ -1292,6 +1413,10 @@ def _emit_trust_artifacts(
         market_metadata_map = metadata_result["map"]
         metadata_conflicts_count = metadata_result["conflicts_count"]
         metadata_conflict_sample = metadata_result["conflict_sample"]
+    # Normalize position_notional_usd so weighted metrics are non-null.
+    _normalize_position_notional(positions)
+    notional_debug = _build_notional_weight_debug(positions)
+
     coverage_report = build_coverage_report(
         positions=positions,
         run_id=run_id,
@@ -1426,6 +1551,15 @@ def _emit_trust_artifacts(
 
     coverage_paths = write_coverage_report(coverage_report, output_dir, write_markdown=True)
 
+    hypothesis_candidates_path = write_hypothesis_candidates(
+        candidates=coverage_report.get("hypothesis_candidates", []),
+        output_dir=output_dir,
+        generated_at=coverage_report.get("generated_at", ""),
+        run_id=run_id,
+        user_slug=username_slug,
+        wallet=proxy_wallet,
+    )
+
     segment_analysis_path = output_dir / "segment_analysis.json"
     segment_analysis_payload = {
         "generated_at": coverage_report.get("generated_at"),
@@ -1446,6 +1580,11 @@ def _emit_trust_artifacts(
     parity_debug_path = output_dir / "resolution_parity_debug.json"
     parity_debug_path.write_text(
         json.dumps(parity_debug, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+    notional_debug_path = output_dir / "notional_weight_debug.json"
+    notional_debug_path.write_text(
+        json.dumps(notional_debug, indent=2, sort_keys=True), encoding="utf-8"
     )
 
     gamma_sample_path = _write_gamma_markets_sample(
@@ -1476,7 +1615,9 @@ def _emit_trust_artifacts(
         "dossier_json": (output_dir / "dossier.json").as_posix(),
         "coverage_reconciliation_report_json": coverage_paths["json"],
         "segment_analysis_json": segment_analysis_path.as_posix(),
+        "hypothesis_candidates_json": hypothesis_candidates_path,
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
+        "notional_weight_debug_json": notional_debug_path.as_posix(),
     }
     if clv_preflight_artifact is not None:
         output_paths["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
@@ -1516,8 +1657,10 @@ def _emit_trust_artifacts(
     emitted = {
         "coverage_reconciliation_report_json": coverage_paths["json"],
         "segment_analysis_json": segment_analysis_path.as_posix(),
+        "hypothesis_candidates_json": hypothesis_candidates_path,
         "run_manifest": Path(manifest_path).as_posix(),
         "resolution_parity_debug_json": parity_debug_path.as_posix(),
+        "notional_weight_debug_json": notional_debug_path.as_posix(),
     }
     if clv_preflight_artifact is not None:
         emitted["clv_preflight_json"] = str(clv_preflight_artifact.get("path"))
@@ -1532,9 +1675,52 @@ def _emit_trust_artifacts(
     return emitted
 
 
+def _stage_flags_from_args(args: argparse.Namespace) -> list[str]:
+    flags: list[str] = []
+    for flag, attr in SCAN_STAGE_FLAG_TO_ATTR.items():
+        if getattr(args, attr, None) is True:
+            flags.append(flag)
+    return flags
+
+
+def _apply_stage_profile(
+    args: argparse.Namespace,
+    enabled_attrs: frozenset[str],
+    *,
+    disable_non_enabled: bool = False,
+) -> None:
+    for attr in FULL_PIPELINE_STAGE_ATTRS:
+        if attr in enabled_attrs:
+            setattr(args, attr, True)
+        elif disable_non_enabled:
+            setattr(args, attr, False)
+
+
+def apply_scan_defaults(args: argparse.Namespace, argv: list[str]) -> argparse.Namespace:
+    """Apply scan stage defaults from raw argv with explicit flag detection."""
+    normalized_argv = list(argv) if argv else _stage_flags_from_args(args)
+    explicit_stage_requested = any(flag in normalized_argv for flag in SCAN_STAGE_FLAGS)
+
+    if bool(getattr(args, "full", False)):
+        _apply_stage_profile(args, FULL_PIPELINE_STAGE_SET)
+        return args
+
+    if bool(getattr(args, "lite", False)):
+        _apply_stage_profile(args, LITE_PIPELINE_STAGE_SET, disable_non_enabled=True)
+        return args
+
+    if not explicit_stage_requested:
+        _apply_stage_profile(args, FULL_PIPELINE_STAGE_SET)
+
+    return args
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a one-shot Polymarket scan via the PolyTool API.",
+        description=(
+            "Run a one-shot Polymarket scan via the PolyTool API. "
+            "If you don't pass any stage flags, scan runs the full pipeline by default."
+        ),
     )
     parser.add_argument("--user", help="Target Polymarket username (@name) or wallet address")
     parser.add_argument("--max-pages", type=int, help="Max pages to fetch for trade ingestion")
@@ -1548,6 +1734,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=None,
         help="Disable backfill of missing market mappings",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Force the full pipeline, even when stage flags are also provided.",
+    )
+    parser.add_argument(
+        "--lite",
+        action="store_true",
+        default=False,
+        help="Run a fast minimal pipeline: positions + pnl + resolutions + compute-clv.",
     )
     parser.add_argument(
         "--ingest-markets",
@@ -1726,68 +1924,27 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
     else:
         backfill = DEFAULT_BACKFILL
 
-    if args.ingest_markets is True:
-        ingest_markets = True
-    elif env_ingest_markets is not None:
-        ingest_markets = env_ingest_markets
-    else:
-        ingest_markets = DEFAULT_INGEST_MARKETS
-
-    if args.ingest_activity is True:
-        ingest_activity = True
-    elif env_ingest_activity is not None:
-        ingest_activity = env_ingest_activity
-    else:
-        ingest_activity = DEFAULT_INGEST_ACTIVITY
-
-    if args.ingest_positions is True:
-        ingest_positions = True
-    elif env_ingest_positions is not None:
-        ingest_positions = env_ingest_positions
-    else:
-        ingest_positions = DEFAULT_INGEST_POSITIONS
-
-    if args.compute_pnl is True:
-        compute_pnl = True
-    elif env_compute_pnl is not None:
-        compute_pnl = env_compute_pnl
-    else:
-        compute_pnl = DEFAULT_COMPUTE_PNL
-
-    if args.compute_opportunities is True:
-        compute_opportunities = True
-    elif env_compute_opportunities is not None:
-        compute_opportunities = env_compute_opportunities
-    else:
-        compute_opportunities = DEFAULT_COMPUTE_OPPORTUNITIES
-
-    if args.snapshot_books is True:
-        snapshot_books = True
-    elif env_snapshot_books is not None:
-        snapshot_books = env_snapshot_books
-    else:
-        snapshot_books = DEFAULT_SNAPSHOT_BOOKS
-
-    if args.enrich_resolutions is True:
-        enrich_resolutions = True
-    elif env_enrich_resolutions is not None:
-        enrich_resolutions = env_enrich_resolutions
-    else:
-        enrich_resolutions = DEFAULT_ENRICH_RESOLUTIONS
-
-    if args.compute_clv is True:
-        compute_clv = True
-    elif env_compute_clv is not None:
-        compute_clv = env_compute_clv
-    else:
-        compute_clv = DEFAULT_COMPUTE_CLV
-
-    if args.warm_clv_cache is True:
-        warm_clv_cache = True
-    elif env_warm_clv_cache is not None:
-        warm_clv_cache = env_warm_clv_cache
-    else:
-        warm_clv_cache = DEFAULT_WARM_CLV_CACHE
+    ingest_markets = _resolve_bool_flag(args.ingest_markets, env_ingest_markets, DEFAULT_INGEST_MARKETS)
+    ingest_activity = _resolve_bool_flag(args.ingest_activity, env_ingest_activity, DEFAULT_INGEST_ACTIVITY)
+    ingest_positions = _resolve_bool_flag(
+        args.ingest_positions,
+        env_ingest_positions,
+        DEFAULT_INGEST_POSITIONS,
+    )
+    compute_pnl = _resolve_bool_flag(args.compute_pnl, env_compute_pnl, DEFAULT_COMPUTE_PNL)
+    compute_opportunities = _resolve_bool_flag(
+        args.compute_opportunities,
+        env_compute_opportunities,
+        DEFAULT_COMPUTE_OPPORTUNITIES,
+    )
+    snapshot_books = _resolve_bool_flag(args.snapshot_books, env_snapshot_books, DEFAULT_SNAPSHOT_BOOKS)
+    enrich_resolutions = _resolve_bool_flag(
+        args.enrich_resolutions,
+        env_enrich_resolutions,
+        DEFAULT_ENRICH_RESOLUTIONS,
+    )
+    compute_clv = _resolve_bool_flag(args.compute_clv, env_compute_clv, DEFAULT_COMPUTE_CLV)
+    warm_clv_cache = _resolve_bool_flag(args.warm_clv_cache, env_warm_clv_cache, DEFAULT_WARM_CLV_CACHE)
 
     if args.clv_offline is True:
         clv_online = False
@@ -1822,12 +1979,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         or DEFAULT_RESOLUTION_MAX_CONCURRENCY
     )
 
-    if args.debug_export is True:
-        debug_export = True
-    elif env_debug_export is not None:
-        debug_export = env_debug_export
-    else:
-        debug_export = False
+    debug_export = _resolve_bool_flag(args.debug_export, env_debug_export, False)
 
     return {
         "user": user,
@@ -2238,12 +2390,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     apply_env_defaults(env_values)
 
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    args = parser.parse_args(raw_argv)
+    args = apply_scan_defaults(args, raw_argv)
 
     try:
         config = build_config(args)
         validate_config(config)
-        run_scan(config, argv=argv or [], started_at=_now_utc_iso())
+        run_scan(config, argv=raw_argv, started_at=_now_utc_iso())
         return 0
     except ApiError as exc:
         print(

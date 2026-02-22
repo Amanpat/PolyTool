@@ -43,7 +43,11 @@
       "Bash(where pytest:*)",
       "Bash(C:UserspatelAppDataLocalProgramsPythonPython313Scriptspytest.exe tests/test_scan_trust_artifacts.py tests/test_resolution_enrichment.py tests/test_coverage_report.py -v --tb=short)",
       "Bash(py -3.13 -m pytest:*)",
-      "Bash(npx get-shit-done-cc --global)"
+      "Bash(npx get-shit-done-cc --global)",
+      "Bash([ -f \"tools/cli/batch_run.py\" ])",
+      "Bash([ -f \"tests/test_batch_run.py\" ])",
+      "Bash([ -f \"docs/features/FEATURE-batch-run-hypothesis-leaderboard.md\" ])",
+      "Bash([ -f \".planning/quick/8-batch-run-aggregate-only-and-workers-n-f/8-SUMMARY.md\" ])"
     ]
   }
 }

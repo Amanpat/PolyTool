@@ -1,266 +1,319 @@
 # PolyTool
 
-Local-first toolbox for analysing Polymarket trading activity.
-Everything runs on your laptop â€” no cloud accounts, no hosted databases.
+PolyTool is a local-first toolbox for analyzing Polymarket users. You run scans against a target handle, and PolyTool writes trust artifacts and reports to local disk for repeatable, offline review. The code and docs are public; private analysis outputs stay under gitignored `artifacts/` and `kb/`.
 
----
+## What PolyTool Is
 
-## What it does
+PolyTool combines a local API, ClickHouse, and CLI commands to turn a user handle into structured research artifacts. It can ingest positions/trades, compute PnL and CLV, enrich resolution data, generate hypothesis candidates, and aggregate cross-user hypotheses. The primary entrypoint is:
 
-- **Scan** a user's trade history via the local API and write trust artifacts to disk.
-- **Audit** coverage quality offline â€” works on a travel laptop with no ClickHouse.
-- **Bundle** evidence for pasting into an LLM (works without RAG; excerpts are omitted if RAG is not indexed).
-- **Analyse** outcomes, PnL, fees, and category coverage through Grafana dashboards.
+```bash
+python -m polytool <command> [options]
+```
 
----
+## Quickstart
 
-## Quickstart (Local)
+### 1. Prerequisites
 
-### 1 â€” Start infrastructure
+- Python 3.10+
+- Docker Desktop (or Docker Engine + Compose)
+- `git`
+
+### 2. Install
+
+```bash
+git clone <your-repo-url>
+cd PolyTool
+python -m venv .venv
+. .venv/Scripts/Activate.ps1
+python -m pip install -U pip
+python -m pip install -e .
+```
+
+### 3. Start local services
 
 ```bash
 docker compose up -d
-```
-
-Verify ClickHouse is responding:
-
-```bash
-curl "http://localhost:8123/?query=SELECT%201"
-# expected: 1
-```
-
-Check all services are healthy:
-
-```bash
 docker compose ps
-# polyttool-clickhouse   Up (healthy)
-# polyttool-grafana      Up (healthy)
-# polyttool-api          Up (healthy)
 ```
 
-Grafana: <http://localhost:3000> (admin / admin)
-API docs: <http://localhost:8000/docs>
+Expected local endpoints:
 
----
+- API docs: `http://localhost:8000/docs`
+- ClickHouse HTTP: `http://localhost:8123`
+- Grafana: `http://localhost:3000`
 
-### 2 â€" Run a scan
+### 4. Configure API base URL (optional but recommended on Windows)
 
-The canonical Roadmap 4 scan command - ingests positions, computes PnL, enriches
-resolution outcomes, writes trust artifacts, and always emits an audit report in
-the same run root:
-```bash
-python -m polytool scan \
-  --user "@DrPufferfish" \
-  --ingest-positions \
-  --compute-pnl \
-  --enrich-resolutions \
-  --debug-export
-```
-
-By default the audit report includes **all** positions.  To limit to a deterministic
-sample, pass `--audit-sample N` (and optionally `--audit-seed SEED`):
-
-```bash
-python -m polytool scan \
-  --user "@DrPufferfish" \
-  --ingest-positions \
-  --compute-pnl \
-  --enrich-resolutions \
-  --audit-sample 25 \
-  --audit-seed 1337
-```
-
-`--debug-export` prints wallet, endpoints, and hydration diagnostics â€" useful when
-coverage looks sparse or `positions_total = 0`.
-
-The scan prints a summary and emits a **run root** directory:
-
-```
-artifacts/dossiers/users/drpufferfish/0xdb27.../2026-02-18/<run_id>/
-```
-
----
-
-### 3 - Optional: re-run audit coverage offline
-
-No ClickHouse, no network - reads the scan artifacts written in step 2.
-By default includes **all** positions.  Use `--sample N` to limit:
-
-```bash
-# All positions (default)
-python -m polytool audit-coverage --user "@DrPufferfish"
-
-# Limit to 25 positions
-python -m polytool audit-coverage --user "@DrPufferfish" --sample 25 --seed 1337
-```
-
-Outputs a markdown report at the run root.  To get a machine-readable copy:
-
-```bash
-python -m polytool audit-coverage --user "@DrPufferfish" --format json
-```
-
----
-
-### 4 â€” Build an LLM evidence bundle
-
-```bash
-python -m polytool llm-bundle --user "@DrPufferfish"
-```
-
-**Note:** works without RAG installed.  If the RAG index has not been built,
-the `## RAG excerpts` section is omitted and the command still exits 0.
-
----
-
-## Outputs / Where files go
-
-All scan and audit artifacts live under a **run root**:
-
-```
-artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/
-```
-
-| File | Description |
-|------|-------------|
-| `run_manifest.json` | Run provenance: command, argv, timestamps, config hash, output paths |
-| `dossier.json` | Raw position/trade export from the API |
-| `coverage_reconciliation_report.json` | Machine-readable trust report (outcomes, UID coverage, PnL, fees, resolution, segment analysis) |
-| `coverage_reconciliation_report.md` | Optional human-readable rendering of the same report |
-| `segment_analysis.json` | Segment breakdown by entry price tier, market type, league, sport, category |
-| `resolution_parity_debug.json` | Cross-run resolution enrichment diagnostics |
-| `audit_coverage_report.md` | Offline accuracy + trust sanity report; always emitted by `scan` (or by `audit-coverage`). Includes all positions by default; use `--audit-sample N` / `--sample N` to limit. |
-
-LLM bundles are written to a separate private path:
-
-```
-kb/users/<slug>/llm_bundles/<YYYY-MM-DD>/<run_id>/bundle.md
-```
-
----
-
-## Configuration
-
-PolyTool reads `polytool.yaml` (or `polytool.yml`) from the current working
-directory.  All keys are optional.
-
-### Entry price tiers
-
-```yaml
-segment_config:
-  entry_price_tiers:
-    - name: deep_underdog
-      max: 0.30
-    - name: underdog
-      min: 0.30
-      max: 0.45
-    - name: coinflip
-      min: 0.45
-      max: 0.55
-    - name: favorite
-      min: 0.55
-```
-
-If omitted, the built-in defaults above are used.
-
-### Fee configuration
-
-```yaml
-fee_config:
-  profit_fee_rate: 0.02   # 2 % estimated fee on winning positions
-  source_label: estimated # label written into the coverage report
-```
-
-`profit_fee_rate` must be a non-negative float.  The default is `0.02`.
-
----
-
-## Troubleshooting (Windows)
-
-### ClickHouse: `localhost` vs `127.0.0.1`
-
-On Windows, `localhost` can resolve to `::1` (IPv6) before `127.0.0.1` (IPv4),
-which causes connection-refused errors on port 8123.
-
-**Fix:** use `127.0.0.1` explicitly in your `.env`:
+Set `.env` in repo root:
 
 ```env
-# .env
 API_BASE_URL=http://127.0.0.1:8000
 ```
 
-Or pass it directly:
+You can also pass `--api-base-url` directly to commands.
+
+### 5. Target a user
+
+1. Find the Polymarket handle (for example `@DrPufferfish`).
+2. Run a scan with no stage flags:
 
 ```bash
-python -m polytool scan --user "@example" --api-base-url http://127.0.0.1:8000
+python -m polytool scan --user "@DrPufferfish"
 ```
 
-### Ports
+3. Open the latest run root:
 
-| Service | HTTP port | Native/TCP port |
-|---------|-----------|-----------------|
-| ClickHouse | `8123` (HTTP) | `9000` (native client) |
-| API | `8000` | â€” |
-| Grafana | `3000` | â€” |
-
-The scan CLI only uses the **API on port 8000** (not ClickHouse directly).
-ClickHouse ports are used by Grafana and ClickHouse native client tools.
-
-### `positions_total = 0` after a scan
-
-1. Re-run with `--debug-export` to see which wallet and endpoint was used.
-2. Confirm the handle resolves to a real proxy wallet
-   (`/api/resolve` endpoint in the Swagger UI).
-3. Try `--ingest-positions` to force a fresh positions snapshot before scanning.
-4. If the export is consistently empty, check the history endpoint:
-   `/api/export/user_dossier/history?user=@example&limit=5`.
-
----
-
-## Repository layout
-
-```
-services/api/         FastAPI service (ingest, compute, export)
-infra/clickhouse/     ClickHouse schemas and init SQL
-infra/grafana/        Grafana dashboards and provisioning
-packages/polymarket/  Shared clients + analytics (resolution, RAG, etc.)
-tools/cli/            Local CLI utilities
-polytool/             CLI entry point + reports
-docs/                 Public truth source and ADRs
-kb/                   Private local data (gitignored)
-artifacts/            Scan + dossier outputs (gitignored)
+```text
+artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/
 ```
 
-See `docs/ARCHITECTURE.md` for the full data-flow diagram.
-See `docs/TRUST_ARTIFACTS.md` for the trust artifact schema reference.
-See `docs/LOCAL_RAG_WORKFLOW.md` for RAG indexing and querying.
+4. Open these first:
+- `coverage_reconciliation_report.md` (or `.json`)
+- `segment_analysis.json`
+- `hypothesis_candidates.json`
+- `audit_coverage_report.md`
 
----
+## One-Command Full Scan (Default)
 
-## Database access
-
-| Role | User | Password | Access |
-|------|------|----------|--------|
-| Admin | `polyttool_admin` | `polyttool_admin` | Full |
-| Grafana | `grafana_ro` | `grafana_readonly_local` | SELECT only |
-
----
-
-## Infrastructure commands
+If you pass no stage flags, `scan` runs the full research pipeline by default.
 
 ```bash
-# Start all services
-docker compose up -d
-
-# Check status
-docker compose ps
-
-# View logs for a service
-docker compose logs -f api
-
-# Stop without removing volumes
-docker compose down
-
-# Full reset (destroys all data)
-docker compose down -v && docker compose up -d
+python -m polytool scan --user "@DrPufferfish" --api-base-url "http://127.0.0.1:8000"
 ```
+
+Default full scan emits a run manifest plus trust artifacts, including coverage reports, segment analysis, hypothesis candidates, CLV preflight, CLV warm-cache summary, and audit coverage.
+
+## Common Recipes
+
+### Fast/lite scan
+
+```bash
+python -m polytool scan --user "@DrPufferfish" --lite
+```
+
+`--lite` runs a minimal pipeline: positions + pnl + resolution enrichment + CLV compute.
+
+### Debug export diagnostics
+
+```bash
+python -m polytool scan --user "@DrPufferfish" --full --debug-export
+```
+
+`--debug-export` prints export/hydration diagnostics to help debug sparse coverage.
+
+### Aggregate-only batch from existing run roots
+
+```bash
+python -m polytool batch-run \
+  --aggregate-only \
+  --run-roots artifacts/research/batch_runs/2026-02-20/<batch_id>/
+```
+
+## Command Reference
+
+### `scan`
+
+```bash
+python -m polytool scan --user "@handle" [options]
+```
+
+Defaulting rules:
+- No stage flags: full pipeline auto-enabled.
+- Any stage flag present: only explicitly selected stages are used (no auto-enable).
+- `--full`: force full pipeline even if stage flags are present.
+- `--lite`: force minimal fast pipeline.
+
+Convenience flags:
+- `--full`
+- `--lite`
+
+Stage flags:
+- `--ingest-markets`: ingest active market metadata.
+- `--ingest-activity`: ingest user activity.
+- `--ingest-positions`: ingest positions snapshot.
+- `--compute-pnl`: compute PnL.
+- `--compute-opportunities`: compute opportunity candidates.
+- `--snapshot-books`: snapshot orderbook metrics.
+- `--enrich-resolutions`: enrich resolution data.
+- `--warm-clv-cache`: warm CLV snapshot cache.
+- `--compute-clv`: compute per-position CLV fields.
+
+Other common flags:
+- `--debug-export`
+- `--audit-sample N`
+- `--audit-seed INT`
+- `--resolution-max-candidates N`
+- `--resolution-batch-size N`
+- `--resolution-max-concurrency N`
+- `--clv-offline`
+- `--clv-window-minutes MINUTES`
+- `--config polytool.yaml`
+- `--api-base-url URL`
+
+### `batch-run`
+
+```bash
+python -m polytool batch-run --users users.txt [options]
+```
+
+Purpose: run scans for multiple users and build deterministic leaderboard artifacts.
+
+Common flags:
+- `--users PATH`
+- `--workers N`
+- `--continue-on-error` / `--no-continue-on-error`
+- `--aggregate-only --run-roots PATH`
+- Scan pass-through flags: `--api-base-url`, `--full`, `--lite`, `--ingest-positions`, `--compute-pnl`, `--enrich-resolutions`, `--debug-export`, `--warm-clv-cache`, `--compute-clv`
+
+### `audit-coverage`
+
+```bash
+python -m polytool audit-coverage --user "@handle" [options]
+```
+
+Offline audit from scan artifacts. Key flags: `--sample N`, `--seed SEED`, `--run-id`, `--format {md,json}`.
+
+### `export-dossier`
+
+```bash
+python -m polytool export-dossier --user "@handle" [options]
+```
+
+Export an LLM research packet dossier. Key flags: `--days`, `--max-trades`, `--artifacts-dir`.
+
+### `export-clickhouse`
+
+```bash
+python -m polytool export-clickhouse --user "@handle" [options]
+```
+
+Export user datasets from ClickHouse. Key flags: `--out`, `--trades-limit`, `--orderbook-limit`, `--arb-limit`, `--no-arb`.
+
+### `examine`
+
+```bash
+python -m polytool examine --user "@handle" [options]
+```
+
+Orchestrates examination workflow. Key flags: `--days`, `--max-trades`, `--skip-scan`, `--no-enrich-resolutions`, resolution knobs, `--dry-run`.
+
+### `llm-bundle`
+
+```bash
+python -m polytool llm-bundle --user "@handle" [options]
+python -m polytool llm-bundle --user "@handle" --run-root artifacts/dossiers/users/<slug>/<wallet>/<date>/<run_id> [options]
+```
+
+Build evidence bundle from the latest run root under `artifacts/dossiers/users/<normalized_user>/` plus optional RAG excerpts.
+Manifest lookup prefers `run_manifest.json` and falls back to legacy `manifest.json`.
+Use `--run-root` to bypass automatic latest-run lookup.
+Key flags: `--run-root`, `--dossier-path`, `--questions-file`, `--no-devlog`.
+
+### `llm-save`
+
+```bash
+python -m polytool llm-save --user "@handle" --model "<model>" [options]
+```
+
+Save LLM output to private KB. Key flags: `--run-id`, `--date`, `--report-path`, `--prompt-path`, `--input`, `--rag-query-path`, `--tags`, `--no-devlog`.
+
+### `rag-index`
+
+```bash
+python -m polytool rag-index [options]
+```
+
+Build/rebuild local RAG index. Key flags: `--roots`, `--rebuild`, `--reconcile`, `--chunk-size`, `--overlap`, `--model`, `--device`.
+
+### `rag-query`
+
+```bash
+python -m polytool rag-query --question "..." [options]
+```
+
+Query local RAG index. Key flags: `--user`, `--doc-type`, `--private-only/--public-only`, `--hybrid`, `--lexical-only`, `--rerank`.
+
+### `rag-eval`
+
+```bash
+python -m polytool rag-eval --suite docs/eval/sample_queries.jsonl [options]
+```
+
+Offline retrieval evaluation harness.
+
+### `cache-source`
+
+```bash
+python -m polytool cache-source --url "https://..." [options]
+```
+
+Fetch/cache trusted web sources for indexing. Key flags: `--ttl-days`, `--force`, `--output-dir`, `--config`, `--skip-robots`.
+
+### `agent-run`
+
+```bash
+python -m polytool agent-run --agent codex --packet P5 --slug run-name [options]
+```
+
+Write one-file-per-run agent logs to `kb/devlog/`.
+
+### `mcp`
+
+```bash
+python -m polytool mcp [--log-level INFO]
+```
+
+Start MCP server for local integration.
+
+### Deprecated alias
+
+- `python -m polytool opus-bundle ...` is deprecated and routes to `llm-bundle`.
+
+## Outputs And Trust Artifacts
+
+Run root:
+
+```text
+artifacts/dossiers/users/<slug>/<wallet>/<YYYY-MM-DD>/<run_id>/
+```
+
+| Artifact | Meaning |
+|---|---|
+| `run_manifest.json` | Provenance: command, argv, config snapshot, output paths |
+| `dossier.json` | Exported user dossier payload |
+| `coverage_reconciliation_report.json` | Machine-readable trust/coverage report |
+| `coverage_reconciliation_report.md` | Human-readable trust/coverage summary |
+| `segment_analysis.json` | Segment metrics and breakdowns |
+| `hypothesis_candidates.json` | Ranked hypothesis candidate segments |
+| `audit_coverage_report.md` | Offline trust sanity report |
+| `clv_preflight.json` | CLV preflight checks and missingness reasons |
+| `clv_warm_cache_summary.json` | CLV cache warm summary |
+| `notional_weight_debug.json` | Notional-weight normalization diagnostics |
+| `resolution_parity_debug.json` | Resolution consistency diagnostics |
+
+## Troubleshooting
+
+### `localhost` vs `127.0.0.1` on Windows
+
+If `localhost` resolves to IPv6 and connections fail, use:
+
+```bash
+python -m polytool scan --user "@handle" --api-base-url "http://127.0.0.1:8000"
+```
+
+### Missing outputs or sparse coverage
+
+1. Re-run with `--debug-export`.
+2. Confirm handle -> wallet resolution in `http://localhost:8000/docs` (`/api/resolve`).
+3. Check latest run root has `dossier.json` and `run_manifest.json`.
+4. Re-run with `--full` to force all major stages.
+
+### CLV gaps
+
+- `clv_preflight.json` explains why CLV is missing.
+- Use `--warm-clv-cache` to prefetch snapshot data.
+- If network access is restricted, use `--clv-offline` and expect lower coverage.
+
+---
+
+For CLI-level details, run `python -m polytool <command> --help`.

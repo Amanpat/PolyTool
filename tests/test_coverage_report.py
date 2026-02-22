@@ -11,11 +11,20 @@ import pytest
 from polytool.reports.coverage import (
     PENDING_COVERAGE_INVALID_WARNING,
     REPORT_VERSION,
+    TOP_SEGMENT_MIN_COUNT,
+    MAX_ROBUST_VALUES,
     backfill_market_metadata,
     build_coverage_report,
+    extract_position_notional_usd,
     normalize_fee_fields,
     write_coverage_report,
     _get_category_key,
+    _collect_top_segments_by_metric,
+    _compute_median,
+    _compute_robust_stats,
+    _build_clv_coverage,
+    _build_hypothesis_candidates,
+    write_hypothesis_candidates,
 )
 
 
@@ -2502,3 +2511,922 @@ class TestCategoryCoverage:
             assert idx_aaa < idx_zzz, "aaa-market should appear before zzz-market when pnl is equal"
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
+
+
+class TestHypothesisReadyAggregations:
+    """Roadmap 5.3: entry_drift_pct, notional-weighted metrics, movement rates, top segments."""
+
+    # ------------------------------------------------------------------
+    # 1. entry_drift_pct math and missingness (no divide by zero)
+    # ------------------------------------------------------------------
+
+    def test_entry_drift_pct_computed_correctly(self):
+        """Standard case: (price_at_entry - price_1h_before_entry) / price_1h_before_entry."""
+        positions = [
+            {
+                "resolved_token_id": "drift-ok",
+                "entry_price": 0.60,
+                "price_at_entry": 0.55,
+                "price_1h_before_entry": 0.50,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="drift-math", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        # (0.55 - 0.50) / 0.50 = 0.1
+        assert bucket["avg_entry_drift_pct"] is not None
+        assert abs(bucket["avg_entry_drift_pct"] - 0.1) < 1e-9
+        assert bucket["avg_entry_drift_pct_count_used"] == 1
+
+    def test_entry_drift_pct_missing_price_at_entry(self):
+        """When price_at_entry is absent, avg_entry_drift_pct must be None."""
+        positions = [
+            {
+                "resolved_token_id": "drift-missing-at",
+                "entry_price": 0.60,
+                "price_at_entry": None,
+                "price_1h_before_entry": 0.50,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="drift-no-at", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert bucket["avg_entry_drift_pct"] is None
+        assert bucket["avg_entry_drift_pct_count_used"] == 0
+
+    def test_entry_drift_pct_zero_denominator_no_divide_by_zero(self):
+        """When price_1h_before_entry == 0, entry_drift_pct must be None (no ZeroDivisionError)."""
+        positions = [
+            {
+                "resolved_token_id": "drift-zero-denom",
+                "entry_price": 0.50,
+                "price_at_entry": 0.50,
+                "price_1h_before_entry": 0.0,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        # Must not raise
+        report = build_coverage_report(
+            positions=positions, run_id="drift-zero-denom", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert bucket["avg_entry_drift_pct"] is None
+        assert bucket["avg_entry_drift_pct_count_used"] == 0
+
+    # ------------------------------------------------------------------
+    # 2. Notional-weighted average math
+    # ------------------------------------------------------------------
+
+    def test_notional_weighted_avg_clv_pct_two_positions(self):
+        """Weighted avg = sum(clv_pct * notional) / sum(notional)."""
+        # pos A: clv_pct=0.10, notional=100  → contributes 10.0
+        # pos B: clv_pct=0.30, notional=200  → contributes 60.0
+        # expected weighted avg = 70.0 / 300 = 0.23333...
+        positions = [
+            {
+                "resolved_token_id": "w-a",
+                "entry_price": 0.50,
+                "clv_pct": 0.10,
+                "beat_close": False,
+                "position_notional_usd": 100.0,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "resolved_token_id": "w-b",
+                "entry_price": 0.50,
+                "clv_pct": 0.30,
+                "beat_close": True,
+                "position_notional_usd": 200.0,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "LOSS",
+                "realized_pnl_net": -1.0,
+                "position_remaining": 0.0,
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="notional-math", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        expected_w_avg = (0.10 * 100 + 0.30 * 200) / 300.0
+        assert bucket["notional_weighted_avg_clv_pct"] is not None
+        assert bucket["notional_weighted_avg_clv_pct"] == pytest.approx(expected_w_avg, rel=1e-5)
+        assert abs(bucket["notional_weighted_avg_clv_pct_weight_used"] - 300.0) < 1e-6
+
+        # beat_close: pos A=False (0), pos B=True (1)
+        # weighted = (0*100 + 1*200) / 300 = 200/300 = 0.666...
+        expected_w_beat = (0.0 * 100 + 1.0 * 200) / 300.0
+        assert bucket["notional_weighted_beat_close_rate"] is not None
+        assert bucket["notional_weighted_beat_close_rate"] == pytest.approx(expected_w_beat, rel=1e-5)
+
+    def test_notional_weighted_skips_missing_or_zero_notional(self):
+        """Positions with None or 0 notional must not affect weighted metrics."""
+        positions = [
+            {
+                "resolved_token_id": "nw-skip",
+                "entry_price": 0.40,
+                "clv_pct": 0.99,  # large value — should be excluded
+                "beat_close": True,
+                "position_notional_usd": None,  # missing
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+            {
+                "resolved_token_id": "nw-zero",
+                "entry_price": 0.40,
+                "clv_pct": 0.99,  # large value — should be excluded
+                "beat_close": True,
+                "position_notional_usd": 0.0,  # zero
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            },
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="notional-skip", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        # No valid notional → weighted metrics should be None, weight_used = 0
+        assert bucket["notional_weighted_avg_clv_pct"] is None
+        assert bucket["notional_weighted_avg_clv_pct_weight_used"] == 0.0
+        assert bucket["notional_w_total_weight_used"] == 0.0
+
+        # Global notional weight should also be 0
+        hyp_meta = report["segment_analysis"]["hypothesis_meta"]
+        assert hyp_meta["notional_weight_total_global"] == 0.0
+
+    # ------------------------------------------------------------------
+    # 3. Movement distribution sums to 1.0 (within float tolerance)
+    # ------------------------------------------------------------------
+
+    def test_movement_distribution_sums_to_one(self):
+        """movement_up + movement_down + movement_flat + movement_unknown == 1.0 when count > 0."""
+        positions = [
+            {
+                "resolved_token_id": f"mv-{i}",
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+                "movement_direction": direction,
+            }
+            for i, direction in enumerate(["up", "down", "flat", "up", None, "unknown_val"])
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="movement-sum", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert bucket["count"] == 6
+
+        up = bucket["movement_up_rate"]
+        down = bucket["movement_down_rate"]
+        flat = bucket["movement_flat_rate"]
+        unknown = bucket["movement_unknown_rate"]
+
+        assert all(v is not None for v in (up, down, flat, unknown))
+        total = up + down + flat + unknown
+        assert abs(total - 1.0) < 1e-9, f"Rates sum to {total}, expected 1.0"
+
+        # Verify exact counts: 2 up, 1 down, 1 flat, 2 unknown (rounded to 6 dp)
+        assert up == pytest.approx(2 / 6, rel=1e-5)
+        assert down == pytest.approx(1 / 6, rel=1e-5)
+        assert flat == pytest.approx(1 / 6, rel=1e-5)
+        assert unknown == pytest.approx(2 / 6, rel=1e-5)
+
+    def test_movement_rates_none_when_count_zero(self):
+        """Empty bucket returns None for movement rates (no division by zero)."""
+        report = build_coverage_report(
+            positions=[], run_id="movement-empty", user_slug="u", wallet="0xabc"
+        )
+        # by_league "unknown" bucket should have count=0
+        bucket = report["segment_analysis"]["by_league"]["unknown"]
+        assert bucket["count"] == 0
+        assert bucket["movement_up_rate"] is None
+        assert bucket["movement_down_rate"] is None
+        assert bucket["movement_flat_rate"] is None
+        assert bucket["movement_unknown_rate"] is None
+
+    # ------------------------------------------------------------------
+    # 4. Top segments ordering is deterministic and respects min_count
+    # ------------------------------------------------------------------
+
+    def test_top_segments_ordering_deterministic_desc_by_metric_asc_by_name(self):
+        """Top segments sort by metric descending, break ties by segment name ascending."""
+        # Build a segment_analysis stub with two buckets having same metric value
+        segment_analysis = {
+            "by_market_type": {
+                "zzz_type": {"count": 10, "notional_weighted_avg_clv_pct": 0.50},
+                "aaa_type": {"count": 10, "notional_weighted_avg_clv_pct": 0.50},
+                "top_type": {"count": 10, "notional_weighted_avg_clv_pct": 0.80},
+            }
+        }
+        rows = _collect_top_segments_by_metric(
+            segment_analysis,
+            "notional_weighted_avg_clv_pct",
+            min_count=5,
+        )
+        # top_type first (highest metric), then aaa_type before zzz_type (same metric, alpha)
+        assert len(rows) == 3
+        assert rows[0]["segment"] == "market_type:top_type"
+        assert rows[1]["segment"] == "market_type:aaa_type"
+        assert rows[2]["segment"] == "market_type:zzz_type"
+
+    def test_top_segments_min_count_respected(self):
+        """Segments with count < TOP_SEGMENT_MIN_COUNT are excluded."""
+        segment_analysis = {
+            "by_market_type": {
+                "big_segment": {"count": TOP_SEGMENT_MIN_COUNT, "notional_weighted_avg_clv_pct": 0.30},
+                "small_segment": {"count": TOP_SEGMENT_MIN_COUNT - 1, "notional_weighted_avg_clv_pct": 0.90},
+            }
+        }
+        rows = _collect_top_segments_by_metric(
+            segment_analysis,
+            "notional_weighted_avg_clv_pct",
+            min_count=TOP_SEGMENT_MIN_COUNT,
+        )
+        segment_names = [r["segment"] for r in rows]
+        assert "market_type:big_segment" in segment_names
+        assert "market_type:small_segment" not in segment_names
+
+    def test_top_segments_none_metric_excluded(self):
+        """Buckets where the metric is None are excluded (no crashes)."""
+        segment_analysis = {
+            "by_market_type": {
+                "has_metric": {"count": 10, "notional_weighted_avg_clv_pct": 0.25},
+                "no_metric": {"count": 10, "notional_weighted_avg_clv_pct": None},
+            }
+        }
+        rows = _collect_top_segments_by_metric(
+            segment_analysis,
+            "notional_weighted_avg_clv_pct",
+            min_count=5,
+        )
+        assert len(rows) == 1
+        assert rows[0]["segment"] == "market_type:has_metric"
+
+    def test_top_segments_integration_end_to_end(self):
+        """Full build_coverage_report: segments with enough positions appear in top-segments."""
+        # Create 6 positions in the 'nba' league with notional + CLV data
+        # so nba should appear in top segments (count >= 5)
+        positions = [
+            {
+                "resolved_token_id": f"top-seg-{i}",
+                "entry_price": 0.40,
+                "clv_pct": 0.20,
+                "beat_close": True,
+                "position_notional_usd": 50.0,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+            for i in range(6)
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="top-seg-e2e", user_slug="u", wallet="0xabc"
+        )
+        hyp_meta = report["segment_analysis"]["hypothesis_meta"]
+        assert hyp_meta["notional_weight_total_global"] == pytest.approx(6 * 50.0)
+
+        # Verify nba bucket has notional_weighted_avg_clv_pct
+        nba_bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert nba_bucket["notional_weighted_avg_clv_pct"] == pytest.approx(0.20)
+        assert nba_bucket["count"] == 6
+
+        # Markdown should include Hypothesis Signals section
+        import shutil
+        output_dir = Path("artifacts") / "_pytest_hyp_signals"
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_coverage_report(report, output_dir, write_markdown=True)
+            md = Path(paths["md"]).read_text(encoding="utf-8")
+            assert "## Hypothesis Signals" in md
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # 5. _compute_median helper
+    # ------------------------------------------------------------------
+
+    def test_compute_median_odd_count(self):
+        assert _compute_median([3.0, 1.0, 2.0]) == 2.0
+
+    def test_compute_median_even_count(self):
+        assert _compute_median([1.0, 2.0, 3.0, 4.0]) == pytest.approx(2.5)
+
+    def test_compute_median_empty(self):
+        assert _compute_median([]) is None
+
+    def test_median_minutes_to_close_per_segment(self):
+        """Median and avg minutes_to_close are computed correctly per bucket."""
+        positions = [
+            {
+                "resolved_token_id": f"mtc-{i}",
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+                "minutes_to_close": mtc,
+            }
+            for i, mtc in enumerate([60, 120, 180])
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="mtc-test", user_slug="u", wallet="0xabc"
+        )
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert bucket["avg_minutes_to_close"] == pytest.approx(120.0)
+        assert bucket["median_minutes_to_close"] == pytest.approx(120.0)
+        assert bucket["minutes_to_close_count_used"] == 3
+
+    # ------------------------------------------------------------------
+    # 6. Notional source fallback (total_cost, size*entry_price)
+    # ------------------------------------------------------------------
+
+    def test_notional_fallback_total_cost_only(self):
+        """When only total_cost is present it is used as notional weight."""
+        # pos A: clv_pct=0.20, total_cost=100  -> weight 100, contributes 20.0
+        # pos B: clv_pct=0.60, total_cost=50   -> weight 50, contributes 30.0
+        # weighted avg = 50.0 / 150 = 0.3333...
+        positions = [
+            {
+                "resolved_token_id": f"tc-{i}",
+                "entry_price": 0.50,
+                "clv_pct": clv,
+                "beat_close": True,
+                "total_cost": cost,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+            for i, (clv, cost) in enumerate([(0.20, 100.0), (0.60, 50.0)])
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="notional-total-cost", user_slug="u", wallet="0xabc"
+        )
+        hyp_meta = report["segment_analysis"]["hypothesis_meta"]
+        assert hyp_meta["notional_weight_total_global"] == pytest.approx(150.0)
+
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        expected = (0.20 * 100.0 + 0.60 * 50.0) / 150.0
+        assert bucket["notional_weighted_avg_clv_pct"] == pytest.approx(expected, rel=1e-5)
+        assert bucket["notional_weighted_avg_clv_pct_weight_used"] == pytest.approx(150.0)
+
+    def test_notional_position_notional_usd_preferred_over_total_cost(self):
+        """position_notional_usd wins over total_cost when both are present."""
+        # position_notional_usd=200, total_cost=50 -> 200 should be used
+        pos = {
+            "position_notional_usd": 200.0,
+            "total_cost": 50.0,
+            "entry_price": 0.50,
+            "size": 40.0,
+        }
+        assert extract_position_notional_usd(pos) == pytest.approx(200.0)
+
+        # Full integration: only position_notional_usd should count
+        positions = [
+            {
+                "resolved_token_id": "pref-test",
+                "entry_price": 0.50,
+                "clv_pct": 0.30,
+                "beat_close": True,
+                "position_notional_usd": 200.0,
+                "total_cost": 50.0,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="notional-pref", user_slug="u", wallet="0xabc"
+        )
+        hyp_meta = report["segment_analysis"]["hypothesis_meta"]
+        assert hyp_meta["notional_weight_total_global"] == pytest.approx(200.0)
+
+    def test_notional_no_source_skips_weight(self):
+        """When neither position_notional_usd nor total_cost nor size*price is present,
+        notional metrics remain None and global denom stays 0."""
+        positions = [
+            {
+                "resolved_token_id": "no-notional",
+                "entry_price": 0.50,
+                "clv_pct": 0.40,
+                "beat_close": True,
+                "market_slug": "nba-lal-bos-2026",
+                "question": "Will LAL win?",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+                # no position_notional_usd, no total_cost, no size
+            }
+        ]
+        report = build_coverage_report(
+            positions=positions, run_id="notional-none", user_slug="u", wallet="0xabc"
+        )
+        hyp_meta = report["segment_analysis"]["hypothesis_meta"]
+        assert hyp_meta["notional_weight_total_global"] == 0.0
+
+        bucket = report["segment_analysis"]["by_league"]["nba"]
+        assert bucket["notional_w_total_weight_used"] == 0.0
+        assert bucket["notional_weighted_avg_clv_pct"] is None
+        assert bucket["notional_weighted_beat_close_rate"] is None
+
+
+class TestBuildHypothesisCandidates:
+    """Unit tests for _build_hypothesis_candidates and write_hypothesis_candidates."""
+
+    def test_empty_segment_analysis_returns_empty_list(self):
+        result = _build_hypothesis_candidates({})
+        assert result == []
+
+    def test_candidates_below_min_count_excluded(self):
+        seg = {
+            "by_entry_price_tier": {
+                "coinflip": {
+                    "count": 2,  # Below TOP_SEGMENT_MIN_COUNT=5
+                    "notional_weighted_avg_clv_pct": 0.5,
+                    "notional_weighted_avg_clv_pct_weight_used": 50.0,
+                    "notional_weighted_beat_close_rate": 0.6,
+                    "notional_weighted_beat_close_rate_weight_used": 50.0,
+                    "avg_clv_pct": 0.4,
+                    "avg_clv_pct_count_used": 2,
+                    "beat_close_rate": 0.5,
+                    "beat_close_rate_count_used": 2,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.5,
+                }
+            }
+        }
+        result = _build_hypothesis_candidates(seg)
+        assert result == []
+
+    def test_candidates_ranked_by_notional_clv_desc(self):
+        seg = {
+            "by_entry_price_tier": {
+                "coinflip": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.15,
+                    "notional_weighted_avg_clv_pct_weight_used": 100.0,
+                    "notional_weighted_beat_close_rate": 0.6,
+                    "notional_weighted_beat_close_rate_weight_used": 100.0,
+                    "avg_clv_pct": 0.12,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.55,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.6,
+                },
+                "favorite": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.05,
+                    "notional_weighted_avg_clv_pct_weight_used": 80.0,
+                    "notional_weighted_beat_close_rate": 0.5,
+                    "notional_weighted_beat_close_rate_weight_used": 80.0,
+                    "avg_clv_pct": 0.04,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.45,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.5,
+                },
+            }
+        }
+        result = _build_hypothesis_candidates(seg)
+        assert len(result) == 2
+        assert result[0]["segment_key"] == "entry_price_tier:coinflip"
+        assert result[1]["segment_key"] == "entry_price_tier:favorite"
+
+    def test_candidate_has_required_fields(self):
+        seg = {
+            "by_entry_price_tier": {
+                "coinflip": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.15,
+                    "notional_weighted_avg_clv_pct_weight_used": 100.0,
+                    "notional_weighted_beat_close_rate": 0.6,
+                    "notional_weighted_beat_close_rate_weight_used": 100.0,
+                    "avg_clv_pct": 0.12,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.55,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.6,
+                },
+                "favorite": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.05,
+                    "notional_weighted_avg_clv_pct_weight_used": 80.0,
+                    "notional_weighted_beat_close_rate": 0.5,
+                    "notional_weighted_beat_close_rate_weight_used": 80.0,
+                    "avg_clv_pct": 0.04,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.45,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.5,
+                },
+            }
+        }
+        candidates = _build_hypothesis_candidates(seg)
+        c = candidates[0]
+        assert "segment_key" in c
+        assert "rank" in c
+        assert "metrics" in c
+        assert "denominators" in c
+        assert "falsification_plan" in c
+        assert c["rank"] == 1
+        assert c["denominators"]["weighting"] == "notional"
+        assert c["falsification_plan"]["min_sample_size"] >= 30
+        assert len(c["falsification_plan"]["stop_conditions"]) >= 1
+
+    def test_write_hypothesis_candidates_produces_valid_json(self, tmp_path):
+        path = write_hypothesis_candidates(
+            candidates=[{"segment_key": "x"}],
+            output_dir=tmp_path,
+            generated_at="2026-02-20T00:00:00+00:00",
+            run_id="r1",
+            user_slug="testuser",
+            wallet="0xabc",
+        )
+        assert Path(path).exists()
+        data = json.loads(Path(path).read_text())
+        assert data["candidates"] == [{"segment_key": "x"}]
+        for key in ("generated_at", "run_id", "user_slug", "wallet", "candidates"):
+            assert key in data
+
+    def test_build_coverage_report_includes_hypothesis_candidates_key(self):
+        positions = [
+            {
+                "resolved_token_id": f"tok_{i:03d}",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 1.0,
+                "position_remaining": 0.0,
+            }
+            for i in range(10)
+        ] + [
+            {
+                "resolved_token_id": f"tok_{i:03d}",
+                "resolution_outcome": "LOSS",
+                "realized_pnl_net": -0.5,
+                "position_remaining": 0.0,
+            }
+            for i in range(10, 20)
+        ]
+        report = build_coverage_report(
+            positions=positions,
+            run_id="test-hyp",
+            user_slug="u",
+            wallet="0xabc",
+        )
+        assert "hypothesis_candidates" in report
+
+
+class TestExtractPositionNotionalUsd:
+    """Unit tests for extract_position_notional_usd fallback chain."""
+
+    def test_total_cost_used_when_no_explicit_notional(self):
+        """Positions with total_cost but no position_notional_usd should yield a positive weight."""
+        pos = {
+            "token_id": "tok_tc_001",
+            "total_cost": 47.50,
+            "resolution_outcome": "WIN",
+            "clv_pct": 0.12,
+            "beat_close": True,
+        }
+        result = extract_position_notional_usd(pos)
+        assert result == pytest.approx(47.50), (
+            "Expected total_cost to be returned when position_notional_usd absent"
+        )
+
+    def test_string_total_cost_coerces_to_float(self):
+        """total_cost stored as a numeric string should coerce cleanly; non-numeric should return None."""
+        pos_numeric_str = {"total_cost": "25.00"}
+        assert extract_position_notional_usd(pos_numeric_str) == pytest.approx(25.0)
+
+        pos_bad_str = {"total_cost": "N/A"}
+        assert extract_position_notional_usd(pos_bad_str) is None, (
+            "Non-numeric string total_cost should return None, not raise"
+        )
+
+
+class TestNotionalWeightInCoverageReport:
+    """Integration: build_coverage_report produces non-null notional metrics when total_cost present."""
+
+    def _make_positions_with_total_cost(self):
+        """Positions that have total_cost but NOT position_notional_usd."""
+        base = [
+            {
+                "resolved_token_id": f"tok_{i:03d}",
+                "resolution_outcome": "WIN",
+                "realized_pnl_net": 5.0,
+                "total_cost": 20.0 + i,
+                "clv_pct": 0.10 + i * 0.01,
+                "beat_close": True,
+                "fees_actual": 0.0,
+                "fees_estimated": 0.0,
+                "fees_source": "unknown",
+                "position_remaining": 0.0,
+            }
+            for i in range(6)  # 6 positions > TOP_SEGMENT_MIN_COUNT=5
+        ]
+        return base
+
+    def test_notional_weight_total_global_nonzero_with_total_cost(self):
+        """After injecting position_notional_usd from total_cost, hypothesis_meta weight > 0."""
+        from tools.cli.scan import _normalize_position_notional
+
+        positions = self._make_positions_with_total_cost()
+        # Simulate scan.py normalization step
+        _normalize_position_notional(positions)
+
+        # All positions should now have position_notional_usd set
+        for pos in positions:
+            assert "position_notional_usd" in pos and pos["position_notional_usd"] > 0
+
+        report = build_coverage_report(positions=positions, run_id="test-run", user_slug="testuser", wallet="0xabc")
+        hyp_meta = report.get("segment_analysis", {}).get("hypothesis_meta", {})
+        weight = hyp_meta.get("notional_weight_total_global", 0.0)
+        assert weight > 0, (
+            f"Expected notional_weight_total_global > 0, got {weight}. "
+            "Likely total_cost normalization did not propagate."
+        )
+
+    def test_notional_weighted_metrics_non_null_after_normalization(self):
+        """Segment metrics include non-null notional-weighted fields after normalization."""
+        from tools.cli.scan import _normalize_position_notional
+
+        positions = self._make_positions_with_total_cost()
+        _normalize_position_notional(positions)
+
+        report = build_coverage_report(positions=positions, run_id="test-run2", user_slug="testuser2", wallet="0xdef")
+        segment_analysis = report.get("segment_analysis", {})
+        # At least one segment bucket should have a non-null notional_weighted_avg_clv_pct
+        any_weighted = any(
+            v.get("notional_weighted_avg_clv_pct") is not None
+            for bucket_group in segment_analysis.values()
+            if isinstance(bucket_group, dict)
+            for v in bucket_group.values()
+            if isinstance(v, dict)
+        )
+        assert any_weighted, (
+            "Expected at least one segment bucket to have non-null notional_weighted_avg_clv_pct "
+            "after total_cost normalization."
+        )
+        assert isinstance(report["hypothesis_candidates"], list)
+
+
+class TestDualClvVariantCoverage:
+    """Unit tests for dual CLV variant sub-dicts in _build_clv_coverage."""
+
+    def _make_positions_with_variants(self):
+        return [
+            {
+                "resolved_token_id": "tok_s1",
+                "entry_price": 0.42,
+                "clv": 0.09,
+                "clv_pct": 0.214,
+                "clv_source": "prices_history|onchain_resolved_at",
+                "clv_missing_reason": None,
+                "clv_pct_settlement": 0.214,
+                "clv_missing_reason_settlement": None,
+                "clv_source_settlement": "prices_history|onchain_resolved_at",
+                "clv_pct_pre_event": None,
+                "clv_missing_reason_pre_event": "NO_PRE_EVENT_CLOSE_TS",
+                "clv_source_pre_event": None,
+            },
+            {
+                "resolved_token_id": "tok_s2",
+                "entry_price": 0.35,
+                "clv": None,
+                "clv_pct": None,
+                "clv_source": None,
+                "clv_missing_reason": "NO_CLOSE_TS",
+                "clv_pct_settlement": None,
+                "clv_missing_reason_settlement": "NO_SETTLEMENT_CLOSE_TS",
+                "clv_source_settlement": None,
+                "clv_pct_pre_event": 0.05,
+                "clv_missing_reason_pre_event": None,
+                "clv_source_pre_event": "prices_history|gamma_closedTime",
+            },
+        ]
+
+    def test_build_clv_coverage_includes_settlement_and_pre_event_sub_dicts(self):
+        positions = self._make_positions_with_variants()
+        result = _build_clv_coverage(positions)
+        assert "settlement" in result
+        assert "pre_event" in result
+        settlement = result["settlement"]
+        pre_event = result["pre_event"]
+        assert settlement["clv_present_count"] == 1
+        assert settlement["clv_missing_count"] == 1
+        assert pre_event["clv_present_count"] == 1
+        assert pre_event["clv_missing_count"] == 1
+
+    def test_clv_variant_coverage_rate_computed_correctly(self):
+        positions = self._make_positions_with_variants()
+        result = _build_clv_coverage(positions)
+        settlement = result["settlement"]
+        assert settlement["eligible_positions"] == 2
+        assert settlement["coverage_rate"] == 0.5
+
+
+class TestDualClvHypothesisCandidates:
+    """Unit tests for pre_event preference and settlement fallback in hypothesis ranking."""
+
+    def _seg_with_pre_event(self, pre_event_nw=0.20, pre_event_weight=100.0,
+                             settlement_nw=0.10, settlement_weight=100.0):
+        return {
+            "by_entry_price_tier": {
+                "coinflip": {
+                    "count": 10,
+                    "notional_weighted_avg_clv_pct": 0.10,
+                    "notional_weighted_avg_clv_pct_weight_used": 100.0,
+                    "notional_weighted_beat_close_rate": 0.6,
+                    "notional_weighted_beat_close_rate_weight_used": 100.0,
+                    "avg_clv_pct": 0.08,
+                    "avg_clv_pct_count_used": 10,
+                    "beat_close_rate": 0.55,
+                    "beat_close_rate_count_used": 10,
+                    "avg_entry_drift_pct": None,
+                    "avg_entry_drift_pct_count_used": 0,
+                    "avg_minutes_to_close": None,
+                    "median_minutes_to_close": None,
+                    "minutes_to_close_count_used": 0,
+                    "win_rate": 0.6,
+                    "notional_weighted_avg_clv_pct_pre_event": pre_event_nw,
+                    "notional_weighted_avg_clv_pct_pre_event_weight_used": pre_event_weight,
+                    "notional_weighted_avg_clv_pct_settlement": settlement_nw,
+                    "notional_weighted_avg_clv_pct_settlement_weight_used": settlement_weight,
+                    "avg_clv_pct_pre_event": 0.18,
+                    "avg_clv_pct_settlement": 0.09,
+                }
+            }
+        }
+
+    def test_build_hypothesis_candidates_prefers_pre_event_when_denom_positive(self):
+        """When pre_event weight > 0, clv_variant_used should be 'pre_event'."""
+        seg = self._seg_with_pre_event(pre_event_nw=0.20, pre_event_weight=100.0)
+        candidates = _build_hypothesis_candidates(seg)
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["clv_variant_used"] == "pre_event"
+        assert c["rank"] == 1
+
+    def test_build_hypothesis_candidates_falls_back_to_settlement(self):
+        """When pre_event weight == 0 and settlement weight > 0, uses settlement."""
+        seg = self._seg_with_pre_event(
+            pre_event_nw=None, pre_event_weight=0.0,
+            settlement_nw=0.10, settlement_weight=100.0
+        )
+        # pre_event_nw=None means it won't match the pre_event condition
+        seg["by_entry_price_tier"]["coinflip"]["notional_weighted_avg_clv_pct_pre_event"] = None
+        candidates = _build_hypothesis_candidates(seg)
+        assert len(candidates) == 1
+        c = candidates[0]
+        assert c["clv_variant_used"] == "settlement"
+
+    def test_build_hypothesis_candidates_includes_clv_variant_used_field(self):
+        """All candidates include the clv_variant_used field."""
+        seg = self._seg_with_pre_event()
+        candidates = _build_hypothesis_candidates(seg)
+        for c in candidates:
+            assert "clv_variant_used" in c
+
+
+class TestRobustStats:
+    def test_median_odd(self):
+        r = _compute_robust_stats([3.0, 1.0, 2.0])
+        assert r["median"] == 2.0
+        assert r["count_used"] == 3
+
+    def test_median_even(self):
+        r = _compute_robust_stats([1.0, 2.0, 3.0, 4.0])
+        assert r["median"] == 2.5
+
+    def test_trimmed_mean_10pct(self):
+        # 10 values: trim floor(10*0.10)=1 from each tail -> 8 values used
+        vals = [float(i) for i in range(1, 11)]  # [1..10]
+        r = _compute_robust_stats(vals)
+        # trimmed slice: [2,3,4,5,6,7,8,9] -> mean = 5.5
+        assert r["trimmed_mean"] == 5.5
+
+    def test_trimmed_mean_small_no_trim(self):
+        # 5 values: floor(5*0.10)=0 -> no trim, mean = all values
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        r = _compute_robust_stats(vals)
+        assert r["trimmed_mean"] == 3.0
+
+    def test_iqr(self):
+        vals = [1.0, 2.0, 3.0, 4.0, 5.0]
+        r = _compute_robust_stats(vals)
+        # p25: ceil(5*0.25)-1 = ceil(1.25)-1 = 2-1 = 1 -> sorted_vals[1] = 2.0
+        assert r["p25"] == 2.0
+        # p75: ceil(5*0.75)-1 = ceil(3.75)-1 = 4-1 = 3 -> sorted_vals[3] = 4.0
+        assert r["p75"] == 4.0
+
+    def test_single_value(self):
+        r = _compute_robust_stats([7.5])
+        assert r["median"] == 7.5
+        assert r["trimmed_mean"] == 7.5
+        assert r["p25"] == 7.5
+        assert r["p75"] == 7.5
+
+    def test_empty(self):
+        r = _compute_robust_stats([])
+        assert r["median"] is None
+        assert r["trimmed_mean"] is None
+        assert r["count_used"] == 0
+
+    def test_cap_deterministic(self):
+        # Accumulating MAX_ROBUST_VALUES+10 values should cap at MAX_ROBUST_VALUES
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, MAX_ROBUST_VALUES
+        b = _empty_segment_bucket()
+        for i in range(MAX_ROBUST_VALUES + 10):
+            _accumulate_segment_bucket(
+                b,
+                outcome="WIN",
+                pnl_net=0.0,
+                pnl_gross=0.0,
+                clv_pct=float(i),
+                beat_close=None,
+            )
+        assert len(b["_clv_pct_values"]) == MAX_ROBUST_VALUES
+
+    def test_finalized_bucket_has_robust_fields(self):
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, _finalize_segment_bucket
+        b = _empty_segment_bucket()
+        for v in [0.1, 0.2, 0.3]:
+            _accumulate_segment_bucket(b, "WIN", 0.0, 0.0, clv_pct=v, beat_close=None, entry_drift_pct=v * 0.5)
+        f = _finalize_segment_bucket(b)
+        for field in ["median_clv_pct", "trimmed_mean_clv_pct", "p25_clv_pct", "p75_clv_pct",
+                      "robust_clv_pct_count_used", "median_entry_drift_pct",
+                      "trimmed_mean_entry_drift_pct", "robust_entry_drift_pct_count_used"]:
+            assert field in f, f"Missing: {field}"
+        assert f["robust_clv_pct_count_used"] == 3
+        assert f["median_clv_pct"] == 0.2
+
+    def test_deterministic_output_ordering(self):
+        # Same values appended in same order => same robust stats across two identical runs
+        from polytool.reports.coverage import _accumulate_segment_bucket, _empty_segment_bucket, _finalize_segment_bucket
+        vals = [0.05, -0.1, 0.3, 0.0, 0.15]
+        def _make():
+            b = _empty_segment_bucket()
+            for v in vals:
+                _accumulate_segment_bucket(b, "WIN", 0.0, 0.0, clv_pct=v, beat_close=None)
+            return _finalize_segment_bucket(b)
+        f1 = _make()
+        f2 = _make()
+        assert f1["median_clv_pct"] == f2["median_clv_pct"]
+        assert f1["trimmed_mean_clv_pct"] == f2["trimmed_mean_clv_pct"]
