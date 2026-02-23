@@ -93,5 +93,33 @@ class Strategy:
         """
         return []
 
+    def on_fill(
+        self,
+        order_id: str,
+        asset_id: str,
+        side: str,
+        fill_price: Decimal,
+        fill_size: Decimal,
+        fill_status: str,
+        seq: int,
+        ts_recv: float,
+    ) -> None:
+        """Called immediately after each broker fill, before the next on_event.
+
+        Only invoked for fills with ``fill_size > 0`` (i.e. not for rejections).
+        May be called multiple times for the same order if it fills in partial
+        chunks across multiple events.
+
+        Args:
+            order_id:    Order that received the fill.
+            asset_id:    Asset that was traded.
+            side:        "BUY" or "SELL".
+            fill_price:  Weighted-average fill price for this chunk (Decimal).
+            fill_size:   Size filled in this chunk (Decimal).
+            fill_status: "full" or "partial".
+            seq:         Tape seq at which the fill occurred.
+            ts_recv:     Tape ts_recv at which the fill occurred.
+        """
+
     def on_finish(self) -> None:
         """Called once after the last tape event has been processed."""

@@ -2,12 +2,21 @@
 
 Processing order for each tape event
 -------------------------------------
-1. ``book.apply(event)``
+1. ``book.apply(event)`` for all tracked assets
 2. ``strategy.on_event(...)`` → list[OrderIntent]
 3. For each OrderIntent: ``broker.submit_order`` / ``broker.cancel_order``
-4. ``broker.step(event, book)``
-5. Update open-order tracking from new broker events
-6. Emit timeline row on book-affecting events
+4. ``broker.step(event, book, fill_asset_id=evt_asset)`` for all tracked assets
+5. ``strategy.on_fill(...)`` for each new fill (fill_size > 0)
+6. Update open-order tracking from new broker events
+7. Emit timeline row on primary-asset book-affecting events
+
+Multi-asset support
+-------------------
+Pass ``extra_book_asset_ids`` to track additional assets (e.g. the NO token
+of a binary market).  The runner maintains one ``L2Book`` per tracked asset,
+applies events to the right book, and calls ``broker.step`` with the matching
+book and an asset-level fill filter so YES orders only fill against the YES
+book and NO orders only fill against the NO book.
 
 After the loop
 --------------
@@ -20,6 +29,7 @@ Artifacts written
   best_bid_ask.jsonl, orders.jsonl, fills.jsonl, ledger.jsonl,
   equity_curve.jsonl, summary.json, decisions.jsonl,
   run_manifest.json, meta.json
+  opportunities.jsonl  (only if strategy exposes a non-empty ``.opportunities``)
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ from .base import OrderIntent, Strategy
 logger = logging.getLogger(__name__)
 
 _BOOK_AFFECTING = frozenset({EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE})
+_ZERO = Decimal("0")
 
 
 class StrategyRunner:
@@ -58,6 +69,7 @@ class StrategyRunner:
         run_dir: Path,
         strategy: Strategy,
         asset_id: Optional[str] = None,
+        extra_book_asset_ids: Optional[list[str]] = None,
         latency: LatencyConfig = ZERO_LATENCY,
         starting_cash: Decimal = Decimal("1000"),
         fee_rate_bps: Optional[Decimal] = None,
@@ -66,20 +78,24 @@ class StrategyRunner:
     ) -> None:
         """
         Args:
-            events_path:   Path to events.jsonl tape file.
-            run_dir:       Directory for all output artifacts (created if absent).
-            strategy:      Strategy instance to drive.
-            asset_id:      Asset to focus on.  Auto-detected if tape has one asset.
-            latency:       Submit / cancel latency model (default: zero ticks).
-            starting_cash: Initial USDC cash for the portfolio ledger.
-            fee_rate_bps:  Taker fee rate in bps (default: 200 bps conservative).
-            mark_method:   "bid" (conservative) or "midpoint".
-            strict:        If True, raise on L2BookError or malformed events.
+            events_path:           Path to events.jsonl tape file.
+            run_dir:               Directory for all output artifacts (created if absent).
+            strategy:              Strategy instance to drive.
+            asset_id:              Primary asset.  Auto-detected if tape has one asset.
+            extra_book_asset_ids:  Additional asset IDs to track with their own L2Books.
+                                   Used for multi-leg strategies (e.g. binary arb).
+                                   Orders for each asset fill against that asset's book.
+            latency:               Submit / cancel latency model (default: zero ticks).
+            starting_cash:         Initial USDC cash for the portfolio ledger.
+            fee_rate_bps:          Taker fee rate in bps (default: 200 bps conservative).
+            mark_method:           "bid" (conservative) or "midpoint".
+            strict:                If True, raise on L2BookError or malformed events.
         """
         self.events_path = events_path
         self.run_dir = run_dir
         self.strategy = strategy
         self.asset_id = asset_id
+        self.extra_book_asset_ids: list[str] = list(extra_book_asset_ids or [])
         self.latency = latency
         self.starting_cash = starting_cash
         self.fee_rate_bps = fee_rate_bps
@@ -106,12 +122,19 @@ class StrategyRunner:
             raise ValueError(f"No events found in {self.events_path}")
 
         asset_id = self._resolve_asset_id(events)
-        book = L2Book(asset_id, strict=self.strict)
+
+        # Build L2Books for all tracked assets
+        all_books: dict[str, L2Book] = {asset_id: L2Book(asset_id, strict=self.strict)}
+        for extra_id in self.extra_book_asset_ids:
+            if extra_id not in all_books:
+                all_books[extra_id] = L2Book(extra_id, strict=self.strict)
+
         broker = SimBroker(latency=self.latency)
 
         # Open-order tracking: keyed by order_id, plain dict values
         open_orders: dict[str, dict] = {}
         _last_order_event_idx = 0
+        _last_fill_idx = 0
 
         timeline: list[dict] = []
         decisions: list[dict] = []
@@ -124,38 +147,58 @@ class StrategyRunner:
             evt_asset: str = event.get("asset_id", "")
             event_type: str = event.get("event_type", "")
 
-            # 1. Update book
-            if evt_asset == asset_id:
-                book.apply(event)
+            primary_book = all_books[asset_id]
 
-            # 2. Ask strategy for intents (pass a snapshot of open_orders)
+            # 1. Update book for this event's asset if we're tracking it
+            if evt_asset in all_books:
+                all_books[evt_asset].apply(event)
+
+            # 2. Ask strategy for intents (pass snapshot; best_bid/best_ask = primary)
             intents = self.strategy.on_event(
                 event,
                 seq,
                 ts_recv,
-                book.best_bid,
-                book.best_ask,
+                primary_book.best_bid,
+                primary_book.best_ask,
                 dict(open_orders),
             )
 
             # 3. Execute intents
             for intent in intents:
                 self._execute_intent(
-                    intent, seq, ts_recv, asset_id, book,
+                    intent, seq, ts_recv, asset_id, all_books,
                     broker, open_orders, decisions,
                 )
 
-            # 4. Step broker (must be after book.apply)
-            if evt_asset == asset_id:
-                broker.step(event, book)
+            # 4. Step broker for this event's asset (if tracked), with per-asset
+            #    fill filter so orders only fill against their own asset's book.
+            if evt_asset in all_books:
+                book_for_step = all_books[evt_asset]
+                broker.step(event, book_for_step, fill_asset_id=evt_asset)
 
-                # Update open_orders from broker events emitted in this step
+                # 5. Dispatch on_fill for each new fill (non-zero size only)
+                new_fills = broker.fills[_last_fill_idx:]
+                _last_fill_idx = len(broker.fills)
+                for fill in new_fills:
+                    if fill.fill_size > _ZERO:
+                        self.strategy.on_fill(
+                            order_id=fill.order_id,
+                            asset_id=fill.asset_id,
+                            side=fill.side,
+                            fill_price=fill.fill_price,
+                            fill_size=fill.fill_size,
+                            fill_status=fill.fill_status,
+                            seq=fill.seq,
+                            ts_recv=fill.ts_recv,
+                        )
+
+                # 6. Update open-order tracking from new broker events
                 new_events = broker.order_events[_last_order_event_idx:]
                 _last_order_event_idx = len(broker.order_events)
                 for bev in new_events:
                     _update_open_orders(open_orders, bev)
 
-            # 5. Emit timeline row on book-affecting events
+            # 7. Emit timeline row on primary-asset book-affecting events
             if evt_asset == asset_id and event_type in _BOOK_AFFECTING:
                 timeline.append(
                     {
@@ -163,14 +206,14 @@ class StrategyRunner:
                         "ts_recv": ts_recv,
                         "asset_id": asset_id,
                         "event_type": event_type,
-                        "best_bid": book.best_bid,
-                        "best_ask": book.best_ask,
+                        "best_bid": primary_book.best_bid,
+                        "best_ask": primary_book.best_ask,
                     }
                 )
 
         self.strategy.on_finish()
 
-        # Portfolio ledger
+        # Portfolio ledger (primary asset timeline for mark-to-market)
         ledger = PortfolioLedger(
             starting_cash=self.starting_cash,
             fee_rate_bps=self.fee_rate_bps,
@@ -220,6 +263,8 @@ class StrategyRunner:
         if self.asset_id:
             return self.asset_id
         ids = {e.get("asset_id", "") for e in events if e.get("asset_id")}
+        # Prefer to return the primary even from a multi-asset tape when the
+        # caller gave us extra_book_asset_ids — we need a primary.
         if len(ids) == 1:
             return next(iter(ids))
         if len(ids) > 1:
@@ -235,7 +280,7 @@ class StrategyRunner:
         seq: int,
         ts_recv: float,
         asset_id: str,
-        book: L2Book,
+        all_books: dict[str, L2Book],
         broker: SimBroker,
         open_orders: dict[str, dict],
         decisions: list[dict],
@@ -264,6 +309,8 @@ class StrategyRunner:
                 "status": "PENDING",
                 "filled_size": "0",
             }
+            # Use the book for this order's asset for the decision log bid/ask
+            log_book = all_books.get(effective_asset, all_books[asset_id])
             decisions.append(
                 {
                     "seq": seq,
@@ -274,14 +321,15 @@ class StrategyRunner:
                     "side": intent.side,
                     "limit_price": str(intent.limit_price),
                     "size": str(intent.size),
-                    "best_bid": book.best_bid,
-                    "best_ask": book.best_ask,
+                    "best_bid": log_book.best_bid,
+                    "best_ask": log_book.best_ask,
                     "reason": intent.reason,
                     "meta": intent.meta,
                 }
             )
             logger.debug(
-                "Strategy submitted order: id=%s side=%s seq=%d", oid, intent.side, seq
+                "Strategy submitted order: id=%s asset=%s side=%s seq=%d",
+                oid, effective_asset, intent.side, seq,
             )
 
         elif intent.action == "cancel":
@@ -344,6 +392,16 @@ class StrategyRunner:
             json.dumps(pnl_summary, indent=2) + "\n", encoding="utf-8"
         )
 
+        # Strategy-specific artifacts: write opportunities.jsonl if the strategy
+        # exposes a non-empty `.opportunities` list (duck-typed extension point).
+        opportunities: list[dict] = getattr(self.strategy, "opportunities", [])
+        opportunities_count = 0
+        if opportunities:
+            _jsonl(run_dir / "opportunities.jsonl", opportunities)
+            opportunities_count = len(opportunities)
+
+        modeled_arb_summary: dict = getattr(self.strategy, "modeled_arb_summary", {})
+
         run_id = run_dir.name
         manifest: dict[str, Any] = {
             "run_id": run_id,
@@ -351,6 +409,7 @@ class StrategyRunner:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "tape_path": str(self.events_path),
             "asset_id": asset_id,
+            "extra_book_asset_ids": self.extra_book_asset_ids,
             "latency_config": {
                 "submit_ticks": self.latency.submit_ticks,
                 "cancel_ticks": self.latency.cancel_ticks,
@@ -366,11 +425,14 @@ class StrategyRunner:
             },
             "fills_count": len(broker.fills),
             "decisions_count": len(decisions),
+            "opportunities_count": opportunities_count,
             "timeline_rows": len(timeline),
             "net_profit": pnl_summary["net_profit"],
             "run_quality": "ok" if not warnings else "warnings",
             "warnings": warnings[:50],
         }
+        if modeled_arb_summary:
+            manifest["modeled_arb_summary"] = modeled_arb_summary
         (run_dir / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )

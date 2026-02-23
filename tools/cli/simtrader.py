@@ -415,6 +415,9 @@ _STRATEGY_REGISTRY: dict[str, str] = {
     "copy_wallet_replay": (
         "packages.polymarket.simtrader.strategies.copy_wallet_replay.CopyWalletReplay"
     ),
+    "binary_complement_arb": (
+        "packages.polymarket.simtrader.strategies.binary_complement_arb.BinaryComplementArb"
+    ),
 }
 
 
@@ -507,11 +510,22 @@ def _run(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
 
+    # Some strategies (e.g. binary_complement_arb) declare extra asset books
+    # via a special key in their strategy_config.  Extract it here so the
+    # runner can maintain per-asset L2Books and fill filters.
+    extra_book_asset_ids: list[str] = []
+    if isinstance(strategy_config.get("extra_book_asset_ids"), list):
+        extra_book_asset_ids = [str(x) for x in strategy_config["extra_book_asset_ids"]]
+    elif hasattr(strategy, "_no_id"):
+        # BinaryComplementArb: automatically include the NO asset
+        extra_book_asset_ids = [strategy._no_id]  # type: ignore[union-attr]
+
     runner = StrategyRunner(
         events_path=events_path,
         run_dir=run_dir,
         strategy=strategy,
         asset_id=args.asset_id or None,
+        extra_book_asset_ids=extra_book_asset_ids or None,
         latency=latency,
         starting_cash=starting_cash,
         fee_rate_bps=fee_rate_bps,
