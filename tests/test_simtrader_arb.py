@@ -133,6 +133,7 @@ def _run(
     enable_merge: bool = True,
     starting_cash: float = 5000.0,
     fee_rate_bps: float = 0.0,  # zero for clean arithmetic
+    allow_degraded: bool = True,
 ) -> tuple[dict, list[dict]]:
     """Helper: run arb strategy and return (pnl_summary, opportunities)."""
     from packages.polymarket.simtrader.strategies.binary_complement_arb import (
@@ -161,6 +162,7 @@ def _run(
         extra_book_asset_ids=[NO_ID],
         starting_cash=Decimal(str(starting_cash)),
         fee_rate_bps=Decimal(str(fee_rate_bps)),
+        allow_degraded=allow_degraded,
     )
     summary = runner.run()
     opps = list(strategy.opportunities)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -561,6 +562,142 @@ def test_cli_run_subcommand(tmp_path: Path) -> None:
     run_dir = Path("artifacts/simtrader/runs") / run_id
     assert (run_dir / "summary.json").exists(), "summary.json not written"
     assert (run_dir / "decisions.jsonl").exists(), "decisions.jsonl not written"
+
+
+def test_cli_run_strategy_config_json_string_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--strategy-config` JSON string is parsed once and passed through as dict."""
+    import packages.polymarket.simtrader.strategy.facade as facade
+    from tools.cli.simtrader import main as simtrader_main
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    expected = {
+        "trades_path": "trades.jsonl",
+        "signal_delay_ticks": 2,
+    }
+    captured: list[dict] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+
+    rc = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config", json.dumps(expected),
+        ]
+    )
+    assert rc == 0
+    assert captured == [expected]
+
+
+def test_cli_run_strategy_config_path_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--strategy-config-path` JSON file is parsed and passed through as dict."""
+    import packages.polymarket.simtrader.strategy.facade as facade
+    from tools.cli.simtrader import main as simtrader_main
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    expected = {
+        "trades_path": "trades.jsonl",
+        "signal_delay_ticks": 2,
+    }
+    cfg_path = tmp_path / "strategy_config.json"
+    cfg_path.write_text(json.dumps(expected), encoding="utf-8")
+
+    captured: list[dict] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+
+    rc = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config-path", str(cfg_path),
+        ]
+    )
+    assert rc == 0
+    assert captured == [expected]
+
+
+def test_cli_run_strategy_config_string_and_path_parse_identically(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """String and file config paths produce identical parsed dicts."""
+    import packages.polymarket.simtrader.strategy.facade as facade
+    from tools.cli.simtrader import main as simtrader_main
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    expected = {
+        "trades_path": "trades.jsonl",
+        "signal_delay_ticks": 2,
+    }
+    cfg_path = tmp_path / "strategy_config.json"
+    cfg_path.write_text(json.dumps(expected), encoding="utf-8")
+
+    captured: list[dict] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+
+    rc_str = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config", json.dumps(expected),
+        ]
+    )
+    rc_path = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config-path", str(cfg_path),
+        ]
+    )
+
+    assert rc_str == 0
+    assert rc_path == 0
+    assert captured == [expected, expected]
+
+
+def test_cli_run_strategy_config_and_path_are_mutually_exclusive(tmp_path: Path) -> None:
+    """Providing both strategy-config flags returns error."""
+    from tools.cli.simtrader import main as simtrader_main
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    cfg_path = tmp_path / "strategy_config.json"
+    cfg_path.write_text('{"signal_delay_ticks": 1}', encoding="utf-8")
+
+    rc = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config", '{"signal_delay_ticks": 0}',
+            "--strategy-config-path", str(cfg_path),
+        ]
+    )
+    assert rc == 1
 
 
 def test_cli_run_unknown_strategy(tmp_path: Path) -> None:

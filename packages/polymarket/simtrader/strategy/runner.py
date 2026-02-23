@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 _BOOK_AFFECTING = frozenset({EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE})
 _ZERO = Decimal("0")
+_RUN_QUALITY_OK = "ok"
+_RUN_QUALITY_WARNINGS = "warnings"
+_RUN_QUALITY_DEGRADED = "degraded"
+_RUN_QUALITY_INVALID = "invalid"
 
 
 class StrategyRunner:
@@ -75,6 +79,7 @@ class StrategyRunner:
         fee_rate_bps: Optional[Decimal] = None,
         mark_method: str = MARK_BID,
         strict: bool = False,
+        allow_degraded: bool = False,
     ) -> None:
         """
         Args:
@@ -90,6 +95,8 @@ class StrategyRunner:
             fee_rate_bps:          Taker fee rate in bps (default: 200 bps conservative).
             mark_method:           "bid" (conservative) or "midpoint".
             strict:                If True, raise on L2BookError or malformed events.
+            allow_degraded:        If True, continue multi-asset runs even when
+                                   required tape coverage is incomplete.
         """
         self.events_path = events_path
         self.run_dir = run_dir
@@ -101,6 +108,7 @@ class StrategyRunner:
         self.fee_rate_bps = fee_rate_bps
         self.mark_method = mark_method
         self.strict = strict
+        self.allow_degraded = allow_degraded
 
     # ------------------------------------------------------------------
     # Public API
@@ -122,6 +130,23 @@ class StrategyRunner:
             raise ValueError(f"No events found in {self.events_path}")
 
         asset_id = self._resolve_asset_id(events)
+        coverage = self._validate_tape_coverage(events)
+        run_quality = _RUN_QUALITY_OK
+
+        if coverage is not None and coverage["warnings"]:
+            warnings.extend(coverage["warnings"])
+            run_quality = coverage["run_quality"]
+
+        if run_quality == _RUN_QUALITY_INVALID:
+            error_message = str(coverage.get("error")) if coverage else "Invalid run"
+            self._write_failure_artifacts(
+                warnings=warnings,
+                asset_id=asset_id,
+                total_events=len(events),
+                error=error_message,
+                tape_coverage=(coverage or {}).get("details"),
+            )
+            raise ValueError(error_message)
 
         # Build L2Books for all tracked assets
         all_books: dict[str, L2Book] = {asset_id: L2Book(asset_id, strict=self.strict)}
@@ -153,9 +178,15 @@ class StrategyRunner:
             if evt_asset in all_books:
                 all_books[evt_asset].apply(event)
 
+            event_ctx = dict(event)
+            event_ctx["_best_by_asset"] = {
+                aid: {"best_bid": book.best_bid, "best_ask": book.best_ask}
+                for aid, book in all_books.items()
+            }
+
             # 2. Ask strategy for intents (pass snapshot; best_bid/best_ask = primary)
             intents = self.strategy.on_event(
-                event,
+                event_ctx,
                 seq,
                 ts_recv,
                 primary_book.best_bid,
@@ -226,6 +257,9 @@ class StrategyRunner:
         run_id = self.run_dir.name
         pnl_summary = ledger.summary(run_id, final_best_bid, final_best_ask)
 
+        if run_quality == _RUN_QUALITY_OK and warnings:
+            run_quality = _RUN_QUALITY_WARNINGS
+
         self._write_artifacts(
             broker=broker,
             timeline=timeline,
@@ -236,6 +270,8 @@ class StrategyRunner:
             warnings=warnings,
             asset_id=asset_id,
             total_events=len(events),
+            run_quality=run_quality,
+            tape_coverage=(coverage or {}).get("details"),
         )
 
         return pnl_summary
@@ -273,6 +309,76 @@ class StrategyRunner:
                 "Pass asset_id to StrategyRunner."
             )
         raise ValueError("Tape has no asset_id fields.")
+
+    def _validate_tape_coverage(self, events: list[dict]) -> Optional[dict[str, Any]]:
+        required_asset_ids = self._required_strategy_asset_ids()
+        if not required_asset_ids:
+            return None
+
+        seen_asset_ids = sorted(
+            {str(e.get("asset_id")) for e in events if e.get("asset_id")}
+        )
+        missing_asset_ids = [
+            asset_id for asset_id in required_asset_ids if asset_id not in seen_asset_ids
+        ]
+        details: dict[str, Any] = {
+            "strategy": "binary_complement_arb",
+            "required_asset_ids": required_asset_ids,
+            "seen_asset_ids": seen_asset_ids,
+            "missing_asset_ids": missing_asset_ids,
+            "allow_degraded": self.allow_degraded,
+        }
+
+        if not missing_asset_ids:
+            details["status"] = _RUN_QUALITY_OK
+            return {"run_quality": _RUN_QUALITY_OK, "warnings": [], "details": details}
+
+        message = (
+            "Tape coverage check failed for binary_complement_arb: "
+            f"missing events for required asset_ids {missing_asset_ids}. "
+            f"required={required_asset_ids} seen={seen_asset_ids}."
+        )
+
+        if self.allow_degraded:
+            details["status"] = _RUN_QUALITY_DEGRADED
+            return {
+                "run_quality": _RUN_QUALITY_DEGRADED,
+                "warnings": [
+                    f"{message} Continuing because allow_degraded=True."
+                ],
+                "details": details,
+            }
+
+        details["status"] = _RUN_QUALITY_INVALID
+        return {
+            "run_quality": _RUN_QUALITY_INVALID,
+            "warnings": [
+                f"{message} Failing fast. Re-run with --allow-degraded to continue."
+            ],
+            "details": details,
+            "error": (
+                f"{message} Failing fast. Re-run with --allow-degraded to continue."
+            ),
+        }
+
+    def _required_strategy_asset_ids(self) -> Optional[list[str]]:
+        strategy_name = self.strategy.__class__.__name__
+        if strategy_name != "BinaryComplementArb":
+            return None
+
+        yes_asset_id = getattr(self.strategy, "_yes_id", None)
+        no_asset_id = getattr(self.strategy, "_no_id", None)
+        if (
+            not isinstance(yes_asset_id, str)
+            or not yes_asset_id
+            or not isinstance(no_asset_id, str)
+            or not no_asset_id
+        ):
+            return None
+
+        if yes_asset_id == no_asset_id:
+            return [yes_asset_id]
+        return [yes_asset_id, no_asset_id]
 
     def _execute_intent(
         self,
@@ -373,6 +479,8 @@ class StrategyRunner:
         warnings: list[str],
         asset_id: str,
         total_events: int,
+        run_quality: str,
+        tape_coverage: Optional[dict[str, Any]],
     ) -> None:
         run_dir = self.run_dir
 
@@ -388,8 +496,17 @@ class StrategyRunner:
         _jsonl(run_dir / "equity_curve.jsonl", equity_curve)
         _jsonl(run_dir / "decisions.jsonl", decisions)
 
+        summary_payload = dict(pnl_summary)
+        if run_quality != _RUN_QUALITY_OK or warnings:
+            summary_payload["run_quality"] = run_quality
+            summary_payload["warnings"] = warnings[:50]
+        if (
+            tape_coverage is not None
+            and tape_coverage.get("status") in (_RUN_QUALITY_DEGRADED, _RUN_QUALITY_INVALID)
+        ):
+            summary_payload["tape_coverage"] = tape_coverage
         (run_dir / "summary.json").write_text(
-            json.dumps(pnl_summary, indent=2) + "\n", encoding="utf-8"
+            json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8"
         )
 
         # Strategy-specific artifacts: write opportunities.jsonl if the strategy
@@ -428,9 +545,11 @@ class StrategyRunner:
             "opportunities_count": opportunities_count,
             "timeline_rows": len(timeline),
             "net_profit": pnl_summary["net_profit"],
-            "run_quality": "ok" if not warnings else "warnings",
+            "run_quality": run_quality,
             "warnings": warnings[:50],
         }
+        if tape_coverage is not None:
+            manifest["tape_coverage"] = tape_coverage
         if modeled_arb_summary:
             manifest["modeled_arb_summary"] = modeled_arb_summary
         (run_dir / "run_manifest.json").write_text(
@@ -444,6 +563,70 @@ class StrategyRunner:
             "timeline_rows": len(timeline),
             "warnings": warnings[:50],
         }
+        if tape_coverage is not None:
+            meta["tape_coverage"] = tape_coverage
+        (run_dir / "meta.json").write_text(
+            json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _write_failure_artifacts(
+        self,
+        *,
+        warnings: list[str],
+        asset_id: str,
+        total_events: int,
+        error: str,
+        tape_coverage: Optional[dict[str, Any]],
+    ) -> None:
+        run_dir = self.run_dir
+        run_id = run_dir.name
+        manifest: dict[str, Any] = {
+            "run_id": run_id,
+            "command": "simtrader run",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "tape_path": str(self.events_path),
+            "asset_id": asset_id,
+            "extra_book_asset_ids": self.extra_book_asset_ids,
+            "latency_config": {
+                "submit_ticks": self.latency.submit_ticks,
+                "cancel_ticks": self.latency.cancel_ticks,
+            },
+            "portfolio_config": {
+                "starting_cash": str(self.starting_cash),
+                "fee_rate_bps": (
+                    str(self.fee_rate_bps)
+                    if self.fee_rate_bps is not None
+                    else "default(200)"
+                ),
+                "mark_method": self.mark_method,
+            },
+            "fills_count": 0,
+            "decisions_count": 0,
+            "opportunities_count": 0,
+            "timeline_rows": 0,
+            "net_profit": None,
+            "run_quality": _RUN_QUALITY_INVALID,
+            "warnings": warnings[:50],
+            "error": error,
+            "failed_fast": True,
+        }
+        if tape_coverage is not None:
+            manifest["tape_coverage"] = tape_coverage
+        (run_dir / "run_manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+
+        meta: dict[str, Any] = {
+            "run_quality": _RUN_QUALITY_INVALID,
+            "events_path": str(self.events_path),
+            "total_events": total_events,
+            "timeline_rows": 0,
+            "warnings": warnings[:50],
+            "error": error,
+            "failed_fast": True,
+        }
+        if tape_coverage is not None:
+            meta["tape_coverage"] = tape_coverage
         (run_dir / "meta.json").write_text(
             json.dumps(meta, indent=2) + "\n", encoding="utf-8"
         )

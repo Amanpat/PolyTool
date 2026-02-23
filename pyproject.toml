@@ -35,12 +35,15 @@ rag = [
 mcp = [
     "mcp>=1.0.0",
 ]
+simtrader = [
+    "websocket-client>=1.6",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
 all = [
-    "polytool[rag,mcp,dev]",
+    "polytool[rag,mcp,simtrader,dev]",
 ]
 
 [project.scripts]
@@ -52,7 +55,17 @@ Homepage = "https://github.com/polymarket/polytool"
 Documentation = "https://github.com/polymarket/polytool/tree/main/docs"
 
 [tool.setuptools]
-packages = ["polytool", "polytool.reports", "polyttool", "packages", "packages.polymarket", "packages.polymarket.rag", "tools", "tools.cli", "tools.guard"]
+packages = [
+    "polytool", "polytool.reports",
+    "polyttool",
+    "packages", "packages.polymarket", "packages.polymarket.rag",
+    "packages.polymarket.simtrader",
+    "packages.polymarket.simtrader.tape",
+    "packages.polymarket.simtrader.orderbook",
+    "packages.polymarket.simtrader.replay",
+    "packages.polymarket.simtrader.broker",
+    "tools", "tools.cli", "tools.guard",
+]
 
 [tool.setuptools.package-dir]
 "" = "."

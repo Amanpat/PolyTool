@@ -19,6 +19,7 @@ from tools.cli.rag_index import main as rag_index_main
 from tools.cli.rag_eval import main as rag_eval_main
 from tools.cli.rag_query import main as rag_query_main
 from tools.cli.scan import main as scan_main
+from tools.cli.simtrader import main as simtrader_main
 
 
 def print_usage() -> None:
@@ -43,6 +44,7 @@ def print_usage() -> None:
     print("  cache-source      Cache a trusted web source for RAG indexing")
     print("  agent-run         Run an agent task (internal)")
     print("  mcp               Start the MCP server for Claude Desktop integration")
+    print("  simtrader         Record/replay Polymarket Market Channel WS tapes")
     print("")
     print("Options:")
     print("  -h, --help        Show this help message")
@@ -126,6 +128,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ImportError:
             print("Error: cache-source command not yet implemented.", file=sys.stderr)
             return 1
+
+    if command == "simtrader":
+        return simtrader_main(argv[1:])
 
     if command == "mcp":
         try:

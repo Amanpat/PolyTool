@@ -55,6 +55,7 @@ Quick-reference index of all key docs and what they cover.
 |-----|---------|
 | [SPEC-0001: Dossier Resolution Enrichment](specs/SPEC-0001-dossier-resolution-enrichment.md) | Resolution outcome enrichment for dossiers |
 | [Hypothesis Schema v1](specs/hypothesis_schema_v1.json) | JSON schema for structured hypothesis output |
+| [SPEC-0010: SimTrader Vision and Roadmap](specs/SPEC-0010-simtrader-vision-and-roadmap.md) | Full SimTrader architecture, realism constraints, strategy classes, and phased roadmap (MVP0–MVP6) |
 
 ## Archive
 
