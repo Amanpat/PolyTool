@@ -1,361 +1,353 @@
-# SimTrader (PolyTool) — Plan, Roadmap, Procedure, and Current Status
+# SimTrader — User Guide
 
-This document is the single “how we run SimTrader” reference. It explains the full end-to-end plan, our phased roadmap, the hardened operating procedure (with copy/paste commands), and what we have already implemented.
+**Realism is the top rule.** If SimTrader says a strategy is profitable but it fails live, SimTrader is wrong and that is a blocker, not an asterisk.
 
-Realism is the top rule: if SimTrader says a strategy is profitable but it fails live, SimTrader is wrong and we treat that as a blocker.
+---
 
-## 1) The full plan (end-to-end)
+## 1. One command
 
-We are building a replay-first “simulated trader” for Polymarket. It’s meant to behave like a real exchange + trader loop so we can test strategies honestly under frictions:
+```bash
+python -m polytool simtrader quickrun --duration 900
+```
 
-- L2 orderbook (book snapshots + deltas)
-- spread/slippage and limited size at price levels
-- partial fills, cancels, cancel latency
-- latency knobs (submit/cancel timing)
-- run quality gates (invalid/degraded/ok)
-- deterministic replay (same tape/config → same outputs)
+That's it. `quickrun` does everything automatically:
 
-The system is designed to support:
+1. Fetches active Polymarket markets from Gamma
+2. Finds the first live binary market with valid orderbooks on both legs
+3. Records a 15-minute tape of the YES and NO tokens over WebSocket
+4. Runs `binary_complement_arb` with conservative defaults (200 bps fees, bid-side marking)
+5. Prints a summary and the exact reproduce command
 
-- Replay mode first (deterministic, scalable)
-- Shadow mode later (live data, fake orders) as a realism gate before real trading
-- Strategies as plugins (copy-wallet and binary complement arb first)
-- Scenario sweeps (distributions, not a single PnL number)
-- Batch runs later (20+ strategies × 200+ markets overnight)
-- Evidence → RAG flow later (store results as evidence, not truth)
+**Expected output (abridged):**
 
-## 2) Roadmap (from start to “complete”)
+```
+[quickrun] market   : will-candidate-win-2026
+[quickrun] YES      : abc123...  (Yes)
+[quickrun] NO       : def456...  (No)
+[quickrun] tape dir : artifacts/simtrader/tapes/...
 
-This is the SimTrader roadmap we’re building toward (we keep it phased so we don’t explode scope):
+QuickRun complete
+  Market     : will-candidate-win-2026
+  YES token  : abc123...
+  NO token   : def456...
+  Tape stats : 4820 parsed events  (YES snapshot=True  NO snapshot=True)
+  Decisions  : 12   Orders: 24   Fills: 18
+  Net profit : 1.43
+  Run quality: ok
+  Tape dir   : artifacts/simtrader/tapes/<tape-id>/
+  Run dir    : artifacts/simtrader/runs/<run-id>/
 
-Phase 0 — Replay Core (DONE)
+Both `tapes/<tape-id>/meta.json` and `runs/<run-id>/run_manifest.json` include a
+`quickrun_context` field with the selected slug, token IDs, selection mode, and
+book-validation results for auditability.
 
-- Record Market Channel WS tape (raw_ws.jsonl + events.jsonl)
-- Deterministic replay
-- L2 book reconstruction
-- best_bid_ask timeline output
+Reproduce:
+  python -m polytool simtrader quickrun --market will-candidate-win-2026 --duration 900
+```
 
-Phase 1 — BrokerSim (DONE)
+**Prerequisites:** `pip install 'websocket-client>=1.6'`
 
-- Marketable limit fills (walk-the-book)
-- Cancel support + cancel latency
-- Deterministic fills with “because” logic
+---
 
-Phase 2 — Portfolio & PnL (DONE)
+## 2. Common flags
 
-- Portfolio ledger (reservations, FIFO cost basis)
-- Conservative marking (bid-side default; midpoint optional)
-- Fee model (conservative default)
-- equity_curve + summary.json
+### Target a specific market
 
-Phase 3 — Strategy Runner + CopyWalletReplay (DONE)
+```bash
+# bash
+python -m polytool simtrader quickrun \
+  --market will-trump-win-2026 \
+  --duration 900
 
-- Strategy interface (on_start/on_event/on_finish)
-- StrategyRunner with full audit artifacts
-- CopyWalletReplay strategy using a JSONL trade fixture + signal delay
+# PowerShell
+python -m polytool simtrader quickrun `
+  --market will-trump-win-2026 `
+  --duration 900
+```
 
-Phase 4 — BinaryComplementArb strategy (DONE)
+Find the slug from the Polymarket URL:
+`https://polymarket.com/event/<slug>` — the slug is everything after `/event/`.
 
-- Two-leg arb attempt logic
-- Legging policy + unwind behavior
-- Correctness fixes for same-tick fills and repeated unwind issues
+### Validate before recording (dry-run)
 
-Phase 5 — Scenario Sweeps (DONE)
+Check that a market has valid orderbooks without writing any tape:
 
-- Run the same tape+strategy across scenario overrides
-- Produce sweep_manifest.json + sweep_summary.json (best/median/worst)
+```bash
+python -m polytool simtrader quickrun --market some-slug --dry-run
+```
 
-Phase 6 — Tape correctness for multi-asset arb (DONE)
+Exits with code 0 if both books are live, non-zero otherwise. Safe to run anytime.
 
-- Record multiple asset IDs into one tape dir
-- tape-info command
-- Coverage validation for arb (fail-fast invalid, optional allow-degraded)
+### Adjust portfolio parameters
 
-Phase 7 — Batch Orchestrator (NEXT)
+```bash
+python -m polytool simtrader quickrun \
+  --market some-slug \
+  --duration 900 \
+  --starting-cash 2000 \
+  --fee-rate-bps 250 \
+  --mark-method midpoint
+```
 
-- Run many jobs overnight (strategy × market/tape) with optional sweeps
-- Produce leaderboard/batch_summary.json and pointers to artifacts
+### Override strategy parameters
 
-Phase 8 — Visual stage (NEXT)
+Pass overrides as a JSON string or a file. The defaults are merged first; your overrides win.
 
-- Export run + sweep summaries into ClickHouse or generate HTML reports
-- Grafana dashboard / minimal UI for browsing results
+```bash
+# Inline JSON (bash — single quotes safe)
+python -m polytool simtrader quickrun \
+  --market some-slug \
+  --strategy-config-json '{"buffer": 0.02, "max_size": 25}'
 
-Phase 9 — Evidence → RAG integration (FUTURE)
+# JSON file (PowerShell — BOM is handled automatically)
+python -m polytool simtrader quickrun `
+  --market some-slug `
+  --strategy-config-path .\arb_overrides.json
+```
 
-- Store every run as evidence with metadata + artifacts
-- Promote distilled learnings into the research RAG
+`arb_overrides.json` example:
 
-Phase 10 — Shadow mode (FUTURE)
+```json
+{
+  "buffer": 0.02,
+  "max_size": 25,
+  "unwind_wait_ticks": 10
+}
+```
 
-- Live market feed + simulated broker (no real orders)
-- Same strategy interface, same artifacts
+### All quickrun flags
 
-## 3) What we have built so far (current status)
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--market SLUG` | auto | Polymarket slug; omit to auto-pick the first valid binary market |
+| `--duration N` | 30 | Recording duration in seconds (use 600–1800 for meaningful results) |
+| `--starting-cash X` | 1000 | Starting USDC balance |
+| `--fee-rate-bps N` | 200 | Taker fee in basis points (conservative default) |
+| `--mark-method` | bid | `bid` (conservative) or `midpoint` for unrealized PnL |
+| `--cancel-latency-ticks N` | 0 | Cancel latency knob |
+| `--allow-empty-book` | false | Accept markets whose books are currently empty |
+| `--dry-run` | false | Resolve + validate without recording |
+| `--strategy-config-json STR` | — | Inline JSON overrides for `binary_complement_arb` |
+| `--strategy-config-path PATH` | — | JSON file with overrides (UTF-8 BOM accepted) |
+| `--max-candidates N` | 20 | Markets to scan when auto-picking |
 
-We currently have a usable SimTrader stack:
+---
 
-- Record (WS Market Channel) to tape with keepalive pings + reconnect/resubscribe.
-- Correct Market Channel subscribe payload (assets_ids, type=market, initial_dump=true).
-- Replay runner and L2 book reconstructor.
-- BrokerSim (fills/cancels/partial behavior) with determinism.
-- PortfolioLedger + PnL outputs (summary + equity curve).
-- Strategy interface + StrategyRunner that emits audited artifacts:
-  - decisions.jsonl
-  - orders.jsonl
-  - fills.jsonl
-  - ledger.jsonl
-  - equity_curve.jsonl
-  - summary.json
-  - best_bid_ask.jsonl
-  - run_manifest.json
-  - meta.json
-- Strategies:
-  - copy_wallet_replay
-  - binary_complement_arb
-- Scenario sweeps:
-  - simtrader sweep produces sweep_summary.json and per-scenario run folders
-- Tape correctness:
-  - multi-asset record supported
-  - tape-info command
-  - arb coverage validation (invalid/degraded)
+## 3. Advanced: manual workflow
 
-In short: we can already record a market, replay it, run arb/copy strategies, and get net profit + audit trails.
+Use the manual steps when you want to **reuse a recorded tape**, run different strategies, or produce a **scenario sweep** for robustness analysis.
 
-## 4) The hardened procedure (how to run SimTrader correctly)
+### 3.1 Record a tape
 
-### 4.1) Rule #1: Only record markets with real CLOB orderbooks
+```bash
+# bash — record YES and NO tokens for 10 minutes
+python -m polytool simtrader record \
+  --asset-id <YES_TOKEN_ID> \
+  --asset-id <NO_TOKEN_ID> \
+  --duration 600
 
-A market can exist in Gamma but have no live orderbook. If /book returns:
-"No orderbook exists for the requested token id"
-then Market Channel WS will stream nothing.
-
-So the workflow is:
-
-1. get token IDs (asset_ids) for the two outcomes
-2. confirm both have a live /book
-3. record YES+NO into one tape
-4. tape-info must show book snapshots for both assets
-
-### 4.2) Get outcome token IDs (asset_ids) from a Polymarket event URL
-
-Example URL:
-https://polymarket.com/event/<SLUG>
-
-The slug is the part after /event/.
-
-PowerShell:
-
-```powershell
-$slug = "PUT_SLUG_HERE"
-$m = Invoke-RestMethod "https://gamma-api.polymarket.com/markets/slug/$slug"
-
-$tokenIds = $m.clobTokenIds
-if ($tokenIds -is [string]) { $tokenIds = $tokenIds | ConvertFrom-Json }
-
-$outcomes = $m.outcomes
-if ($outcomes -is [string]) { $outcomes = $outcomes | ConvertFrom-Json }
-
-"Outcomes:"; $outcomes
-"clobTokenIds:"; $tokenIds
-
-The token IDs are what SimTrader calls --asset-id (one per outcome).
-
-4.3) Confirm both tokens have a live orderbook
-$YES = "YES_TOKEN_ID"
-$NO  = "NO_TOKEN_ID"
-
-Invoke-RestMethod "https://clob.polymarket.com/book?token_id=$YES" | Out-Null
-Invoke-RestMethod "https://clob.polymarket.com/book?token_id=$NO"  | Out-Null
-"Both books exist."
-
-If either call errors with “No orderbook exists…”, pick a different market.
-
-4.4) Record a tape (YES + NO) into one directory
+# PowerShell
 python -m polytool simtrader record `
   --asset-id $YES `
   --asset-id $NO `
   --duration 600
+```
 
-This creates:
-artifacts/simtrader/tapes/<tape-id>/{raw_ws.jsonl, events.jsonl, meta.json}
+Output: `artifacts/simtrader/tapes/<timestamp>_<prefix>/`
+Files: `raw_ws.jsonl`, `events.jsonl`, `meta.json`
 
-4.5) Inspect tape coverage (required before arb)
-python -m polytool simtrader tape-info `
+**How to find token IDs** (PowerShell):
+
+```powershell
+$slug = "your-market-slug"
+$m = Invoke-RestMethod "https://gamma-api.polymarket.com/markets?slug=$slug"
+$ids = $m[0].clobTokenIds | ConvertFrom-Json
+$outs = $m[0].outcomes | ConvertFrom-Json
+"YES: $($ids[0])  ($($outs[0]))"
+"NO:  $($ids[1])  ($($outs[1]))"
+```
+
+### 3.2 Inspect tape coverage
+
+Always check coverage before running arb — a tape with no book snapshot for an asset will produce zero decisions:
+
+```bash
+python -m polytool simtrader tape-info \
   --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl
+```
 
-You want:
+Look for:
 
-both asset_ids present
+- Both asset IDs present under `asset_ids`
+- `snapshot_by_asset` showing `true` for both tokens
+- `event_type_counts` includes `book` and `price_change`
+- `warnings` is empty (or only cosmetic)
 
-snapshot_by_asset shows true for both
+### 3.3 Run binary_complement_arb against a tape
 
-event_type_counts includes book and price_change
-
-warnings empty
-
-4.6) Run CopyWalletReplay (fixture-based)
-
-Create a trades fixture (seq is the tape seq you want to act on):
-
-@'
-{"seq": 10, "side": "BUY",  "limit_price": "0.45", "size": "200", "trade_id": "t1"}
-{"seq": 40, "side": "SELL", "limit_price": "0.55", "size": "200", "trade_id": "t2"}
-'@ | Out-File trades.jsonl
-
-Run:
-
-python -m polytool simtrader run `
-  --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl `
-  --strategy copy_wallet_replay `
-  --strategy-config (Get-Content trades.jsonl -Raw | ForEach-Object { '{"trades_path":"trades.jsonl","signal_delay_ticks":2}' }) `
-  --starting-cash 1000 `
-  --fee-rate-bps 200 `
+```bash
+# bash
+python -m polytool simtrader run \
+  --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl \
+  --strategy binary_complement_arb \
+  --strategy-config '{"yes_asset_id":"<YES>","no_asset_id":"<NO>","buffer":0.01,"max_size":50}' \
+  --asset-id <YES_TOKEN_ID> \
+  --starting-cash 1000 \
+  --fee-rate-bps 200 \
   --mark-method bid
+```
 
-(If you prefer: put strategy config in a JSON file and use --strategy-config-path.)
-
-4.7) Run BinaryComplementArb (file-based config is safest on Windows)
-
-IMPORTANT: Windows PowerShell 5.1 often writes UTF-8 with BOM. JSON readers may reject BOM.
-Use the .NET WriteAllText trick to avoid BOM.
-
-Create arb_strategy.json without BOM:
-
-$cfg = @'
-{
-  "yes_asset_id": "YES_TOKEN_ID",
-  "no_asset_id":  "NO_TOKEN_ID",
-  "buffer": 0.02,
-  "max_size": 25,
-  "legging_policy": "wait_N_then_unwind",
-  "unwind_wait_ticks": 5
-}
-'@
-[System.IO.File]::WriteAllText(".\arb_strategy.json", $cfg, (New-Object System.Text.UTF8Encoding($false)))
-
-Run:
-
+```powershell
+# PowerShell — use a config file to avoid quoting hell
 python -m polytool simtrader run `
   --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl `
   --strategy binary_complement_arb `
   --strategy-config-path .\arb_strategy.json `
-  --asset-id YES_TOKEN_ID `
-  --starting-cash 2000 `
+  --asset-id $YES `
+  --starting-cash 1000 `
   --fee-rate-bps 200 `
   --mark-method bid
+```
 
-Artifacts appear in:
-artifacts/simtrader/runs/<run-id>/
+`arb_strategy.json`:
 
-4.8) Scenario sweeps (robustness distribution)
+```json
+{
+  "yes_asset_id": "<YES_TOKEN_ID>",
+  "no_asset_id":  "<NO_TOKEN_ID>",
+  "buffer": 0.01,
+  "max_size": 50,
+  "legging_policy": "wait_N_then_unwind",
+  "unwind_wait_ticks": 5,
+  "enable_merge_full_set": true
+}
+```
 
-Create sweep config:
+### 3.4 Scenario sweep (robustness distribution)
 
+Sweeps run the same tape+strategy across multiple parameter overrides and produce best/median/worst statistics. Use sweeps before promoting any strategy claim.
+
+```powershell
+# PowerShell — create sweep config
 $sc = @'
 {
   "scenarios": [
-    {"name":"base","overrides":{}},
-    {"name":"fees_high","overrides":{"fee_rate_bps":300}},
-    {"name":"midmark","overrides":{"mark_method":"midpoint"}},
-    {"name":"cancel_slow","overrides":{"cancel_latency_ticks":5}}
+    {"name": "base",        "overrides": {}},
+    {"name": "fees_high",   "overrides": {"fee_rate_bps": 300}},
+    {"name": "midmark",     "overrides": {"mark_method": "midpoint"}},
+    {"name": "cancel_slow", "overrides": {"cancel_latency_ticks": 5}}
   ]
 }
 '@
-[System.IO.File]::WriteAllText(".\sweep.json", $sc, (New-Object System.Text.UTF8Encoding($false)))
-
-Run sweep:
+$sc | Out-File -Encoding utf8 sweep.json
 
 python -m polytool simtrader sweep `
   --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl `
   --strategy binary_complement_arb `
   --strategy-config-path .\arb_strategy.json `
-  --starting-cash 2000 `
+  --starting-cash 1000 `
   --sweep-config (Get-Content .\sweep.json -Raw)
-
-Sweep outputs:
-artifacts/simtrader/sweeps/<sweep-id>/
-sweep_summary.json
-sweep_manifest.json
-runs/<scenario>/... (normal run artifacts)
-
-4.9) Interpreting outputs (what to look at first)
-
-summary.json → headline net_profit and key totals
-
-decisions.jsonl → why the strategy acted (or didn’t)
-
-fills.jsonl → what actually filled (audit)
-
-ledger.jsonl + equity_curve.jsonl → accounting and curve
-
-meta.json / run_manifest.json → run_quality and assumptions
-
-5) Hardening checklist (before scaling to batch)
-
-Before we run big overnight batches, we enforce these gates:
-
-Tape gate:
-
-tape-info must show both assets and snapshots for arb
-
-no malformed lines
-
-Run quality gate:
-
-invalid runs excluded from leaderboards by default
-
-degraded runs only included if explicitly allowed
-
-Determinism gate:
-
-rerunning same tape/config produces identical artifacts
-
-Conservatism gate:
-
-default fees and marking are conservative
-
-scenario sweeps are required for any “promoted” strategy claim
-
-Evidence gate:
-
-store artifacts as evidence, never as truth
-
-6) Known gotchas (and how to avoid them)
-
-Gamma tokens but no orderbook
-
-Gamma can list markets that don’t have a live CLOB book.
-
-Always check /book on BOTH outcome tokens before recording.
-
-Market Channel WS returns nothing
-
-Usually means no live orderbook OR bad subscription payload.
-
-SimTrader recorder now uses correct payload and has keepalive/reconnect.
-
-If /book fails, WS will not stream.
-
-Windows PowerShell BOM in JSON files
-
-Out-File -Encoding utf8 writes BOM in PS 5.1.
-
-Use [System.IO.File]::WriteAllText with UTF8Encoding(false) to write BOM-free JSON.
-
-Alternatively, the CLI should be hardened to read config files using utf-8-sig.
-
-Short tapes may show net_profit=0
-
-A short tape may contain no arb windows.
-
-Record longer tapes (10–30 minutes) for meaningful experiments.
-
-7) Where to read deeper details
-
-docs/specs/SPEC-0010-simtrader-vision-and-roadmap.md (full north-star vision)
-
-docs/ARCHITECTURE.md and docs/STRATEGY_PLAYBOOK.md (overall PolyTool approach)
-
-artifacts/simtrader/* (all private tapes/runs/sweeps)
 ```
+
+```bash
+# bash
+python -m polytool simtrader sweep \
+  --tape artifacts/simtrader/tapes/<tape-id>/events.jsonl \
+  --strategy binary_complement_arb \
+  --strategy-config-path ./arb_strategy.json \
+  --starting-cash 1000 \
+  --sweep-config "$(cat sweep.json)"
+```
+
+Sweep output: `artifacts/simtrader/sweeps/<sweep-id>/`
+
+---
+
+## 4. Artifact reference
+
+### Per-run artifacts (`artifacts/simtrader/runs/<run-id>/`)
+
+| File | What it contains |
+|------|-----------------|
+| `summary.json` | Headline metrics: `net_profit`, `realized_pnl`, `unrealized_pnl`, `total_fees` |
+| `decisions.jsonl` | One record per strategy decision (why it acted or didn't) |
+| `orders.jsonl` | Order lifecycle events (submitted, activated, filled, cancelled) |
+| `fills.jsonl` | Fill records with price, size, side, asset |
+| `ledger.jsonl` | Portfolio snapshots after each fill event |
+| `equity_curve.jsonl` | Equity over time (one row per book-affecting event) |
+| `best_bid_ask.jsonl` | Best bid/ask timeline for the primary asset |
+| `run_manifest.json` | Full run config, warnings, run quality, fill/decision counts |
+| `meta.json` | Run quality summary (ok / warnings / invalid / degraded) |
+
+### Per-tape artifacts (`artifacts/simtrader/tapes/<tape-id>/`)
+
+| File | What it contains |
+|------|-----------------|
+| `events.jsonl` | Normalized events (one JSON object per line, `seq` envelope) |
+| `raw_ws.jsonl` | Raw WS frames (archive — not used by replay) |
+| `meta.json` | Recorder metadata (reconnect count, warnings) |
+
+### Start here when reading results
+
+1. `summary.json` → `net_profit` and fee totals
+2. `decisions.jsonl` → did the strategy see arb windows?
+3. `fills.jsonl` → what actually executed
+4. `run_manifest.json` → `run_quality` and `warnings`
+
+---
+
+## 5. Troubleshooting
+
+### Empty tape / `parsed_events: 0`
+
+The WebSocket received nothing. Almost always means the market has no live CLOB orderbook.
+
+**Fix:** Use `--dry-run` first. If `quickrun` passes dry-run but the tape is empty, try a different market or a longer `--duration`.
+
+### "No orderbook exists for the requested token id"
+
+The Gamma API listed this market but the CLOB has no order book for one of the tokens.
+
+**Fix:** `quickrun` detects this automatically and skips the market. If you're running `record` manually, check both tokens first:
+
+```bash
+curl "https://clob.polymarket.com/book?token_id=<YES_TOKEN>"
+curl "https://clob.polymarket.com/book?token_id=<NO_TOKEN>"
+```
+
+Both must return an object with `bids`/`asks` keys (not an `error` key).
+
+### No decisions / `net_profit: 0`
+
+The strategy ran but found no arb windows. Common causes:
+
+- **Tape too short.** 30 seconds rarely contains an arb opportunity. Use `--duration 900` or longer.
+- **Buffer too wide.** Default `buffer=0.01` means `sum_ask < 0.99` to trigger. Try `--strategy-config-json '{"buffer":0.005}'` to widen the detection window.
+- **Quiet market.** Some markets barely trade. Try a different market with higher volume.
+
+### `run_quality: degraded`
+
+One asset in the tape has no book snapshot (`snapshot_by_asset` shows `false`). The arb strategy can still run but results are unreliable.
+
+**Fix:** Record a longer tape (initial snapshot arrives within the first few seconds of connection). Check `tape-info` output.
+
+### `run_quality: invalid`
+
+The tape failed the coverage check and the run was aborted. Re-record with a longer duration, or add `--allow-degraded` to `simtrader run` if you're aware of the limitation.
+
+### Windows PowerShell BOM in config files
+
+**This is now handled automatically.** `--strategy-config-path` reads config files with `utf-8-sig` encoding, so files written by PowerShell's `Out-File -Encoding utf8` (which adds a BOM) load correctly.
+
+You no longer need the `[System.IO.File]::WriteAllText(...)` workaround. Standard `Out-File` is fine.
+
+---
+
+## 6. Further reading
+
+| Resource | What's in it |
+|----------|-------------|
+| [`SPEC-0010`](specs/SPEC-0010-simtrader-vision-and-roadmap.md) | Full north-star vision, realism constraints, strategy classes, phased roadmap |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | PolyTool component overview and data flow |
+| [`STRATEGY_PLAYBOOK.md`](STRATEGY_PLAYBOOK.md) | Outcome taxonomy, EV framework, falsification methodology |
+| `artifacts/simtrader/` | All private tapes, runs, and sweeps (gitignored) |
