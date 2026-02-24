@@ -534,6 +534,12 @@ def _parse_json_object_arg(raw: Any, *, flag_name: str) -> dict[str, Any]:
 
 
 def _load_strategy_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    from packages.polymarket.simtrader.config_loader import (
+        ConfigLoadError,
+        load_json_from_path,
+        load_json_from_string,
+    )
+
     raw_config = getattr(args, "strategy_config", None)
     raw_path = getattr(args, "strategy_config_path", None)
 
@@ -547,16 +553,17 @@ def _load_strategy_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         if not cfg_path.exists():
             raise ValueError(f"--strategy-config-path file not found: {cfg_path}")
         try:
-            raw_config = json.loads(cfg_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"--strategy-config-path is not valid JSON: {exc}"
-            ) from exc
-        return _parse_json_object_arg(raw_config, flag_name="--strategy-config-path")
+            return load_json_from_path(cfg_path)
+        except ConfigLoadError as exc:
+            raise ValueError(str(exc)) from exc
 
     if raw_config is None:
         return {}
-    return _parse_json_object_arg(raw_config, flag_name="--strategy-config")
+
+    try:
+        return load_json_from_string(raw_config)
+    except ConfigLoadError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _parse_starting_cash_arg(raw: Any) -> Decimal:
@@ -740,6 +747,294 @@ def _sweep(args: argparse.Namespace) -> int:
         f"{aggregate.get('median_net_profit')} / "
         f"{aggregate.get('worst_net_profit')}"
     )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# QuickRun sub-command
+# ---------------------------------------------------------------------------
+
+
+def _quickrun(args: argparse.Namespace) -> int:
+    """Record a binary market tape and immediately run binary_complement_arb."""
+    from packages.polymarket.clob import ClobClient
+    from packages.polymarket.gamma import GammaClient
+    from packages.polymarket.simtrader.config_loader import (
+        ConfigLoadError,
+        load_strategy_config,
+    )
+    from packages.polymarket.simtrader.market_picker import (
+        MarketPicker,
+        MarketPickerError,
+    )
+    from packages.polymarket.simtrader.strategy.facade import (
+        StrategyRunConfigError,
+        StrategyRunParams,
+        run_strategy,
+    )
+    from packages.polymarket.simtrader.tape.recorder import TapeRecorder
+
+    # Validate --max-candidates bounds
+    if not (1 <= args.max_candidates <= 100):
+        print(
+            f"Error: --max-candidates must be between 1 and 100 "
+            f"(got {args.max_candidates}).",
+            file=sys.stderr,
+        )
+        return 1
+
+    # -- Resolve market --------------------------------------------------------
+    picker = MarketPicker(GammaClient(), ClobClient())
+
+    yes_val: Any = None  # BookValidation for quickrun_context
+    no_val: Any = None
+
+    try:
+        if args.market:
+            resolved = picker.resolve_slug(args.market)
+            yes_val = picker.validate_book(
+                resolved.yes_token_id,
+                allow_empty=args.allow_empty_book,
+            )
+            no_val = picker.validate_book(
+                resolved.no_token_id,
+                allow_empty=args.allow_empty_book,
+            )
+            if not yes_val.valid or not no_val.valid:
+                bad_side = "YES" if not yes_val.valid else "NO"
+                bad_reason = (yes_val if not yes_val.valid else no_val).reason
+                print(
+                    f"Error: {bad_side} orderbook not usable for {args.market!r}: "
+                    f"{bad_reason}",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            resolved = picker.auto_pick(
+                max_candidates=args.max_candidates,
+                allow_empty_book=args.allow_empty_book,
+            )
+    except MarketPickerError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    yes_id = resolved.yes_token_id
+    no_id = resolved.no_token_id
+
+    print(f"[quickrun] market   : {resolved.slug}")
+    print(f"[quickrun] question : {resolved.question}")
+    print(f"[quickrun] YES      : {yes_id}  ({resolved.yes_label})")
+    print(f"[quickrun] NO       : {no_id}  ({resolved.no_label})")
+
+    # -- Dry run early exit ----------------------------------------------------
+    if args.dry_run:
+        print("dry_run=True : exiting.")
+        return 0
+
+    # -- Build auditability context (persisted to tape meta + run manifest) ----
+    quickrun_context: dict[str, Any] = {
+        "selected_at": datetime.now(timezone.utc).isoformat(),
+        "selected_slug": resolved.slug,
+        "yes_token_id": yes_id,
+        "no_token_id": no_id,
+        "selection_mode": "explicit" if args.market else "auto_pick",
+        "max_candidates": args.max_candidates,
+        "allow_empty_book": args.allow_empty_book,
+        "yes_book_validation": (
+            {"reason": yes_val.reason, "valid": yes_val.valid}
+            if yes_val is not None
+            else {"reason": "ok", "valid": True}
+        ),
+        "no_book_validation": (
+            {"reason": no_val.reason, "valid": no_val.valid}
+            if no_val is not None
+            else {"reason": "ok", "valid": True}
+        ),
+    }
+
+    # -- Load user strategy config overrides -----------------------------------
+    cfg_path = getattr(args, "strategy_config_path", None)
+    cfg_json = getattr(args, "strategy_config_json", None)
+    try:
+        user_overrides = load_strategy_config(
+            config_path=cfg_path,
+            config_json=cfg_json,
+        )
+    except ConfigLoadError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    # -- Build default strategy config, merge user overrides ------------------
+    strategy_config: dict[str, Any] = {
+        "yes_asset_id": yes_id,
+        "no_asset_id": no_id,
+        "buffer": 0.01,
+        "max_size": 50,
+        "legging_policy": "wait_N_then_unwind",
+        "unwind_wait_ticks": 5,
+        "enable_merge_full_set": True,
+    }
+    strategy_config.update(user_overrides)
+
+    # -- Build tape directory --------------------------------------------------
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / f"{ts}_quickrun_{yes_id[:8]}"
+    tape_id = tape_dir.name
+
+    print(f"[quickrun] tape dir : {tape_dir}", file=sys.stderr)
+    print(f"[quickrun] duration : {args.duration}s", file=sys.stderr)
+
+    # -- Record ----------------------------------------------------------------
+    recorder = TapeRecorder(
+        tape_dir=tape_dir,
+        asset_ids=[yes_id, no_id],
+        strict=False,
+    )
+    try:
+        recorder.record(duration_seconds=args.duration)
+    except ImportError as exc:
+        print(f"Error recording tape: {exc}", file=sys.stderr)
+        return 1
+
+    events_path = tape_dir / "events.jsonl"
+    if not events_path.exists():
+        print(f"Error: events.jsonl not written to {tape_dir}", file=sys.stderr)
+        return 1
+
+    # -- Annotate tape meta with quickrun context ------------------------------
+    tape_meta_path = tape_dir / "meta.json"
+    if tape_meta_path.exists():
+        try:
+            tape_meta = json.loads(tape_meta_path.read_text(encoding="utf-8"))
+            tape_meta["quickrun_context"] = quickrun_context
+            tape_meta_path.write_text(
+                json.dumps(tape_meta, indent=2) + "\n", encoding="utf-8"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # -- Tape stats ------------------------------------------------------------
+    tape_summary = _summarize_tape(events_path)
+    parsed_events = tape_summary["parsed_events"]
+    snapshot_map = tape_summary.get("snapshot_by_asset", {})
+    yes_snapshot = snapshot_map.get(yes_id, False)
+    no_snapshot = snapshot_map.get(no_id, False)
+
+    # -- Parse run params ------------------------------------------------------
+    try:
+        starting_cash = _parse_starting_cash_arg(args.starting_cash)
+        fee_rate_bps = _parse_fee_rate_bps_arg(args.fee_rate_bps)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
+
+    # -- Run strategy ----------------------------------------------------------
+    try:
+        run_result = run_strategy(
+            StrategyRunParams(
+                events_path=events_path,
+                run_dir=run_dir,
+                strategy_name="binary_complement_arb",
+                strategy_config=strategy_config,
+                asset_id=yes_id,
+                starting_cash=starting_cash,
+                fee_rate_bps=fee_rate_bps,
+                mark_method=args.mark_method,
+                latency_submit_ticks=0,
+                latency_cancel_ticks=args.cancel_latency_ticks,
+                strict=False,
+                allow_degraded=False,
+            )
+        )
+    except StrategyRunConfigError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error during strategy run: {exc}", file=sys.stderr)
+        return 1
+
+    # -- Summary ---------------------------------------------------------------
+    manifest_path = run_dir / "run_manifest.json"
+    decisions_count = 0
+    orders_count = 0
+    fills_count = 0
+    run_quality = "ok"
+    if manifest_path.exists():
+        try:
+            mf = json.loads(manifest_path.read_text(encoding="utf-8"))
+            decisions_count = mf.get("decisions_count", 0)
+            fills_count = mf.get("fills_count", 0)
+            run_quality = mf.get("run_quality", "ok")
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Count orders from orders.jsonl (run_manifest has no orders_count key)
+    orders_jsonl_path = run_dir / "orders.jsonl"
+    if orders_jsonl_path.exists():
+        try:
+            orders_count = sum(
+                1
+                for line in orders_jsonl_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Annotate run manifest with quickrun context
+    if manifest_path.exists():
+        try:
+            run_manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            run_manifest_data["quickrun_context"] = quickrun_context
+            manifest_path.write_text(
+                json.dumps(run_manifest_data, indent=2) + "\n", encoding="utf-8"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    net_profit = run_result.metrics.get("net_profit", "0")
+
+    print()
+    print("QuickRun complete")
+    print(f"  Market     : {resolved.slug}")
+    print(f"  YES token  : {yes_id}")
+    print(f"  NO token   : {no_id}")
+    print(
+        f"  Tape stats : {parsed_events} parsed events  "
+        f"(YES snapshot={yes_snapshot}  NO snapshot={no_snapshot})"
+    )
+    print(
+        f"  Decisions  : {decisions_count}   "
+        f"Orders: {orders_count}   "
+        f"Fills: {fills_count}"
+    )
+    print(f"  Net profit : {net_profit}")
+    print(f"  Run quality: {run_quality}")
+    print(f"  Tape dir   : artifacts/simtrader/tapes/{tape_id}/")
+    print(f"  Run dir    : artifacts/simtrader/runs/{run_id}/")
+    print()
+    print("Reproduce:")
+    reproduce = (
+        f"  python -m polytool simtrader quickrun "
+        f"--market {resolved.slug} "
+        f"--duration {args.duration}"
+    )
+    if args.starting_cash != 1000.0:
+        reproduce += f" --starting-cash {args.starting_cash}"
+    if args.fee_rate_bps is not None:
+        reproduce += f" --fee-rate-bps {args.fee_rate_bps}"
+    if args.mark_method != "bid":
+        reproduce += f" --mark-method {args.mark_method}"
+    if args.cancel_latency_ticks != 0:
+        reproduce += f" --cancel-latency-ticks {args.cancel_latency_ticks}"
+    if args.allow_empty_book:
+        reproduce += " --allow-empty-book"
+    if cfg_path is not None:
+        reproduce += f" --strategy-config-path {cfg_path}"
+    print(reproduce)
+
     return 0
 
 
@@ -1225,6 +1520,104 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Fail on L2BookError or malformed events instead of warning and skipping.",
     )
 
+    # ------------------------------------------------------------------
+    # quickrun
+    # ------------------------------------------------------------------
+    qr = sub.add_parser(
+        "quickrun",
+        help=(
+            "Auto-pick a live binary market (or resolve --market SLUG), "
+            "record a tape, and immediately run binary_complement_arb. "
+            "Use --dry-run to check market selection without recording."
+        ),
+    )
+    qr.add_argument(
+        "--market",
+        default=None,
+        metavar="SLUG",
+        help=(
+            "Polymarket market slug to use.  "
+            "If omitted, auto-selects the first valid live binary market."
+        ),
+    )
+    qr.add_argument(
+        "--duration",
+        type=float,
+        default=30.0,
+        metavar="SECONDS",
+        help="Recording duration in seconds (default: 30).",
+    )
+    qr.add_argument(
+        "--starting-cash",
+        type=float,
+        default=1000.0,
+        metavar="USDC",
+        dest="starting_cash",
+        help="Starting USDC cash balance (default: 1000).",
+    )
+    qr.add_argument(
+        "--fee-rate-bps",
+        type=float,
+        default=None,
+        metavar="BPS",
+        dest="fee_rate_bps",
+        help="Taker fee rate in basis points (default: conservative 200 bps).",
+    )
+    qr.add_argument(
+        "--mark-method",
+        choices=["bid", "midpoint"],
+        default="bid",
+        dest="mark_method",
+        help="Mark-price method for unrealized PnL: 'bid' (default) or 'midpoint'.",
+    )
+    qr.add_argument(
+        "--cancel-latency-ticks",
+        type=int,
+        default=0,
+        metavar="N",
+        dest="cancel_latency_ticks",
+        help="Cancel latency in tape ticks (default: 0).",
+    )
+    qr.add_argument(
+        "--allow-empty-book",
+        action="store_true",
+        default=False,
+        dest="allow_empty_book",
+        help="Accept markets whose orderbooks are empty (bids=[], asks=[]).",
+    )
+    qr.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        dest="dry_run",
+        help="Resolve and validate the market, then exit without recording.",
+    )
+    qr.add_argument(
+        "--strategy-config-path",
+        default=None,
+        metavar="PATH",
+        dest="strategy_config_path",
+        help="Path to a JSON file with strategy config overrides (accepts UTF-8 BOM).",
+    )
+    qr.add_argument(
+        "--strategy-config-json",
+        default=None,
+        metavar="JSON",
+        dest="strategy_config_json",
+        help="Inline JSON string with strategy config overrides.",
+    )
+    qr.add_argument(
+        "--max-candidates",
+        type=int,
+        default=20,
+        metavar="N",
+        dest="max_candidates",
+        help=(
+            "Number of active markets to examine when auto-picking "
+            "(default: 20).  Ignored if --market is specified."
+        ),
+    )
+
     return parser
 
 
@@ -1255,6 +1648,8 @@ def main(argv: list[str]) -> int:
         return _run(args)
     if args.subcommand == "sweep":
         return _sweep(args)
+    if args.subcommand == "quickrun":
+        return _quickrun(args)
 
     parser.print_help()
     return 1
