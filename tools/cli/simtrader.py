@@ -751,6 +751,48 @@ def _sweep(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Quick sweep preset
+# ---------------------------------------------------------------------------
+
+#: Named parameter presets for quickrun --sweep.
+_QUICK_SWEEP_FEE_RATES = [0, 50, 100, 200]
+_QUICK_SWEEP_CANCEL_TICKS = [0, 2, 5]
+_QUICK_SWEEP_MARK_METHODS = ["bid", "midpoint"]
+
+
+def _build_quick_sweep_config() -> dict:
+    """Return a sweep config dict for the 'quick' evidence-run preset.
+
+    Matrix: 4 fee_rates × 3 cancel_latency_ticks × 2 mark_methods = 24 scenarios.
+    Each scenario overrides fee_rate_bps, cancel_latency_ticks, and mark_method.
+    """
+    import itertools
+
+    scenarios = []
+    for fee, cancel, mark in itertools.product(
+        _QUICK_SWEEP_FEE_RATES,
+        _QUICK_SWEEP_CANCEL_TICKS,
+        _QUICK_SWEEP_MARK_METHODS,
+    ):
+        scenarios.append(
+            {
+                "name": f"fee{fee}_cancel{cancel}_{mark}",
+                "overrides": {
+                    "fee_rate_bps": fee,
+                    "cancel_latency_ticks": cancel,
+                    "mark_method": mark,
+                },
+            }
+        )
+    return {"scenarios": scenarios}
+
+
+_SWEEP_PRESETS: dict[str, Any] = {
+    "quick": _build_quick_sweep_config,
+}
+
+
+# ---------------------------------------------------------------------------
 # QuickRun sub-command
 # ---------------------------------------------------------------------------
 
@@ -928,6 +970,123 @@ def _quickrun(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    sweep_preset: str | None = getattr(args, "sweep", None)
+
+    # ------------------------------------------------------------------
+    # Sweep mode: --sweep quick (or preset:<name>)
+    # ------------------------------------------------------------------
+    if sweep_preset is not None:
+        from packages.polymarket.simtrader.sweeps.runner import (
+            SweepConfigError,
+            SweepRunParams,
+            run_sweep,
+        )
+
+        # Resolve preset name (support both "quick" and "preset:quick")
+        preset_key = sweep_preset.removeprefix("preset:")
+        if preset_key not in _SWEEP_PRESETS:
+            known = ", ".join(f"'{k}'" for k in _SWEEP_PRESETS)
+            print(
+                f"Error: unknown --sweep preset {sweep_preset!r}. Known: {known}",
+                file=sys.stderr,
+            )
+            return 1
+
+        sweep_config = _SWEEP_PRESETS[preset_key]()  # call the factory
+        sweep_id = f"quickrun_{ts}_{yes_id[:8]}"
+        sweep_dir = DEFAULT_ARTIFACTS_DIR / "sweeps" / sweep_id
+
+        print(f"[quickrun sweep] preset  : {preset_key}", file=sys.stderr)
+        print(
+            f"[quickrun sweep] scenarios: {len(sweep_config['scenarios'])}",
+            file=sys.stderr,
+        )
+        print(f"[quickrun sweep] sweep dir: {sweep_dir}", file=sys.stderr)
+
+        try:
+            sweep_result = run_sweep(
+                SweepRunParams(
+                    events_path=events_path,
+                    strategy_name="binary_complement_arb",
+                    strategy_config=strategy_config,
+                    asset_id=yes_id,
+                    starting_cash=starting_cash,
+                    # fee_rate_bps and mark_method are overridden per scenario
+                    fee_rate_bps=None,
+                    mark_method="bid",
+                    latency_submit_ticks=0,
+                    latency_cancel_ticks=0,
+                    strict=False,
+                    sweep_id=sweep_id,
+                    artifacts_root=DEFAULT_ARTIFACTS_DIR,
+                ),
+                sweep_config=sweep_config,
+            )
+        except SweepConfigError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"Error during sweep: {exc}", file=sys.stderr)
+            return 1
+
+        # Annotate sweep manifest with quickrun context
+        sweep_manifest_path = sweep_result.sweep_dir / "sweep_manifest.json"
+        if sweep_manifest_path.exists():
+            try:
+                sm = json.loads(sweep_manifest_path.read_text(encoding="utf-8"))
+                sm["quickrun_context"] = quickrun_context
+                sweep_manifest_path.write_text(
+                    json.dumps(sm, indent=2) + "\n", encoding="utf-8"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        aggregate = sweep_result.summary.get("aggregate", {})
+        scenario_count = len(sweep_result.summary.get("scenarios", []))
+
+        print()
+        print(f"QuickSweep complete  (preset: {preset_key}, {scenario_count} scenarios)")
+        print(f"  Market    : {resolved.slug}")
+        print(
+            f"  Tape stats: {parsed_events} parsed events  "
+            f"(YES snapshot={yes_snapshot}  NO snapshot={no_snapshot})"
+        )
+        print(f"  Sweep dir : artifacts/simtrader/sweeps/{sweep_id}/")
+        print(f"  Tape dir  : artifacts/simtrader/tapes/{tape_id}/")
+        print()
+        print("  LEADERBOARD (net_profit):")
+        print(
+            f"    Best   : {aggregate.get('best_net_profit')}  "
+            f"({aggregate.get('best_scenario')})"
+        )
+        print(
+            f"    Median : {aggregate.get('median_net_profit')}  "
+            f"({aggregate.get('median_scenario')})"
+        )
+        print(
+            f"    Worst  : {aggregate.get('worst_net_profit')}  "
+            f"({aggregate.get('worst_scenario')})"
+        )
+        print()
+        print("Reproduce:")
+        reproduce = (
+            f"  python -m polytool simtrader quickrun "
+            f"--market {resolved.slug} "
+            f"--duration {args.duration} "
+            f"--sweep {sweep_preset}"
+        )
+        if args.starting_cash != 1000.0:
+            reproduce += f" --starting-cash {args.starting_cash}"
+        if args.allow_empty_book:
+            reproduce += " --allow-empty-book"
+        if cfg_path is not None:
+            reproduce += f" --strategy-config-path {cfg_path}"
+        print(reproduce)
+        return 0
+
+    # ------------------------------------------------------------------
+    # Single-run mode (original behaviour)
+    # ------------------------------------------------------------------
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
 
@@ -1615,6 +1774,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Number of active markets to examine when auto-picking "
             "(default: 20).  Ignored if --market is specified."
+        ),
+    )
+    qr.add_argument(
+        "--sweep",
+        default=None,
+        metavar="PRESET",
+        dest="sweep",
+        help=(
+            "Run a parameter sweep instead of a single strategy run.  "
+            "Use 'quick' for the built-in evidence-run preset "
+            "(4 fee_rates × 3 cancel_ticks × 2 mark_methods = 24 scenarios).  "
+            "Also accepts 'preset:quick' for future-proof usage."
         ),
     )
 

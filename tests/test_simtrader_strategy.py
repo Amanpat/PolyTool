@@ -479,6 +479,118 @@ def test_order_intent_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 5: No-trade run — ledger always has initial + final snapshots
+# ---------------------------------------------------------------------------
+
+
+def test_no_trade_ledger_has_initial_final_snapshots(tmp_path: Path) -> None:
+    """A run with zero orders must still write >= 2 ledger rows: initial + final."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    trades_path = tmp_path / "trades.jsonl"
+    _write_tape(tape_path)
+    _write_trades(trades_path, [])  # empty trade list → no orders submitted
+
+    run_dir = tmp_path / "no_trade_run"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        starting_cash=Decimal("500"),
+    )
+    runner.run()
+
+    ledger_path = run_dir / "ledger.jsonl"
+    assert ledger_path.exists(), "ledger.jsonl must always be written"
+
+    lines = [ln for ln in ledger_path.read_text().splitlines() if ln.strip()]
+    assert len(lines) >= 2, f"Expected >= 2 ledger lines for no-trade run, got {len(lines)}"
+
+    first = json.loads(lines[0])
+    last = json.loads(lines[-1])
+
+    # First row is "initial" snapshot — cash equals starting_cash, no positions
+    assert first["event"] == "initial", f"First ledger event should be 'initial', got {first['event']!r}"
+    assert first["cash_usdc"] == "500", f"Expected cash_usdc='500', got {first['cash_usdc']!r}"
+    assert first["positions"] == {}, "Initial snapshot must have empty positions"
+    assert first["reserved_shares"] == {}, "Initial snapshot must have no reserved shares"
+    assert first["realized_pnl"] == "0"
+    assert first["total_fees"] == "0"
+
+    # Last row is "final" snapshot — same state for no-trade run
+    assert last["event"] == "final", f"Last ledger event should be 'final', got {last['event']!r}"
+    assert last["cash_usdc"] == "500"
+    assert last["positions"] == {}
+
+
+def test_no_trade_ledger_seq_matches_tape_bounds(tmp_path: Path) -> None:
+    """Initial snapshot seq matches first tape event; final matches last."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    trades_path = tmp_path / "trades.jsonl"
+    _write_tape(tape_path)   # seqs: 0, 1, 2, 3, 4, 5
+    _write_trades(trades_path, [])
+
+    run_dir = tmp_path / "no_trade_seqs"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    lines = [ln for ln in (run_dir / "ledger.jsonl").read_text().splitlines() if ln.strip()]
+    first = json.loads(lines[0])
+    last = json.loads(lines[-1])
+
+    # TAPE_EVENTS seqs run 0..5; initial should be at seq=0, final at seq=5
+    assert first["seq"] == 0
+    assert last["seq"] == 5
+
+
+def test_trade_run_ledger_unchanged_by_no_trade_fix(tmp_path: Path) -> None:
+    """A run with orders must still have order-event snapshots (existing behavior)."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    trades_path = tmp_path / "trades.jsonl"
+    _write_tape(tape_path)
+    # BUY at limit 0.50 >= ask 0.45 → will fill at seq 2
+    _write_trades(
+        trades_path,
+        [{"seq": 2, "side": "BUY", "limit_price": "0.50", "size": "100", "trade_id": "t1"}],
+    )
+
+    run_dir = tmp_path / "trade_run_compat"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        starting_cash=Decimal("1000"),
+        fee_rate_bps=Decimal("0"),
+    )
+    runner.run()
+
+    lines = [ln for ln in (run_dir / "ledger.jsonl").read_text().splitlines() if ln.strip()]
+    # Must have at least 2 rows (order_submitted + fill events)
+    assert len(lines) >= 2
+
+    # None of them should be the synthetic "initial"/"final" labels
+    events = [json.loads(ln)["event"] for ln in lines]
+    assert "initial" not in events, "Trade run must not have synthetic 'initial' snapshot"
+    assert "final" not in events, "Trade run must not have synthetic 'final' snapshot"
+
+
+# ---------------------------------------------------------------------------
 # Test 5: CopyWalletReplay fixture loading
 # ---------------------------------------------------------------------------
 
@@ -716,3 +828,212 @@ def test_cli_run_unknown_strategy(tmp_path: Path) -> None:
         ]
     )
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Batched price_changes[] format support in StrategyRunner
+# ---------------------------------------------------------------------------
+
+
+_YES_ID = "yes-tok-batch"
+_NO_ID  = "no-tok-batch"
+
+
+def _batched_tape_events() -> list[dict]:
+    """Minimal tape with book snapshots + one modern batched price_change event."""
+    return [
+        # seq 0: YES snapshot
+        {
+            "parser_version": 1, "seq": 0, "ts_recv": 0.0,
+            "event_type": "book", "asset_id": _YES_ID,
+            "bids": [{"price": "0.44", "size": "300"}],
+            "asks": [{"price": "0.46", "size": "200"}],
+        },
+        # seq 1: NO snapshot
+        {
+            "parser_version": 1, "seq": 1, "ts_recv": 1.0,
+            "event_type": "book", "asset_id": _NO_ID,
+            "bids": [{"price": "0.52", "size": "100"}],
+            "asks": [{"price": "0.54", "size": "150"}],
+        },
+        # seq 2: batched price_change — updates YES bid + NO ask in one message.
+        {
+            "parser_version": 1, "seq": 2, "ts_recv": 2.0,
+            "event_type": "price_change",
+            # No top-level asset_id — modern format.
+            "price_changes": [
+                {"asset_id": _YES_ID, "side": "BUY",  "price": "0.45", "size": "80"},
+                {"asset_id": _NO_ID,  "side": "SELL", "price": "0.53", "size": "90"},
+            ],
+        },
+    ]
+
+
+def _write_batched_tape(path: Path) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        for evt in _batched_tape_events():
+            fh.write(json.dumps(evt) + "\n")
+
+
+def test_batched_price_change_updates_both_books(tmp_path: Path) -> None:
+    """A modern batched price_changes[] event updates both YES and NO books."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_batched_tape(tape_path)
+
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")  # no trades — passive observer
+
+    run_dir = tmp_path / "run_batched"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=_YES_ID,
+        extra_book_asset_ids=[_NO_ID],
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    # best_bid_ask.jsonl is the primary-asset timeline.
+    rows = [
+        json.loads(l)
+        for l in (run_dir / "best_bid_ask.jsonl").read_text().splitlines()
+        if l.strip()
+    ]
+    # Expect: YES book snapshot (seq=0) + YES update from batch (seq=2).
+    # NO snapshot (seq=1) does NOT emit a row because NO is not the primary asset.
+    assert len(rows) == 2, f"Expected 2 timeline rows, got {len(rows)}: {rows}"
+
+    # After the batched event, YES best_bid should be 0.45 (updated by batch).
+    batch_row = rows[-1]
+    assert batch_row["seq"] == 2
+    assert batch_row["best_bid"] == pytest.approx(0.45)
+
+
+def test_batched_price_change_timeline_rows_gt_one(tmp_path: Path) -> None:
+    """timeline_rows > 1 confirms batched events are being processed."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_batched_tape(tape_path)
+
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_batched2"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=_YES_ID,
+        extra_book_asset_ids=[_NO_ID],
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert manifest["timeline_rows"] > 1, (
+        "timeline_rows should be > 1 after batched price_changes[] update"
+    )
+
+
+def test_batched_price_change_resolve_asset_id(tmp_path: Path) -> None:
+    """_resolve_asset_id works for tapes where price_changes[] carry the asset_id."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    # Single-asset tape: one book snapshot + one batched price_change (no top-level id).
+    SOLO_ID = "solo-tok"
+    events = [
+        {
+            "parser_version": 1, "seq": 0, "ts_recv": 0.0,
+            "event_type": "book", "asset_id": SOLO_ID,
+            "bids": [{"price": "0.40", "size": "100"}],
+            "asks": [{"price": "0.42", "size": "100"}],
+        },
+        {
+            "parser_version": 1, "seq": 1, "ts_recv": 1.0,
+            "event_type": "price_change",
+            "price_changes": [
+                {"asset_id": SOLO_ID, "side": "BUY", "price": "0.41", "size": "50"},
+            ],
+        },
+    ]
+    tape_path = tmp_path / "events.jsonl"
+    with open(tape_path, "w") as fh:
+        for e in events:
+            fh.write(json.dumps(e) + "\n")
+
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_solo"
+    # asset_id NOT passed — must be auto-detected from the tape.
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert manifest["asset_id"] == SOLO_ID
+    assert manifest["timeline_rows"] == 2  # snapshot + batch update
+
+
+def test_blank_run_warning_in_manifest(tmp_path: Path) -> None:
+    """When timeline_rows stays at 1 despite large total_events, manifest warns."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    # Tape has one book snapshot and many events for a DIFFERENT (untracked) asset.
+    OTHER_ID = "other-tok"
+    events = [
+        {
+            "parser_version": 1, "seq": 0, "ts_recv": 0.0,
+            "event_type": "book", "asset_id": ASSET_ID,
+            "bids": [{"price": "0.40", "size": "100"}],
+            "asks": [{"price": "0.42", "size": "100"}],
+        },
+    ]
+    # Add 10 price_change events for a different asset (untracked).
+    for i in range(1, 11):
+        events.append({
+            "parser_version": 1, "seq": i, "ts_recv": float(i),
+            "event_type": "price_change", "asset_id": OTHER_ID,
+            "changes": [{"side": "BUY", "price": "0.30", "size": str(i * 10)}],
+        })
+
+    tape_path = tmp_path / "events.jsonl"
+    with open(tape_path, "w") as fh:
+        for e in events:
+            fh.write(json.dumps(e) + "\n")
+
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_blank"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert manifest["timeline_rows"] == 1
+    # The blank-run warning should be present.
+    assert any("timeline_rows" in w for w in manifest.get("warnings", [])), (
+        f"Expected blank-run warning in manifest, got: {manifest.get('warnings')}"
+    )

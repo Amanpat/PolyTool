@@ -52,6 +52,23 @@ from .base import OrderIntent, Strategy
 logger = logging.getLogger(__name__)
 
 _BOOK_AFFECTING = frozenset({EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE})
+_ZERO_STR = "0"
+
+
+def _no_trade_ledger_snapshot(label: str, event: dict, starting_cash: Decimal) -> dict:
+    """Build a synthetic ledger snapshot for a no-trade run (initial or final)."""
+    return {
+        "seq": event.get("seq", 0),
+        "ts_recv": event.get("ts_recv", 0.0),
+        "event": label,
+        "order_id": "",
+        "cash_usdc": str(starting_cash),
+        "reserved_cash_usdc": _ZERO_STR,
+        "reserved_shares": {},
+        "positions": {},
+        "realized_pnl": _ZERO_STR,
+        "total_fees": _ZERO_STR,
+    }
 _ZERO = Decimal("0")
 _RUN_QUALITY_OK = "ok"
 _RUN_QUALITY_WARNINGS = "warnings"
@@ -174,9 +191,25 @@ class StrategyRunner:
 
             primary_book = all_books[asset_id]
 
-            # 1. Update book for this event's asset if we're tracking it
-            if evt_asset in all_books:
+            # 1. Update book(s).  Track which assets had book state changed.
+            #
+            # Schema A — legacy / single-asset:
+            #   event has top-level asset_id + changes[] (or bids/asks for snapshots)
+            #
+            # Schema B — modern / batched (Polymarket Market Channel):
+            #   event has price_changes[]; each entry carries its own asset_id and
+            #   direct side/price/size fields.  There may be no top-level asset_id.
+            _active_assets: set[str] = set()
+            if event_type == EVENT_TYPE_PRICE_CHANGE and "price_changes" in event:
+                # Modern batched format — apply each entry to the matching book.
+                for entry in event.get("price_changes", []):
+                    entry_asset = str(entry.get("asset_id") or "")
+                    if entry_asset and entry_asset in all_books:
+                        all_books[entry_asset].apply_single_delta(entry)
+                        _active_assets.add(entry_asset)
+            elif evt_asset in all_books:
                 all_books[evt_asset].apply(event)
+                _active_assets.add(evt_asset)
 
             event_ctx = dict(event)
             event_ctx["_best_by_asset"] = {
@@ -201,36 +234,39 @@ class StrategyRunner:
                     broker, open_orders, decisions,
                 )
 
-            # 4. Step broker for this event's asset (if tracked), with per-asset
-            #    fill filter so orders only fill against their own asset's book.
-            if evt_asset in all_books:
-                book_for_step = all_books[evt_asset]
-                broker.step(event, book_for_step, fill_asset_id=evt_asset)
+            # 4. Step broker for each active asset, with per-asset fill filter so
+            #    orders only fill against their own asset's book.
+            #    Activate / cancel steps inside broker.step are unfiltered and
+            #    idempotent across multiple calls at the same seq.
+            for step_asset in _active_assets:
+                broker.step(event, all_books[step_asset], fill_asset_id=step_asset)
 
-                # 5. Dispatch on_fill for each new fill (non-zero size only)
-                new_fills = broker.fills[_last_fill_idx:]
-                _last_fill_idx = len(broker.fills)
-                for fill in new_fills:
-                    if fill.fill_size > _ZERO:
-                        self.strategy.on_fill(
-                            order_id=fill.order_id,
-                            asset_id=fill.asset_id,
-                            side=fill.side,
-                            fill_price=fill.fill_price,
-                            fill_size=fill.fill_size,
-                            fill_status=fill.fill_status,
-                            seq=fill.seq,
-                            ts_recv=fill.ts_recv,
-                        )
+            # 5. Dispatch on_fill for each new fill (non-zero size only)
+            new_fills = broker.fills[_last_fill_idx:]
+            _last_fill_idx = len(broker.fills)
+            for fill in new_fills:
+                if fill.fill_size > _ZERO:
+                    self.strategy.on_fill(
+                        order_id=fill.order_id,
+                        asset_id=fill.asset_id,
+                        side=fill.side,
+                        fill_price=fill.fill_price,
+                        fill_size=fill.fill_size,
+                        fill_status=fill.fill_status,
+                        seq=fill.seq,
+                        ts_recv=fill.ts_recv,
+                    )
 
-                # 6. Update open-order tracking from new broker events
-                new_events = broker.order_events[_last_order_event_idx:]
-                _last_order_event_idx = len(broker.order_events)
-                for bev in new_events:
-                    _update_open_orders(open_orders, bev)
+            # 6. Update open-order tracking from new broker events
+            new_events = broker.order_events[_last_order_event_idx:]
+            _last_order_event_idx = len(broker.order_events)
+            for bev in new_events:
+                _update_open_orders(open_orders, bev)
 
-            # 7. Emit timeline row on primary-asset book-affecting events
-            if evt_asset == asset_id and event_type in _BOOK_AFFECTING:
+            # 7. Emit timeline row when the primary asset's book changed this tick.
+            #    For modern batched events, event_type is still "price_change" which
+            #    is in _BOOK_AFFECTING, so the check is symmetric with legacy format.
+            if asset_id in _active_assets and event_type in _BOOK_AFFECTING:
                 timeline.append(
                     {
                         "seq": seq,
@@ -254,8 +290,26 @@ class StrategyRunner:
         final_best_bid: Optional[float] = timeline[-1].get("best_bid") if timeline else None
         final_best_ask: Optional[float] = timeline[-1].get("best_ask") if timeline else None
 
+        # Guarantee at least initial + final snapshots even for no-trade runs.
+        # Both snapshots reflect starting state (cash=starting_cash, no positions).
+        if not ledger_events:
+            ledger_events = [
+                _no_trade_ledger_snapshot("initial", events[0], self.starting_cash),
+                _no_trade_ledger_snapshot("final", events[-1], self.starting_cash),
+            ]
+
         run_id = self.run_dir.name
         pnl_summary = ledger.summary(run_id, final_best_bid, final_best_ask)
+
+        # Warn when a large tape produced almost no timeline rows — this often
+        # means the tape uses the modern batched price_changes[] schema that was
+        # not previously supported, or it is missing a book snapshot.
+        if len(events) > 5 and len(timeline) <= 1:
+            warnings.append(
+                f"timeline_rows={len(timeline)} despite total_events={len(events)}; "
+                "check for modern price_changes[] batching, missing book snapshot, "
+                "or mismatched asset_id."
+            )
 
         if run_quality == _RUN_QUALITY_OK and warnings:
             run_quality = _RUN_QUALITY_WARNINGS
@@ -298,7 +352,14 @@ class StrategyRunner:
     def _resolve_asset_id(self, events: list[dict]) -> str:
         if self.asset_id:
             return self.asset_id
-        ids = {e.get("asset_id", "") for e in events if e.get("asset_id")}
+        ids: set[str] = set()
+        for e in events:
+            if e.get("asset_id"):
+                ids.add(str(e["asset_id"]))
+            # Modern batched format: collect asset_ids from price_changes[] entries.
+            for entry in e.get("price_changes", []):
+                if entry.get("asset_id"):
+                    ids.add(str(entry["asset_id"]))
         # Prefer to return the primary even from a multi-asset tape when the
         # caller gave us extra_book_asset_ids — we need a primary.
         if len(ids) == 1:
@@ -315,9 +376,12 @@ class StrategyRunner:
         if not required_asset_ids:
             return None
 
-        seen_asset_ids = sorted(
-            {str(e.get("asset_id")) for e in events if e.get("asset_id")}
-        )
+        seen_set: set[str] = {str(e["asset_id"]) for e in events if e.get("asset_id")}
+        for e in events:
+            for entry in e.get("price_changes", []):
+                if entry.get("asset_id"):
+                    seen_set.add(str(entry["asset_id"]))
+        seen_asset_ids = sorted(seen_set)
         missing_asset_ids = [
             asset_id for asset_id in required_asset_ids if asset_id not in seen_asset_ids
         ]
@@ -496,6 +560,12 @@ class StrategyRunner:
         _jsonl(run_dir / "equity_curve.jsonl", equity_curve)
         _jsonl(run_dir / "decisions.jsonl", decisions)
 
+        # Duck-typed strategy outputs resolved early so they're available for both
+        # summary.json and run_manifest.json below.
+        opportunities: list[dict] = getattr(self.strategy, "opportunities", [])
+        modeled_arb_summary: dict = getattr(self.strategy, "modeled_arb_summary", {})
+        rejection_counts: Optional[dict] = getattr(self.strategy, "rejection_counts", None)
+
         summary_payload = dict(pnl_summary)
         if run_quality != _RUN_QUALITY_OK or warnings:
             summary_payload["run_quality"] = run_quality
@@ -505,19 +575,18 @@ class StrategyRunner:
             and tape_coverage.get("status") in (_RUN_QUALITY_DEGRADED, _RUN_QUALITY_INVALID)
         ):
             summary_payload["tape_coverage"] = tape_coverage
+        if rejection_counts is not None:
+            summary_payload["strategy_debug"] = {"rejection_counts": rejection_counts}
         (run_dir / "summary.json").write_text(
             json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8"
         )
 
         # Strategy-specific artifacts: write opportunities.jsonl if the strategy
         # exposes a non-empty `.opportunities` list (duck-typed extension point).
-        opportunities: list[dict] = getattr(self.strategy, "opportunities", [])
         opportunities_count = 0
         if opportunities:
             _jsonl(run_dir / "opportunities.jsonl", opportunities)
             opportunities_count = len(opportunities)
-
-        modeled_arb_summary: dict = getattr(self.strategy, "modeled_arb_summary", {})
 
         run_id = run_dir.name
         manifest: dict[str, Any] = {
@@ -552,6 +621,8 @@ class StrategyRunner:
             manifest["tape_coverage"] = tape_coverage
         if modeled_arb_summary:
             manifest["modeled_arb_summary"] = modeled_arb_summary
+        if rejection_counts is not None:
+            manifest["strategy_debug"] = {"rejection_counts": rejection_counts}
         (run_dir / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )

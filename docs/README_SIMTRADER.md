@@ -47,6 +47,47 @@ Reproduce:
 
 **Prerequisites:** `pip install 'websocket-client>=1.6'`
 
+**Auditability notes:**
+- `ledger.jsonl` always contains at least two rows — an **initial** snapshot (starting cash, no positions) and a **final** snapshot — even when zero orders are placed. This guarantees the file is never empty and is safe to ingest into downstream RAG / evidence pipelines.
+- When `binary_complement_arb` produces zero decisions, `run_manifest.json` and `summary.json` include a `strategy_debug.rejection_counts` dict explaining why (e.g. `no_bbo`, `edge_below_threshold`, `waiting_on_attempt`).
+
+---
+
+## 1b. Evidence sweep (multi-scenario)
+
+Run a bounded matrix of parameter variants in one command:
+
+```bash
+python -m polytool simtrader quickrun --duration 900 --sweep quick
+```
+
+The **`quick` preset** expands to 24 scenarios:
+
+| Axis | Values |
+|------|--------|
+| `fee_rate_bps` | 0, 50, 100, 200 |
+| `cancel_latency_ticks` | 0, 2, 5 |
+| `mark_method` | bid, midpoint |
+
+Output: `artifacts/simtrader/sweeps/quickrun_<ts>_<token_prefix>/`
+Files: `sweep_manifest.json`, `sweep_summary.json`, one run sub-folder per scenario.
+
+**Expected output (abridged):**
+
+```
+QuickSweep complete  (preset: quick, 24 scenarios)
+  Market    : will-candidate-win-2026
+  Sweep dir : artifacts/simtrader/sweeps/quickrun_.../
+
+  LEADERBOARD (net_profit):
+    Best   : 1.43  (fee0_cancel0_bid)
+    Median : 0.12  (fee100_cancel2_midpoint)
+    Worst  : -0.05  (fee200_cancel5_midpoint)
+
+Reproduce:
+  python -m polytool simtrader quickrun --market will-candidate-win-2026 --duration 900 --sweep quick
+```
+
 ---
 
 ## 2. Common flags

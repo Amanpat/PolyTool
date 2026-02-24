@@ -728,6 +728,164 @@ def test_no_assumption_field_when_no_merges(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 6. Rejection counters
+# ---------------------------------------------------------------------------
+
+
+def test_rejection_counter_no_bbo_when_no_book_yet() -> None:
+    """Ticks before the NO book is initialized increment no_bbo counter."""
+    from decimal import Decimal
+
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=10,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    # Tick: YES book has BBO but NO book is still empty → no_bbo
+    event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.45", "size": "100"}],
+        "asks": [{"price": "0.50", "size": "100"}],
+    }
+    intents = strategy.on_event(event, 1, 1.0, best_bid=0.45, best_ask=0.50, open_orders={})
+
+    assert intents == [], "No intents expected when NO BBO is absent"
+    strategy.on_finish()
+
+    counts = strategy.modeled_arb_summary["rejection_counts"]
+    assert counts["no_bbo"] >= 1, f"Expected no_bbo >= 1, got {counts}"
+    assert counts["edge_below_threshold"] == 0
+    assert counts["waiting_on_attempt"] == 0
+
+
+def test_rejection_counter_edge_below_threshold() -> None:
+    """Ticks where sum_ask >= 1-buffer increment edge_below_threshold counter."""
+    from decimal import Decimal
+
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,  # threshold = 0.98; sum_ask=1.05 → no arb
+        max_size=10,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    # First set up NO book via an event
+    no_book_event = {
+        "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+        "bids": [{"price": "0.40", "size": "100"}],
+        "asks": [{"price": "0.55", "size": "100"}],
+    }
+    strategy.on_event(no_book_event, 0, 0.0, best_bid=None, best_ask=None, open_orders={})
+
+    # YES ask=0.50, NO ask=0.55 → sum=1.05 > 0.98 → edge_below_threshold
+    yes_event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.45", "size": "100"}],
+        "asks": [{"price": "0.50", "size": "100"}],
+    }
+    intents = strategy.on_event(yes_event, 1, 1.0, best_bid=0.45, best_ask=0.50, open_orders={})
+    assert intents == [], "No intents when edge is insufficient"
+
+    strategy.on_finish()
+    counts = strategy.modeled_arb_summary["rejection_counts"]
+    assert counts["edge_below_threshold"] >= 1, f"Expected edge_below_threshold >= 1, got {counts}"
+    # seq 0 fires with best_ask=None so no_bbo may be 1; that's acceptable
+    assert counts["waiting_on_attempt"] == 0
+
+
+def test_rejection_counter_waiting_on_attempt(tmp_path: Path) -> None:
+    """Ticks while an attempt is active increment waiting_on_attempt counter."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+
+    tape_path = tmp_path / "events.jsonl"
+    # BASE_TAPE: arb detected at seq 2, attempt active for several ticks
+    _write_tape(tape_path, BASE_TAPE)
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=100,
+        unwind_wait_ticks=20,  # long wait → many ticks with active attempt
+    )
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=tmp_path / "wait_run",
+        strategy=strategy,
+        asset_id=YES_ID,
+        extra_book_asset_ids=[NO_ID],
+        starting_cash=Decimal("5000"),
+        fee_rate_bps=Decimal("0"),
+    )
+    runner.run()
+
+    counts = strategy.rejection_counts
+    assert counts["waiting_on_attempt"] >= 1, (
+        f"Expected waiting_on_attempt >= 1 after attempt entry; got {counts}"
+    )
+
+
+def test_rejection_counts_in_manifest_and_summary(tmp_path: Path) -> None:
+    """rejection_counts appear in run_manifest.json strategy_debug and summary.json."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path, NO_ARB_TAPE)  # no arb → only edge_below_threshold ticks
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=100,
+    )
+    run_dir = tmp_path / "counts_artifacts"
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=YES_ID,
+        extra_book_asset_ids=[NO_ID],
+        starting_cash=Decimal("1000"),
+        fee_rate_bps=Decimal("0"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert "strategy_debug" in manifest, "run_manifest must have strategy_debug"
+    assert "rejection_counts" in manifest["strategy_debug"]
+    counts_m = manifest["strategy_debug"]["rejection_counts"]
+    assert "no_bbo" in counts_m
+    assert "edge_below_threshold" in counts_m
+    assert "waiting_on_attempt" in counts_m
+
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert "strategy_debug" in summary, "summary.json must have strategy_debug"
+    assert "rejection_counts" in summary["strategy_debug"]
+
+    # NO_ARB_TAPE has no arb → edge_below_threshold should be > 0 after both books are set
+    counts_s = summary["strategy_debug"]["rejection_counts"]
+    assert counts_s["edge_below_threshold"] >= 1, (
+        f"NO_ARB_TAPE should produce edge_below_threshold ticks; got {counts_s}"
+    )
+# ---------------------------------------------------------------------------
 # 6. Strategy base on_fill default
 # ---------------------------------------------------------------------------
 

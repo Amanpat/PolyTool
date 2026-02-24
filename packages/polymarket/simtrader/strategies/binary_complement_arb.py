@@ -218,6 +218,14 @@ class BinaryComplementArb(Strategy):
         self.opportunities: list[dict] = []
         self.modeled_arb_summary: dict = {}
 
+        # Rejection counters — incremented in on_event() on every tick
+        # where we could not enter a new arb attempt, and why.
+        self.rejection_counts: dict[str, int] = {
+            "no_bbo": 0,             # YES or NO best_ask unavailable
+            "edge_below_threshold": 0,  # sum_ask >= (1 - buffer)
+            "waiting_on_attempt": 0,  # already managing an open attempt
+        }
+
     # ------------------------------------------------------------------
     # Strategy lifecycle
     # ------------------------------------------------------------------
@@ -229,6 +237,11 @@ class BinaryComplementArb(Strategy):
         self._attempt_counter = 0
         self.opportunities = []
         self.modeled_arb_summary = {}
+        self.rejection_counts = {
+            "no_bbo": 0,
+            "edge_below_threshold": 0,
+            "waiting_on_attempt": 0,
+        }
         logger.info(
             "BinaryComplementArb started: yes=%s no=%s buffer=%s max_size=%s policy=%s",
             self._yes_id, self._no_id, self._buffer, self._max_size, self._legging_policy,
@@ -254,6 +267,7 @@ class BinaryComplementArb(Strategy):
         had_active = self._active_attempt is not None
 
         if had_active:
+            self.rejection_counts["waiting_on_attempt"] += 1
             self._active_attempt.ticks_since_enter += 1  # type: ignore[union-attr]
             intents.extend(
                 self._manage_attempt(seq, ts_recv, best_bid, best_ask, open_orders)
@@ -270,6 +284,10 @@ class BinaryComplementArb(Strategy):
                     intents.extend(
                         self._enter_arb(seq, ts_recv, yes_ask_d, no_ask_d)
                     )
+                else:
+                    self.rejection_counts["edge_below_threshold"] += 1
+            else:
+                self.rejection_counts["no_bbo"] += 1
 
         return intents
 
@@ -379,6 +397,7 @@ class BinaryComplementArb(Strategy):
             "modeled_total_cost": str(modeled_cost),
             "modeled_total_profit": str(modeled_profit),
             "ASSUMPTION": ASSUMPTION_MERGE_FULL_SET if merged > 0 else None,
+            "rejection_counts": dict(self.rejection_counts),
         }
         logger.info(
             "BinaryComplementArb finished: %d attempts, %d both-filled, "

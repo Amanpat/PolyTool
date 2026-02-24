@@ -629,3 +629,331 @@ class TestQuickrunFullCli:
         # --strategy-config-json override reached strategy_config
         assert strategy_config_capture[0] is not None
         assert abs(strategy_config_capture[0].get("buffer", 0) - 0.02) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Quick sweep preset unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildQuickSweepConfig:
+    def test_returns_24_scenarios(self):
+        """'quick' preset produces exactly 4 × 3 × 2 = 24 scenarios."""
+        from tools.cli.simtrader import _build_quick_sweep_config
+
+        cfg = _build_quick_sweep_config()
+        assert "scenarios" in cfg
+        assert len(cfg["scenarios"]) == 24
+
+    def test_all_scenarios_unique_names(self):
+        """All 24 scenario names are distinct."""
+        from tools.cli.simtrader import _build_quick_sweep_config
+
+        cfg = _build_quick_sweep_config()
+        names = [s["name"] for s in cfg["scenarios"]]
+        assert len(names) == len(set(names)), f"Duplicate scenario names: {names}"
+
+    def test_each_scenario_has_overrides(self):
+        """Every scenario dict has an 'overrides' key with required fields."""
+        from tools.cli.simtrader import _build_quick_sweep_config
+
+        cfg = _build_quick_sweep_config()
+        for s in cfg["scenarios"]:
+            ov = s["overrides"]
+            assert "fee_rate_bps" in ov, f"Missing fee_rate_bps in {s}"
+            assert "cancel_latency_ticks" in ov, f"Missing cancel_latency_ticks in {s}"
+            assert "mark_method" in ov, f"Missing mark_method in {s}"
+
+    def test_fee_rates_covered(self):
+        """All four fee rate values appear in the scenario set."""
+        from tools.cli.simtrader import (
+            _QUICK_SWEEP_FEE_RATES,
+            _build_quick_sweep_config,
+        )
+
+        cfg = _build_quick_sweep_config()
+        seen_fees = {s["overrides"]["fee_rate_bps"] for s in cfg["scenarios"]}
+        assert seen_fees == set(_QUICK_SWEEP_FEE_RATES)
+
+    def test_cancel_ticks_covered(self):
+        """All three cancel_latency_ticks values appear in the scenario set."""
+        from tools.cli.simtrader import (
+            _QUICK_SWEEP_CANCEL_TICKS,
+            _build_quick_sweep_config,
+        )
+
+        cfg = _build_quick_sweep_config()
+        seen = {s["overrides"]["cancel_latency_ticks"] for s in cfg["scenarios"]}
+        assert seen == set(_QUICK_SWEEP_CANCEL_TICKS)
+
+    def test_mark_methods_covered(self):
+        """Both mark_method values appear in the scenario set."""
+        from tools.cli.simtrader import (
+            _QUICK_SWEEP_MARK_METHODS,
+            _build_quick_sweep_config,
+        )
+
+        cfg = _build_quick_sweep_config()
+        seen = {s["overrides"]["mark_method"] for s in cfg["scenarios"]}
+        assert seen == set(_QUICK_SWEEP_MARK_METHODS)
+
+    def test_preset_registry_contains_quick(self):
+        """_SWEEP_PRESETS maps 'quick' to a callable."""
+        from tools.cli.simtrader import _SWEEP_PRESETS
+
+        assert "quick" in _SWEEP_PRESETS
+        factory = _SWEEP_PRESETS["quick"]
+        result = factory()
+        assert "scenarios" in result
+        assert len(result["scenarios"]) == 24
+
+
+class TestQuickrunSweepCli:
+    """Test that --sweep quick routes to run_sweep and prints a leaderboard."""
+
+    def _make_resolved(self):
+        from packages.polymarket.simtrader.market_picker import ResolvedMarket
+
+        return ResolvedMarket(
+            slug=SLUG,
+            yes_token_id=YES_TOKEN,
+            no_token_id=NO_TOKEN,
+            yes_label="Yes",
+            no_label="No",
+            question=QUESTION,
+        )
+
+    def test_sweep_quick_calls_run_sweep_not_run_strategy(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """--sweep quick must call run_sweep (not run_strategy)."""
+        import json as _json
+
+        from packages.polymarket.simtrader.sweeps.runner import SweepRunResult
+
+        mock_picker = MagicMock()
+        mock_picker.resolve_slug.return_value = self._make_resolved()
+        mock_picker.validate_book.return_value = MagicMock(valid=True, reason="ok")
+
+        sweep_params_capture: list = [None]
+        sweep_config_capture: list = [None]
+
+        def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
+            rec = MagicMock()
+
+            def fake_record(duration_seconds=None, ws_url=None):
+                tape_dir.mkdir(parents=True, exist_ok=True)
+                ev1 = _json.dumps(
+                    {"seq": 0, "ts_recv": 1.0, "asset_id": YES_TOKEN,
+                     "event_type": "book", "bids": [], "asks": []}
+                )
+                ev2 = _json.dumps(
+                    {"seq": 1, "ts_recv": 1.1, "asset_id": NO_TOKEN,
+                     "event_type": "book", "bids": [], "asks": []}
+                )
+                (tape_dir / "events.jsonl").write_text(ev1 + "\n" + ev2 + "\n")
+                (tape_dir / "meta.json").write_text(
+                    _json.dumps({"ws_url": "wss://fake", "asset_ids": asset_ids,
+                                 "event_count": 2, "warnings": []}) + "\n"
+                )
+
+            rec.record = fake_record
+            return rec
+
+        def fake_run_sweep(params, sweep_config):
+            sweep_params_capture[0] = params
+            sweep_config_capture[0] = sweep_config
+            sweep_dir = params.artifacts_root / "sweeps" / params.sweep_id
+            sweep_dir.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "sweep_id": params.sweep_id,
+                "scenarios": [
+                    {"scenario_id": "s1", "net_profit": "1.0"},
+                    {"scenario_id": "s2", "net_profit": "0.5"},
+                ],
+                "aggregate": {
+                    "best_net_profit": "1.0", "best_scenario": "s1",
+                    "median_net_profit": "0.75", "median_scenario": "s1",
+                    "worst_net_profit": "0.5", "worst_scenario": "s2",
+                },
+            }
+            manifest = {"sweep_id": params.sweep_id}
+            (sweep_dir / "sweep_manifest.json").write_text(
+                _json.dumps(manifest) + "\n"
+            )
+            (sweep_dir / "sweep_summary.json").write_text(
+                _json.dumps(summary) + "\n"
+            )
+            return SweepRunResult(
+                sweep_id=params.sweep_id,
+                sweep_dir=sweep_dir,
+                summary=summary,
+                manifest=manifest,
+            )
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient", return_value=MagicMock()),
+            patch("packages.polymarket.clob.ClobClient", return_value=MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker",
+                return_value=mock_picker,
+            ),
+            patch(
+                "packages.polymarket.simtrader.tape.recorder.TapeRecorder",
+                side_effect=FakeTapeRecorder,
+            ),
+            patch(
+                "packages.polymarket.simtrader.sweeps.runner.run_sweep",
+                side_effect=fake_run_sweep,
+            ),
+        ):
+            from tools.cli.simtrader import main
+
+            exit_code = main(
+                ["quickrun", "--market", SLUG, "--duration", "1", "--sweep", "quick"]
+            )
+
+        assert exit_code == 0, f"Expected exit 0 for sweep quickrun, got {exit_code}"
+
+        # run_sweep was called (not run_strategy)
+        assert sweep_params_capture[0] is not None, "run_sweep was not called"
+
+        # sweep_config has 24 scenarios (the quick preset)
+        assert sweep_config_capture[0] is not None
+        assert len(sweep_config_capture[0]["scenarios"]) == 24
+
+        # Output contains leaderboard keywords
+        out = capsys.readouterr().out
+        assert "LEADERBOARD" in out
+        assert "Best" in out
+        assert "Worst" in out
+        assert "Reproduce" in out
+        assert "--sweep quick" in out
+
+    def test_sweep_preset_colon_syntax(self, tmp_path, monkeypatch):
+        """--sweep preset:quick is accepted as an alias for --sweep quick."""
+        import json as _json
+
+        from packages.polymarket.simtrader.sweeps.runner import SweepRunResult
+
+        mock_picker = MagicMock()
+        mock_picker.resolve_slug.return_value = self._make_resolved()
+        mock_picker.validate_book.return_value = MagicMock(valid=True, reason="ok")
+
+        sweep_called: list = [False]
+
+        def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
+            rec = MagicMock()
+
+            def fake_record(duration_seconds=None, ws_url=None):
+                tape_dir.mkdir(parents=True, exist_ok=True)
+                (tape_dir / "events.jsonl").write_text(
+                    _json.dumps({"seq": 0, "ts_recv": 1.0, "asset_id": YES_TOKEN,
+                                 "event_type": "book", "bids": [], "asks": []}) + "\n"
+                    + _json.dumps({"seq": 1, "ts_recv": 1.1, "asset_id": NO_TOKEN,
+                                  "event_type": "book", "bids": [], "asks": []}) + "\n"
+                )
+                (tape_dir / "meta.json").write_text(
+                    _json.dumps({"ws_url": "wss://fake", "asset_ids": asset_ids,
+                                 "event_count": 2, "warnings": []}) + "\n"
+                )
+
+            rec.record = fake_record
+            return rec
+
+        def fake_run_sweep(params, sweep_config):
+            sweep_called[0] = True
+            sweep_dir = params.artifacts_root / "sweeps" / params.sweep_id
+            sweep_dir.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "sweep_id": params.sweep_id, "scenarios": [],
+                "aggregate": {
+                    "best_net_profit": "0", "best_scenario": None,
+                    "median_net_profit": "0", "median_scenario": None,
+                    "worst_net_profit": "0", "worst_scenario": None,
+                },
+            }
+            (sweep_dir / "sweep_manifest.json").write_text(_json.dumps({}) + "\n")
+            (sweep_dir / "sweep_summary.json").write_text(_json.dumps(summary) + "\n")
+            return SweepRunResult(
+                sweep_id=params.sweep_id, sweep_dir=sweep_dir,
+                summary=summary, manifest={},
+            )
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient", return_value=MagicMock()),
+            patch("packages.polymarket.clob.ClobClient", return_value=MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker",
+                return_value=mock_picker,
+            ),
+            patch(
+                "packages.polymarket.simtrader.tape.recorder.TapeRecorder",
+                side_effect=FakeTapeRecorder,
+            ),
+            patch(
+                "packages.polymarket.simtrader.sweeps.runner.run_sweep",
+                side_effect=fake_run_sweep,
+            ),
+        ):
+            from tools.cli.simtrader import main
+
+            exit_code = main(
+                ["quickrun", "--market", SLUG, "--duration", "1", "--sweep", "preset:quick"]
+            )
+
+        assert exit_code == 0
+        assert sweep_called[0], "run_sweep was not called for preset:quick"
+
+    def test_unknown_sweep_preset_returns_error(self, tmp_path, monkeypatch):
+        """An unknown --sweep preset returns exit code 1."""
+        import json as _json
+
+        mock_picker = MagicMock()
+        mock_picker.resolve_slug.return_value = self._make_resolved()
+        mock_picker.validate_book.return_value = MagicMock(valid=True, reason="ok")
+
+        def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
+            rec = MagicMock()
+
+            def fake_record(duration_seconds=None, ws_url=None):
+                tape_dir.mkdir(parents=True, exist_ok=True)
+                (tape_dir / "events.jsonl").write_text(
+                    _json.dumps({"seq": 0, "ts_recv": 1.0, "asset_id": YES_TOKEN,
+                                 "event_type": "book", "bids": [], "asks": []}) + "\n"
+                    + _json.dumps({"seq": 1, "ts_recv": 1.1, "asset_id": NO_TOKEN,
+                                  "event_type": "book", "bids": [], "asks": []}) + "\n"
+                )
+                (tape_dir / "meta.json").write_text(
+                    _json.dumps({"ws_url": "wss://fake", "asset_ids": asset_ids,
+                                 "event_count": 2, "warnings": []}) + "\n"
+                )
+
+            rec.record = fake_record
+            return rec
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient", return_value=MagicMock()),
+            patch("packages.polymarket.clob.ClobClient", return_value=MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker",
+                return_value=mock_picker,
+            ),
+            patch(
+                "packages.polymarket.simtrader.tape.recorder.TapeRecorder",
+                side_effect=FakeTapeRecorder,
+            ),
+        ):
+            from tools.cli.simtrader import main
+
+            exit_code = main(
+                ["quickrun", "--market", SLUG, "--duration", "1", "--sweep", "bogus_preset"]
+            )
+
+        assert exit_code == 1
