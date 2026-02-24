@@ -824,6 +824,15 @@ def _quickrun(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.min_events < 0:
+        print(
+            f"Error: --min-events must be non-negative (got {args.min_events}).",
+            file=sys.stderr,
+        )
+        return 1
+
+    min_depth_size: float = getattr(args, "min_depth_size", 0.0) or 0.0
+    top_n_levels: int = getattr(args, "top_n_levels", 3) or 3
 
     # -- Resolve market --------------------------------------------------------
     picker = MarketPicker(GammaClient(), ClobClient())
@@ -837,10 +846,14 @@ def _quickrun(args: argparse.Namespace) -> int:
             yes_val = picker.validate_book(
                 resolved.yes_token_id,
                 allow_empty=args.allow_empty_book,
+                min_depth_size=min_depth_size,
+                top_n_levels=top_n_levels,
             )
             no_val = picker.validate_book(
                 resolved.no_token_id,
                 allow_empty=args.allow_empty_book,
+                min_depth_size=min_depth_size,
+                top_n_levels=top_n_levels,
             )
             if not yes_val.valid or not no_val.valid:
                 bad_side = "YES" if not yes_val.valid else "NO"
@@ -852,10 +865,27 @@ def _quickrun(args: argparse.Namespace) -> int:
                 )
                 return 1
         else:
+            skip_log: list[dict] = []
             resolved = picker.auto_pick(
                 max_candidates=args.max_candidates,
                 allow_empty_book=args.allow_empty_book,
+                min_depth_size=min_depth_size,
+                top_n_levels=top_n_levels,
+                collect_skips=skip_log if args.dry_run else None,
             )
+            if args.dry_run and skip_log:
+                print("Skipped candidates:", file=sys.stderr)
+                for entry in skip_log:
+                    side_info = f" ({entry['side']})" if entry.get("side") else ""
+                    depth_info = (
+                        f" depth={entry['depth_total']:.1f}"
+                        if entry.get("depth_total") is not None
+                        else ""
+                    )
+                    print(
+                        f"  {entry['slug']}{side_info}: {entry['reason']}{depth_info}",
+                        file=sys.stderr,
+                    )
     except MarketPickerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -892,6 +922,11 @@ def _quickrun(args: argparse.Namespace) -> int:
             if no_val is not None
             else {"reason": "ok", "valid": True}
         ),
+        "yes_no_mapping": {
+            "yes_label": resolved.yes_label,
+            "no_label": resolved.no_label,
+            "mapping_tier": getattr(resolved, "mapping_tier", "explicit"),
+        },
     }
 
     # -- Load user strategy config overrides -----------------------------------
@@ -961,6 +996,16 @@ def _quickrun(args: argparse.Namespace) -> int:
     snapshot_map = tape_summary.get("snapshot_by_asset", {})
     yes_snapshot = snapshot_map.get(yes_id, False)
     no_snapshot = snapshot_map.get(no_id, False)
+    if args.min_events > 0 and parsed_events < args.min_events:
+        print(
+            f"[quickrun] warning: tape has {parsed_events} parsed events "
+            f"(< --min-events {args.min_events}).",
+            file=sys.stderr,
+        )
+        print(
+            "[quickrun] warning: rerun with a longer --duration for better tape quality.",
+            file=sys.stderr,
+        )
 
     # -- Parse run params ------------------------------------------------------
     try:
@@ -1707,6 +1752,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recording duration in seconds (default: 30).",
     )
     qr.add_argument(
+        "--min-events",
+        type=int,
+        default=0,
+        metavar="N",
+        dest="min_events",
+        help=(
+            "Warn when the recorded tape has fewer than N parsed events. "
+            "Use 0 to disable (default: 0)."
+        ),
+    )
+    qr.add_argument(
         "--starting-cash",
         type=float,
         default=1000.0,
@@ -1774,6 +1830,29 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Number of active markets to examine when auto-picking "
             "(default: 20).  Ignored if --market is specified."
+        ),
+    )
+    qr.add_argument(
+        "--min-depth-size",
+        type=float,
+        default=0.0,
+        metavar="SIZE",
+        dest="min_depth_size",
+        help=(
+            "Minimum total size (sum of top --top-n-levels bid + ask levels) "
+            "required for a book to be considered liquid.  "
+            "0 disables the depth filter (default: 0)."
+        ),
+    )
+    qr.add_argument(
+        "--top-n-levels",
+        type=int,
+        default=3,
+        metavar="N",
+        dest="top_n_levels",
+        help=(
+            "Number of price levels per side to include in the depth sum "
+            "used by --min-depth-size (default: 3)."
         ),
     )
     qr.add_argument(

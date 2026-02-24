@@ -631,6 +631,149 @@ class TestQuickrunFullCli:
         assert abs(strategy_config_capture[0].get("buffer", 0) - 0.02) < 1e-9
 
 
+class TestQuickrunMinEventsWarning:
+    def test_warns_when_tape_is_shorter_than_min_events(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        import json as _json
+
+        from packages.polymarket.simtrader.market_picker import ResolvedMarket
+        from packages.polymarket.simtrader.strategy.facade import StrategyRunResult
+
+        mock_resolved = ResolvedMarket(
+            slug=SLUG,
+            yes_token_id=YES_TOKEN,
+            no_token_id=NO_TOKEN,
+            yes_label="Yes",
+            no_label="No",
+            question=QUESTION,
+        )
+        mock_picker = MagicMock()
+        mock_picker.resolve_slug.return_value = mock_resolved
+        mock_picker.validate_book.return_value = MagicMock(valid=True, reason="ok")
+
+        def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
+            rec = MagicMock()
+
+            def fake_record(duration_seconds=None, ws_url=None):
+                tape_dir.mkdir(parents=True, exist_ok=True)
+                (tape_dir / "events.jsonl").write_text(
+                    _json.dumps(
+                        {
+                            "seq": 0,
+                            "ts_recv": 1.0,
+                            "asset_id": YES_TOKEN,
+                            "event_type": "book",
+                            "bids": [],
+                            "asks": [],
+                        }
+                    )
+                    + "\n"
+                    + _json.dumps(
+                        {
+                            "seq": 1,
+                            "ts_recv": 1.1,
+                            "asset_id": NO_TOKEN,
+                            "event_type": "book",
+                            "bids": [],
+                            "asks": [],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                (tape_dir / "meta.json").write_text(
+                    _json.dumps(
+                        {
+                            "ws_url": "wss://fake",
+                            "asset_ids": asset_ids,
+                            "event_count": 2,
+                            "warnings": [],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            rec.record = fake_record
+            return rec
+
+        def fake_run_strategy(params):
+            params.run_dir.mkdir(parents=True, exist_ok=True)
+            (params.run_dir / "orders.jsonl").write_text("", encoding="utf-8")
+            (params.run_dir / "decisions.jsonl").write_text("", encoding="utf-8")
+            (params.run_dir / "fills.jsonl").write_text("", encoding="utf-8")
+
+            summary = {
+                "net_profit": "0",
+                "realized_pnl": "0",
+                "unrealized_pnl": "0",
+                "total_fees": "0",
+            }
+            (params.run_dir / "summary.json").write_text(
+                _json.dumps(summary) + "\n",
+                encoding="utf-8",
+            )
+            (params.run_dir / "run_manifest.json").write_text(
+                _json.dumps(
+                    {
+                        "run_id": params.run_dir.name,
+                        "fills_count": 0,
+                        "decisions_count": 0,
+                        "run_quality": "ok",
+                        "warnings": [],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            return StrategyRunResult(
+                run_id=params.run_dir.name,
+                run_dir=params.run_dir,
+                summary=summary,
+                metrics=summary,
+                warnings_count=0,
+            )
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient", return_value=MagicMock()),
+            patch("packages.polymarket.clob.ClobClient", return_value=MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker",
+                return_value=mock_picker,
+            ),
+            patch(
+                "packages.polymarket.simtrader.tape.recorder.TapeRecorder",
+                side_effect=FakeTapeRecorder,
+            ),
+            patch(
+                "packages.polymarket.simtrader.strategy.facade.run_strategy",
+                side_effect=fake_run_strategy,
+            ),
+        ):
+            from tools.cli.simtrader import main
+
+            exit_code = main(
+                [
+                    "quickrun",
+                    "--market",
+                    SLUG,
+                    "--duration",
+                    "1",
+                    "--min-events",
+                    "10",
+                ]
+            )
+
+        assert exit_code == 0
+        stderr = capsys.readouterr().err
+        assert "tape has 2 parsed events (< --min-events 10)" in stderr
+        assert "rerun with a longer --duration" in stderr
+
+
 # ---------------------------------------------------------------------------
 # Quick sweep preset unit tests
 # ---------------------------------------------------------------------------
@@ -957,3 +1100,292 @@ class TestQuickrunSweepCli:
             )
 
         assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# YES/NO mapping robustness tests (Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestYesNoMapping:
+    """Tests for the two-tier YES/NO identification in MarketPicker."""
+
+    def _picker(self, outcomes, token_ids=None):
+        from packages.polymarket.simtrader.market_picker import MarketPicker
+
+        ids = token_ids or [YES_TOKEN, NO_TOKEN]
+        market = _make_market(outcomes=outcomes, clob_token_ids=ids)
+        gamma = MagicMock()
+        gamma.fetch_markets_filtered.return_value = [market]
+        return MarketPicker(gamma, MagicMock())
+
+    def test_yes_no_standard(self):
+        """Yes/No → yes_token_id=YES_TOKEN, mapping_tier=explicit."""
+        picker = self._picker(["Yes", "No"])
+        result = picker.resolve_slug(SLUG)
+        assert result.yes_token_id == YES_TOKEN
+        assert result.no_token_id == NO_TOKEN
+        assert result.mapping_tier == "explicit"
+
+    def test_true_false_mapping(self):
+        """True/False outcomes are mapped correctly via alias tier."""
+        picker = self._picker(["True", "False"])
+        result = picker.resolve_slug(SLUG)
+        assert result.yes_token_id == YES_TOKEN
+        assert result.no_token_id == NO_TOKEN
+        assert result.mapping_tier == "alias"
+
+    def test_up_down_mapping(self):
+        """Up/Down outcomes → Up=YES, Down=NO via alias tier."""
+        picker = self._picker(["Up", "Down"])
+        result = picker.resolve_slug(SLUG)
+        assert result.yes_token_id == YES_TOKEN
+        assert result.no_token_id == NO_TOKEN
+        assert result.mapping_tier == "alias"
+
+    def test_down_up_reversed_mapping(self):
+        """Down/Up reversed order → Up still maps to YES (index 1)."""
+        picker = self._picker(
+            ["Down", "Up"],
+            token_ids=[NO_TOKEN, YES_TOKEN],
+        )
+        result = picker.resolve_slug(SLUG)
+        assert result.yes_token_id == YES_TOKEN
+        assert result.no_token_id == NO_TOKEN
+
+    def test_yes_beats_up_when_both_present(self):
+        """If one outcome is 'Yes' (tier-1), it wins over 'Up' (tier-2)."""
+        picker = self._picker(
+            ["Up", "Yes"],
+            token_ids=[NO_TOKEN, YES_TOKEN],
+        )
+        result = picker.resolve_slug(SLUG)
+        # 'Yes' is at index 1 → YES_TOKEN at index 1
+        assert result.yes_token_id == YES_TOKEN
+        assert result.yes_label == "Yes"
+
+    def test_false_true_reversed(self):
+        """False/True reversed order → True still maps to YES."""
+        picker = self._picker(
+            ["False", "True"],
+            token_ids=[NO_TOKEN, YES_TOKEN],
+        )
+        result = picker.resolve_slug(SLUG)
+        assert result.yes_token_id == YES_TOKEN
+
+    def test_ambiguous_outcomes_raise_clear_error(self):
+        """Rain/Shine outcomes → MarketPickerError with raw names in message."""
+        from packages.polymarket.simtrader.market_picker import MarketPickerError
+
+        picker = self._picker(["Rain", "Shine"])
+        with pytest.raises(MarketPickerError) as exc_info:
+            picker.resolve_slug(SLUG)
+        msg = str(exc_info.value)
+        assert "Rain" in msg
+        assert "Shine" in msg
+        assert SLUG in msg
+
+    def test_ambiguous_outcomes_error_includes_market_slug(self):
+        """Error message must include the slug so user can diagnose."""
+        from packages.polymarket.simtrader.market_picker import MarketPickerError
+
+        slug = "will-team-x-win-championship"
+        market = _make_market(slug=slug, outcomes=["Team X", "Team Y"])
+        gamma = MagicMock()
+        gamma.fetch_markets_filtered.return_value = [market]
+        from packages.polymarket.simtrader.market_picker import MarketPicker
+
+        picker = MarketPicker(gamma, MagicMock())
+        with pytest.raises(MarketPickerError) as exc_info:
+            picker.resolve_slug(slug)
+        assert slug in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Depth / liquidity filter tests (Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestDepthFilter:
+    """Tests for min_depth_size filtering in validate_book."""
+
+    def _picker(self, book_data):
+        from packages.polymarket.simtrader.market_picker import MarketPicker
+
+        clob = MagicMock()
+        clob.fetch_book.return_value = book_data
+        return MarketPicker(MagicMock(), clob)
+
+    def test_empty_book_still_rejected_before_depth_check(self):
+        """Empty book is rejected as empty_book before depth filter runs."""
+        picker = self._picker({"bids": [], "asks": []})
+        result = picker.validate_book(YES_TOKEN, min_depth_size=10.0)
+        assert not result.valid
+        assert result.reason == "empty_book"
+
+    def test_shallow_book_rejected_when_below_threshold(self):
+        """Book with total depth 30 rejected when min_depth_size=50."""
+        book = {
+            "bids": [{"price": "0.48", "size": "10"}, {"price": "0.47", "size": "5"}],
+            "asks": [{"price": "0.52", "size": "10"}, {"price": "0.53", "size": "5"}],
+        }
+        picker = self._picker(book)
+        result = picker.validate_book(YES_TOKEN, min_depth_size=50.0, top_n_levels=3)
+        assert not result.valid
+        assert result.reason == "shallow_book"
+        assert result.depth_total is not None
+        assert result.depth_total == pytest.approx(30.0)
+
+    def test_deep_book_accepted_above_threshold(self):
+        """Book with depth 200 accepted when min_depth_size=100."""
+        book = {
+            "bids": [
+                {"price": "0.48", "size": "50"},
+                {"price": "0.47", "size": "50"},
+            ],
+            "asks": [
+                {"price": "0.52", "size": "50"},
+                {"price": "0.53", "size": "50"},
+            ],
+        }
+        picker = self._picker(book)
+        result = picker.validate_book(YES_TOKEN, min_depth_size=100.0, top_n_levels=3)
+        assert result.valid
+        assert result.reason == "ok"
+        assert result.depth_total == pytest.approx(200.0)
+
+    def test_depth_filter_disabled_when_zero(self):
+        """min_depth_size=0 (default) disables depth check."""
+        # Only 5 total size — would fail depth check if enabled
+        book = {
+            "bids": [{"price": "0.48", "size": "1"}],
+            "asks": [{"price": "0.52", "size": "4"}],
+        }
+        picker = self._picker(book)
+        result = picker.validate_book(YES_TOKEN, min_depth_size=0.0)
+        assert result.valid
+        assert result.reason == "ok"
+        assert result.depth_total is None  # Not computed when disabled
+
+    def test_depth_respects_top_n_levels(self):
+        """Only top N levels per side are included in depth sum."""
+        book = {
+            "bids": [
+                {"price": "0.49", "size": "10"},  # top 1
+                {"price": "0.48", "size": "10"},  # top 2
+                {"price": "0.47", "size": "10"},  # top 3
+                {"price": "0.46", "size": "100"},  # excluded (beyond top 3)
+            ],
+            "asks": [
+                {"price": "0.51", "size": "10"},  # top 1
+                {"price": "0.52", "size": "10"},  # top 2
+                {"price": "0.53", "size": "10"},  # top 3
+                {"price": "0.54", "size": "100"},  # excluded
+            ],
+        }
+        picker = self._picker(book)
+        # top 3 per side = 30 bids + 30 asks = 60 total
+        result = picker.validate_book(YES_TOKEN, min_depth_size=50.0, top_n_levels=3)
+        assert result.valid
+        assert result.depth_total == pytest.approx(60.0)
+
+
+# ---------------------------------------------------------------------------
+# auto_pick collect_skips / dry_run verbose (Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestAutoPickCollectSkips:
+    """Tests for collect_skips parameter in auto_pick."""
+
+    def test_collect_skips_captures_empty_book_reason(self):
+        """collect_skips records empty_book reason for skipped market."""
+        from packages.polymarket.simtrader.market_picker import MarketPicker
+
+        slug_bad = "market-bad"
+        slug_good = "market-good"
+        yes_bad, no_bad = "yes_bad0", "no_bad0"
+        yes_good, no_good = "yes_good", "no_good"
+
+        market_bad = _make_market(slug=slug_bad, outcomes=["Yes", "No"],
+                                  clob_token_ids=[yes_bad, no_bad])
+        market_good = _make_market(slug=slug_good, outcomes=["Yes", "No"],
+                                   clob_token_ids=[yes_good, no_good])
+
+        gamma = MagicMock()
+        gamma.fetch_markets_page.return_value = [
+            {"slug": slug_bad, "outcomes": '["Yes","No"]',
+             "clobTokenIds": f'["{yes_bad}","{no_bad}"]'},
+            {"slug": slug_good, "outcomes": '["Yes","No"]',
+             "clobTokenIds": f'["{yes_good}","{no_good}"]'},
+        ]
+
+        def _filtered(slugs=None, **_kw):
+            by_slug = {slug_bad: market_bad, slug_good: market_good}
+            return [by_slug[slugs[0]]] if slugs else []
+
+        gamma.fetch_markets_filtered.side_effect = _filtered
+
+        clob = MagicMock()
+        clob.fetch_book.side_effect = lambda tid: (
+            {"bids": [], "asks": []} if tid in (yes_bad, no_bad) else _make_book()
+        )
+
+        picker = MarketPicker(gamma, clob)
+        skip_log: list = []
+        result = picker.auto_pick(collect_skips=skip_log)
+
+        assert result.slug == slug_good
+        assert len(skip_log) == 1
+        assert skip_log[0]["slug"] == slug_bad
+        assert skip_log[0]["reason"] == "empty_book"
+        assert skip_log[0]["side"] in ("YES", "NO")
+
+    def test_collect_skips_captures_shallow_book_with_depth(self):
+        """collect_skips includes depth_total when book is shallow."""
+        from packages.polymarket.simtrader.market_picker import MarketPicker
+
+        slug_shallow = "shallow-mkt"
+        slug_deep = "deep-mkt"
+        yes_s, no_s = "yes_shll", "no_shll0"
+        yes_d, no_d = "yes_deep", "no_deep"
+
+        market_s = _make_market(slug=slug_shallow, clob_token_ids=[yes_s, no_s])
+        market_d = _make_market(slug=slug_deep, clob_token_ids=[yes_d, no_d])
+
+        gamma = MagicMock()
+        gamma.fetch_markets_page.return_value = [
+            {"slug": slug_shallow, "outcomes": '["Yes","No"]',
+             "clobTokenIds": f'["{yes_s}","{no_s}"]'},
+            {"slug": slug_deep, "outcomes": '["Yes","No"]',
+             "clobTokenIds": f'["{yes_d}","{no_d}"]'},
+        ]
+
+        def _filtered(slugs=None, **_kw):
+            by_slug = {slug_shallow: market_s, slug_deep: market_d}
+            return [by_slug[slugs[0]]] if slugs else []
+
+        gamma.fetch_markets_filtered.side_effect = _filtered
+
+        def _fetch_book(tid):
+            if tid in (yes_s, no_s):
+                return {"bids": [{"price": "0.49", "size": "2"}],
+                        "asks": [{"price": "0.51", "size": "3"}]}
+            return _make_book()  # default: 100 size each side
+
+        clob = MagicMock()
+        clob.fetch_book.side_effect = _fetch_book
+
+        picker = MarketPicker(gamma, clob)
+        skip_log: list = []
+        result = picker.auto_pick(
+            min_depth_size=50.0, collect_skips=skip_log
+        )
+
+        assert result.slug == slug_deep
+        assert len(skip_log) == 1
+        skip = skip_log[0]
+        assert skip["slug"] == slug_shallow
+        assert skip["reason"] == "shallow_book"
+        assert skip["depth_total"] is not None
+        assert skip["depth_total"] < 50.0
