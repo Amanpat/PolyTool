@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
+from ..config_loader import ConfigLoadError, load_json_from_string
 from ..strategy.facade import (
     StrategyRunConfigError,
     StrategyRunParams,
@@ -76,14 +77,15 @@ class _ScenarioDef:
 
 
 def parse_sweep_config_json(raw: str) -> dict[str, Any]:
-    """Parse ``--sweep-config`` JSON and validate top-level shape."""
+    """Parse ``--sweep-config`` JSON and validate top-level shape.
+
+    Routes through ``load_json_from_string`` so that BOM-prefixed strings
+    (e.g. from PowerShell pipelines) are handled correctly.
+    """
     try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SweepConfigError(f"--sweep-config is not valid JSON: {exc}") from exc
-    if not isinstance(payload, dict):
-        raise SweepConfigError("--sweep-config must be a JSON object")
-    return payload
+        return load_json_from_string(raw)
+    except ConfigLoadError as exc:
+        raise SweepConfigError(f"--sweep-config: {exc}") from exc
 
 
 def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunResult:
