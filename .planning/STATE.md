@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-25 - Completed quick-010: --list-candidates and --exclude-market for quickrun
+Last activity: 2026-02-25 - Completed quick-011: sync public docs with current simtrader (probe, clean, diff)
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -49,3 +49,4 @@ None currently.
 | 008 | batch-run --aggregate-only, --run-roots, --workers N features | 2026-02-20 | d672fc3 | [8-batch-run-aggregate-only-and-workers-n-f](./quick/8-batch-run-aggregate-only-and-workers-n-f/) |
 | 009 | Roadmap 5 wrap-up PDR + mark ROADMAP.md [COMPLETE] | 2026-02-20 | 4e84a36 | [9-roadmap-5-wrap-up-pdr-and-mark-complete-](./quick/9-roadmap-5-wrap-up-pdr-and-mark-complete-/) |
 | 010 | quickrun --list-candidates N + --exclude-market SLUG (9 new tests, 56->65) | 2026-02-25 | b95f20b | [10-quickrun-list-candidates-and-exclude-mar](./quick/10-quickrun-list-candidates-and-exclude-mar/) |
+| 011 | Sync public docs with shipped simtrader features (probe, clean, diff) | 2026-02-25 | 7de79c4 | [11-sync-public-docs-with-current-simtrader-](./quick/11-sync-public-docs-with-current-simtrader-/) |
