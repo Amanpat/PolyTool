@@ -8,6 +8,27 @@
 
 ---
 
+## Implementation status (as of 2026-02-25)
+
+**Shipped:**
+- Replay-first tape pipeline (record → replay → L2 book)
+- BrokerSim + portfolio ledger + PnL artifacts
+- StrategyRunner + strategies (`copy_wallet_replay`, `binary_complement_arb`)
+- Batched `price_changes[]` support (modern Market Channel schema)
+- Scenario sweeps + sweep aggregates (dominant rejection counts)
+- Batch runner + leaderboard summaries (`batch_manifest.json`, `batch_summary.json/.csv`)
+- One-shot `quickrun` UX (market selection, config presets, candidate listing, exclusions)
+- Activeness probe (`--activeness-probe-seconds`, `--min-probe-updates`, `--require-active` on `quickrun`)
+- Shadow mode (live simulated) with stall kill-switch and run metrics
+- Local HTML "UI": `simtrader report` + `simtrader browse`
+- Artifact management: `simtrader clean` (safe dry-run deletion) + `simtrader diff` (run comparison, writes `diff_summary.json`)
+
+**Next:**
+- Better HTML report header metadata (`created_at`, `exit_reason`, `run_metrics` display)
+- Evidence memo ingestion (RAG) and ClickHouse/Grafana export stage
+
+---
+
 ## Table of Contents
 
 1. [Purpose and Motivation](#1-purpose-and-motivation)
@@ -408,12 +429,13 @@ Build the signals store only if:
 
 | Phase | Name | Status |
 |-------|------|--------|
-| SimTrader-0 | Tape + Replay Core | **COMPLETE** |
-| SimTrader-1 | Broker Fill Simulation | NOT STARTED |
-| SimTrader-2 | Portfolio and PnL | NOT STARTED |
-| SimTrader-3 | Arb and Copy-Wallet Strategies | NOT STARTED |
-| SimTrader-4 | Scenario Sweeps + Fault Injection | NOT STARTED |
-| SimTrader-5 | Shadow Mode | NOT STARTED |
+| SimTrader-0 | Tape + Replay Core | **DONE** |
+| SimTrader-1 | Broker Fill Simulation | **DONE** |
+| SimTrader-2 | Portfolio and PnL | **DONE** |
+| SimTrader-3 | Arb and Copy-Wallet Strategies | **DONE** |
+| SimTrader-4 | Scenario Sweeps + Batch Orchestrator | **DONE** |
+| SimTrader-4.1 | Visual Stage (Local HTML UI: report + browse) | **DONE** |
+| SimTrader-5 | Shadow Mode | **DONE** |
 | SimTrader-6 | Signals Store Integration | OPTIONAL / FUTURE |
 
 ---
@@ -448,7 +470,7 @@ document in an ADR.
 
 ---
 
-### SimTrader-1: Broker Fill Simulation
+### SimTrader-1: Broker Fill Simulation [DONE]
 
 **Goal:** Simulate whether a hypothetical limit order would fill, given the L2 book state at
 each point in the replay. Conservative defaults throughout (Section 4).
@@ -501,7 +523,7 @@ in meta.json.
 
 ---
 
-### SimTrader-2: Portfolio and PnL
+### SimTrader-2: Portfolio and PnL [DONE]
 
 **Goal:** Track positions opened/closed by broker fills; compute realized and unrealized PnL
 at each book-affecting event.
@@ -548,7 +570,7 @@ the rate of PENDING closures in `meta.json`.
 
 ---
 
-### SimTrader-3: Arb and Copy-Wallet Strategies
+### SimTrader-3: Arb and Copy-Wallet Strategies [DONE]
 
 **Goal:** Ship the two initial strategy implementations (Section 5) and validate them against
 real recorded tapes.
@@ -593,7 +615,7 @@ development.
 
 ---
 
-### SimTrader-4: Scenario Sweeps and Fault Injection
+### SimTrader-4: Scenario Sweeps, Batch Orchestrator, and Local HTML UI [DONE]
 
 **Goal:** Run parameter grid searches and inject synthetic faults to test strategy robustness.
 
@@ -618,7 +640,7 @@ consistent positive PnL on at least 3 distinct tapes, document as a research fin
 
 ---
 
-### SimTrader-5: Shadow Mode
+### SimTrader-5: Shadow Mode [DONE]
 
 **Goal:** Run the full replay pipeline against a live WS feed in real-time (no real orders
 placed). Emit shadow fills and portfolio updates as they would happen live.

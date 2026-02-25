@@ -14,6 +14,25 @@ RAG workflow that never calls external LLM APIs.
 - LLM report retention with automatic LLM_notes for RAG surfacing.
 - MCP server integration for Claude Desktop.
 
+## SimTrader (replay-first + shadow mode)
+
+SimTrader is a realism-first simulated trader for Polymarket CLOB markets. It records the Market Channel WS into deterministic tapes and supports both offline replay and live simulated "shadow" runs.
+
+What exists today:
+- One-shot runner: `simtrader quickrun` (auto market pick/validate → record → run or sweep)
+- Scenario sweeps (`--sweep quick` / `quick_small`) and batch leaderboard (`simtrader batch`)
+- Shadow mode: `simtrader shadow` (live WS → strategy → BrokerSim fills; optional tape recording)
+- Activeness probe: `--activeness-probe-seconds` / `--require-active` on `quickrun` measures live WS update rate before committing to a market
+- Artifact management: `simtrader clean` (safe dry-run deletion of artifact folders) and `simtrader diff` (side-by-side comparison of two run directories, writes `diff_summary.json`)
+- Local UI: `simtrader report` generates self-contained `report.html` for run/sweep/batch/shadow artifacts; `simtrader browse --open` opens newest results
+- Explainability: `strategy_debug.rejection_counts`, sweep/batch aggregates, and audited JSONL artifacts
+
+Start here:
+- `docs/README_SIMTRADER.md`
+- `docs/specs/SPEC-0010-simtrader-vision-and-roadmap.md`
+
+---
+
 ## Pipeline (text)
 
 ```
