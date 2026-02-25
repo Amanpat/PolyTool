@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-20 - Completed quick-009: Roadmap 5 wrap-up PDR + ROADMAP.md marked COMPLETE
+Last activity: 2026-02-25 - Completed quick-010: --list-candidates and --exclude-market for quickrun
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -30,6 +30,8 @@ Last activity: 2026-02-20 - Completed quick-009: Roadmap 5 wrap-up PDR + ROADMAP
 - Roadmap 5 closed [COMPLETE]: CLV infra shipped but 0% coverage triggered kill condition; batch-run harness shipped fully; ROADMAP.md updated
 - Mark 5.0 category [x] when code ships even if runtime coverage is 0% (upstream data gap, not code defect)
 - Robust stats: sort-based median/trimmed-mean/p25/p75 with MAX_ROBUST_VALUES=500 cap; beat_close is required positional arg in _accumulate_segment_bucket
+- quickrun --list-candidates: exits before normal flow; warning (not error) when combined with --market
+- quickrun --exclude-market: repeatable; exclude_slugs persisted as list in quickrun_context for JSON serializability
 
 ### Blockers/Concerns
 None currently.
@@ -46,3 +48,4 @@ None currently.
 | 007 | Robust segment stats (median, trimmed mean, IQR) for clv_pct and entry_drift_pct | 2026-02-20 | 10f78c2 | [7-add-robust-segment-stats-median-trimmed-](./quick/7-add-robust-segment-stats-median-trimmed-/) |
 | 008 | batch-run --aggregate-only, --run-roots, --workers N features | 2026-02-20 | d672fc3 | [8-batch-run-aggregate-only-and-workers-n-f](./quick/8-batch-run-aggregate-only-and-workers-n-f/) |
 | 009 | Roadmap 5 wrap-up PDR + mark ROADMAP.md [COMPLETE] | 2026-02-20 | 4e84a36 | [9-roadmap-5-wrap-up-pdr-and-mark-complete-](./quick/9-roadmap-5-wrap-up-pdr-and-mark-complete-/) |
+| 010 | quickrun --list-candidates N + --exclude-market SLUG (9 new tests, 56->65) | 2026-02-25 | b95f20b | [10-quickrun-list-candidates-and-exclude-mar](./quick/10-quickrun-list-candidates-and-exclude-mar/) |
