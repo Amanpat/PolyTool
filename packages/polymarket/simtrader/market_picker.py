@@ -62,7 +62,7 @@ class BookValidation:
 
     token_id: str
     valid: bool
-    # "ok" | "error_response" | "empty_book" | "fetch_failed" | "shallow_book"
+    # "ok" | "error_response" | "empty_book" | "one_sided_book" | "fetch_failed" | "shallow_book"
     reason: str
     best_bid: Optional[float]
     best_ask: Optional[float]
@@ -190,11 +190,11 @@ class MarketPicker:
         bids = book.get("bids") or []
         asks = book.get("asks") or []
 
-        if not bids and not asks and not allow_empty:
+        if (not bids or not asks) and not allow_empty:
             return BookValidation(
                 token_id=token_id,
                 valid=False,
-                reason="empty_book",
+                reason="empty_book" if (not bids and not asks) else "one_sided_book",
                 best_bid=None,
                 best_ask=None,
             )
@@ -232,6 +232,7 @@ class MarketPicker:
         min_depth_size: float = 0.0,
         top_n_levels: int = 3,
         collect_skips: Optional[list] = None,
+        exclude_slugs: Optional[set] = None,
     ) -> ResolvedMarket:
         """Auto-select the first valid binary market from active markets.
 
@@ -245,6 +246,7 @@ class MarketPicker:
             top_n_levels:    Levels per side for depth check (default: 3).
             collect_skips:   If not None, append skip-reason dicts here so the
                              caller can report them (useful for ``--dry-run``).
+            exclude_slugs:   Slugs to skip during candidate selection.
 
         Returns:
             First ResolvedMarket that passes all checks.
@@ -259,6 +261,7 @@ class MarketPicker:
             min_depth_size=min_depth_size,
             top_n_levels=top_n_levels,
             collect_skips=collect_skips,
+            exclude_slugs=exclude_slugs,
         )
         if not results:
             raise MarketPickerError(
@@ -413,17 +416,26 @@ class MarketPicker:
         Raises:
             MarketPickerError: If outcomes are ambiguous or unrecognised.
         """
+        if len(outcomes) != 2:
+            raise MarketPickerError(
+                f"cannot identify YES/NO from outcomes {outcomes!r} for market {slug!r}; "
+                "expected exactly 2 outcomes"
+            )
+
         lower = [o.strip().lower() for o in outcomes]
+        a, b = lower[0], lower[1]
 
-        # Tier 1: explicit "yes"/"y" names (highest priority)
-        yes_explicit = [i for i, o in enumerate(lower) if o in _YES_EXPLICIT]
-        if len(yes_explicit) == 1:
-            return yes_explicit[0], "explicit"
+        # Tier 1 (preferred): explicit YES with recognised NO counterpart.
+        if a in _YES_EXPLICIT and b in _NO_NAMES:
+            return 0, "explicit"
+        if b in _YES_EXPLICIT and a in _NO_NAMES:
+            return 1, "explicit"
 
-        # Tier 2: any recognised YES alias (true, 1, up, long, higher, …)
-        yes_any = [i for i, o in enumerate(lower) if o in _YES_NAMES]
-        if len(yes_any) == 1:
-            return yes_any[0], "alias"
+        # Tier 2: recognised YES alias with recognised NO alias/explicit.
+        if a in _YES_NAMES and b in _NO_NAMES:
+            return 0, "alias"
+        if b in _YES_NAMES and a in _NO_NAMES:
+            return 1, "alias"
 
         raise MarketPickerError(
             f"cannot identify YES/NO from outcomes {outcomes!r} for market {slug!r}; "
