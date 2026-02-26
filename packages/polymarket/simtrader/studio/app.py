@@ -164,6 +164,83 @@ def _coerce_args(raw: Any) -> list[str]:
     raise ValueError("args must be a list of strings or a string")
 
 
+def _read_json_file(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _read_jsonl_rows(path: Path, limit: int) -> list[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    rows.append(payload)
+    except OSError:
+        return []
+    if limit > 0 and len(rows) > limit:
+        return rows[-limit:]
+    return rows
+
+
+def _extract_rejection_rows(
+    run_manifest: dict[str, Any],
+    summary: dict[str, Any],
+) -> list[dict[str, Any]]:
+    def _coerce_rows(raw: Any) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        if isinstance(raw, dict):
+            for key, value in raw.items():
+                try:
+                    count = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if count > 0:
+                    rows.append({"reason": str(key), "count": count})
+        elif isinstance(raw, list):
+            for row in raw:
+                if not isinstance(row, dict):
+                    continue
+                key = row.get("key") or row.get("reason")
+                count = row.get("count")
+                try:
+                    count_int = int(count)
+                except (TypeError, ValueError):
+                    continue
+                if key and count_int > 0:
+                    rows.append({"reason": str(key), "count": count_int})
+        rows.sort(key=lambda row: (-int(row["count"]), str(row["reason"])))
+        return rows
+
+    containers = [
+        run_manifest.get("strategy_debug"),
+        run_manifest.get("modeled_arb_summary"),
+        summary,
+    ]
+    for container in containers:
+        if not isinstance(container, dict):
+            continue
+        for key in ("rejection_counts", "dominant_rejection_counts"):
+            rows = _coerce_rows(container.get(key))
+            if rows:
+                return rows
+    return []
+
+
 def _decorate_session_snapshot(snapshot: dict[str, Any], artifacts_root: Path) -> dict[str, Any]:
     row = dict(snapshot)
     row["artifact_relpath"] = None
@@ -358,6 +435,46 @@ def create_app(
             "session": _get_tracked_session(session_id),
             "offset": next_offset,
             "lines": lines,
+        }
+
+    @app.get("/api/sessions/{session_id}/viewer")
+    async def session_viewer(
+        session_id: str,
+        equity_limit: int = Query(default=500, ge=1, le=5000),
+        row_limit: int = Query(default=200, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        session = _get_tracked_session(session_id)
+        artifact_raw = session.get("artifact_dir")
+        if not isinstance(artifact_raw, str) or not artifact_raw:
+            raise HTTPException(
+                status_code=400,
+                detail=f"session has no artifact directory: {session_id}",
+            )
+
+        artifact_dir = Path(artifact_raw).resolve()
+        if not artifact_dir.exists() or not artifact_dir.is_dir():
+            raise HTTPException(
+                status_code=404,
+                detail=f"artifact directory not found: {artifact_dir}",
+            )
+        if not _is_relative_to(artifact_dir, _artifacts_dir):
+            raise HTTPException(status_code=400, detail="artifact path escapes artifacts root")
+
+        run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
+        summary = _read_json_file(artifact_dir / "summary.json") or {}
+        equity_curve = _read_jsonl_rows(artifact_dir / "equity_curve.jsonl", limit=equity_limit)
+        orders = _read_jsonl_rows(artifact_dir / "orders.jsonl", limit=row_limit)
+        fills = _read_jsonl_rows(artifact_dir / "fills.jsonl", limit=row_limit)
+        rejection_rows = _extract_rejection_rows(run_manifest=run_manifest, summary=summary)
+
+        return {
+            "session": session,
+            "summary": summary,
+            "run_manifest": run_manifest,
+            "equity_curve": equity_curve,
+            "orders": orders,
+            "fills": fills,
+            "rejection_reasons": rejection_rows,
         }
 
     @app.get("/api/sessions/{session_id}/events")

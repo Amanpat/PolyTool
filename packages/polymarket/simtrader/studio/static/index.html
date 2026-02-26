@@ -105,6 +105,26 @@
         <div class="muted" id="selected-session-label">No session selected.</div>
         <pre class="log" id="session-log-box"></pre>
       </div>
+      <div class="card">
+        <h2>Simulation Viewer</h2>
+        <div class="muted" id="viewer-session-label">No session selected.</div>
+        <div class="muted mono" id="viewer-summary" style="margin:8px 0;"></div>
+        <canvas id="viewer-chart" height="180" style="width:100%; border:1px solid #2a4461; border-radius:6px; background:#0b1422;"></canvas>
+        <div class="row" style="margin-top:10px;">
+          <div style="flex:1; min-width:280px;">
+            <div class="muted" style="margin-bottom:4px;">Orders</div>
+            <div class="table-wrap" id="viewer-orders-wrap"><div class="empty" style="padding:10px;">No data.</div></div>
+          </div>
+          <div style="flex:1; min-width:280px;">
+            <div class="muted" style="margin-bottom:4px;">Fills</div>
+            <div class="table-wrap" id="viewer-fills-wrap"><div class="empty" style="padding:10px;">No data.</div></div>
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="muted" style="margin-bottom:4px;">Reasons</div>
+          <div class="table-wrap" id="viewer-reasons-wrap"><div class="empty" style="padding:10px;">No data.</div></div>
+        </div>
+      </div>
     </section>
 
     <section class="tab-panel" id="tab-workspaces">
@@ -187,6 +207,7 @@
       sessionEventSource: null,
       workspaces: [],
       activeWorkspaceId: null,
+      viewerPayload: null,
     };
 
     function setStatus(msg, cls) {
@@ -283,6 +304,9 @@
       renderDashboardRecent();
       renderSessions();
       renderWorkspacePanel();
+      if (state.selectedSessionId) {
+        loadViewer(state.selectedSessionId);
+      }
     }
 
     async function refreshAll() {
@@ -373,6 +397,7 @@
         document.getElementById("session-log-box").textContent = "Error loading log: " + err.message;
       }
       connectSessionStream(sessionId, state.selectedSessionLogOffset);
+      loadViewer(sessionId);
     }
 
     function closeSessionStream() {
@@ -508,6 +533,156 @@
       document.getElementById("report-frame").src = url;
       activateTab("reports");
       setStatus("Opened report: " + url, "ok");
+    }
+
+    function pickFirst(obj, keys) {
+      for (const key of keys) {
+        if (obj[key] != null && obj[key] !== "") return obj[key];
+      }
+      return "";
+    }
+
+    function numberOrNull(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function renderCompactTable(containerId, columns, rows) {
+      const container = document.getElementById(containerId);
+      if (!rows || rows.length === 0) {
+        container.innerHTML = "<div class='empty' style='padding:10px;'>No data.</div>";
+        return;
+      }
+      const headerHtml = columns.map((c) => "<th>" + escHtml(c) + "</th>").join("");
+      const rowHtml = rows.map((row) => {
+        const cells = columns.map((c) => "<td>" + escHtml(String(row[c] ?? "")) + "</td>").join("");
+        return "<tr>" + cells + "</tr>";
+      }).join("");
+      container.innerHTML = "<table><thead><tr>" + headerHtml + "</tr></thead><tbody>" + rowHtml + "</tbody></table>";
+    }
+
+    function drawViewerChart(rows) {
+      const canvas = document.getElementById("viewer-chart");
+      const ctx = canvas.getContext("2d");
+      const cssWidth = Math.max(300, canvas.clientWidth || 300);
+      const cssHeight = Number(canvas.getAttribute("height") || "180");
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+      const points = [];
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        const equity = numberOrNull(pickFirst(row, ["equity", "final_equity"]));
+        if (equity == null) continue;
+        points.push({ idx: i, value: equity });
+      }
+      if (points.length < 2) {
+        ctx.fillStyle = "#96acc7";
+        ctx.font = "12px Segoe UI, sans-serif";
+        ctx.fillText("No equity curve data yet.", 12, 24);
+        return;
+      }
+
+      let minV = points[0].value;
+      let maxV = points[0].value;
+      for (const point of points) {
+        minV = Math.min(minV, point.value);
+        maxV = Math.max(maxV, point.value);
+      }
+      const range = Math.max(1e-9, maxV - minV);
+      const pad = 14;
+      const innerW = cssWidth - pad * 2;
+      const innerH = cssHeight - pad * 2;
+
+      ctx.strokeStyle = "#2b4767";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad, pad, innerW, innerH);
+
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i += 1) {
+        const point = points[i];
+        const x = pad + (i / (points.length - 1)) * innerW;
+        const y = pad + (1 - (point.value - minV) / range) * innerH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#9fc0e4";
+      ctx.font = "11px Consolas, monospace";
+      ctx.fillText("min " + minV.toFixed(4), pad, cssHeight - 4);
+      ctx.fillText("max " + maxV.toFixed(4), cssWidth - 110, cssHeight - 4);
+    }
+
+    function renderViewer(payload) {
+      state.viewerPayload = payload;
+      const summary = payload.summary || {};
+      const manifest = payload.run_manifest || {};
+      const netProfit = pickFirst(summary, ["net_profit"]) || pickFirst(manifest, ["net_profit"]);
+      const fillsCount = pickFirst(summary, ["fills_count"]) || pickFirst(manifest, ["fills_count"]);
+      const ordersCount = pickFirst(summary, ["orders_count"]) || pickFirst(manifest, ["decisions_count"]);
+      document.getElementById("viewer-summary").textContent =
+        "net_profit=" + (netProfit || "-")
+        + " | fills=" + (fillsCount || "0")
+        + " | orders=" + (ordersCount || "0");
+
+      drawViewerChart(payload.equity_curve || []);
+
+      const orderRows = (payload.orders || []).slice(-80).reverse().map((row) => ({
+        seq: pickFirst(row, ["seq", "submit_seq", "event_seq"]),
+        event: pickFirst(row, ["event", "event_type", "type"]),
+        order_id: pickFirst(row, ["order_id"]),
+        side: pickFirst(row, ["side"]),
+        price: pickFirst(row, ["limit_price", "price"]),
+        size: pickFirst(row, ["size", "fill_size"]),
+        status: pickFirst(row, ["status"]),
+      }));
+      renderCompactTable("viewer-orders-wrap", ["seq", "event", "order_id", "side", "price", "size", "status"], orderRows);
+
+      const fillRows = (payload.fills || []).slice(-80).reverse().map((row) => ({
+        seq: pickFirst(row, ["seq", "fill_seq"]),
+        order_id: pickFirst(row, ["order_id"]),
+        side: pickFirst(row, ["side"]),
+        fill_price: pickFirst(row, ["fill_price", "price"]),
+        fill_size: pickFirst(row, ["fill_size", "size"]),
+        remaining: pickFirst(row, ["remaining_size"]),
+      }));
+      renderCompactTable("viewer-fills-wrap", ["seq", "order_id", "side", "fill_price", "fill_size", "remaining"], fillRows);
+
+      const reasonRows = (payload.rejection_reasons || []).slice(0, 20).map((row) => ({
+        reason: pickFirst(row, ["reason", "key"]),
+        count: pickFirst(row, ["count"]),
+      }));
+      renderCompactTable("viewer-reasons-wrap", ["reason", "count"], reasonRows);
+    }
+
+    function clearViewer(message) {
+      state.viewerPayload = null;
+      document.getElementById("viewer-summary").textContent = "";
+      document.getElementById("viewer-session-label").textContent = message || "No session selected.";
+      drawViewerChart([]);
+      renderCompactTable("viewer-orders-wrap", ["seq", "event", "order_id", "side", "price", "size", "status"], []);
+      renderCompactTable("viewer-fills-wrap", ["seq", "order_id", "side", "fill_price", "fill_size", "remaining"], []);
+      renderCompactTable("viewer-reasons-wrap", ["reason", "count"], []);
+    }
+
+    async function loadViewer(sessionId) {
+      if (!sessionId) {
+        clearViewer("No session selected.");
+        return;
+      }
+      document.getElementById("viewer-session-label").textContent = "Session: " + sessionId;
+      try {
+        const payload = await apiJson("/api/sessions/" + encodeURIComponent(sessionId) + "/viewer");
+        renderViewer(payload);
+      } catch (err) {
+        clearViewer("Viewer unavailable for this session.");
+      }
     }
     function syncTapeSelectors() {
       const wsTape = document.getElementById("workspace-tape-select");
@@ -813,6 +988,7 @@
       await refreshAll();
       renderWorkspaceTabs();
       document.getElementById("session-log-box").textContent = "";
+      clearViewer("No session selected.");
       setInterval(async () => {
         try {
           await Promise.all([refreshSessions(), refreshArtifacts()]);
@@ -821,6 +997,11 @@
     }
 
     window.addEventListener("beforeunload", () => closeSessionStream());
+    window.addEventListener("resize", () => {
+      if (state.viewerPayload) {
+        drawViewerChart(state.viewerPayload.equity_curve || []);
+      }
+    });
     boot();
   </script>
 </body>

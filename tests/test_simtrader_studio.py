@@ -212,6 +212,80 @@ def test_session_log_endpoint_returns_lines(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Test 4e: /api/sessions/{id}/viewer returns chart/orders/fills/reasons payload
+# ---------------------------------------------------------------------------
+
+
+def test_session_viewer_endpoint(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+    from packages.polymarket.simtrader.studio_sessions import (
+        TERMINAL_STATUSES,
+        StudioSessionManager,
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+
+    def command_builder(subcommand: str, args: list[str]) -> list[str]:
+        assert subcommand == "run"
+        run_id = ""
+        for idx, token in enumerate(args):
+            if token == "--run-id" and idx + 1 < len(args):
+                run_id = args[idx + 1]
+                break
+        assert run_id
+        run_dir = artifacts_root / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "equity_curve.jsonl").write_text(
+            '{"seq": 1, "equity": "1000"}\n{"seq": 2, "equity": "1001.5"}\n',
+            encoding="utf-8",
+        )
+        (run_dir / "orders.jsonl").write_text(
+            '{"seq": 2, "event": "submitted", "order_id": "o1", "side": "BUY", "limit_price": "0.45", "size": "10", "status": "ACTIVE"}\n',
+            encoding="utf-8",
+        )
+        (run_dir / "fills.jsonl").write_text(
+            '{"seq": 3, "order_id": "o1", "side": "BUY", "fill_price": "0.45", "fill_size": "10", "remaining_size": "0"}\n',
+            encoding="utf-8",
+        )
+        (run_dir / "run_manifest.json").write_text(
+            json.dumps({"strategy_debug": {"rejection_counts": {"edge_below_threshold": 5}}}),
+            encoding="utf-8",
+        )
+        script = "print('viewer run complete')\n"
+        return [sys.executable, "-u", "-c", script]
+
+    manager = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
+    app = create_app(artifacts_dir=artifacts_root, session_manager=manager)
+    client = TestClient(app)
+
+    start = client.post(
+        "/api/sessions",
+        json={"command": "run", "args": ["--tape", "ignored.jsonl", "--strategy", "noop"]},
+    )
+    assert start.status_code == 200
+    session_id = start.json()["session"]["session_id"]
+
+    for _ in range(120):
+        detail = client.get(f"/api/sessions/{session_id}").json()["session"]
+        if detail["status"] in TERMINAL_STATUSES:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("session did not reach terminal state")
+
+    viewer = client.get(f"/api/sessions/{session_id}/viewer")
+    assert viewer.status_code == 200
+    payload = viewer.json()
+    assert payload["session"]["session_id"] == session_id
+    assert len(payload["equity_curve"]) == 2
+    assert len(payload["orders"]) == 1
+    assert len(payload["fills"]) == 1
+    assert payload["rejection_reasons"][0]["reason"] == "edge_below_threshold"
+
+
+# ---------------------------------------------------------------------------
 # Test 5: /api/tapes returns empty list when tapes dir does not exist
 # ---------------------------------------------------------------------------
 
