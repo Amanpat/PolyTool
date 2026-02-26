@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SimTrader Studio</title>
+  <style>
+    /* ---- Reset & base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Header ---- */
+    header {
+      background: #16213e;
+      border-bottom: 2px solid #0f3460;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e94560;
+      letter-spacing: 0.5px;
+    }
+    header .subtitle {
+      font-size: 12px;
+      color: #8888aa;
+    }
+
+    /* ---- Tab nav ---- */
+    nav.tabs {
+      background: #16213e;
+      display: flex;
+      gap: 2px;
+      padding: 0 20px;
+      border-bottom: 1px solid #0f3460;
+    }
+    nav.tabs button {
+      background: transparent;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: #8888aa;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 18px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    nav.tabs button:hover { color: #c0c0e0; }
+    nav.tabs button.active {
+      color: #e94560;
+      border-bottom-color: #e94560;
+    }
+
+    /* ---- Main content ---- */
+    main {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      padding-bottom: 60px;
+    }
+
+    /* ---- Tab panels ---- */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ---- Cards ---- */
+    .card {
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #a0a8cc;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ---- Buttons ---- */
+    .btn {
+      background: #0f3460;
+      border: 1px solid #1a5276;
+      border-radius: 4px;
+      color: #c8d0f0;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 14px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: #1a4a80; border-color: #2a6aaa; }
+    .btn:active { background: #0a2040; }
+    .btn.danger { background: #3d1a1a; border-color: #7a2a2a; color: #f0c0c0; }
+    .btn.danger:hover { background: #5a2020; }
+    .btn.small { font-size: 11px; padding: 4px 10px; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* ---- Output pre ---- */
+    pre.output {
+      background: #0d0d1a;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      color: #90ee90;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      margin-top: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    pre.output.hidden { display: none; }
+    pre.output.error { color: #ff8080; }
+
+    /* ---- Tables ---- */
+    table {
+      border-collapse: collapse;
+      font-size: 13px;
+      width: 100%;
+    }
+    th {
+      background: #0f3460;
+      color: #a0a8cc;
+      font-weight: 600;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    td {
+      border-bottom: 1px solid #1a2a4a;
+      color: #c8d0e8;
+      padding: 7px 10px;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2a4e; }
+
+    /* ---- Badge ---- */
+    .badge {
+      background: #0f3460;
+      border-radius: 3px;
+      font-size: 11px;
+      padding: 2px 6px;
+    }
+    .badge.run { background: #1a4020; color: #80d080; }
+    .badge.shadow { background: #2a1a40; color: #c080f0; }
+    .badge.sweep { background: #3a2a10; color: #f0c060; }
+    .badge.batch { background: #1a3040; color: #60c0f0; }
+
+    /* ---- Manual path input ---- */
+    .input-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    input[type="text"] {
+      background: #0d0d1a;
+      border: 1px solid #0f3460;
+      border-radius: 4px;
+      color: #e0e0f0;
+      flex: 1;
+      font-size: 13px;
+      padding: 7px 10px;
+    }
+    input[type="text"]::placeholder { color: #444466; }
+    input[type="text"]:focus { border-color: #2a5090; outline: none; }
+
+    /* ---- Status bar ---- */
+    #status-bar {
+      background: #0d0d1a;
+      border-top: 1px solid #0f3460;
+      bottom: 0;
+      color: #8888aa;
+      font-size: 12px;
+      left: 0;
+      padding: 6px 20px;
+      position: fixed;
+      right: 0;
+    }
+    #status-bar.ok { color: #80d080; }
+    #status-bar.err { color: #ff8080; }
+
+    /* ---- Misc ---- */
+    .empty-msg { color: #555577; font-style: italic; }
+    .path-text { color: #8888aa; font-family: monospace; font-size: 11px; word-break: break-all; }
+    .refresh-note { color: #555577; font-size: 11px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>SimTrader Studio</h1>
+  <span class="subtitle">Local control panel — localhost only</span>
+</header>
+
+<nav class="tabs" id="tab-nav">
+  <button class="active" data-tab="dashboard">Dashboard</button>
+  <button data-tab="sessions">Sessions</button>
+  <button data-tab="tapes">Tapes</button>
+  <button data-tab="reports">Reports</button>
+</nav>
+
+<main>
+
+  <!-- ================================================================ -->
+  <!-- DASHBOARD TAB                                                      -->
+  <!-- ================================================================ -->
+  <div class="tab-panel active" id="tab-dashboard">
+
+    <div class="card">
+      <h2>Quick Actions</h2>
+      <div class="btn-group">
+        <button class="btn" onclick="runCmd('quickrun', ['--dry-run'])">quickrun --dry-run</button>
+        <button class="btn" onclick="runCmd('shadow', ['--dry-run'])">shadow --dry-run</button>
+        <button class="btn" onclick="runCmd('browse', [])">browse</button>
+        <button class="btn danger" onclick="runCmd('clean', ['--yes'])">clean --yes</button>
+      </div>
+      <pre class="output hidden" id="dashboard-output"></pre>
+    </div>
+
+    <div class="card">
+      <h2>Last 10 Artifacts</h2>
+      <div id="recent-artifacts-container">
+        <span class="empty-msg">Loading...</span>
+      </div>
+      <p class="refresh-note">Refreshes every 30 seconds.</p>
+    </div>
+
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- SESSIONS TAB                                                       -->
+  <!-- ================================================================ -->
+  <div class="tab-panel" id="tab-sessions">
+    <div class="card">
+      <h2>Completed Runs and Shadow Sessions</h2>
+      <div id="sessions-container">
+        <span class="empty-msg">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- TAPES TAB                                                          -->
+  <!-- ================================================================ -->
+  <div class="tab-panel" id="tab-tapes">
+    <div class="card">
+      <h2>Recorded WS Tapes</h2>
+      <div id="tapes-container">
+        <span class="empty-msg">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- REPORTS TAB                                                        -->
+  <!-- ================================================================ -->
+  <div class="tab-panel" id="tab-reports">
+    <div class="card">
+      <h2>Artifacts with Reports</h2>
+      <div id="reports-container">
+        <span class="empty-msg">Loading...</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Generate Report for Artifact Directory</h2>
+      <p style="color:#8888aa;margin-bottom:8px;">Paste an artifact directory path (e.g. artifacts/simtrader/runs/20260226T120000Z_mymarket).</p>
+      <div class="input-row">
+        <input type="text" id="report-path-input" placeholder="artifacts/simtrader/runs/..." />
+        <button class="btn" onclick="generateReport()">Generate Report</button>
+      </div>
+      <pre class="output hidden" id="report-manual-output"></pre>
+    </div>
+  </div>
+
+</main>
+
+<div id="status-bar">Ready.</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let artifactsCache = [];
+
+// ---------------------------------------------------------------------------
+// Utility: status bar
+// ---------------------------------------------------------------------------
+function setStatus(msg, cls) {
+  const bar = document.getElementById('status-bar');
+  bar.textContent = msg;
+  bar.className = cls || '';
+}
+
+// ---------------------------------------------------------------------------
+// Utility: API fetch wrapper
+// ---------------------------------------------------------------------------
+async function apiFetch(url, opts) {
+  try {
+    const resp = await fetch(url, opts);
+    if (!resp.ok) {
+      let errText = resp.statusText;
+      try { const j = await resp.json(); errText = j.detail || JSON.stringify(j); } catch(_) {}
+      throw new Error(`HTTP ${resp.status}: ${errText}`);
+    }
+    return resp;
+  } catch (err) {
+    setStatus('Error: ' + err.message, 'err');
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+document.getElementById('tab-nav').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  const tabId = btn.dataset.tab;
+
+  document.querySelectorAll('#tab-nav button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tabId).classList.add('active');
+
+  // Refresh relevant data on tab switch.
+  if (tabId === 'sessions') renderSessions();
+  if (tabId === 'tapes') loadTapes();
+  if (tabId === 'reports') renderReports();
+});
+
+// ---------------------------------------------------------------------------
+// Run a simtrader subcommand via /api/run
+// ---------------------------------------------------------------------------
+async function runCmd(command, args, outputElId) {
+  const outEl = outputElId
+    ? document.getElementById(outputElId)
+    : document.getElementById('dashboard-output');
+
+  outEl.classList.remove('hidden', 'error');
+  outEl.textContent = `Running: simtrader ${command} ${args.join(' ')}\n...`;
+  setStatus(`Running simtrader ${command}...`);
+
+  try {
+    const resp = await apiFetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, args }),
+    });
+    const data = await resp.json();
+    outEl.textContent = data.output || '(no output)';
+    if (data.returncode !== 0) {
+      outEl.classList.add('error');
+      setStatus(`Command exited with code ${data.returncode}.`, 'err');
+    } else {
+      setStatus(`Command completed successfully.`, 'ok');
+    }
+  } catch (err) {
+    outEl.textContent = 'Error: ' + err.message;
+    outEl.classList.add('error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Load artifacts from /api/artifacts
+// ---------------------------------------------------------------------------
+async function loadArtifacts() {
+  try {
+    const resp = await apiFetch('/api/artifacts');
+    const data = await resp.json();
+    artifactsCache = data.artifacts || [];
+    setStatus(`Loaded ${artifactsCache.length} artifact(s).`, 'ok');
+    return artifactsCache;
+  } catch (_) {
+    artifactsCache = [];
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: render last 10 artifacts
+// ---------------------------------------------------------------------------
+function renderRecentArtifacts(artifacts) {
+  const container = document.getElementById('recent-artifacts-container');
+  const recent = artifacts.slice(0, 10);
+  if (recent.length === 0) {
+    container.innerHTML = '<span class="empty-msg">No artifacts found yet. Run quickrun or shadow to generate some.</span>';
+    return;
+  }
+
+  const rows = recent.map(a => {
+    const pathText = `<span class="path-text">${escHtml(a.artifact_path)}</span>`;
+    const reportBadge = a.has_report
+      ? `<span class="badge" style="color:#90ee90">report</span>`
+      : '';
+    return `<tr>
+      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
+      <td>${escHtml(a.artifact_id)}</td>
+      <td>${escHtml(a.timestamp)}</td>
+      <td>${reportBadge}</td>
+      <td>${pathText}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Report</th><th>Path</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function refreshDashboard() {
+  const artifacts = await loadArtifacts();
+  renderRecentArtifacts(artifacts);
+}
+
+// ---------------------------------------------------------------------------
+// Sessions tab
+// ---------------------------------------------------------------------------
+function renderSessions() {
+  const container = document.getElementById('sessions-container');
+  const sessions = artifactsCache.filter(a => a.artifact_type === 'run' || a.artifact_type === 'shadow');
+  if (sessions.length === 0) {
+    container.innerHTML = '<span class="empty-msg">No run or shadow sessions found.</span>';
+    return;
+  }
+
+  const rows = sessions.map(a => {
+    const reportCell = a.has_report
+      ? `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}')">Re-report</button>`
+      : `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}')">Generate</button>`;
+    return `<tr>
+      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
+      <td>${escHtml(a.artifact_id)}</td>
+      <td>${escHtml(a.timestamp)}</td>
+      <td>${a.has_report ? 'yes' : 'no'}</td>
+      <td>${reportCell}</td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Has Report</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+// ---------------------------------------------------------------------------
+// Tapes tab
+// ---------------------------------------------------------------------------
+async function loadTapes() {
+  const container = document.getElementById('tapes-container');
+  container.innerHTML = '<span class="empty-msg">Loading...</span>';
+  try {
+    const resp = await apiFetch('/api/tapes');
+    const data = await resp.json();
+    const tapes = data.tapes || [];
+    if (tapes.length === 0) {
+      container.innerHTML = '<span class="empty-msg">No tapes found. Use `simtrader record` or `quickrun` to record tapes.</span>';
+      return;
+    }
+    const rows = tapes.map(t => {
+      const copyBtn = `<button class="btn small" onclick="copyToClipboard('${escAttr(t.tape_path)}')">Copy path</button>`;
+      return `<tr>
+        <td>${escHtml(t.tape_id)}</td>
+        <td>${escHtml(t.timestamp)}</td>
+        <td>${copyBtn}</td>
+        <td><span class="path-text">${escHtml(t.tape_path)}</span></td>
+      </tr>`;
+    }).join('');
+    container.innerHTML = `
+      <table>
+        <thead><tr><th>Tape ID</th><th>Timestamp</th><th>Action</th><th>Path</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch (_) {
+    container.innerHTML = '<span class="empty-msg">Failed to load tapes.</span>';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reports tab
+// ---------------------------------------------------------------------------
+function renderReports() {
+  const container = document.getElementById('reports-container');
+  const withReport = artifactsCache.filter(a => a.has_report);
+  if (withReport.length === 0) {
+    container.innerHTML = '<span class="empty-msg">No artifacts with reports found. Generate a report using the form below.</span>';
+    return;
+  }
+  const rows = withReport.map(a => {
+    const viewBtn = `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}', 'report-manual-output')">Re-generate</button>`;
+    return `<tr>
+      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
+      <td>${escHtml(a.artifact_id)}</td>
+      <td>${escHtml(a.timestamp)}</td>
+      <td>${viewBtn}</td>
+    </tr>`;
+  }).join('');
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Action</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function generateReport(pathArg, outputElId) {
+  // If called from the manual input form (no arg), read the text input.
+  const artifactPath = pathArg || document.getElementById('report-path-input').value.trim();
+  if (!artifactPath) {
+    setStatus('Please enter an artifact directory path.', 'err');
+    return;
+  }
+  const outId = outputElId || 'report-manual-output';
+  await runCmd('report', ['--path', artifactPath], outId);
+}
+
+// ---------------------------------------------------------------------------
+// Clipboard helper
+// ---------------------------------------------------------------------------
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      setStatus('Copied to clipboard: ' + text, 'ok');
+    }).catch(() => {
+      setStatus('Copy failed. Path: ' + text, 'err');
+    });
+  } else {
+    // Fallback for environments without clipboard API.
+    setStatus('Path: ' + text, 'ok');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTML escaping helpers
+// ---------------------------------------------------------------------------
+function escHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function escAttr(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'");
+}
+
+// ---------------------------------------------------------------------------
+// Initialise
+// ---------------------------------------------------------------------------
+(async function init() {
+  await refreshDashboard();
+  // Auto-refresh every 30 seconds.
+  setInterval(refreshDashboard, 30000);
+})();
+</script>
+
+</body>
+</html>
