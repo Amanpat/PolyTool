@@ -1,874 +1,827 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SimTrader Studio</title>
   <style>
-    /* ---- Reset & base ---- */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #1a1a2e;
-      color: #e0e0f0;
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      font-size: 14px;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* ---- Header ---- */
-    header {
-      background: #16213e;
-      border-bottom: 2px solid #0f3460;
-      padding: 12px 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    header h1 {
-      font-size: 18px;
-      font-weight: 700;
-      color: #e94560;
-      letter-spacing: 0.5px;
-    }
-    header .subtitle {
-      font-size: 12px;
-      color: #8888aa;
-    }
-
-    /* ---- Tab nav ---- */
-    nav.tabs {
-      background: #16213e;
-      display: flex;
-      gap: 2px;
-      padding: 0 20px;
-      border-bottom: 1px solid #0f3460;
-    }
-    nav.tabs button {
-      background: transparent;
-      border: none;
-      border-bottom: 3px solid transparent;
-      color: #8888aa;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 10px 18px;
-      transition: color 0.15s, border-color 0.15s;
-    }
-    nav.tabs button:hover { color: #c0c0e0; }
-    nav.tabs button.active {
-      color: #e94560;
-      border-bottom-color: #e94560;
-    }
-
-    /* ---- Main content ---- */
-    main {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-      padding-bottom: 60px;
-    }
-
-    /* ---- Tab panels ---- */
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; background: #101827; color: #e6edf6; }
+    header { padding: 14px 20px; background: #11233b; border-bottom: 1px solid #1f3650; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { margin: 0; font-size: 18px; color: #7dd3fc; }
+    header .sub { color: #93a9c5; font-size: 12px; }
+    nav.tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid #1f3650; background: #0f1a2c; overflow-x: auto; }
+    nav.tabs button { border: 0; border-bottom: 2px solid transparent; color: #8fa5c3; background: transparent; padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    nav.tabs button.active { color: #dbeafe; border-bottom-color: #7dd3fc; }
+    main { padding: 16px; padding-bottom: 50px; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
-
-    /* ---- Cards ---- */
-    .card {
-      background: #16213e;
-      border: 1px solid #0f3460;
-      border-radius: 6px;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-    .card h2 {
-      font-size: 14px;
-      font-weight: 700;
-      color: #a0a8cc;
-      margin-bottom: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    /* ---- Buttons ---- */
-    .btn {
-      background: #0f3460;
-      border: 1px solid #1a5276;
-      border-radius: 4px;
-      color: #c8d0f0;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 7px 14px;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    .btn:hover { background: #1a4a80; border-color: #2a6aaa; }
-    .btn:active { background: #0a2040; }
-    .btn.danger { background: #3d1a1a; border-color: #7a2a2a; color: #f0c0c0; }
-    .btn.danger:hover { background: #5a2020; }
-    .btn.small { font-size: 11px; padding: 4px 10px; }
-    .btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
-
-    /* ---- Output pre ---- */
-    pre.output {
-      background: #0d0d1a;
-      border: 1px solid #0f3460;
-      border-radius: 4px;
-      color: #90ee90;
-      font-family: 'Consolas', 'Courier New', monospace;
-      font-size: 12px;
-      margin-top: 12px;
-      max-height: 300px;
-      overflow-y: auto;
-      padding: 10px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    pre.output.hidden { display: none; }
-    pre.output.error { color: #ff8080; }
-
-    /* ---- Tables ---- */
-    table {
-      border-collapse: collapse;
-      font-size: 13px;
-      width: 100%;
-    }
-    th {
-      background: #0f3460;
-      color: #a0a8cc;
-      font-weight: 600;
-      padding: 8px 10px;
-      text-align: left;
-    }
-    td {
-      border-bottom: 1px solid #1a2a4a;
-      color: #c8d0e8;
-      padding: 7px 10px;
-    }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #1c2a4e; }
-
-    /* ---- Badge ---- */
-    .badge {
-      background: #0f3460;
-      border-radius: 3px;
-      font-size: 11px;
-      padding: 2px 6px;
-    }
-    .badge.run { background: #1a4020; color: #80d080; }
-    .badge.shadow { background: #2a1a40; color: #c080f0; }
-    .badge.sweep { background: #3a2a10; color: #f0c060; }
-    .badge.batch { background: #1a3040; color: #60c0f0; }
-
-    /* ---- Manual path input ---- */
-    .input-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-    input[type="text"] {
-      background: #0d0d1a;
-      border: 1px solid #0f3460;
-      border-radius: 4px;
-      color: #e0e0f0;
-      flex: 1;
-      font-size: 13px;
-      padding: 7px 10px;
-    }
-    input[type="text"]::placeholder { color: #444466; }
-    input[type="text"]:focus { border-color: #2a5090; outline: none; }
-
-    /* ---- Status bar ---- */
-    #status-bar {
-      background: #0d0d1a;
-      border-top: 1px solid #0f3460;
-      bottom: 0;
-      color: #8888aa;
-      font-size: 12px;
-      left: 0;
-      padding: 6px 20px;
-      position: fixed;
-      right: 0;
-    }
-    #status-bar.ok { color: #80d080; }
-    #status-bar.err { color: #ff8080; }
-
-    /* ---- Misc ---- */
-    .empty-msg { color: #555577; font-style: italic; }
-    .path-text { color: #8888aa; font-family: monospace; font-size: 11px; word-break: break-all; }
-    .refresh-note { color: #555577; font-size: 11px; margin-top: 6px; }
+    .card { background: #132038; border: 1px solid #20354f; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+    .card h2 { margin: 0 0 10px 0; color: #d7e8ff; font-size: 14px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input[type="text"], select { border: 1px solid #2a4461; background: #0f1a2c; color: #e6edf6; border-radius: 5px; padding: 7px 9px; min-height: 34px; }
+    .btn { border: 1px solid #2a4461; border-radius: 5px; padding: 7px 11px; color: #dbeafe; background: #1c3350; cursor: pointer; font-size: 13px; }
+    .btn.small { padding: 5px 8px; font-size: 12px; }
+    .btn.danger { background: #4a2323; border-color: #6d3232; }
+    .btn.ghost { background: transparent; border-color: #365676; color: #b8d0ec; }
+    .muted { color: #8fa5c3; font-size: 12px; }
+    .mono { font-family: Consolas, Courier New, monospace; font-size: 12px; }
+    .empty { color: #839bb8; font-style: italic; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { text-align: left; color: #9fc0e4; background: #162742; padding: 7px 8px; border-bottom: 1px solid #284566; }
+    td { padding: 7px 8px; border-bottom: 1px solid #1f3550; }
+    .status { border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700; display: inline-block; }
+    .status.starting { background: #324460; color: #d3e6ff; }
+    .status.running, .status.succeeded { background: #1f4f3a; color: #a9f6c7; }
+    .status.terminating { background: #5d4b24; color: #ffe6a8; }
+    .status.failed, .status.terminated { background: #5f2626; color: #ffc5c5; }
+    .status.stopped { background: #3f3f3f; color: #d7d7d7; }
+    .table-wrap { overflow: auto; max-height: 330px; border: 1px solid #20354f; border-radius: 7px; }
+    pre.log { margin: 0; border: 1px solid #2a4461; background: #0b1422; color: #9be8ab; border-radius: 6px; padding: 10px; min-height: 220px; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: Consolas, Courier New, monospace; font-size: 12px; }
+    iframe.report-frame { width: 100%; height: 480px; border: 1px solid #20354f; border-radius: 7px; background: #fff; }
+    .workspace-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .workspace-tabs button { border: 1px solid #2a4461; background: #14253f; color: #c7dcf6; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    .workspace-tabs button.active { background: #265780; border-color: #3678ad; color: #f0f7ff; }
+    #status-bar { position: fixed; bottom: 0; left: 0; right: 0; border-top: 1px solid #20354f; background: #0c1524; color: #95adc9; padding: 7px 14px; font-size: 12px; }
+    #status-bar.ok { color: #9af3bd; }
+    #status-bar.err { color: #ffb5b5; }
   </style>
 </head>
 <body>
-
-<header>
-  <h1>SimTrader Studio</h1>
-  <span class="subtitle">Local control panel — localhost only</span>
-</header>
-
-<nav class="tabs" id="tab-nav">
-  <button class="active" data-tab="dashboard">Dashboard</button>
-  <button data-tab="sessions">Sessions</button>
-  <button data-tab="tapes">Tapes</button>
-  <button data-tab="reports">Reports</button>
-  <button data-tab="ondemand">OnDemand</button>
-</nav>
-
-<main>
-
-  <!-- ================================================================ -->
-  <!-- DASHBOARD TAB                                                      -->
-  <!-- ================================================================ -->
-  <div class="tab-panel active" id="tab-dashboard">
-
-    <div class="card">
-      <h2>Quick Actions</h2>
-      <div class="btn-group">
-        <button class="btn" onclick="runCmd('quickrun', ['--dry-run'])">quickrun --dry-run</button>
-        <button class="btn" onclick="runCmd('shadow', ['--dry-run'])">shadow --dry-run</button>
-        <button class="btn" onclick="runCmd('browse', [])">browse</button>
-        <button class="btn danger" onclick="runCmd('clean', ['--yes'])">clean --yes</button>
-      </div>
-      <pre class="output hidden" id="dashboard-output"></pre>
+  <header>
+    <div>
+      <h1>SimTrader Studio</h1>
+      <div class="sub">Canonical Session Manager UI (localhost only)</div>
     </div>
+    <div class="muted mono" id="session-count-label">Sessions: 0</div>
+  </header>
 
-    <div class="card">
-      <h2>Last 10 Artifacts</h2>
-      <div id="recent-artifacts-container">
-        <span class="empty-msg">Loading...</span>
-      </div>
-      <p class="refresh-note">Refreshes every 30 seconds.</p>
-    </div>
+  <nav class="tabs" id="tab-nav">
+    <button class="active" data-tab="dashboard">Dashboard</button>
+    <button data-tab="sessions">Sessions</button>
+    <button data-tab="workspaces">Workspaces</button>
+    <button data-tab="tapes">Tapes</button>
+    <button data-tab="reports">Reports</button>
+    <button data-tab="ondemand">OnDemand</button>
+  </nav>
 
-  </div>
-
-  <!-- ================================================================ -->
-  <!-- SESSIONS TAB                                                       -->
-  <!-- ================================================================ -->
-  <div class="tab-panel" id="tab-sessions">
-    <div class="card">
-      <h2>Completed Runs and Shadow Sessions</h2>
-      <div id="sessions-container">
-        <span class="empty-msg">Loading...</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================================================================ -->
-  <!-- TAPES TAB                                                          -->
-  <!-- ================================================================ -->
-  <div class="tab-panel" id="tab-tapes">
-    <div class="card">
-      <h2>Recorded WS Tapes</h2>
-      <div id="tapes-container">
-        <span class="empty-msg">Loading...</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================================================================ -->
-  <!-- REPORTS TAB                                                        -->
-  <!-- ================================================================ -->
-  <div class="tab-panel" id="tab-reports">
-    <div class="card">
-      <h2>Artifacts with Reports</h2>
-      <div id="reports-container">
-        <span class="empty-msg">Loading...</span>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Generate Report for Artifact Directory</h2>
-      <p style="color:#8888aa;margin-bottom:8px;">Paste an artifact directory path (e.g. artifacts/simtrader/runs/20260226T120000Z_mymarket).</p>
-      <div class="input-row">
-        <input type="text" id="report-path-input" placeholder="artifacts/simtrader/runs/..." />
-        <button class="btn" onclick="generateReport()">Generate Report</button>
-      </div>
-      <pre class="output hidden" id="report-manual-output"></pre>
-    </div>
-  </div>
-
-  <!-- ================================================================ -->
-  <!-- ONDEMAND TAB                                                       -->
-  <!-- ================================================================ -->
-  <div class="tab-panel" id="tab-ondemand">
-
-    <!-- Session setup -->
-    <div class="card">
-      <h2>New OnDemand Session</h2>
-      <div class="input-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-        <select id="od-tape-select" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;flex:2;min-width:200px;">
-          <option value="">-- select tape --</option>
-        </select>
-        <input type="text" id="od-starting-cash" placeholder="starting cash (e.g. 1000)" value="1000" style="flex:1;min-width:120px;" />
-        <input type="text" id="od-fee-rate-bps" placeholder="fee bps (default 200)" style="flex:1;min-width:100px;" />
-        <select id="od-mark-method" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;">
-          <option value="bid">mark: bid</option>
-          <option value="midpoint">mark: midpoint</option>
-        </select>
-        <button class="btn" onclick="odNewSession()">New Session</button>
-      </div>
-      <div id="od-session-info" style="color:#8888aa;font-size:12px;"></div>
-    </div>
-
-    <!-- Playback controls (hidden until session active) -->
-    <div class="card" id="od-controls-card" style="display:none;">
-      <h2>Playback</h2>
-      <div class="btn-group">
-        <button class="btn" onclick="odStep(1)">Step</button>
-        <button class="btn" onclick="odStep(50)">Play 50</button>
-        <button class="btn" onclick="odStep(200)">Play 200</button>
-        <button class="btn" onclick="odSave()">Save Artifacts</button>
-        <button class="btn danger" onclick="odClose()">Close Session</button>
-      </div>
-      <div id="od-status" style="color:#8888aa;font-size:12px;margin-top:8px;">No session.</div>
-    </div>
-
-    <!-- Market state -->
-    <div class="card" id="od-market-card" style="display:none;">
-      <h2>Market State</h2>
-      <div id="od-bbo" style="font-family:monospace;font-size:13px;margin-bottom:8px;"></div>
-      <div style="display:flex;gap:16px;">
-        <div style="flex:1;">
-          <div style="color:#a0a8cc;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Bids</div>
-          <table id="od-bids-table"><thead><tr><th>Price</th><th>Size</th></tr></thead><tbody></tbody></table>
+  <main>
+    <section class="tab-panel active" id="tab-dashboard">
+      <div class="card">
+        <h2>Quick Start</h2>
+        <div class="row">
+          <button class="btn" onclick="launchPreset('shadow', '--dry-run')">shadow --dry-run</button>
+          <button class="btn" onclick="launchPreset('run', '--help')">run --help</button>
+          <button class="btn" onclick="launchPreset('sweep', '--help')">sweep --help</button>
+          <button class="btn" onclick="launchPreset('batch', '--help')">batch --help</button>
+          <button class="btn" onclick="launchPreset('diff', '--help')">diff --help</button>
+          <button class="btn" onclick="launchPreset('clean', '--yes')">clean --yes</button>
+          <button class="btn" onclick="launchPreset('report', '--help')">report --help</button>
         </div>
-        <div style="flex:1;">
-          <div style="color:#a0a8cc;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Asks</div>
-          <table id="od-asks-table"><thead><tr><th>Price</th><th>Size</th></tr></thead><tbody></tbody></table>
+        <div class="muted" style="margin-top:8px;">All actions run through <code>/api/sessions</code>.</div>
+      </div>
+      <div class="card">
+        <h2>Recent Sessions</h2>
+        <div id="dashboard-recent" class="empty">Loading...</div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-sessions">
+      <div class="card">
+        <h2>Start Session</h2>
+        <div class="row">
+          <select id="session-command"></select>
+          <input type="text" id="session-args" placeholder='args, e.g. --market <slug> --duration 180' style="flex:1;" />
+          <button class="btn" onclick="startSessionFromForm()">Start</button>
+          <button class="btn ghost" onclick="refreshSessions()">Refresh</button>
         </div>
       </div>
-      <div id="od-ltp" style="margin-top:8px;color:#8888aa;font-size:12px;"></div>
-    </div>
-
-    <!-- Portfolio -->
-    <div class="card" id="od-portfolio-card" style="display:none;">
-      <h2>Portfolio</h2>
-      <div id="od-portfolio" style="font-family:monospace;font-size:13px;"></div>
-    </div>
-
-    <!-- Order entry -->
-    <div class="card" id="od-order-card" style="display:none;">
-      <h2>Order Entry</h2>
-      <div class="input-row" style="flex-wrap:wrap;gap:8px;">
-        <input type="text" id="od-order-asset" placeholder="asset_id" style="flex:2;min-width:160px;" />
-        <select id="od-order-side" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;">
-          <option value="BUY">BUY</option>
-          <option value="SELL">SELL</option>
-        </select>
-        <input type="text" id="od-order-price" placeholder="limit price (0-1)" style="flex:1;min-width:100px;" />
-        <input type="text" id="od-order-size" placeholder="size" style="flex:1;min-width:80px;" />
-        <button class="btn" onclick="odSubmitOrder()">Submit</button>
+      <div class="card">
+        <h2>Session List</h2>
+        <div class="table-wrap" id="sessions-wrap"><div class="empty" style="padding:12px;">Loading...</div></div>
       </div>
-      <div id="od-order-msg" style="color:#8888aa;font-size:12px;margin-top:6px;"></div>
-    </div>
+      <div class="card">
+        <h2>Live Log</h2>
+        <div class="muted" id="selected-session-label">No session selected.</div>
+        <pre class="log" id="session-log-box"></pre>
+      </div>
+    </section>
 
-    <!-- Open orders -->
-    <div class="card" id="od-openorders-card" style="display:none;">
-      <h2>Open Orders</h2>
-      <table id="od-orders-table">
-        <thead><tr><th>Order ID</th><th>Asset</th><th>Side</th><th>Price</th><th>Size</th><th>Filled</th><th>Status</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
+    <section class="tab-panel" id="tab-workspaces">
+      <div class="card">
+        <h2>Open Workspace</h2>
+        <div class="row" style="margin-bottom:8px;">
+          <input type="text" id="workspace-market-input" placeholder="market slug" style="flex:1;" />
+          <button class="btn" onclick="openMarketWorkspace()">Open Market Workspace</button>
+        </div>
+        <div class="row">
+          <select id="workspace-tape-select" style="flex:1;"></select>
+          <button class="btn" onclick="openTapeWorkspace()">Open Tape Workspace</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Workspace Tabs</h2>
+        <div class="workspace-tabs" id="workspace-tabs"></div>
+        <div id="workspace-panel" class="empty">Open a market or tape workspace.</div>
+      </div>
+    </section>
 
-  </div>
+    <section class="tab-panel" id="tab-tapes">
+      <div class="card">
+        <h2>Recorded Tapes</h2>
+        <div class="table-wrap" id="tapes-wrap"><div class="empty" style="padding:12px;">Loading...</div></div>
+      </div>
+    </section>
 
-</main>
+    <section class="tab-panel" id="tab-reports">
+      <div class="card">
+        <h2>Open Report In-App</h2>
+        <div class="row">
+          <input type="text" id="manual-report-path" placeholder="artifact directory path" style="flex:1;" />
+          <button class="btn" onclick="generateManualReport()">Generate Report Session</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Reports</h2>
+        <div class="table-wrap" id="reports-wrap"><div class="empty" style="padding:12px;">Loading...</div></div>
+      </div>
+      <div class="card">
+        <h2>Report Viewer</h2>
+        <iframe id="report-frame" class="report-frame" src="about:blank"></iframe>
+      </div>
+    </section>
 
-<div id="status-bar">Ready.</div>
+    <section class="tab-panel" id="tab-ondemand">
+      <div class="card">
+        <h2>OnDemand Session</h2>
+        <div class="row">
+          <select id="od-tape-select" style="flex:1;"></select>
+          <input type="text" id="od-starting-cash" value="1000" placeholder="starting cash" />
+          <button class="btn" onclick="odNewSession()">New Session</button>
+        </div>
+        <div class="muted" id="od-session-info" style="margin-top:8px;"></div>
+      </div>
+      <div class="card" id="od-controls-card" style="display:none;">
+        <h2>Playback</h2>
+        <div class="row">
+          <button class="btn" onclick="odStep(1)">Step</button>
+          <button class="btn" onclick="odStep(50)">Play 50</button>
+          <button class="btn" onclick="odSave()">Save Artifacts</button>
+          <button class="btn danger" onclick="odClose()">Close</button>
+        </div>
+        <div class="muted" id="od-status" style="margin-top:8px;">No session.</div>
+      </div>
+    </section>
+  </main>
 
-<script>
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-let artifactsCache = [];
+  <div id="status-bar">Ready.</div>
+  <script>
+    const COMMANDS = ["shadow", "run", "sweep", "batch", "diff", "clean", "report"];
+    const state = {
+      artifacts: [],
+      tapes: [],
+      sessions: [],
+      sessionById: new Map(),
+      selectedSessionId: null,
+      selectedSessionLogOffset: 0,
+      sessionEventSource: null,
+      workspaces: [],
+      activeWorkspaceId: null,
+    };
 
-// ---------------------------------------------------------------------------
-// Utility: status bar
-// ---------------------------------------------------------------------------
-function setStatus(msg, cls) {
-  const bar = document.getElementById('status-bar');
-  bar.textContent = msg;
-  bar.className = cls || '';
-}
-
-// ---------------------------------------------------------------------------
-// Utility: API fetch wrapper
-// ---------------------------------------------------------------------------
-async function apiFetch(url, opts) {
-  try {
-    const resp = await fetch(url, opts);
-    if (!resp.ok) {
-      let errText = resp.statusText;
-      try { const j = await resp.json(); errText = j.detail || JSON.stringify(j); } catch(_) {}
-      throw new Error(`HTTP ${resp.status}: ${errText}`);
+    function setStatus(msg, cls) {
+      const bar = document.getElementById("status-bar");
+      bar.textContent = msg;
+      bar.className = cls || "";
     }
-    return resp;
-  } catch (err) {
-    setStatus('Error: ' + err.message, 'err');
-    throw err;
-  }
-}
 
-// ---------------------------------------------------------------------------
-// Tab switching
-// ---------------------------------------------------------------------------
-document.getElementById('tab-nav').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-tab]');
-  if (!btn) return;
-  const tabId = btn.dataset.tab;
-
-  document.querySelectorAll('#tab-nav button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-' + tabId).classList.add('active');
-
-  // Refresh relevant data on tab switch.
-  if (tabId === 'sessions') renderSessions();
-  if (tabId === 'tapes') loadTapes();
-  if (tabId === 'reports') renderReports();
-  if (tabId === 'ondemand') odRefreshTapes();
-});
-
-// ---------------------------------------------------------------------------
-// Run a simtrader subcommand via /api/run
-// ---------------------------------------------------------------------------
-async function runCmd(command, args, outputElId) {
-  const outEl = outputElId
-    ? document.getElementById(outputElId)
-    : document.getElementById('dashboard-output');
-
-  outEl.classList.remove('hidden', 'error');
-  outEl.textContent = `Running: simtrader ${command} ${args.join(' ')}\n...`;
-  setStatus(`Running simtrader ${command}...`);
-
-  try {
-    const resp = await apiFetch('/api/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command, args }),
-    });
-    const data = await resp.json();
-    outEl.textContent = data.output || '(no output)';
-    if (data.returncode !== 0) {
-      outEl.classList.add('error');
-      setStatus(`Command exited with code ${data.returncode}.`, 'err');
-    } else {
-      setStatus(`Command completed successfully.`, 'ok');
+    function escHtml(str) {
+      if (str == null) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     }
-  } catch (err) {
-    outEl.textContent = 'Error: ' + err.message;
-    outEl.classList.add('error');
-  }
-}
 
-// ---------------------------------------------------------------------------
-// Load artifacts from /api/artifacts
-// ---------------------------------------------------------------------------
-async function loadArtifacts() {
-  try {
-    const resp = await apiFetch('/api/artifacts');
-    const data = await resp.json();
-    artifactsCache = data.artifacts || [];
-    setStatus(`Loaded ${artifactsCache.length} artifact(s).`, 'ok');
-    return artifactsCache;
-  } catch (_) {
-    artifactsCache = [];
-    return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard: render last 10 artifacts
-// ---------------------------------------------------------------------------
-function renderRecentArtifacts(artifacts) {
-  const container = document.getElementById('recent-artifacts-container');
-  const recent = artifacts.slice(0, 10);
-  if (recent.length === 0) {
-    container.innerHTML = '<span class="empty-msg">No artifacts found yet. Run quickrun or shadow to generate some.</span>';
-    return;
-  }
-
-  const rows = recent.map(a => {
-    const pathText = `<span class="path-text">${escHtml(a.artifact_path)}</span>`;
-    const reportBadge = a.has_report
-      ? `<span class="badge" style="color:#90ee90">report</span>`
-      : '';
-    return `<tr>
-      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
-      <td>${escHtml(a.artifact_id)}</td>
-      <td>${escHtml(a.timestamp)}</td>
-      <td>${reportBadge}</td>
-      <td>${pathText}</td>
-    </tr>`;
-  }).join('');
-
-  container.innerHTML = `
-    <table>
-      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Report</th><th>Path</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
-
-async function refreshDashboard() {
-  const artifacts = await loadArtifacts();
-  renderRecentArtifacts(artifacts);
-}
-
-// ---------------------------------------------------------------------------
-// Sessions tab
-// ---------------------------------------------------------------------------
-function renderSessions() {
-  const container = document.getElementById('sessions-container');
-  const sessions = artifactsCache.filter(a => a.artifact_type === 'run' || a.artifact_type === 'shadow');
-  if (sessions.length === 0) {
-    container.innerHTML = '<span class="empty-msg">No run or shadow sessions found.</span>';
-    return;
-  }
-
-  const rows = sessions.map(a => {
-    const reportCell = a.has_report
-      ? `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}')">Re-report</button>`
-      : `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}')">Generate</button>`;
-    return `<tr>
-      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
-      <td>${escHtml(a.artifact_id)}</td>
-      <td>${escHtml(a.timestamp)}</td>
-      <td>${a.has_report ? 'yes' : 'no'}</td>
-      <td>${reportCell}</td>
-    </tr>`;
-  }).join('');
-
-  container.innerHTML = `
-    <table>
-      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Has Report</th><th>Action</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
-
-// ---------------------------------------------------------------------------
-// Tapes tab
-// ---------------------------------------------------------------------------
-async function loadTapes() {
-  const container = document.getElementById('tapes-container');
-  container.innerHTML = '<span class="empty-msg">Loading...</span>';
-  try {
-    const resp = await apiFetch('/api/tapes');
-    const data = await resp.json();
-    const tapes = data.tapes || [];
-    if (tapes.length === 0) {
-      container.innerHTML = '<span class="empty-msg">No tapes found. Use `simtrader record` or `quickrun` to record tapes.</span>';
-      return;
+    function escAttr(str) {
+      if (str == null) return "";
+      return String(str).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     }
-    const rows = tapes.map(t => {
-      const copyBtn = `<button class="btn small" onclick="copyToClipboard('${escAttr(t.tape_path)}')">Copy path</button>`;
-      return `<tr>
-        <td>${escHtml(t.tape_id)}</td>
-        <td>${escHtml(t.timestamp)}</td>
-        <td>${copyBtn}</td>
-        <td><span class="path-text">${escHtml(t.tape_path)}</span></td>
-      </tr>`;
-    }).join('');
-    container.innerHTML = `
-      <table>
-        <thead><tr><th>Tape ID</th><th>Timestamp</th><th>Action</th><th>Path</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-  } catch (_) {
-    container.innerHTML = '<span class="empty-msg">Failed to load tapes.</span>';
-  }
-}
 
-// ---------------------------------------------------------------------------
-// Reports tab
-// ---------------------------------------------------------------------------
-function renderReports() {
-  const container = document.getElementById('reports-container');
-  const withReport = artifactsCache.filter(a => a.has_report);
-  if (withReport.length === 0) {
-    container.innerHTML = '<span class="empty-msg">No artifacts with reports found. Generate a report using the form below.</span>';
-    return;
-  }
-  const rows = withReport.map(a => {
-    const viewBtn = `<button class="btn small" onclick="generateReport('${escAttr(a.artifact_path)}', 'report-manual-output')">Re-generate</button>`;
-    return `<tr>
-      <td><span class="badge ${escHtml(a.artifact_type)}">${escHtml(a.artifact_type)}</span></td>
-      <td>${escHtml(a.artifact_id)}</td>
-      <td>${escHtml(a.timestamp)}</td>
-      <td>${viewBtn}</td>
-    </tr>`;
-  }).join('');
-  container.innerHTML = `
-    <table>
-      <thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Action</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
+    function fmtDate(ts) {
+      if (!ts) return "-";
+      try {
+        const d = new Date(ts);
+        return d.toLocaleString();
+      } catch (_) {
+        return ts;
+      }
+    }
 
-async function generateReport(pathArg, outputElId) {
-  // If called from the manual input form (no arg), read the text input.
-  const artifactPath = pathArg || document.getElementById('report-path-input').value.trim();
-  if (!artifactPath) {
-    setStatus('Please enter an artifact directory path.', 'err');
-    return;
-  }
-  const outId = outputElId || 'report-manual-output';
-  await runCmd('report', ['--path', artifactPath], outId);
-}
+    async function apiJson(url, opts) {
+      const resp = await fetch(url, opts);
+      if (!resp.ok) {
+        let detail = resp.statusText;
+        try {
+          const err = await resp.json();
+          detail = err.detail || JSON.stringify(err);
+        } catch (_) {}
+        throw new Error("HTTP " + resp.status + ": " + detail);
+      }
+      return resp.json();
+    }
 
-// ---------------------------------------------------------------------------
-// Clipboard helper
-// ---------------------------------------------------------------------------
-function copyToClipboard(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      setStatus('Copied to clipboard: ' + text, 'ok');
-    }).catch(() => {
-      setStatus('Copy failed. Path: ' + text, 'err');
-    });
-  } else {
-    // Fallback for environments without clipboard API.
-    setStatus('Path: ' + text, 'ok');
-  }
-}
+    function findArg(args, flag) {
+      if (!Array.isArray(args)) return null;
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === flag && i + 1 < args.length) return String(args[i + 1]);
+      }
+      return null;
+    }
 
-// ---------------------------------------------------------------------------
-// HTML escaping helpers
-// ---------------------------------------------------------------------------
-function escHtml(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-function escAttr(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
-}
+    function ensureSessionMap() {
+      state.sessionById = new Map(state.sessions.map((row) => [row.session_id, row]));
+      document.getElementById("session-count-label").textContent = "Sessions: " + state.sessions.length;
+    }
 
-// ---------------------------------------------------------------------------
-// Initialise
-// ---------------------------------------------------------------------------
-(async function init() {
-  await refreshDashboard();
-  // Auto-refresh every 30 seconds.
-  setInterval(refreshDashboard, 30000);
-})();
-
-// ---------------------------------------------------------------------------
-// OnDemand tab state
-// ---------------------------------------------------------------------------
-const od = {
-  sessionId: null,
-  state: null,
-};
-
-// Populate tape selector when OnDemand tab is activated.
-function odRefreshTapes() {
-  fetch('/api/tapes')
-    .then(r => r.json())
-    .then(data => {
-      const sel = document.getElementById('od-tape-select');
-      const prev = sel.value;
-      sel.innerHTML = '<option value="">-- select tape --</option>';
-      (data.tapes || []).forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.tape_path;
-        opt.textContent = t.tape_id + ' (' + (t.timestamp || '').slice(0, 16) + ')';
-        sel.appendChild(opt);
+    function activateTab(tabId) {
+      document.querySelectorAll("#tab-nav button").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === tabId);
       });
-      if (prev) sel.value = prev;
-    })
-    .catch(() => {});
-}
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.id === "tab-" + tabId);
+      });
+      if (tabId === "workspaces") renderWorkspacePanel();
+      if (tabId === "reports") renderReports();
+      if (tabId === "tapes") renderTapes();
+    }
 
-function odShowCards(visible) {
-  ['od-controls-card', 'od-market-card', 'od-portfolio-card', 'od-order-card', 'od-openorders-card'].forEach(id => {
-    document.getElementById(id).style.display = visible ? '' : 'none';
-  });
-}
+    document.getElementById("tab-nav").addEventListener("click", (evt) => {
+      const btn = evt.target.closest("button[data-tab]");
+      if (!btn) return;
+      activateTab(btn.dataset.tab);
+    });
 
-function odNewSession() {
-  const tapePath = document.getElementById('od-tape-select').value;
-  if (!tapePath) { setStatus('Select a tape first.', 'err'); return; }
-  const startingCash = document.getElementById('od-starting-cash').value || '1000';
-  const feeBps = document.getElementById('od-fee-rate-bps').value || '';
-  const markMethod = document.getElementById('od-mark-method').value || 'bid';
-  setStatus('Creating session...');
-  fetch('/api/ondemand/new', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tape_path: tapePath, starting_cash: startingCash, fee_rate_bps: feeBps || null, mark_method: markMethod }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.detail) { setStatus('Error: ' + data.detail, 'err'); return; }
-    od.sessionId = data.session_id;
-    od.state = data.state;
-    document.getElementById('od-session-info').textContent = 'Session: ' + od.sessionId;
-    odShowCards(true);
-    odRenderState(data.state);
-    setStatus('Session created: ' + od.sessionId, 'ok');
-  })
-  .catch(e => setStatus('Error: ' + e, 'err'));
-}
+    async function refreshArtifacts() {
+      const data = await apiJson("/api/artifacts");
+      state.artifacts = data.artifacts || [];
+      renderReports();
+    }
 
-function odStep(n) {
-  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
-  fetch(`/api/ondemand/${od.sessionId}/step`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ n_steps: n }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.detail) { setStatus('Error: ' + data.detail, 'err'); return; }
-    od.state = data.state;
-    odRenderState(data.state);
-  })
-  .catch(e => setStatus('Error: ' + e, 'err'));
-}
+    async function refreshTapes() {
+      const data = await apiJson("/api/tapes");
+      state.tapes = data.tapes || [];
+      renderTapes();
+      syncTapeSelectors();
+    }
 
-function odSubmitOrder() {
-  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
-  const assetId = document.getElementById('od-order-asset').value.trim();
-  const side = document.getElementById('od-order-side').value;
-  const price = document.getElementById('od-order-price').value.trim();
-  const size = document.getElementById('od-order-size').value.trim();
-  if (!assetId || !price || !size) {
-    document.getElementById('od-order-msg').textContent = 'Fill in all order fields.';
-    return;
-  }
-  fetch(`/api/ondemand/${od.sessionId}/order`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ asset_id: assetId, side: side, limit_price: price, size: size }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.detail) { document.getElementById('od-order-msg').textContent = 'Error: ' + data.detail; return; }
-    document.getElementById('od-order-msg').textContent = 'Submitted: ' + data.order_id;
-    od.state = data.state;
-    odRenderState(data.state);
-  })
-  .catch(e => { document.getElementById('od-order-msg').textContent = 'Error: ' + e; });
-}
+    async function refreshSessions() {
+      const data = await apiJson("/api/sessions");
+      state.sessions = data.sessions || [];
+      ensureSessionMap();
+      renderDashboardRecent();
+      renderSessions();
+      renderWorkspacePanel();
+    }
 
-function odCancelOrder(orderId) {
-  if (!od.sessionId) return;
-  fetch(`/api/ondemand/${od.sessionId}/cancel`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ order_id: orderId }),
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.detail) { setStatus('Cancel error: ' + data.detail, 'err'); return; }
-    od.state = data.state;
-    odRenderState(data.state);
-  })
-  .catch(e => setStatus('Error: ' + e, 'err'));
-}
+    async function refreshAll() {
+      try {
+        await Promise.all([refreshArtifacts(), refreshTapes(), refreshSessions()]);
+        setStatus("Studio refreshed.", "ok");
+      } catch (err) {
+        setStatus("Refresh failed: " + err.message, "err");
+      }
+    }
 
-function odSave() {
-  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
-  fetch(`/api/ondemand/${od.sessionId}/save`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-  })
-  .then(r => r.json())
-  .then(data => {
-    if (data.detail) { setStatus('Save error: ' + data.detail, 'err'); return; }
-    setStatus('Artifacts saved to: ' + data.artifact_dir, 'ok');
-  })
-  .catch(e => setStatus('Error: ' + e, 'err'));
-}
+    async function startSession(command, args, workspaceId, selectAfterStart) {
+      const argsText = args || "";
+      try {
+        const data = await apiJson("/api/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command: command, args: argsText }),
+        });
+        const session = data.session;
+        setStatus("Started " + command + " session " + session.session_id, "ok");
+        if (workspaceId) {
+          const ws = state.workspaces.find((x) => x.id === workspaceId);
+          if (ws && !ws.sessionIds.includes(session.session_id)) {
+            ws.sessionIds.unshift(session.session_id);
+          }
+        }
+        await refreshSessions();
+        if (selectAfterStart !== false) {
+          await selectSession(session.session_id);
+          activateTab("sessions");
+        }
+        return session;
+      } catch (err) {
+        setStatus("Start failed: " + err.message, "err");
+        return null;
+      }
+    }
 
-function odClose() {
-  if (!od.sessionId) return;
-  fetch(`/api/ondemand/${od.sessionId}`, { method: 'DELETE' })
-    .then(() => {
+    function launchPreset(command, args) {
+      startSession(command, args, null, true);
+    }
+
+    function startSessionFromForm() {
+      const command = document.getElementById("session-command").value;
+      const args = document.getElementById("session-args").value.trim();
+      startSession(command, args, null, true);
+    }
+
+    async function killSession(sessionId) {
+      try {
+        await apiJson("/api/sessions/" + encodeURIComponent(sessionId) + "/kill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        await refreshSessions();
+        setStatus("Kill requested for " + sessionId, "ok");
+      } catch (err) {
+        setStatus("Kill failed: " + err.message, "err");
+      }
+    }
+
+    async function waitForTerminal(sessionId, timeoutMs) {
+      const deadline = Date.now() + (timeoutMs || 120000);
+      while (Date.now() < deadline) {
+        const data = await apiJson("/api/sessions/" + encodeURIComponent(sessionId));
+        const status = (data.session || {}).status || "";
+        if (["succeeded", "failed", "terminated", "stopped"].includes(status)) {
+          return data.session;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      throw new Error("timed out waiting for session " + sessionId);
+    }
+
+    async function selectSession(sessionId) {
+      state.selectedSessionId = sessionId;
+      renderSessions();
+      renderWorkspacePanel();
+      document.getElementById("selected-session-label").textContent = "Session: " + sessionId;
+
+      try {
+        const data = await apiJson("/api/sessions/" + encodeURIComponent(sessionId) + "/log?offset=0");
+        state.selectedSessionLogOffset = data.offset || 0;
+        document.getElementById("session-log-box").textContent = (data.lines || []).join("\n");
+      } catch (err) {
+        document.getElementById("session-log-box").textContent = "Error loading log: " + err.message;
+      }
+      connectSessionStream(sessionId, state.selectedSessionLogOffset);
+    }
+
+    function closeSessionStream() {
+      if (state.sessionEventSource) {
+        state.sessionEventSource.close();
+        state.sessionEventSource = null;
+      }
+    }
+
+    function connectSessionStream(sessionId, offset) {
+      closeSessionStream();
+      const url = "/api/sessions/" + encodeURIComponent(sessionId) + "/events?offset=" + (offset || 0);
+      const es = new EventSource(url);
+      state.sessionEventSource = es;
+
+      es.addEventListener("session", (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          const session = payload.session;
+          if (session && session.session_id) {
+            state.sessionById.set(session.session_id, session);
+            state.sessions = Array.from(state.sessionById.values()).sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
+            renderSessions();
+            renderWorkspacePanel();
+            renderDashboardRecent();
+          }
+        } catch (_) {}
+      });
+
+      es.addEventListener("log", (evt) => {
+        try {
+          const payload = JSON.parse(evt.data);
+          const line = payload.line || "";
+          const box = document.getElementById("session-log-box");
+          box.textContent = (box.textContent ? box.textContent + "\n" : "") + line;
+          box.scrollTop = box.scrollHeight;
+        } catch (_) {}
+      });
+
+      es.addEventListener("end", () => {
+        setStatus("Session stream finished: " + sessionId, "ok");
+        es.close();
+      });
+
+      es.onerror = () => {
+        setStatus("Session stream disconnected.", "err");
+      };
+    }
+
+    function buildSessionsTable(rows, includeActions) {
+      const body = rows.map((row) => {
+        const argsShort = Array.isArray(row.args) ? row.args.join(" ") : "";
+        const reportCell = row.report_url
+          ? "<button class='btn small' onclick=\"openReport('" + escAttr(row.report_url) + "')\">Open</button>"
+          : (row.artifact_dir
+            ? "<button class='btn small' onclick=\"generateReportForSession('" + escAttr(row.session_id) + "')\">Generate</button>"
+            : "<span class='muted'>-</span>");
+
+        let actionCell = "";
+        if (includeActions) {
+          actionCell = "<td>"
+            + "<button class='btn small' onclick=\"selectSession('" + escAttr(row.session_id) + "')\">Logs</button> "
+            + "<button class='btn small' onclick=\"openWorkspaceFromSession('" + escAttr(row.session_id) + "')\">Workspace</button> "
+            + reportCell + " ";
+          if (["running", "starting", "terminating"].includes(String(row.status))) {
+            actionCell += "<button class='btn small danger' onclick=\"killSession('" + escAttr(row.session_id) + "')\">Kill</button>";
+          }
+          actionCell += "</td>";
+        }
+
+        return "<tr>"
+          + "<td class='mono'>" + escHtml(row.session_id) + "</td>"
+          + "<td>" + escHtml(row.subcommand || row.kind || "") + "</td>"
+          + "<td><span class='status " + escHtml(row.status || "") + "'>" + escHtml(row.status || "") + "</span></td>"
+          + "<td>" + escHtml(fmtDate(row.started_at)) + "</td>"
+          + "<td class='mono'>" + escHtml(argsShort) + "</td>"
+          + "<td class='mono'>" + escHtml(row.artifact_relpath || "-") + "</td>"
+          + (includeActions ? actionCell : "")
+          + "</tr>";
+      }).join("");
+
+      return "<table><thead><tr>"
+        + "<th>ID</th><th>Command</th><th>Status</th><th>Started</th><th>Args</th><th>Artifact</th>"
+        + (includeActions ? "<th>Actions</th>" : "")
+        + "</tr></thead><tbody>" + body + "</tbody></table>";
+    }
+
+    function renderDashboardRecent() {
+      const el = document.getElementById("dashboard-recent");
+      const rows = state.sessions.slice(0, 8);
+      if (rows.length === 0) {
+        el.innerHTML = "<div class='empty'>No sessions yet.</div>";
+      } else {
+        el.innerHTML = "<div class='table-wrap'>" + buildSessionsTable(rows, false) + "</div>";
+      }
+    }
+
+    function renderSessions() {
+      const wrap = document.getElementById("sessions-wrap");
+      if (state.sessions.length === 0) {
+        wrap.innerHTML = "<div class='empty' style='padding:12px;'>No sessions.</div>";
+      } else {
+        wrap.innerHTML = buildSessionsTable(state.sessions, true);
+      }
+      document.getElementById("selected-session-label").textContent = state.selectedSessionId
+        ? ("Session: " + state.selectedSessionId)
+        : "No session selected.";
+    }
+
+    async function generateReportForSession(sessionId, workspaceId) {
+      const base = state.sessionById.get(sessionId);
+      if (!base || !base.artifact_dir) {
+        setStatus("Session has no artifact_dir yet.", "err");
+        return;
+      }
+      const reportSession = await startSession("report", '--path "' + String(base.artifact_dir) + '"', workspaceId || null, false);
+      if (!reportSession) return;
+      try {
+        await waitForTerminal(reportSession.session_id, 180000);
+        await Promise.all([refreshSessions(), refreshArtifacts()]);
+        const updated = state.sessionById.get(sessionId);
+        if (updated && updated.report_url) {
+          openReport(updated.report_url);
+        } else {
+          setStatus("Report session completed.", "ok");
+        }
+      } catch (err) {
+        setStatus("Report generation failed: " + err.message, "err");
+      }
+    }
+
+    function openReport(url) {
+      document.getElementById("report-frame").src = url;
+      activateTab("reports");
+      setStatus("Opened report: " + url, "ok");
+    }
+    function syncTapeSelectors() {
+      const wsTape = document.getElementById("workspace-tape-select");
+      const odTape = document.getElementById("od-tape-select");
+      const options = ["<option value=''>-- select tape --</option>"]
+        .concat(state.tapes.map((t) =>
+          "<option value='" + escHtml(t.tape_path) + "'>" + escHtml(t.tape_id) + "</option>"
+        ))
+        .join("");
+      wsTape.innerHTML = options;
+      odTape.innerHTML = options;
+    }
+
+    function openWorkspace(kind, value) {
+      if (!value) return;
+      const normalized = String(value).trim();
+      const existing = state.workspaces.find((w) => w.kind === kind && w.value === normalized);
+      if (existing) {
+        state.activeWorkspaceId = existing.id;
+        renderWorkspaceTabs();
+        renderWorkspacePanel();
+        activateTab("workspaces");
+        return existing;
+      }
+      const id = "ws_" + Math.random().toString(16).slice(2, 10);
+      const label = kind === "market" ? ("market:" + normalized) : ("tape:" + normalized.split(/[\\/]/).slice(-1)[0]);
+      const workspace = {
+        id: id,
+        kind: kind,
+        value: normalized,
+        label: label,
+        sessionIds: [],
+        command: kind === "market" ? "shadow" : "run",
+        args: "",
+      };
+      workspace.args = defaultArgsForWorkspace(workspace, workspace.command);
+      state.workspaces.push(workspace);
+      state.activeWorkspaceId = workspace.id;
+      renderWorkspaceTabs();
+      renderWorkspacePanel();
+      activateTab("workspaces");
+      return workspace;
+    }
+
+    function openMarketWorkspace() {
+      const market = document.getElementById("workspace-market-input").value.trim();
+      if (!market) {
+        setStatus("Enter a market slug first.", "err");
+        return;
+      }
+      openWorkspace("market", market);
+    }
+
+    function openTapeWorkspace() {
+      const tape = document.getElementById("workspace-tape-select").value;
+      if (!tape) {
+        setStatus("Select a tape first.", "err");
+        return;
+      }
+      openWorkspace("tape", tape);
+    }
+
+    function openWorkspaceFromSession(sessionId) {
+      const row = state.sessionById.get(sessionId);
+      if (!row) return;
+      const market = findArg(row.args, "--market");
+      if (market) {
+        const ws = openWorkspace("market", market);
+        if (ws && !ws.sessionIds.includes(sessionId)) ws.sessionIds.unshift(sessionId);
+        renderWorkspacePanel();
+        return;
+      }
+      const tape = findArg(row.args, "--tape");
+      if (tape) {
+        let tapePath = tape;
+        if (/events\.jsonl$/i.test(tapePath)) {
+          const parts = tapePath.split(/[\\/]/);
+          parts.pop();
+          tapePath = parts.join("/");
+        }
+        const ws = openWorkspace("tape", tapePath);
+        if (ws && !ws.sessionIds.includes(sessionId)) ws.sessionIds.unshift(sessionId);
+        renderWorkspacePanel();
+        return;
+      }
+      setStatus("Could not infer workspace from session args.", "err");
+    }
+
+    function defaultArgsForWorkspace(workspace, command) {
+      if (workspace.kind === "market") {
+        if (command === "shadow") return "--market " + workspace.value + " --duration 180";
+        if (command === "batch") return "--num-markets 3 --preset quick_small";
+      }
+      if (workspace.kind === "tape") {
+        const tapeEvents = /events\.jsonl$/i.test(workspace.value)
+          ? workspace.value
+          : workspace.value.replace(/[\\/]$/, "") + "/events.jsonl";
+        if (command === "run") return '--tape "' + tapeEvents + '" --strategy binary_complement_arb';
+        if (command === "sweep") return '--tape "' + tapeEvents + '" --preset quick_small';
+        if (command === "diff") return "--a <run_dir_a> --b <run_dir_b>";
+      }
+      if (command === "clean") return "--yes";
+      return "";
+    }
+
+    function renderWorkspaceTabs() {
+      const tabs = document.getElementById("workspace-tabs");
+      if (state.workspaces.length === 0) {
+        tabs.innerHTML = "<span class='empty'>No workspaces.</span>";
+        return;
+      }
+      tabs.innerHTML = state.workspaces.map((ws) => {
+        const active = ws.id === state.activeWorkspaceId ? "active" : "";
+        return "<button class='" + active + "' onclick=\"selectWorkspace('" + escAttr(ws.id) + "')\">" + escHtml(ws.label) + "</button>";
+      }).join("");
+    }
+
+    function selectWorkspace(workspaceId) {
+      state.activeWorkspaceId = workspaceId;
+      renderWorkspaceTabs();
+      renderWorkspacePanel();
+    }
+
+    function currentWorkspace() {
+      return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
+    }
+
+    function workspaceMatchesSession(ws, row) {
+      if (ws.sessionIds.includes(row.session_id)) return true;
+      const args = Array.isArray(row.args) ? row.args : [];
+      if (ws.kind === "market") return findArg(args, "--market") === ws.value;
+      if (ws.kind === "tape") {
+        const tapeArg = findArg(args, "--tape");
+        if (!tapeArg) return false;
+        return String(tapeArg).replace(/\\/g, "/").includes(String(ws.value).replace(/\\/g, "/"));
+      }
+      return false;
+    }
+
+    function workspaceSessions(ws) {
+      return state.sessions.filter((row) => workspaceMatchesSession(ws, row));
+    }
+
+    function workspaceCommandChanged() {
+      const ws = currentWorkspace();
+      if (!ws) return;
+      ws.command = document.getElementById("ws-command").value;
+      ws.args = defaultArgsForWorkspace(ws, ws.command);
+      renderWorkspacePanel();
+    }
+
+    function workspaceArgsChanged() {
+      const ws = currentWorkspace();
+      if (!ws) return;
+      ws.args = document.getElementById("ws-args").value;
+    }
+
+    function startWorkspaceSession() {
+      const ws = currentWorkspace();
+      if (!ws) return;
+      ws.command = document.getElementById("ws-command").value;
+      ws.args = document.getElementById("ws-args").value.trim();
+      startSession(ws.command, ws.args, ws.id, true);
+    }
+
+    function renderWorkspacePanel() {
+      renderWorkspaceTabs();
+      const panel = document.getElementById("workspace-panel");
+      const ws = currentWorkspace();
+      if (!ws) {
+        panel.innerHTML = "<div class='empty'>Open a market or tape workspace.</div>";
+        return;
+      }
+      const sessions = workspaceSessions(ws);
+      const sessionRows = sessions.length === 0
+        ? "<div class='empty'>No sessions in this workspace yet.</div>"
+        : "<div class='table-wrap'>" + buildSessionsTable(sessions, true) + "</div>";
+      const commandOptions = COMMANDS.map((cmd) => "<option value='" + cmd + "'" + (cmd === ws.command ? " selected" : "") + ">" + cmd + "</option>").join("");
+
+      panel.innerHTML = "<div class='muted' style='margin-bottom:8px;'>" + escHtml(ws.label) + "</div>"
+        + "<div class='row' style='margin-bottom:10px;'>"
+        + "<select id='ws-command' onchange='workspaceCommandChanged()'>" + commandOptions + "</select>"
+        + "<input type='text' id='ws-args' style='flex:1;' value=\"" + escHtml(ws.args || "") + "\" oninput='workspaceArgsChanged()' />"
+        + "<button class='btn' onclick='startWorkspaceSession()'>Start Session</button>"
+        + "</div>"
+        + sessionRows;
+    }
+
+    function renderTapes() {
+      const wrap = document.getElementById("tapes-wrap");
+      if (state.tapes.length === 0) {
+        wrap.innerHTML = "<div class='empty' style='padding:12px;'>No tapes found.</div>";
+        return;
+      }
+      const rows = state.tapes.map((t) =>
+        "<tr><td class='mono'>" + escHtml(t.tape_id) + "</td><td>" + escHtml(fmtDate(t.timestamp)) + "</td><td class='mono'>" + escHtml(t.tape_path) + "</td></tr>"
+      ).join("");
+      wrap.innerHTML = "<table><thead><tr><th>Tape ID</th><th>Timestamp</th><th>Path</th></tr></thead><tbody>" + rows + "</tbody></table>";
+    }
+
+    function renderReports() {
+      const wrap = document.getElementById("reports-wrap");
+      const reportArtifacts = state.artifacts.filter((a) => a.has_report);
+      if (reportArtifacts.length === 0) {
+        wrap.innerHTML = "<div class='empty' style='padding:12px;'>No reports yet.</div>";
+        return;
+      }
+      const rows = reportArtifacts.map((a) => {
+        const rel = String(a.artifact_path).replace(/\\/g, "/");
+        const idx = rel.indexOf("/simtrader/");
+        const reportRel = idx >= 0 ? rel.slice(idx + "/simtrader/".length) : null;
+        const reportUrl = reportRel ? ("/artifacts/" + reportRel + "/report.html") : null;
+        const openBtn = reportUrl
+          ? "<button class='btn small' onclick=\"openReport('" + escAttr(reportUrl) + "')\">Open</button>"
+          : "<span class='muted'>-</span>";
+        return "<tr><td>" + escHtml(a.artifact_type) + "</td><td class='mono'>" + escHtml(a.artifact_id) + "</td><td>" + escHtml(fmtDate(a.timestamp)) + "</td><td>" + openBtn + "</td></tr>";
+      }).join("");
+      wrap.innerHTML = "<table><thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Open</th></tr></thead><tbody>" + rows + "</tbody></table>";
+    }
+
+    function generateManualReport() {
+      const path = document.getElementById("manual-report-path").value.trim();
+      if (!path) {
+        setStatus("Enter an artifact directory path first.", "err");
+        return;
+      }
+      startSession("report", '--path "' + path + '"', null, false);
+    }
+
+    const od = { sessionId: null };
+
+    async function odNewSession() {
+      const tapePath = document.getElementById("od-tape-select").value;
+      if (!tapePath) {
+        setStatus("Select a tape first.", "err");
+        return;
+      }
+      const startingCash = document.getElementById("od-starting-cash").value || "1000";
+      try {
+        const data = await apiJson("/api/ondemand/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tape_path: tapePath, starting_cash: startingCash }),
+        });
+        od.sessionId = data.session_id;
+        document.getElementById("od-session-info").textContent = "Session: " + data.session_id;
+        document.getElementById("od-controls-card").style.display = "";
+        document.getElementById("od-status").textContent = "cursor 0 / " + String((data.state || {}).total_events || 0);
+        setStatus("OnDemand session created.", "ok");
+      } catch (err) {
+        setStatus("OnDemand create failed: " + err.message, "err");
+      }
+    }
+
+    async function odStep(n) {
+      if (!od.sessionId) return;
+      try {
+        const data = await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId) + "/step", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ n_steps: n }),
+        });
+        const st = data.state || {};
+        document.getElementById("od-status").textContent = "seq " + String(st.seq ?? "-") + " | cursor " + String(st.cursor || 0) + " / " + String(st.total_events || 0);
+      } catch (err) {
+        setStatus("OnDemand step failed: " + err.message, "err");
+      }
+    }
+
+    async function odSave() {
+      if (!od.sessionId) return;
+      try {
+        const data = await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId) + "/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        setStatus("OnDemand artifacts saved: " + data.artifact_dir, "ok");
+      } catch (err) {
+        setStatus("OnDemand save failed: " + err.message, "err");
+      }
+    }
+
+    async function odClose() {
+      if (!od.sessionId) return;
+      try {
+        await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId), { method: "DELETE" });
+      } catch (_) {}
       od.sessionId = null;
-      od.state = null;
-      document.getElementById('od-session-info').textContent = '';
-      document.getElementById('od-status').textContent = 'Session closed.';
-      odShowCards(false);
-      setStatus('Session closed.', 'ok');
-    })
-    .catch(() => {});
-}
+      document.getElementById("od-session-info").textContent = "";
+      document.getElementById("od-controls-card").style.display = "none";
+      document.getElementById("od-status").textContent = "No session.";
+      setStatus("OnDemand session closed.", "ok");
+    }
 
-function odRenderState(state) {
-  if (!state) return;
-  const cursor = state.cursor || 0;
-  const total = state.total_events || 0;
-  const pct = total > 0 ? ((cursor / total) * 100).toFixed(1) : '0.0';
-  const done = state.done ? ' [DONE]' : '';
-  document.getElementById('od-status').textContent =
-    `seq ${state.seq ?? '-'} | cursor ${cursor} / ${total} (${pct}%)${done}`;
+    function initCommandSelectors() {
+      const optionHtml = COMMANDS.map((cmd) => "<option value='" + cmd + "'>" + cmd + "</option>").join("");
+      document.getElementById("session-command").innerHTML = optionHtml;
+    }
 
-  // BBO
-  const bboEl = document.getElementById('od-bbo');
-  const bboLines = [];
-  for (const [assetId, bbo] of Object.entries(state.bbo || {})) {
-    const shortId = assetId.length > 15 ? assetId.slice(0, 12) + '...' : assetId;
-    bboLines.push(`${shortId}  bid=${bbo.best_bid ?? '-'}  ask=${bbo.best_ask ?? '-'}`);
-  }
-  bboEl.textContent = bboLines.join('\n') || 'No BBO yet.';
+    async function boot() {
+      initCommandSelectors();
+      await refreshAll();
+      renderWorkspaceTabs();
+      document.getElementById("session-log-box").textContent = "";
+      setInterval(async () => {
+        try {
+          await Promise.all([refreshSessions(), refreshArtifacts()]);
+        } catch (_) {}
+      }, 3000);
+    }
 
-  // Depth — show first asset only
-  const depthEntries = Object.entries(state.depth || {});
-  const bidsTbody = document.querySelector('#od-bids-table tbody');
-  const asksTbody = document.querySelector('#od-asks-table tbody');
-  bidsTbody.innerHTML = '';
-  asksTbody.innerHTML = '';
-  if (depthEntries.length > 0) {
-    const [, depth] = depthEntries[0];
-    (depth.bids || []).forEach(l => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td style="color:#80d080">${l.price.toFixed(4)}</td><td>${l.size.toFixed(2)}</td>`;
-      bidsTbody.appendChild(tr);
-    });
-    (depth.asks || []).forEach(l => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td style="color:#f08080">${l.price.toFixed(4)}</td><td>${l.size.toFixed(2)}</td>`;
-      asksTbody.appendChild(tr);
-    });
-  }
-
-  // LTP
-  document.getElementById('od-ltp').textContent =
-    state.last_trade_price != null ? 'Last trade: ' + state.last_trade_price : '';
-
-  // Portfolio
-  const ps = state.portfolio_snapshot || {};
-  document.getElementById('od-portfolio').textContent =
-    `cash=${ps.final_cash ?? '-'}  equity=${ps.final_equity ?? '-'}  realized_pnl=${ps.realized_pnl ?? '-'}  unrealized_pnl=${ps.unrealized_pnl ?? '-'}  fees=${ps.total_fees ?? '-'}`;
-
-  // Open orders
-  const ordersTbody = document.querySelector('#od-orders-table tbody');
-  ordersTbody.innerHTML = '';
-  (state.open_orders || []).forEach(o => {
-    const tr = document.createElement('tr');
-    const sideColor = o.side === 'BUY' ? '#80d080' : '#f08080';
-    tr.innerHTML = `
-      <td style="font-family:monospace;font-size:11px">${escHtml(o.order_id)}</td>
-      <td style="font-family:monospace;font-size:11px">${escHtml(o.asset_id.slice(0, 10))}...</td>
-      <td style="color:${sideColor}">${escHtml(o.side)}</td>
-      <td>${escHtml(o.limit_price)}</td>
-      <td>${escHtml(String(o.size))}</td>
-      <td>${escHtml(String(o.filled_size))}</td>
-      <td>${escHtml(o.status)}</td>
-      <td><button class="btn small danger" onclick="odCancelOrder('${escAttr(o.order_id)}')">Cancel</button></td>
-    `;
-    ordersTbody.appendChild(tr);
-  });
-}
-</script>
-
+    window.addEventListener("beforeunload", () => closeSessionStream());
+    boot();
+  </script>
 </body>
 </html>

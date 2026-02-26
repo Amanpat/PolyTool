@@ -29,6 +29,32 @@ python -m polytool simtrader browse --open
 
 ---
 
+## Studio UI
+
+Studio is a local browser dashboard for SimTrader artifacts (sessions, tapes, reports).
+
+**Windows PowerShell:**
+
+```powershell
+.\scripts\studio_docker.ps1
+```
+
+**Mac / Linux:**
+
+```bash
+bash scripts/studio_docker.sh
+```
+
+**Without Docker (local dev):**
+
+```bash
+python -m polytool simtrader studio --port 8765
+```
+
+Then open `http://localhost:8765`.
+
+---
+
 ## Quickstart
 
 ### 1. Prerequisites

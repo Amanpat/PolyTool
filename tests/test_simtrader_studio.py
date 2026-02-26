@@ -7,6 +7,8 @@ The whole module is skipped gracefully if fastapi is not installed.
 from __future__ import annotations
 
 import json
+import sys
+import time
 
 import pytest
 
@@ -88,6 +90,125 @@ def test_run_endpoint_rejects_unknown_command(tmp_path):
     client = TestClient(app)
     resp = client.post("/api/run", json={"command": "rm", "args": ["-rf", "/"]})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Test 4b: /api/sessions returns an empty list when no sessions exist
+# ---------------------------------------------------------------------------
+
+
+def test_sessions_endpoint_empty(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    app = create_app(artifacts_dir=tmp_path)
+    client = TestClient(app)
+    resp = client.get("/api/sessions")
+    assert resp.status_code == 200
+    assert resp.json()["sessions"] == []
+
+
+# ---------------------------------------------------------------------------
+# Test 4c: /api/sessions can start a session and expose detail/list snapshots
+# ---------------------------------------------------------------------------
+
+
+def test_sessions_start_and_detail(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+    from packages.polymarket.simtrader.studio_sessions import (
+        TERMINAL_STATUSES,
+        StudioSessionManager,
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    run_dir = (artifacts_root / "shadow_runs" / "unit-shadow").resolve()
+    script = (
+        "import sys\n"
+        f"print('[shadow] run dir  : {run_dir.as_posix()}')\n"
+        "print('Orders: 2   Fills: 1')\n"
+        "sys.stdout.flush()\n"
+    )
+
+    def command_builder(subcommand: str, args: list[str]) -> list[str]:
+        assert subcommand == "shadow"
+        return [sys.executable, "-u", "-c", script]
+
+    manager = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
+    app = create_app(artifacts_dir=artifacts_root, session_manager=manager)
+    client = TestClient(app)
+
+    start = client.post("/api/sessions", json={"command": "shadow", "args": ["--market", "slug"]})
+    assert start.status_code == 200
+    started = start.json()["session"]
+    session_id = started["session_id"]
+    assert started["subcommand"] == "shadow"
+
+    for _ in range(120):
+        detail_resp = client.get(f"/api/sessions/{session_id}")
+        assert detail_resp.status_code == 200
+        detail = detail_resp.json()["session"]
+        if detail["status"] in TERMINAL_STATUSES:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("session did not reach terminal state")
+
+    assert detail["status"] == "succeeded"
+    listed = client.get("/api/sessions").json()["sessions"]
+    assert any(row["session_id"] == session_id for row in listed)
+
+
+# ---------------------------------------------------------------------------
+# Test 4d: /api/sessions/{id}/log returns captured output lines
+# ---------------------------------------------------------------------------
+
+
+def test_session_log_endpoint_returns_lines(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+    from packages.polymarket.simtrader.studio_sessions import (
+        TERMINAL_STATUSES,
+        StudioSessionManager,
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    script = (
+        "import sys\n"
+        "print('line one')\n"
+        "print('line two')\n"
+        "sys.stdout.flush()\n"
+    )
+
+    def command_builder(subcommand: str, args: list[str]) -> list[str]:
+        assert subcommand == "clean"
+        return [sys.executable, "-u", "-c", script]
+
+    manager = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
+    app = create_app(artifacts_dir=artifacts_root, session_manager=manager)
+    client = TestClient(app)
+
+    start = client.post("/api/sessions", json={"command": "clean", "args": "--yes"})
+    assert start.status_code == 200
+    session_id = start.json()["session"]["session_id"]
+
+    for _ in range(120):
+        detail = client.get(f"/api/sessions/{session_id}").json()["session"]
+        if detail["status"] in TERMINAL_STATUSES:
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("session did not reach terminal state")
+
+    log_resp = client.get(f"/api/sessions/{session_id}/log?offset=0")
+    assert log_resp.status_code == 200
+    payload = log_resp.json()
+    assert payload["offset"] >= 0
+    assert any("line one" in line for line in payload["lines"])
+    assert any("line two" in line for line in payload["lines"])
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,8 @@ _ARTIFACT_LINE_PATTERNS = (
     re.compile(r"^\[simtrader sweep\]\s*sweep dir\s*:\s*(?P<path>.+)$", re.IGNORECASE),
     re.compile(r"^\[quickrun sweep\]\s*sweep dir\s*:\s*(?P<path>.+)$", re.IGNORECASE),
     re.compile(r"^Sweep complete:\s*(?P<path>.+)$", re.IGNORECASE),
+    re.compile(r"^Report written:\s*(?P<path>.+)$", re.IGNORECASE),
+    re.compile(r"^Diff summary JSON:\s*(?P<path>.+)$", re.IGNORECASE),
     re.compile(r"^\s*Run dir\s*:\s*(?P<path>artifacts/simtrader/\S+)\s*$", re.IGNORECASE),
     re.compile(r"^\s*Batch dir\s*:\s*(?P<path>\S+)\s*$", re.IGNORECASE),
     re.compile(r"^\s*Tape dir\s*:\s*(?P<path>artifacts/simtrader/\S+)\s*$", re.IGNORECASE),
@@ -457,6 +459,8 @@ class StudioSessionManager:
                 candidate = (Path.cwd() / candidate).resolve()
             else:
                 candidate = candidate.resolve()
+            if candidate.suffix:
+                candidate = candidate.parent
             if not _is_relative_to(candidate, self._artifacts_root):
                 continue
             return candidate
@@ -471,7 +475,7 @@ class StudioSessionManager:
 
     def _artifact_rank(self, path: Path) -> int:
         text = str(path).replace("\\", "/")
-        high_priority = ("/runs/", "/sweeps/", "/batches/", "/shadow_runs/")
+        high_priority = ("/runs/", "/sweeps/", "/batches/", "/shadow_runs/", "/diffs/")
         if any(part in text for part in high_priority):
             return 2
         if "/tapes/" in text:

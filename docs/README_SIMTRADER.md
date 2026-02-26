@@ -238,6 +238,10 @@ python -m polytool simtrader studio --open
 
 Starts a FastAPI server at `http://127.0.0.1:8765` and opens your browser. Use the tabs to trigger quickrun, shadow, browse, clean, and report actions without memorizing CLI flags.
 
+Canonical Studio backend+UI path:
+- `packages/polymarket/simtrader/studio/app.py`
+- `packages/polymarket/simtrader/studio/static/index.html`
+
 **Docker / remote binding:** pass `--host 0.0.0.0` to bind all interfaces:
 
 ```bash
@@ -277,6 +281,8 @@ Compose is configured for local development with a source bind mount (`.:/worksp
 ```powershell
 docker compose run --rm polytool pytest -q
 ```
+
+This uses the same `polytool` service image as Studio, so local test runs and container runtime stay aligned.
 
 ---
 
