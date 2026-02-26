@@ -237,11 +237,14 @@ def run_batch(
     sweep_config = sweep_config_factory()
     batch_start_monotonic = time.monotonic()
 
-    for idx, resolved in enumerate(markets):
+    market_iter = iter(markets)
+    while True:
+        # Check time budget BEFORE fetching the next candidate so the iterator
+        # is never over-consumed and no StopIteration can escape the loop.
         if params.time_budget_seconds is not None:
             elapsed = time.monotonic() - batch_start_monotonic
             if elapsed >= params.time_budget_seconds:
-                remaining = markets[idx:]
+                remaining = list(market_iter)
                 print(
                     "[batch] time budget exhausted "
                     f"({elapsed:.1f}s >= {params.time_budget_seconds:.1f}s); "
@@ -251,6 +254,10 @@ def run_batch(
                 for pending in remaining:
                     rows.append(_time_budget_skipped_row(pending))
                 break
+        try:
+            resolved = next(market_iter)
+        except StopIteration:
+            break
         row = _run_market(
             resolved=resolved,
             params=params,
