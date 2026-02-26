@@ -228,6 +228,20 @@ Use `--force` to regenerate `report.html`; otherwise existing reports are reused
 
 ---
 
+## Studio (local web UI)
+
+SimTrader Studio provides a browser UI for common workflows:
+
+```bash
+python -m polytool simtrader studio --open
+```
+
+Starts a FastAPI server at `http://127.0.0.1:8765` and opens your browser. Use the tabs to trigger quickrun, shadow, browse, clean, and report actions without memorizing CLI flags.
+
+Install deps first: `pip install polytool[studio]`
+
+---
+
 ## Artifact cleanup: clean
 
 `clean` removes artifact folders under `artifacts/simtrader/`. Defaults to dry-run; pass `--yes` to actually delete.
