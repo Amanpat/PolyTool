@@ -3875,6 +3875,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Launch SimTrader Studio local web UI (FastAPI + browser UI).",
     )
     studio_p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Host/IP to bind the studio server (default: 127.0.0.1). "
+            "Use 0.0.0.0 to bind all interfaces (e.g. inside Docker). "
+            "Note: --open is not useful inside Docker containers."
+        ),
+    )
+    studio_p.add_argument(
         "--port",
         type=int,
         default=8765,
@@ -4489,9 +4498,10 @@ def _studio(args: argparse.Namespace) -> int:
         )
         return 1
 
-    host = "127.0.0.1"
+    host = str(args.host).strip() or "127.0.0.1"
     port = args.port
-    url = f"http://{host}:{port}"
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+    url = f"http://{display_host}:{port}"
     print(f"[simtrader studio] Starting SimTrader Studio at {url}")
     print(f"[simtrader studio] Press Ctrl-C to stop.")
 
