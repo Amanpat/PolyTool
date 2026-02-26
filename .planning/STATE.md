@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-26 - Completed quick-012: SimTrader Studio MVP (local FastAPI web UI, 7 tests, 908 total)
+Last activity: 2026-02-26 - Completed quick-013: OnDemand engine backend (L2Book depth, OnDemandSession, 8 FastAPI routes)
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -33,6 +33,7 @@ Last activity: 2026-02-26 - Completed quick-012: SimTrader Studio MVP (local Fas
 - quickrun --list-candidates: exits before normal flow; warning (not error) when combined with --market
 - quickrun --exclude-market: repeatable; exclude_slugs persisted as list in quickrun_context for JSON serializability
 - SimTrader Studio: FastAPI + vanilla HTML+JS, optional dep group [studio], port 8765, subprocess-based command dispatch with allowlist
+- OnDemand engine: PortfolioLedger re-instantiated per get_state() call (snapshot pattern); ZERO_LATENCY broker for interactive sessions; session manager stored as closure in create_app()
 
 ### Blockers/Concerns
 None currently.
@@ -52,3 +53,4 @@ None currently.
 | 010 | quickrun --list-candidates N + --exclude-market SLUG (9 new tests, 56->65) | 2026-02-25 | b95f20b | [10-quickrun-list-candidates-and-exclude-mar](./quick/10-quickrun-list-candidates-and-exclude-mar/) |
 | 011 | Sync public docs with shipped simtrader features (probe, clean, diff) | 2026-02-25 | 7de79c4 | [11-sync-public-docs-with-current-simtrader-](./quick/11-sync-public-docs-with-current-simtrader-/) |
 | 012 | SimTrader Studio MVP: local FastAPI web UI via `simtrader studio --open` | 2026-02-26 | c614630 | [12-implement-simtrader-studio-mvp-local-fas](./quick/12-implement-simtrader-studio-mvp-local-fas/) |
+| 013 | OnDemand engine backend: L2Book depth, OnDemandSession, 8 FastAPI routes | 2026-02-26 | c2a6218 | [13-add-simtrader-studio-ondemand-tab-manual](./quick/13-add-simtrader-studio-ondemand-tab-manual/) |
