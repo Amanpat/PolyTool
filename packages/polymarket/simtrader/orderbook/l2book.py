@@ -68,6 +68,35 @@ class L2Book:
             return None
         return float(min(Decimal(p) for p in self._asks))
 
+    def top_bids(self, n: int = 5) -> list[dict]:
+        """Return top N bid levels sorted by price descending (highest first).
+
+        Each entry: {"price": float, "size": float}
+        Returns empty list if book not initialized or bid side is empty.
+        """
+        if not self._bids:
+            return []
+        sorted_levels = sorted(
+            ((Decimal(p), s) for p, s in self._bids.items()),
+            key=lambda x: x[0],
+            reverse=True,
+        )
+        return [{"price": float(p), "size": float(s)} for p, s in sorted_levels[:n]]
+
+    def top_asks(self, n: int = 5) -> list[dict]:
+        """Return top N ask levels sorted by price ascending (lowest first).
+
+        Each entry: {"price": float, "size": float}
+        Returns empty list if book not initialized or ask side is empty.
+        """
+        if not self._asks:
+            return []
+        sorted_levels = sorted(
+            ((Decimal(p), s) for p, s in self._asks.items()),
+            key=lambda x: x[0],
+        )
+        return [{"price": float(p), "size": float(s)} for p, s in sorted_levels[:n]]
+
     def apply(self, event: dict) -> bool:
         """Apply a normalized tape event to update book state.
 
@@ -124,8 +153,31 @@ class L2Book:
 
         self._initialized = True
 
+    def apply_single_delta(self, change: dict) -> bool:
+        """Apply one price-change entry from a modern batched ``price_changes[]`` message.
+
+        Each entry has direct ``side`` / ``price`` / ``size`` fields — the same
+        shape as items inside a legacy ``price_change`` event's ``changes[]`` list.
+
+        Returns True if applied, False if skipped (not yet initialized in lenient mode).
+
+        Raises:
+            L2BookError: In strict mode, if called before a book snapshot.
+        """
+        if not self._initialized:
+            msg = (
+                f"price_changes[] entry received before book snapshot "
+                f"(asset_id={self.asset_id!r})"
+            )
+            if self.strict:
+                raise L2BookError(msg)
+            logger.warning(msg)
+            return False
+        self._apply_single_change(change)
+        return True
+
     def _apply_price_change(self, event: dict) -> None:
-        """Apply a 'price_change' delta event.
+        """Apply a 'price_change' delta event (legacy ``changes[]`` format).
 
         Each change entry has:
           side  — "BUY" (bid) or "SELL" (ask)
@@ -133,36 +185,40 @@ class L2Book:
           size  — new size string; "0" or 0 means remove the level
         """
         for change in event.get("changes", []):
-            side = (change.get("side") or "").upper()
-            price = str(change.get("price") or "")
-            size_raw = change.get("size", "0")
+            self._apply_single_change(change)
 
-            if not price:
-                logger.warning("price_change entry missing price field: %r", change)
-                continue
+    def _apply_single_change(self, change: dict) -> None:
+        """Apply one delta entry: side, price, size to the appropriate book side."""
+        side = (change.get("side") or "").upper()
+        price = str(change.get("price") or "")
+        size_raw = change.get("size", "0")
 
-            try:
-                size = Decimal(str(size_raw))
-            except InvalidOperation:
-                logger.warning(
-                    "Invalid size in price_change: %r — skipping level.", size_raw
-                )
-                continue
+        if not price:
+            logger.warning("price_change entry missing price field: %r", change)
+            return
 
-            if side == "BUY":
-                book = self._bids
-            elif side == "SELL":
-                book = self._asks
-            else:
-                logger.warning(
-                    "Unknown side in price_change: %r — skipping.", side
-                )
-                continue
+        try:
+            size = Decimal(str(size_raw))
+        except InvalidOperation:
+            logger.warning(
+                "Invalid size in price_change: %r — skipping level.", size_raw
+            )
+            return
 
-            if size == 0:
-                book.pop(price, None)
-            else:
-                book[price] = size
+        if side == "BUY":
+            book = self._bids
+        elif side == "SELL":
+            book = self._asks
+        else:
+            logger.warning(
+                "Unknown side in price_change: %r — skipping.", side
+            )
+            return
+
+        if size == 0:
+            book.pop(price, None)
+        else:
+            book[price] = size
 
     @staticmethod
     def _parse_level(level: object) -> tuple[Optional[str], Optional[Decimal]]:
