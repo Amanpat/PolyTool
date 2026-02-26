@@ -238,7 +238,45 @@ python -m polytool simtrader studio --open
 
 Starts a FastAPI server at `http://127.0.0.1:8765` and opens your browser. Use the tabs to trigger quickrun, shadow, browse, clean, and report actions without memorizing CLI flags.
 
+**Docker / remote binding:** pass `--host 0.0.0.0` to bind all interfaces:
+
+```bash
+python -m polytool simtrader studio --host 0.0.0.0 --port 8765
+```
+
+Note: `--open` launches a local browser and has no effect inside a Docker container — omit it when running in a container.
+
 Install deps first: `pip install polytool[studio]`
+
+### Docker quickstart (Studio container)
+
+The repo ships with a root `Dockerfile` and a `polytool` service in `docker-compose.yml`.
+
+1. Ensure local env vars exist (Compose uses `env_file: .env`):
+
+```powershell
+Copy-Item .env.example .env -ErrorAction SilentlyContinue
+```
+
+2. Build and run Studio on `http://localhost:8765`:
+
+```powershell
+docker compose up --build polytool
+```
+
+The `polytool` service runs:
+
+```text
+python -m polytool simtrader studio --host 0.0.0.0 --port 8765
+```
+
+Compose is configured for local development with a source bind mount (`.:/workspace`) and explicit persistent mounts for `artifacts/` and `.tmp/`.
+
+3. Run tests in the same container image:
+
+```powershell
+docker compose run --rm polytool pytest -q
+```
 
 ---
 

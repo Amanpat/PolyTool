@@ -155,3 +155,26 @@ def test_artifacts_has_report_flag(tmp_path):
     data = resp.json()
     assert len(data["artifacts"]) == 1
     assert data["artifacts"][0]["has_report"] is True
+
+
+# ---------------------------------------------------------------------------
+# Test 8: studio subparser --host flag
+# ---------------------------------------------------------------------------
+
+
+def test_studio_parser_host_default():
+    """--host defaults to 127.0.0.1."""
+    from tools.cli.simtrader import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args(["studio"])
+    assert args.host == "127.0.0.1"
+
+
+def test_studio_parser_host_explicit():
+    """--host 0.0.0.0 is accepted and stored on args."""
+    from tools.cli.simtrader import _build_parser
+
+    parser = _build_parser()
+    args = parser.parse_args(["studio", "--host", "0.0.0.0"])
+    assert args.host == "0.0.0.0"
