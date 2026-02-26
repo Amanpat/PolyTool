@@ -10,6 +10,25 @@ PolyTool combines a local API, ClickHouse, and CLI commands to turn a user handl
 python -m polytool <command> [options]
 ```
 
+## SimTrader (replay-first + shadow simulated trading)
+
+SimTrader is a realism-first simulated trader for Polymarket:
+- Record Market Channel WS tapes and replay deterministically
+- Run strategies with audited artifacts, sweeps, and batch leaderboards
+- Shadow mode runs strategies on live WS data with simulated fills (no real orders)
+- Local HTML reports for runs/sweeps/batches: `python -m polytool simtrader report ...`
+
+Start here: `docs/README_SIMTRADER.md`
+
+Quick example:
+
+```powershell
+python -m polytool simtrader quickrun --duration 300 --strategy-preset sane
+python -m polytool simtrader browse --open
+```
+
+---
+
 ## Quickstart
 
 ### 1. Prerequisites

@@ -76,6 +76,14 @@ class _ScenarioDef:
     scenario_id: str
 
 
+@dataclass(frozen=True)
+class _ScenarioRunStats:
+    decisions_count: int
+    orders_count: int
+    fills_count: int
+    rejection_counts: dict[str, int]
+
+
 def parse_sweep_config_json(raw: str) -> dict[str, Any]:
     """Parse ``--sweep-config`` JSON and validate top-level shape.
 
@@ -117,6 +125,7 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
     runs_dir.mkdir(parents=True, exist_ok=True)
 
     scenario_rows: list[dict[str, Any]] = []
+    scenario_stats: list[_ScenarioRunStats] = []
     for scenario in scenarios:
         (
             scenario_strategy_config,
@@ -158,8 +167,9 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
                 "artifact_path": run_result.run_dir.as_posix(),
             }
         )
+        scenario_stats.append(_read_scenario_run_stats(run_result.run_dir))
 
-    aggregate = _build_aggregate_summary(scenario_rows)
+    aggregate = _build_aggregate_summary(scenario_rows, scenario_stats)
     scenario_order = [row["scenario_id"] for row in scenario_rows]
 
     summary: dict[str, Any] = {
@@ -322,7 +332,41 @@ def _apply_overrides(
     return strategy_config, fee_rate_bps, mark_method, submit_ticks, cancel_ticks
 
 
-def _build_aggregate_summary(scenario_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _build_aggregate_summary(
+    scenario_rows: list[dict[str, Any]],
+    scenario_stats: Optional[list[_ScenarioRunStats]] = None,
+) -> dict[str, Any]:
+    stats_rows = list(scenario_stats or [])
+    if len(stats_rows) < len(scenario_rows):
+        stats_rows.extend(
+            _ScenarioRunStats(
+                decisions_count=0,
+                orders_count=0,
+                fills_count=0,
+                rejection_counts={},
+            )
+            for _ in range(len(scenario_rows) - len(stats_rows))
+        )
+    elif len(stats_rows) > len(scenario_rows):
+        stats_rows = stats_rows[: len(scenario_rows)]
+
+    total_decisions = sum(stats.decisions_count for stats in stats_rows)
+    total_orders = sum(stats.orders_count for stats in stats_rows)
+    total_fills = sum(stats.fills_count for stats in stats_rows)
+    scenarios_with_trades = sum(1 for stats in stats_rows if stats.fills_count > 0)
+
+    rejection_totals: dict[str, int] = {}
+    for stats in stats_rows:
+        for key, count in stats.rejection_counts.items():
+            rejection_totals[key] = rejection_totals.get(key, 0) + count
+
+    dominant_rejection_counts = [
+        {"key": key, "count": count}
+        for key, count in sorted(
+            rejection_totals.items(), key=lambda item: (-item[1], item[0])
+        )[:5]
+    ]
+
     if not scenario_rows:
         return {
             "best_net_profit": None,
@@ -331,6 +375,11 @@ def _build_aggregate_summary(scenario_rows: list[dict[str, Any]]) -> dict[str, A
             "median_scenario": None,
             "worst_net_profit": None,
             "worst_scenario": None,
+            "total_decisions": total_decisions,
+            "total_orders": total_orders,
+            "total_fills": total_fills,
+            "scenarios_with_trades": scenarios_with_trades,
+            "dominant_rejection_counts": dominant_rejection_counts,
         }
 
     ranked = sorted(
@@ -351,7 +400,39 @@ def _build_aggregate_summary(scenario_rows: list[dict[str, Any]]) -> dict[str, A
         "worst_net_profit": worst["net_profit"],
         "worst_scenario": worst["scenario_id"],
         "worst_run_id": worst["run_id"],
+        "total_decisions": total_decisions,
+        "total_orders": total_orders,
+        "total_fills": total_fills,
+        "scenarios_with_trades": scenarios_with_trades,
+        "dominant_rejection_counts": dominant_rejection_counts,
     }
+
+
+def _read_scenario_run_stats(run_dir: Path) -> _ScenarioRunStats:
+    manifest = _read_json_dict(run_dir / "run_manifest.json")
+    decisions_count = _as_int(manifest.get("decisions_count"))
+    fills_count = _as_int(manifest.get("fills_count"))
+    orders_count = _count_non_empty_lines(run_dir / "orders.jsonl")
+
+    rejection_counts: dict[str, int] = {}
+    debug = manifest.get("strategy_debug")
+    raw_counts = debug.get("rejection_counts") if isinstance(debug, dict) else None
+    if isinstance(raw_counts, dict):
+        for key, count in raw_counts.items():
+            count_i = _as_int(count)
+            if count_i <= 0:
+                continue
+            key_s = str(key).strip()
+            if not key_s:
+                continue
+            rejection_counts[key_s] = rejection_counts.get(key_s, 0) + count_i
+
+    return _ScenarioRunStats(
+        decisions_count=decisions_count,
+        orders_count=orders_count,
+        fills_count=fills_count,
+        rejection_counts=rejection_counts,
+    )
 
 
 def _derive_sweep_id(params: SweepRunParams, scenarios: list[_ScenarioDef]) -> str:
@@ -435,6 +516,37 @@ def _parse_non_negative_int(value: Any, field_name: str) -> int:
     if parsed < 0:
         raise SweepConfigError(f"override '{field_name}' must be non-negative")
     return parsed
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _read_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _count_non_empty_lines(path: Path) -> int:
+    if not path.exists():
+        return 0
+    count = 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    count += 1
+    except Exception:  # noqa: BLE001
+        return 0
+    return count
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

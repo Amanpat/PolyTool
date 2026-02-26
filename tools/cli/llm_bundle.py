@@ -160,14 +160,19 @@ def _manifest_sort_key(path: Path) -> tuple[float, str]:
 
 
 def find_run_manifest(run_root: Path) -> Path:
-    for filename in RUN_MANIFEST_FILENAMES:
-        candidate = run_root / filename
-        if candidate.exists():
+    expected_paths = [run_root / filename for filename in RUN_MANIFEST_FILENAMES]
+    for candidate in expected_paths:
+        if candidate.is_file():
             return candidate
-    expected = ", ".join(RUN_MANIFEST_FILENAMES)
+
+    expected_block = "\n".join(f"- {_as_posix(path)}" for path in expected_paths)
     raise FileNotFoundError(
-        f"No run manifest found in {run_root}; expected one of: {expected}. "
-        "Run 'python -m polytool scan --user ...' first or provide --run-root."
+        "No dossier manifest found.\n"
+        f"Run root: {_as_posix(run_root)}\n"
+        "Expected one of:\n"
+        f"{expected_block}\n"
+        "Run 'python -m polytool export-dossier --user \"@<handle>\"' "
+        "or 'python -m polytool scan --user \"@<handle>\"' first."
     )
 
 
@@ -282,7 +287,9 @@ def _find_latest_dossier_dir(user_ctx: UserContext) -> Path:
         expected = ", ".join(RUN_MANIFEST_FILENAMES)
         raise FileNotFoundError(
             f"No dossier run with memo.md, dossier.json, and one of ({expected}) found under {base}. "
-            "Run 'python -m polytool scan --user ...' first or provide --run-root."
+            "Run 'python -m polytool export-dossier --user \"@<handle>\"' "
+            "or 'python -m polytool scan --user \"@<handle>\"' first "
+            "or provide --run-root/--dossier-path."
         )
 
     latest_manifest = max(manifests_by_run_dir.values(), key=_manifest_sort_key)

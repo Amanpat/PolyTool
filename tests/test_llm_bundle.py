@@ -4,6 +4,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 
@@ -63,6 +65,45 @@ def _setup_dossier_dirs(tmp_path, user_slug="herewego446"):
     _write_json(latest_dir / "manifest.json", {"created_at_utc": "2026-02-03T12:00:00Z"})
 
     return base, latest_dir
+
+
+def test_find_run_manifest_uses_manifest_json_when_only_legacy_exists(tmp_path):
+    run_dir = tmp_path / "legacy_run"
+    _write_json(run_dir / "manifest.json", {"created_at_utc": "2026-02-03T12:00:00Z"})
+
+    manifest_path = llm_bundle.find_run_manifest(run_dir)
+    assert manifest_path == run_dir / "manifest.json"
+
+
+def test_find_run_manifest_uses_run_manifest_json_when_only_new_exists(tmp_path):
+    run_dir = tmp_path / "scan_run"
+    _write_json(run_dir / "run_manifest.json", {"created_at_utc": "2026-02-03T12:00:00Z"})
+
+    manifest_path = llm_bundle.find_run_manifest(run_dir)
+    assert manifest_path == run_dir / "run_manifest.json"
+
+
+def test_find_run_manifest_prefers_run_manifest_json_when_both_exist(tmp_path):
+    run_dir = tmp_path / "mixed_run"
+    _write_json(run_dir / "manifest.json", {"source": "legacy"})
+    _write_json(run_dir / "run_manifest.json", {"source": "scan"})
+
+    manifest_path = llm_bundle.find_run_manifest(run_dir)
+    assert manifest_path == run_dir / "run_manifest.json"
+
+
+def test_find_run_manifest_errors_when_both_manifest_names_missing(tmp_path):
+    run_dir = tmp_path / "missing_manifest_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        llm_bundle.find_run_manifest(run_dir)
+
+    err = str(exc_info.value)
+    assert llm_bundle._as_posix(run_dir / "run_manifest.json") in err
+    assert llm_bundle._as_posix(run_dir / "manifest.json") in err
+    assert "export-dossier" in err
+    assert "scan --user" in err
 
 
 def test_llm_bundle_builds_bundle_and_manifest(tmp_path, monkeypatch):
@@ -388,4 +429,5 @@ def test_llm_bundle_errors_when_manifest_missing(tmp_path, monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "run_manifest.json" in err
     assert "manifest.json" in err
+    assert "export-dossier" in err
     assert "--run-root" in err

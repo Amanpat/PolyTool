@@ -21,6 +21,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 ASSET_ID = "test-asset-001"
+BINARY_YES_ID = "yes-auto-001"
+BINARY_NO_ID = "no-auto-001"
 
 # A minimal tape: book snapshot + 5 price_change events
 # Book at seq 0: bid=0.40 (500), ask=0.45 (300)
@@ -85,6 +87,32 @@ TAPE_EVENTS = [
 def _write_tape(path: Path) -> None:
     with open(path, "w", encoding="utf-8") as fh:
         for event in TAPE_EVENTS:
+            fh.write(json.dumps(event) + "\n")
+
+
+def _write_binary_tape(path: Path) -> None:
+    events = [
+        {
+            "parser_version": 1,
+            "seq": 0,
+            "ts_recv": 0.0,
+            "event_type": "book",
+            "asset_id": BINARY_YES_ID,
+            "bids": [{"price": "0.40", "size": "200"}],
+            "asks": [{"price": "0.44", "size": "200"}],
+        },
+        {
+            "parser_version": 1,
+            "seq": 1,
+            "ts_recv": 1.0,
+            "event_type": "book",
+            "asset_id": BINARY_NO_ID,
+            "bids": [{"price": "0.52", "size": "200"}],
+            "asks": [{"price": "0.56", "size": "200"}],
+        },
+    ]
+    with open(path, "w", encoding="utf-8") as fh:
+        for event in events:
             fh.write(json.dumps(event) + "\n")
 
 
@@ -828,6 +856,658 @@ def test_cli_run_unknown_strategy(tmp_path: Path) -> None:
         ]
     )
     assert rc == 1
+
+
+def test_cli_run_binary_arb_manual_yes_no_without_asset_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_manual_only"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+
+    captured_configs: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured_configs.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader")
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--yes-asset-id",
+            "yes-manual",
+            "--no-asset-id",
+            "no-manual",
+            "--run-id",
+            "manual-no-asset-id",
+        ]
+    )
+    assert rc == 0
+    assert len(captured_configs) == 1
+    assert captured_configs[0]["yes_asset_id"] == "yes-manual"
+    assert captured_configs[0]["no_asset_id"] == "no-manual"
+    assert captured_asset_ids == ["yes-manual"]
+
+
+def test_cli_run_binary_arb_strategy_config_json_merges_with_inferred_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_cfg_json_merge"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "quickrun_context": {
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured_configs: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured_configs.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--strategy-config-json",
+            '{"buffer": 0.02, "max_size": 7}',
+            "--run-id",
+            "cfg-json-merge",
+        ]
+    )
+    assert rc == 0
+    assert len(captured_configs) == 1
+    cfg = captured_configs[0]
+    assert cfg["yes_asset_id"] == BINARY_YES_ID
+    assert cfg["no_asset_id"] == BINARY_NO_ID
+    assert cfg["buffer"] == 0.02
+    assert cfg["max_size"] == 7
+    assert captured_asset_ids == [BINARY_YES_ID]
+
+
+def test_cli_run_binary_arb_strategy_preset_loose_expands_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_preset_loose"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+
+    captured_configs: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured_configs.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader")
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--yes-asset-id",
+            "yes-loose",
+            "--no-asset-id",
+            "no-loose",
+            "--strategy-preset",
+            "loose",
+        ]
+    )
+    assert rc == 0
+    assert len(captured_configs) == 1
+    cfg = captured_configs[0]
+    assert cfg["yes_asset_id"] == "yes-loose"
+    assert cfg["no_asset_id"] == "no-loose"
+    assert cfg["max_size"] == 1
+    assert abs(float(cfg["buffer"]) - 0.0005) < 1e-12
+    assert cfg["max_notional_usdc"] == 25
+    assert captured_asset_ids == ["yes-loose"]
+
+
+def test_cli_run_reproduce_includes_non_default_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    def _fake_run_strategy(_params):
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader")
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "copy_wallet_replay",
+            "--strategy-config-json",
+            '{"trades_path":"trades.jsonl"}',
+            "--run-id",
+            "repro-non-defaults",
+            "--starting-cash",
+            "500",
+            "--fee-rate-bps",
+            "10",
+            "--mark-method",
+            "midpoint",
+            "--latency-ticks",
+            "2",
+            "--cancel-latency-ticks",
+            "3",
+            "--strict",
+            "--allow-degraded",
+        ]
+    )
+    assert rc == 0
+
+    out = capsys.readouterr().out
+    assert "Reproduce" in out
+    assert "--strategy-config-json" in out
+    assert "--run-id repro-non-defaults" in out
+    assert "--starting-cash 500.0" in out
+    assert "--fee-rate-bps 10.0" in out
+    assert "--mark-method midpoint" in out
+    assert "--latency-ticks 2" in out
+    assert "--cancel-latency-ticks 3" in out
+    assert "--strict" in out
+    assert "--allow-degraded" in out
+
+
+def test_cli_run_binary_arb_infers_ids_from_quickrun_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_quickrun"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "quickrun_context": {
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    run_id = "infer-quickrun-meta"
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            run_id,
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    cfg = captured[0]
+    assert cfg["yes_asset_id"] == BINARY_YES_ID
+    assert cfg["no_asset_id"] == BINARY_NO_ID
+    assert cfg["buffer"] == 0.01
+    assert cfg["max_size"] == 50
+    assert captured_asset_ids == [BINARY_YES_ID]
+
+    manifest = json.loads(
+        (artifacts_root / "runs" / run_id / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("inferred_ids_from_tape_meta") is True
+
+
+def test_cli_run_binary_arb_infers_ids_from_shadow_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_shadow"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "shadow_context": {
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    run_id = "infer-shadow-meta"
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            run_id,
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    cfg = captured[0]
+    assert cfg["yes_asset_id"] == BINARY_YES_ID
+    assert cfg["no_asset_id"] == BINARY_NO_ID
+    assert cfg["buffer"] == 0.01
+    assert cfg["max_size"] == 50
+    assert captured_asset_ids == [BINARY_YES_ID]
+
+    manifest = json.loads(
+        (artifacts_root / "runs" / run_id / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("inferred_ids_from_tape_meta") is True
+
+
+def test_cli_run_writes_market_context_manifest_when_ids_inferred(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_id = "20260225T234032Z_shadow_97449340"
+    tape_dir = tmp_path / "legacy_tapes" / tape_id
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "shadow_context": {
+                    "selected_slug": "inferred-shadow-market",
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_run_strategy(params):
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    run_id = "manifest-market-context-inferred"
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            run_id,
+        ]
+    )
+    assert rc == 0
+
+    manifest = json.loads(
+        (artifacts_root / "runs" / run_id / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("market_slug") == "inferred-shadow-market"
+    assert manifest.get("inferred_ids_from_tape_meta") is True
+
+    market_context = manifest.get("market_context")
+    assert isinstance(market_context, dict)
+    assert market_context.get("market_slug") == "inferred-shadow-market"
+    assert market_context.get("yes_token_id") == BINARY_YES_ID
+    assert market_context.get("no_token_id") == BINARY_NO_ID
+    assert market_context.get("tape_id") == tape_id
+    assert market_context.get("tape_path") == str(tape_path)
+
+
+def test_run_infers_from_shadow_run_manifest_when_tape_meta_missing_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_id = "20260225T234032Z_shadow_97449340"
+    tape_dir = tmp_path / "legacy_tapes" / tape_id
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "source": "websocket",
+                "event_count": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    shadow_manifest_dir = artifacts_root / "shadow_runs" / tape_id
+    shadow_manifest_dir.mkdir(parents=True, exist_ok=True)
+    (shadow_manifest_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": tape_id,
+                "shadow_context": {
+                    "selected_slug": "fallback-shadow-market",
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    run_id = "infer-from-shadow-run-manifest"
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            run_id,
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    cfg = captured[0]
+    assert cfg["yes_asset_id"] == BINARY_YES_ID
+    assert cfg["no_asset_id"] == BINARY_NO_ID
+    assert captured_asset_ids == [BINARY_YES_ID]
+
+    manifest = json.loads(
+        (artifacts_root / "runs" / run_id / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest.get("inferred_ids_from_tape_meta") is True
+
+
+def test_cli_run_binary_arb_meta_missing_contexts_has_clear_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_bad_meta"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "quickrun_context": {"yes_token_id": BINARY_YES_ID},
+                "shadow_context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def _should_not_run(_params):
+        raise AssertionError("run_strategy should not be called when ID inference fails")
+
+    monkeypatch.setattr(facade, "run_strategy", _should_not_run)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            "infer-missing-meta",
+        ]
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "requires yes/no asset IDs" in err
+    assert "--strategy-config" in err
+    assert "--strategy-config-path" in err
+    assert "--yes-asset-id" in err
+    assert "--no-asset-id" in err
+
+
+def test_cli_run_binary_arb_missing_meta_file_has_clear_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_no_meta"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+
+    def _should_not_run(_params):
+        raise AssertionError("run_strategy should not be called when meta.json is missing")
+
+    monkeypatch.setattr(facade, "run_strategy", _should_not_run)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--run-id",
+            "infer-no-meta",
+        ]
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "requires yes/no asset IDs" in err
+    assert "meta.json is missing" in err
+    assert "--strategy-config" in err
+    assert "--strategy-config-path" in err
+
+
+def test_cli_run_binary_arb_manual_yes_no_flags_override_meta(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_dir = tmp_path / "tape_manual_override"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_binary_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "quickrun_context": {
+                    "yes_token_id": BINARY_YES_ID,
+                    "no_token_id": BINARY_NO_ID,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+    captured_asset_ids: list[str | None] = []
+
+    def _fake_run_strategy(params):
+        captured.append(params.strategy_config)
+        captured_asset_ids.append(params.asset_id)
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps({"run_id": params.run_dir.name}) + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    monkeypatch.setattr(simtrader_cli, "DEFAULT_ARTIFACTS_DIR", artifacts_root)
+
+    run_id = "manual-override-meta"
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "binary_complement_arb",
+            "--yes-asset-id",
+            "yes-manual",
+            "--no-asset-id",
+            "no-manual",
+            "--run-id",
+            run_id,
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    cfg = captured[0]
+    assert cfg["yes_asset_id"] == "yes-manual"
+    assert cfg["no_asset_id"] == "no-manual"
+    assert captured_asset_ids == ["yes-manual"]
+
+    manifest = json.loads(
+        (artifacts_root / "runs" / run_id / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert "inferred_ids_from_tape_meta" not in manifest
 
 
 # ---------------------------------------------------------------------------

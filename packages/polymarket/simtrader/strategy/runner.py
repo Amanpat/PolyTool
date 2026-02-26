@@ -594,6 +594,7 @@ class StrategyRunner:
             "command": "simtrader run",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "tape_path": str(self.events_path),
+            "tape_dir": str(self.events_path.parent),
             "asset_id": asset_id,
             "extra_book_asset_ids": self.extra_book_asset_ids,
             "latency_config": {
@@ -656,6 +657,7 @@ class StrategyRunner:
             "command": "simtrader run",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "tape_path": str(self.events_path),
+            "tape_dir": str(self.events_path.parent),
             "asset_id": asset_id,
             "extra_book_asset_ids": self.extra_book_asset_ids,
             "latency_config": {

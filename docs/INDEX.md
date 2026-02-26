@@ -29,6 +29,7 @@ Quick-reference index of all key docs and what they cover.
 
 | Doc | Purpose |
 |-----|---------|
+| [SimTrader Operator Guide](README_SIMTRADER.md) | Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports |
 | [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) | Scan-first manual workflow; examine guidance retained as legacy |
 | [Local RAG Workflow](LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes |
 | [LLM Bundle Workflow](LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |

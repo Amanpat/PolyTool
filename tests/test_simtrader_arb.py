@@ -840,6 +840,267 @@ def test_rejection_counter_waiting_on_attempt(tmp_path: Path) -> None:
     )
 
 
+def test_rejection_counter_insufficient_depth_yes() -> None:
+    """A thin YES best-ask level increments insufficient_depth_yes deterministically."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=50,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    # Seed NO snapshot (setup phase may increment unrelated counters).
+    no_event = {
+        "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+        "bids": [{"price": "0.48", "size": "100"}],
+        "asks": [{"price": "0.52", "size": "100"}],
+    }
+    strategy.on_event(no_event, 0, 0.0, best_bid=None, best_ask=None, open_orders={})
+
+    before = dict(strategy.rejection_counts)
+    yes_event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.39", "size": "100"}],
+        "asks": [{"price": "0.40", "size": "10"}],  # thinner than max_size=50
+    }
+    intents = strategy.on_event(yes_event, 1, 1.0, best_bid=0.39, best_ask=0.40, open_orders={})
+
+    assert intents == []
+    assert (
+        strategy.rejection_counts["insufficient_depth_yes"]
+        == before["insufficient_depth_yes"] + 1
+    )
+
+
+def test_rejection_counter_insufficient_depth_no() -> None:
+    """A thin NO best-ask level increments insufficient_depth_no deterministically."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=50,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    no_event = {
+        "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+        "bids": [{"price": "0.48", "size": "100"}],
+        "asks": [{"price": "0.52", "size": "10"}],  # thinner than max_size=50
+    }
+    strategy.on_event(no_event, 0, 0.0, best_bid=None, best_ask=None, open_orders={})
+
+    before = dict(strategy.rejection_counts)
+    yes_event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.39", "size": "100"}],
+        "asks": [{"price": "0.40", "size": "100"}],
+    }
+    intents = strategy.on_event(yes_event, 1, 1.0, best_bid=0.39, best_ask=0.40, open_orders={})
+
+    assert intents == []
+    assert (
+        strategy.rejection_counts["insufficient_depth_no"]
+        == before["insufficient_depth_no"] + 1
+    )
+
+
+def test_rejection_counter_fee_kills_edge() -> None:
+    """sum_ask below $1 but above threshold increments fee_kills_edge."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,  # threshold=0.98
+        max_size=10,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    no_event = {
+        "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+        "bids": [{"price": "0.48", "size": "100"}],
+        "asks": [{"price": "0.50", "size": "100"}],
+    }
+    strategy.on_event(no_event, 0, 0.0, best_bid=None, best_ask=None, open_orders={})
+
+    before = dict(strategy.rejection_counts)
+    # sum_ask=0.49+0.50=0.99 (positive gross edge, below-fees/buffer edge fails)
+    yes_event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.48", "size": "100"}],
+        "asks": [{"price": "0.49", "size": "100"}],
+    }
+    intents = strategy.on_event(yes_event, 1, 1.0, best_bid=0.48, best_ask=0.49, open_orders={})
+
+    assert intents == []
+    assert strategy.rejection_counts["fee_kills_edge"] == before["fee_kills_edge"] + 1
+
+
+def test_rejection_counter_min_notional_or_max_notional_gate() -> None:
+    """Notional gate increments min_notional_or_max_notional_gate deterministically."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=100,
+        max_notional_usdc=20,  # force gating (expected notional around 95-100)
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    no_event = {
+        "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+        "bids": [{"price": "0.48", "size": "200"}],
+        "asks": [{"price": "0.52", "size": "200"}],
+    }
+    strategy.on_event(no_event, 0, 0.0, best_bid=None, best_ask=None, open_orders={})
+
+    before = dict(strategy.rejection_counts)
+    yes_event = {
+        "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+        "bids": [{"price": "0.40", "size": "200"}],
+        "asks": [{"price": "0.43", "size": "200"}],  # sum_ask=0.95, entry otherwise valid
+    }
+    intents = strategy.on_event(yes_event, 1, 1.0, best_bid=0.40, best_ask=0.43, open_orders={})
+
+    assert intents == []
+    assert (
+        strategy.rejection_counts["min_notional_or_max_notional_gate"]
+        == before["min_notional_or_max_notional_gate"] + 1
+    )
+
+
+def test_rejection_counters_legging_blocked_and_unwind_in_progress() -> None:
+    """Active-attempt ticks split between legging_blocked and unwind_in_progress."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=10,
+        unwind_wait_ticks=10,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    # Seed both books and create an active attempt.
+    strategy.on_event(
+        {
+            "seq": 0, "ts_recv": 0.0, "event_type": "book", "asset_id": NO_ID,
+            "bids": [{"price": "0.48", "size": "100"}],
+            "asks": [{"price": "0.52", "size": "100"}],
+        },
+        0,
+        0.0,
+        best_bid=None,
+        best_ask=None,
+        open_orders={},
+    )
+    entry_intents = strategy.on_event(
+        {
+            "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+            "bids": [{"price": "0.40", "size": "100"}],
+            "asks": [{"price": "0.44", "size": "100"}],
+        },
+        1,
+        1.0,
+        best_bid=0.40,
+        best_ask=0.44,
+        open_orders={},
+    )
+    assert len(entry_intents) == 2, "Expected entry intents to open an attempt"
+
+    before = dict(strategy.rejection_counts)
+
+    # Tick with active attempt and no fills yet -> legging_blocked.
+    strategy.on_event(
+        {
+            "seq": 2, "ts_recv": 2.0, "event_type": "price_change", "asset_id": YES_ID,
+            "changes": [{"side": "BUY", "price": "0.41", "size": "10"}],
+        },
+        2,
+        2.0,
+        best_bid=0.41,
+        best_ask=0.44,
+        open_orders={},
+    )
+    assert strategy.rejection_counts["legging_blocked"] == before["legging_blocked"] + 1
+
+    # Mark YES leg as filled, then next tick should be counted as unwind_in_progress.
+    strategy.on_fill(
+        order_id="yes-fill-1",
+        asset_id=YES_ID,
+        side="BUY",
+        fill_price=Decimal("0.44"),
+        fill_size=Decimal("10"),
+        fill_status="full",
+        seq=2,
+        ts_recv=2.0,
+    )
+    strategy.on_event(
+        {
+            "seq": 3, "ts_recv": 3.0, "event_type": "price_change", "asset_id": YES_ID,
+            "changes": [{"side": "BUY", "price": "0.42", "size": "10"}],
+        },
+        3,
+        3.0,
+        best_bid=0.42,
+        best_ask=0.44,
+        open_orders={},
+    )
+    assert strategy.rejection_counts["unwind_in_progress"] == before["unwind_in_progress"] + 1
+    assert strategy.rejection_counts["waiting_on_attempt"] == before["waiting_on_attempt"] + 2
+
+
+def test_rejection_counter_stale_or_missing_snapshot() -> None:
+    """Missing NO snapshot increments stale_or_missing_snapshot deterministically."""
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    strategy = BinaryComplementArb(
+        yes_asset_id=YES_ID,
+        no_asset_id=NO_ID,
+        buffer=0.02,
+        max_size=10,
+    )
+    strategy.on_start(YES_ID, Decimal("1000"))
+
+    before = dict(strategy.rejection_counts)
+    strategy.on_event(
+        {
+            "seq": 1, "ts_recv": 1.0, "event_type": "book", "asset_id": YES_ID,
+            "bids": [{"price": "0.45", "size": "100"}],
+            "asks": [{"price": "0.50", "size": "100"}],
+        },
+        1,
+        1.0,
+        best_bid=0.45,
+        best_ask=0.50,
+        open_orders={},
+    )
+    assert (
+        strategy.rejection_counts["stale_or_missing_snapshot"]
+        == before["stale_or_missing_snapshot"] + 1
+    )
+
+
 def test_rejection_counts_in_manifest_and_summary(tmp_path: Path) -> None:
     """rejection_counts appear in run_manifest.json strategy_debug and summary.json."""
     from packages.polymarket.simtrader.strategies.binary_complement_arb import (
@@ -875,6 +1136,13 @@ def test_rejection_counts_in_manifest_and_summary(tmp_path: Path) -> None:
     assert "no_bbo" in counts_m
     assert "edge_below_threshold" in counts_m
     assert "waiting_on_attempt" in counts_m
+    assert "insufficient_depth_yes" in counts_m
+    assert "insufficient_depth_no" in counts_m
+    assert "fee_kills_edge" in counts_m
+    assert "min_notional_or_max_notional_gate" in counts_m
+    assert "unwind_in_progress" in counts_m
+    assert "legging_blocked" in counts_m
+    assert "stale_or_missing_snapshot" in counts_m
 
     summary = json.loads((run_dir / "summary.json").read_text())
     assert "strategy_debug" in summary, "summary.json must have strategy_debug"

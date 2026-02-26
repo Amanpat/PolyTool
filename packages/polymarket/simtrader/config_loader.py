@@ -50,9 +50,9 @@ def load_json_from_path(path: Union[str, Path]) -> dict:
 def load_json_from_string(raw: str) -> dict:
     """Parse a JSON string into a dict.
 
-    Strips a leading UTF-8 BOM character (U+FEFF) if present so that strings
-    produced by PowerShell 5.1 ``ConvertTo-Json | Out-String`` pipelines parse
-    correctly.
+    Strips leading/trailing whitespace, unwraps a single pair of outer single
+    quotes when present, and strips a leading UTF-8 BOM character (U+FEFF) so
+    that strings produced by PowerShell pipelines parse correctly.
 
     Args:
         raw: JSON string, optionally BOM-prefixed.
@@ -63,12 +63,22 @@ def load_json_from_string(raw: str) -> dict:
     Raises:
         ConfigLoadError: If the string is not valid JSON or not an object.
     """
+    original_raw = raw
+    raw = raw.strip()
+    if len(raw) >= 2 and raw.startswith("'") and raw.endswith("'"):
+        raw = raw[1:-1].strip()
     if raw.startswith("\ufeff"):
         raw = raw[1:]
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ConfigLoadError(f"config string is not valid JSON: {exc}") from exc
+        snippet = original_raw[:120]
+        if len(original_raw) > 120:
+            snippet += "..."
+        raise ConfigLoadError(
+            "config string is not valid JSON: "
+            f"{exc} (raw_len={len(original_raw)}, raw_prefix={snippet!r})"
+        ) from exc
 
     if not isinstance(result, dict):
         raise ConfigLoadError(

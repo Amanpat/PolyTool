@@ -25,6 +25,7 @@ table, see [INDEX.md](INDEX.md).
 10. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
 11. [Current state / what we built](CURRENT_STATE.md)
 12. [Docs best practices](DOCS_BEST_PRACTICES.md)
+13. SimTrader operator guide (optional): [README_SIMTRADER.md](README_SIMTRADER.md)
 
 ## Local config and CLI naming
 - Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
@@ -43,6 +44,7 @@ table, see [INDEX.md](INDEX.md).
 - [Debug: Windows pytest PermissionError tempdirs](debug/DEBUG-windows-permissionerror-pytest-tempdirs.md)
 
 ## Workflows
+- [SimTrader operator guide](README_SIMTRADER.md) - Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports
 - [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
 - [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)

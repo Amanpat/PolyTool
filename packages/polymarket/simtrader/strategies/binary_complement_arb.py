@@ -92,6 +92,7 @@ from typing import Any, Optional
 
 from ..orderbook.l2book import L2Book
 from ..strategy.base import OrderIntent, Strategy
+from ..tape.schema import EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,9 @@ class BinaryComplementArb(Strategy):
         legging_policy: str = LEGGING_WAIT_N,
         unwind_wait_ticks: int = 5,
         enable_merge_full_set: bool = True,
+        min_notional_usdc: float = 0.0,
+        max_notional_usdc: Optional[float] = None,
+        snapshot_stale_after_ticks: int = 0,
     ) -> None:
         if legging_policy not in (LEGGING_IMMEDIATE, LEGGING_WAIT_N):
             raise ValueError(
@@ -204,15 +208,36 @@ class BinaryComplementArb(Strategy):
         self._no_id = no_asset_id
         self._buffer = Decimal(str(buffer))
         self._max_size = Decimal(str(max_size))
+        self._min_notional_usdc = Decimal(str(min_notional_usdc))
+        self._max_notional_usdc = (
+            Decimal(str(max_notional_usdc))
+            if max_notional_usdc is not None
+            else None
+        )
+        self._snapshot_stale_after_ticks = snapshot_stale_after_ticks
         self._legging_policy = legging_policy
         self._unwind_wait_ticks = unwind_wait_ticks
         self._enable_merge = enable_merge_full_set
+        if self._min_notional_usdc < _ZERO:
+            raise ValueError("min_notional_usdc must be non-negative")
+        if self._max_notional_usdc is not None and self._max_notional_usdc < _ZERO:
+            raise ValueError("max_notional_usdc must be non-negative when provided")
+        if (
+            self._max_notional_usdc is not None
+            and self._max_notional_usdc < self._min_notional_usdc
+        ):
+            raise ValueError("max_notional_usdc must be >= min_notional_usdc")
+        if self._snapshot_stale_after_ticks < 0:
+            raise ValueError("snapshot_stale_after_ticks must be >= 0")
 
         # Initialised in on_start
+        self._yes_book: L2Book
         self._no_book: L2Book
         self._active_attempt: Optional[_ArbAttempt] = None
         self._all_attempts: list[_ArbAttempt] = []
         self._attempt_counter: int = 0
+        self._yes_snapshot_seq: Optional[int] = None
+        self._no_snapshot_seq: Optional[int] = None
 
         # Public output attributes read by StrategyRunner after on_finish
         self.opportunities: list[dict] = []
@@ -224,6 +249,13 @@ class BinaryComplementArb(Strategy):
             "no_bbo": 0,             # YES or NO best_ask unavailable
             "edge_below_threshold": 0,  # sum_ask >= (1 - buffer)
             "waiting_on_attempt": 0,  # already managing an open attempt
+            "insufficient_depth_yes": 0,
+            "insufficient_depth_no": 0,
+            "fee_kills_edge": 0,
+            "min_notional_or_max_notional_gate": 0,
+            "unwind_in_progress": 0,
+            "legging_blocked": 0,
+            "stale_or_missing_snapshot": 0,
         }
 
     # ------------------------------------------------------------------
@@ -231,16 +263,26 @@ class BinaryComplementArb(Strategy):
     # ------------------------------------------------------------------
 
     def on_start(self, asset_id: str, starting_cash: Decimal) -> None:
+        self._yes_book = L2Book(self._yes_id, strict=False)
         self._no_book = L2Book(self._no_id, strict=False)
         self._active_attempt = None
         self._all_attempts = []
         self._attempt_counter = 0
+        self._yes_snapshot_seq = None
+        self._no_snapshot_seq = None
         self.opportunities = []
         self.modeled_arb_summary = {}
         self.rejection_counts = {
             "no_bbo": 0,
             "edge_below_threshold": 0,
             "waiting_on_attempt": 0,
+            "insufficient_depth_yes": 0,
+            "insufficient_depth_no": 0,
+            "fee_kills_edge": 0,
+            "min_notional_or_max_notional_gate": 0,
+            "unwind_in_progress": 0,
+            "legging_blocked": 0,
+            "stale_or_missing_snapshot": 0,
         }
         logger.info(
             "BinaryComplementArb started: yes=%s no=%s buffer=%s max_size=%s policy=%s",
@@ -256,9 +298,7 @@ class BinaryComplementArb(Strategy):
         best_ask: Optional[float],
         open_orders: dict[str, Any],
     ) -> list[OrderIntent]:
-        # Update our internal NO book from any NO events in the tape
-        if event.get("asset_id") == self._no_id:
-            self._no_book.apply(event)
+        self._update_internal_books(event, seq)
 
         intents: list[OrderIntent] = []
 
@@ -268,6 +308,12 @@ class BinaryComplementArb(Strategy):
 
         if had_active:
             self.rejection_counts["waiting_on_attempt"] += 1
+            attempt = self._active_attempt
+            assert attempt is not None
+            if attempt.yes_filled_size > _ZERO or attempt.no_filled_size > _ZERO:
+                self.rejection_counts["unwind_in_progress"] += 1
+            else:
+                self.rejection_counts["legging_blocked"] += 1
             self._active_attempt.ticks_since_enter += 1  # type: ignore[union-attr]
             intents.extend(
                 self._manage_attempt(seq, ts_recv, best_bid, best_ask, open_orders)
@@ -275,21 +321,110 @@ class BinaryComplementArb(Strategy):
 
         # Only detect new arb if we were idle at the start of this tick
         if not had_active and self._active_attempt is None:
+            if self._has_stale_or_missing_snapshot(seq):
+                self.rejection_counts["stale_or_missing_snapshot"] += 1
+
             yes_ask = best_ask  # primary book = YES
             no_ask = self._no_book.best_ask
             if yes_ask is not None and no_ask is not None:
                 yes_ask_d = Decimal(str(yes_ask))
                 no_ask_d = Decimal(str(no_ask))
-                if yes_ask_d + no_ask_d < _ONE - self._buffer:
-                    intents.extend(
-                        self._enter_arb(seq, ts_recv, yes_ask_d, no_ask_d)
+                if self._max_size <= _ZERO:
+                    self.rejection_counts["min_notional_or_max_notional_gate"] += 1
+                    return intents
+
+                yes_depth = self._best_ask_size(self._yes_book)
+                no_depth = self._best_ask_size(self._no_book)
+                depth_blocked = False
+                if yes_depth is None or yes_depth < self._max_size:
+                    self.rejection_counts["insufficient_depth_yes"] += 1
+                    depth_blocked = True
+                if no_depth is None or no_depth < self._max_size:
+                    self.rejection_counts["insufficient_depth_no"] += 1
+                    depth_blocked = True
+                if depth_blocked:
+                    return intents
+
+                sum_ask = yes_ask_d + no_ask_d
+                threshold = _ONE - self._buffer
+                if sum_ask >= threshold:
+                    if sum_ask < _ONE:
+                        self.rejection_counts["fee_kills_edge"] += 1
+                    else:
+                        self.rejection_counts["edge_below_threshold"] += 1
+                    return intents
+
+                notional = sum_ask * self._max_size
+                if (
+                    notional < self._min_notional_usdc
+                    or (
+                        self._max_notional_usdc is not None
+                        and notional > self._max_notional_usdc
                     )
-                else:
-                    self.rejection_counts["edge_below_threshold"] += 1
+                ):
+                    self.rejection_counts["min_notional_or_max_notional_gate"] += 1
+                    return intents
+
+                intents.extend(
+                    self._enter_arb(seq, ts_recv, yes_ask_d, no_ask_d)
+                )
             else:
+                # Keep the original reason code for compatibility with existing tests.
                 self.rejection_counts["no_bbo"] += 1
+                # Split no_bbo into side-specific depth unavailability for diagnostics.
+                if yes_ask is None:
+                    self.rejection_counts["insufficient_depth_yes"] += 1
+                if no_ask is None:
+                    self.rejection_counts["insufficient_depth_no"] += 1
 
         return intents
+
+    def _update_internal_books(self, event: dict, seq: int) -> None:
+        """Mirror YES/NO book state for depth and snapshot diagnostics."""
+        event_type = event.get("event_type")
+        if event_type == EVENT_TYPE_PRICE_CHANGE and "price_changes" in event:
+            for entry in event.get("price_changes", []):
+                if not isinstance(entry, dict):
+                    continue
+                entry_asset = str(entry.get("asset_id") or "")
+                if entry_asset == self._yes_id:
+                    self._yes_book.apply_single_delta(entry)
+                elif entry_asset == self._no_id:
+                    self._no_book.apply_single_delta(entry)
+            return
+
+        asset_id = str(event.get("asset_id") or "")
+        if asset_id == self._yes_id:
+            self._yes_book.apply(event)
+            if event_type == EVENT_TYPE_BOOK:
+                self._yes_snapshot_seq = seq
+        elif asset_id == self._no_id:
+            self._no_book.apply(event)
+            if event_type == EVENT_TYPE_BOOK:
+                self._no_snapshot_seq = seq
+
+    def _has_stale_or_missing_snapshot(self, seq: int) -> bool:
+        """Whether YES/NO snapshots are missing or stale for diagnostics."""
+        if self._yes_snapshot_seq is None or self._no_snapshot_seq is None:
+            return True
+        if self._snapshot_stale_after_ticks <= 0:
+            return False
+        return (
+            (seq - self._yes_snapshot_seq) > self._snapshot_stale_after_ticks
+            or (seq - self._no_snapshot_seq) > self._snapshot_stale_after_ticks
+        )
+
+    @staticmethod
+    def _best_ask_size(book: L2Book) -> Optional[Decimal]:
+        """Return size at the best ask level for one internal book."""
+        asks = getattr(book, "_asks", {})
+        if not asks:
+            return None
+        _, size = min(
+            ((Decimal(price_str), size) for price_str, size in asks.items()),
+            key=lambda row: row[0],
+        )
+        return size
 
     def on_fill(
         self,

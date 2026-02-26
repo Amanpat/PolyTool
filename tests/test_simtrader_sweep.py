@@ -245,3 +245,155 @@ def test_sweep_strategy_override_patches_strategy_config(tmp_path: Path) -> None
     assert base_seq == 2
     assert delayed_seq == 4
     assert delayed_seq > base_seq
+
+
+def test_sweep_summary_activity_and_rejection_aggregates_offline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from packages.polymarket.simtrader.strategy.facade import StrategyRunResult
+    from packages.polymarket.simtrader.sweeps.runner import SweepRunParams, run_sweep
+
+    tape_path = tmp_path / "events.jsonl"
+    tape_path.write_text("{}\n", encoding="utf-8")
+
+    scenario_data = {
+        "alpha": {
+            "net_profit": "1.0",
+            "decisions_count": 10,
+            "orders_count": 12,
+            "fills_count": 3,
+            "rejection_counts": {
+                "no_bbo": 5,
+                "edge_below_threshold": 2,
+                "waiting_on_attempt": 1,
+            },
+        },
+        "beta": {
+            "net_profit": "-1.0",
+            "decisions_count": 4,
+            "orders_count": 4,
+            "fills_count": 0,
+            "rejection_counts": {
+                "no_bbo": 1,
+                "stale_or_missing_snapshot": 7,
+            },
+        },
+        "gamma": {
+            "net_profit": "0.5",
+            "decisions_count": 8,
+            "orders_count": 9,
+            "fills_count": 2,
+            "rejection_counts": {
+                "edge_below_threshold": 6,
+                "fee_kills_edge": 3,
+                "insufficient_depth_yes": 3,
+            },
+        },
+    }
+
+    def fake_run_strategy(params):
+        scenario_id = params.run_dir.name
+        payload = scenario_data[scenario_id]
+        params.run_dir.mkdir(parents=True, exist_ok=True)
+
+        orders_count = int(payload["orders_count"])
+        (params.run_dir / "orders.jsonl").write_text(
+            "".join("{}\n" for _ in range(orders_count)),
+            encoding="utf-8",
+        )
+        (params.run_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_id": scenario_id,
+                    "decisions_count": payload["decisions_count"],
+                    "fills_count": payload["fills_count"],
+                    "strategy_debug": {
+                        "rejection_counts": payload["rejection_counts"]
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        return StrategyRunResult(
+            run_id=scenario_id,
+            run_dir=params.run_dir,
+            summary={},
+            metrics={
+                "net_profit": payload["net_profit"],
+                "realized_pnl": "0",
+                "unrealized_pnl": "0",
+                "total_fees": "0",
+            },
+            warnings_count=0,
+        )
+
+    monkeypatch.setattr(
+        "packages.polymarket.simtrader.sweeps.runner.run_strategy",
+        fake_run_strategy,
+    )
+
+    result = run_sweep(
+        SweepRunParams(
+            events_path=tape_path,
+            strategy_name="copy_wallet_replay",
+            strategy_config={},
+            starting_cash=Decimal("1000"),
+            sweep_id="offline-aggregate-sweep",
+            artifacts_root=tmp_path / "artifacts",
+        ),
+        sweep_config={
+            "scenarios": [
+                {"name": "gamma", "overrides": {}},
+                {"name": "alpha", "overrides": {}},
+                {"name": "beta", "overrides": {}},
+            ]
+        },
+    )
+
+    aggregate = result.summary["aggregate"]
+
+    assert aggregate["total_decisions"] == 22
+    assert aggregate["total_orders"] == 25
+    assert aggregate["total_fills"] == 5
+    assert aggregate["scenarios_with_trades"] == 2
+    assert aggregate["dominant_rejection_counts"] == [
+        {"key": "edge_below_threshold", "count": 8},
+        {"key": "stale_or_missing_snapshot", "count": 7},
+        {"key": "no_bbo", "count": 6},
+        {"key": "fee_kills_edge", "count": 3},
+        {"key": "insufficient_depth_yes", "count": 3},
+    ]
+
+    # Backward-compatible schema: old aggregate fields are still present.
+    old_aggregate_fields = {
+        "best_net_profit",
+        "best_scenario",
+        "best_run_id",
+        "median_net_profit",
+        "median_scenario",
+        "median_run_id",
+        "worst_net_profit",
+        "worst_scenario",
+        "worst_run_id",
+    }
+    assert old_aggregate_fields.issubset(set(aggregate))
+    assert aggregate["best_scenario"] == "alpha"
+    assert aggregate["median_scenario"] == "gamma"
+    assert aggregate["worst_scenario"] == "beta"
+
+    # Scenario rows remain backward-compatible (no required fields removed).
+    expected_scenario_fields = {
+        "scenario_id",
+        "scenario_name",
+        "run_id",
+        "net_profit",
+        "realized_pnl",
+        "unrealized_pnl",
+        "total_fees",
+        "warnings_count",
+        "artifact_path",
+    }
+    for row in result.summary["scenarios"]:
+        assert expected_scenario_fields.issubset(set(row))

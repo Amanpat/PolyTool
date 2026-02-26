@@ -71,10 +71,15 @@ class ReplayRunner:
         if not events:
             raise ValueError(f"No events found in {self.events_path}")
 
-        # Collect all asset IDs present in the tape.
+        # Collect all asset IDs present in the tape (both top-level and from
+        # modern batched price_changes[] entries).
         asset_ids: set[str] = {
             e.get("asset_id", "") for e in events if e.get("asset_id")
         }
+        for e in events:
+            for entry in e.get("price_changes", []):
+                if entry.get("asset_id"):
+                    asset_ids.add(str(entry["asset_id"]))
         if len(asset_ids) > 1:
             logger.warning(
                 "Multiple asset_ids in tape: %s.  Replaying all.", sorted(asset_ids)
@@ -91,6 +96,37 @@ class ReplayRunner:
             asset_id: str = event.get("asset_id", "")
             event_type: str = event.get("event_type", "")
 
+            # Modern batched format: price_changes[] with per-entry asset_id.
+            # Each entry is applied to its own book; one timeline row per entry.
+            if event_type == EVENT_TYPE_PRICE_CHANGE and "price_changes" in event:
+                for entry in event.get("price_changes", []):
+                    entry_asset = str(entry.get("asset_id") or "")
+                    if not entry_asset:
+                        continue
+                    if entry_asset not in books:
+                        books[entry_asset] = L2Book(entry_asset, strict=self.strict)
+                    try:
+                        if books[entry_asset].apply_single_delta(entry):
+                            book = books[entry_asset]
+                            timeline.append(
+                                {
+                                    "seq": event.get("seq"),
+                                    "ts_recv": event.get("ts_recv"),
+                                    "asset_id": entry_asset,
+                                    "event_type": event_type,
+                                    "best_bid": book.best_bid,
+                                    "best_ask": book.best_ask,
+                                }
+                            )
+                    except L2BookError as exc:
+                        msg = f"seq={event.get('seq')} asset={entry_asset}: {exc}"
+                        if self.strict:
+                            raise
+                        warnings.append(msg)
+                        logger.warning(msg)
+                continue
+
+            # Legacy / single-asset format.
             if asset_id not in books:
                 books[asset_id] = L2Book(asset_id, strict=self.strict)
 

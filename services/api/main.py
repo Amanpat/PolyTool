@@ -1,13 +1,15 @@
 """PolyTool API service for username resolution and trade ingestion."""
 
+import asyncio
 import json
 import logging
 import os
 import sys
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import clickhouse_connect
 
@@ -43,6 +45,11 @@ from polymarket.resolution_enrichment import (
     build_provider_chain as build_resolution_provider_chain,
     enrich_market_resolutions,
     select_resolution_candidates,
+)
+from polymarket.simtrader.studio_sessions import (
+    SESSION_KINDS as STUDIO_SESSION_KINDS,
+    TERMINAL_STATUSES as STUDIO_TERMINAL_STATUSES,
+    StudioSessionManager,
 )
 
 # Configure logging
@@ -93,6 +100,7 @@ app = FastAPI(
     description="API for Polymarket data ingestion and analysis",
     version="0.5.0",
 )
+studio_session_manager = StudioSessionManager()
 
 # Initialize clients
 gamma_client = GammaClient(base_url=GAMMA_API_BASE, timeout=HTTP_TIMEOUT_SECONDS)
@@ -2848,6 +2856,196 @@ async def export_user_dossier_history(
         rows.append(ExportUserDossierHistoryRow(**base))
 
     return ExportUserDossierHistoryResponse(proxy_wallet=proxy_wallet, rows=rows)
+
+
+class StudioSessionStartRequest(BaseModel):
+    """Request body for starting a Studio-managed SimTrader session."""
+
+    kind: str = Field(
+        ...,
+        description="One of: shadow, run, sweep, batch, ondemand.",
+    )
+    args: list[str] = Field(
+        default_factory=list,
+        description="CLI args for the selected subcommand.",
+    )
+    subcommand: Optional[str] = Field(
+        default=None,
+        description="Required for kind=ondemand if not provided as args[0].",
+    )
+
+
+class StudioSessionKillRequest(BaseModel):
+    """Request body for terminating a running Studio session."""
+
+    force: bool = Field(
+        default=False,
+        description="Force kill instead of graceful terminate.",
+    )
+
+
+class StudioSessionResponse(BaseModel):
+    """Serializable Studio session snapshot."""
+
+    session_id: str
+    kind: str
+    subcommand: str
+    status: str
+    started_at: str
+    artifact_dir: Optional[str] = None
+    args: list[str] = Field(default_factory=list)
+    pid: Optional[int] = None
+    exit_reason: Optional[str] = None
+    log_path: str
+    counters: dict[str, Any] = Field(default_factory=dict)
+    ended_at: Optional[str] = None
+    return_code: Optional[int] = None
+
+
+class StudioSessionListResponse(BaseModel):
+    """Response body for listing Studio sessions."""
+
+    sessions: list[StudioSessionResponse]
+
+
+def _as_studio_session_response(payload: dict[str, Any]) -> StudioSessionResponse:
+    return StudioSessionResponse(
+        session_id=str(payload.get("session_id", "")),
+        kind=str(payload.get("kind", "")),
+        subcommand=str(payload.get("subcommand", "")),
+        status=str(payload.get("status", "")),
+        started_at=str(payload.get("started_at", "")),
+        artifact_dir=payload.get("artifact_dir"),
+        args=[str(x) for x in payload.get("args", [])],
+        pid=payload.get("pid"),
+        exit_reason=payload.get("exit_reason"),
+        log_path=str(payload.get("log_path", "")),
+        counters=dict(payload.get("counters", {})),
+        ended_at=payload.get("ended_at"),
+        return_code=payload.get("return_code"),
+    )
+
+
+def _sse_pack(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+@app.post("/api/simtrader/studio/sessions", response_model=StudioSessionResponse)
+async def start_studio_session(request: StudioSessionStartRequest):
+    """Start a SimTrader subprocess managed by the Studio session manager."""
+    try:
+        snapshot = studio_session_manager.start_session(
+            kind=request.kind,
+            args=request.args,
+            subcommand=request.subcommand,
+        )
+    except ValueError as exc:
+        known = ", ".join(sorted(STUDIO_SESSION_KINDS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"{exc} (known kinds: {known})",
+        ) from exc
+    return _as_studio_session_response(snapshot)
+
+
+@app.get("/api/simtrader/studio/sessions", response_model=StudioSessionListResponse)
+async def list_studio_sessions():
+    """List Studio sessions (running and historical)."""
+    sessions = studio_session_manager.list_sessions()
+    return StudioSessionListResponse(
+        sessions=[_as_studio_session_response(payload) for payload in sessions]
+    )
+
+
+@app.get("/api/simtrader/studio/sessions/{session_id}", response_model=StudioSessionResponse)
+async def get_studio_session(session_id: str):
+    """Fetch one Studio session by session_id."""
+    payload = studio_session_manager.get_session(session_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"Unknown session_id: {session_id}")
+    return _as_studio_session_response(payload)
+
+
+@app.post("/api/simtrader/studio/sessions/{session_id}/kill", response_model=StudioSessionResponse)
+async def kill_studio_session(session_id: str, request: Optional[StudioSessionKillRequest] = None):
+    """Terminate a running Studio session."""
+    force = bool(request.force) if request is not None else False
+    try:
+        payload = studio_session_manager.kill_session(session_id, force=force)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _as_studio_session_response(payload)
+
+
+@app.get("/api/simtrader/studio/sessions/{session_id}/stream")
+async def stream_studio_session(session_id: str, request: Request):
+    """SSE stream for one session: emits logs, status snapshots, and counters."""
+    initial = studio_session_manager.get_session(session_id)
+    if initial is None:
+        raise HTTPException(status_code=404, detail=f"Unknown session_id: {session_id}")
+
+    async def _event_stream():
+        offset = 0
+        last_state_key: tuple[Any, ...] | None = None
+        yield _sse_pack("session", initial)
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            try:
+                offset, lines = studio_session_manager.read_log_chunk(session_id=session_id, offset=offset)
+            except KeyError:
+                yield _sse_pack("error", {"session_id": session_id, "message": "unknown_session"})
+                break
+
+            for line in lines:
+                current = studio_session_manager.get_session(session_id)
+                if current is None:
+                    yield _sse_pack("error", {"session_id": session_id, "message": "unknown_session"})
+                    return
+                yield _sse_pack(
+                    "log",
+                    {
+                        "session_id": session_id,
+                        "line": line,
+                        "counters": current.get("counters", {}),
+                    },
+                )
+
+            current = studio_session_manager.get_session(session_id)
+            if current is None:
+                yield _sse_pack("error", {"session_id": session_id, "message": "unknown_session"})
+                break
+
+            counters_key = json.dumps(current.get("counters", {}), sort_keys=True)
+            state_key = (
+                current.get("status"),
+                current.get("artifact_dir"),
+                current.get("pid"),
+                current.get("exit_reason"),
+                counters_key,
+            )
+            if state_key != last_state_key:
+                yield _sse_pack("state", current)
+                last_state_key = state_key
+
+            if current.get("status") in STUDIO_TERMINAL_STATUSES:
+                yield _sse_pack("done", current)
+                break
+
+            yield ": keep-alive\n\n"
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 if __name__ == "__main__":

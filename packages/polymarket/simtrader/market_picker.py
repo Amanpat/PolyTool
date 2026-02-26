@@ -54,6 +54,9 @@ class ResolvedMarket:
     question: str
     #: "explicit" if a tier-1 name was used; "alias" if a tier-2 name was used.
     mapping_tier: str = "explicit"
+    #: Per-token ProbeResult mapping set by auto_pick_many when probe_config is
+    #: supplied.  None when no probe was run.
+    probe_results: Optional[dict] = field(default=None, repr=False)
 
 
 @dataclass
@@ -233,6 +236,7 @@ class MarketPicker:
         top_n_levels: int = 3,
         collect_skips: Optional[list] = None,
         exclude_slugs: Optional[set] = None,
+        probe_config: Optional[dict] = None,
     ) -> ResolvedMarket:
         """Auto-select the first valid binary market from active markets.
 
@@ -247,6 +251,12 @@ class MarketPicker:
             collect_skips:   If not None, append skip-reason dicts here so the
                              caller can report them (useful for ``--dry-run``).
             exclude_slugs:   Slugs to skip during candidate selection.
+            probe_config:    Optional activeness-probe configuration dict.
+                             Keys: ``probe_seconds`` (float), ``min_updates``
+                             (int, default 1), ``require_active`` (bool,
+                             default False), ``ws_url`` (str, optional),
+                             ``_event_source`` (iterable, test hook).
+                             Pass ``None`` (default) to skip probing.
 
         Returns:
             First ResolvedMarket that passes all checks.
@@ -262,6 +272,7 @@ class MarketPicker:
             top_n_levels=top_n_levels,
             collect_skips=collect_skips,
             exclude_slugs=exclude_slugs,
+            probe_config=probe_config,
         )
         if not results:
             raise MarketPickerError(
@@ -278,6 +289,7 @@ class MarketPicker:
         top_n_levels: int = 3,
         collect_skips: Optional[list] = None,
         exclude_slugs: Optional[set] = None,
+        probe_config: Optional[dict] = None,
     ) -> list[ResolvedMarket]:
         """Pick up to ``n`` distinct valid binary markets.
 
@@ -289,6 +301,13 @@ class MarketPicker:
             top_n_levels:    Levels per side for depth check.
             collect_skips:   If not None, append skip-reason dicts here.
             exclude_slugs:   Slugs to skip (for idempotency in batch runs).
+            probe_config:    Optional activeness-probe configuration dict.
+                             See :meth:`auto_pick` for supported keys.
+                             When supplied, probe results are attached to each
+                             returned :class:`ResolvedMarket` via its
+                             ``probe_results`` attribute.  When
+                             ``require_active=True``, markets that do not meet
+                             the update threshold are skipped.
 
         Returns:
             List of up to ``n`` ResolvedMarket instances (may be fewer if not
@@ -397,10 +416,84 @@ class MarketPicker:
                     )
                 continue
 
+            # ------------------------------------------------------------------
+            # Activeness probe (optional)
+            # ------------------------------------------------------------------
+            if probe_config is not None:
+                probe_results = self._run_probe(
+                    resolved, probe_config, collect_skips, slug
+                )
+                if probe_results is None:
+                    # Market was rejected by the probe.
+                    continue
+                resolved.probe_results = probe_results
+
             seen_slugs.add(slug)
             results.append(resolved)
 
         return results
+
+    def _run_probe(
+        self,
+        resolved: "ResolvedMarket",
+        probe_config: dict,
+        collect_skips: Optional[list],
+        slug: str,
+    ) -> Optional[dict]:
+        """Run the activeness probe for *resolved*.
+
+        Returns the per-token :class:`~.activeness_probe.ProbeResult` mapping
+        on success, or ``None`` when ``require_active=True`` and the market is
+        inactive (the skip reason is appended to *collect_skips* if set).
+        """
+        from .activeness_probe import ActivenessProbe  # lazy import
+
+        probe_seconds = float(probe_config.get("probe_seconds", 5))
+        min_updates = int(probe_config.get("min_updates", 1))
+        require_active = bool(probe_config.get("require_active", False))
+        ws_url = probe_config.get("ws_url") or None
+        event_source = probe_config.get("_event_source")  # test hook
+
+        probe_kwargs: dict = {
+            "probe_seconds": probe_seconds,
+            "min_updates": min_updates,
+        }
+        if ws_url:
+            probe_kwargs["ws_url"] = ws_url
+
+        probe = ActivenessProbe(
+            [resolved.yes_token_id, resolved.no_token_id],
+            **probe_kwargs,
+        )
+
+        if event_source is not None:
+            probe_results = probe.run_from_source(event_source)
+        else:
+            probe_results = probe.run()
+
+        if require_active:
+            any_active = any(r.active for r in probe_results.values())
+            if not any_active:
+                logger.debug(
+                    "Probe: %r is inactive (all assets below min_updates=%d)",
+                    slug,
+                    min_updates,
+                )
+                if collect_skips is not None:
+                    collect_skips.append(
+                        {
+                            "slug": slug,
+                            "reason": "probe_inactive",
+                            "probe_seconds": probe_seconds,
+                            "probe_updates": {
+                                tid[:8]: r.updates
+                                for tid, r in probe_results.items()
+                            },
+                        }
+                    )
+                return None
+
+        return probe_results
 
     # ------------------------------------------------------------------
     # Internal helpers

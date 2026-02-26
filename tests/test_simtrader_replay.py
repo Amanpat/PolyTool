@@ -366,3 +366,158 @@ class TestReplayRunner:
         tape.write_text("")
         with pytest.raises(ValueError, match="No events found"):
             ReplayRunner(tape, tmp_path / "run1").run()
+
+
+# ---------------------------------------------------------------------------
+# L2Book: apply_single_delta (modern batched format)
+# ---------------------------------------------------------------------------
+
+
+class TestL2BookSingleDelta:
+    """Tests for L2Book.apply_single_delta — the modern price_changes[] path."""
+
+    def _initialized_book(self) -> L2Book:
+        book = L2Book("tok1", strict=True)
+        book.apply(
+            _book_event(
+                bids=[{"price": "0.55", "size": "100"}],
+                asks=[{"price": "0.57", "size": "200"}],
+            )
+        )
+        return book
+
+    def test_apply_single_delta_updates_bid(self):
+        book = self._initialized_book()
+        book.apply_single_delta({"side": "BUY", "price": "0.56", "size": "75"})
+        assert book.best_bid == pytest.approx(0.56)
+
+    def test_apply_single_delta_updates_ask(self):
+        book = self._initialized_book()
+        book.apply_single_delta({"side": "SELL", "price": "0.54", "size": "50"})
+        assert book.best_ask == pytest.approx(0.54)
+
+    def test_apply_single_delta_removes_level_on_size_zero(self):
+        book = self._initialized_book()
+        # Remove the only bid level.
+        book.apply_single_delta({"side": "BUY", "price": "0.55", "size": "0"})
+        assert book.best_bid is None
+
+    def test_apply_single_delta_returns_true_when_applied(self):
+        book = self._initialized_book()
+        result = book.apply_single_delta({"side": "BUY", "price": "0.56", "size": "50"})
+        assert result is True
+
+    def test_apply_single_delta_strict_before_snapshot_raises(self):
+        book = L2Book("tok1", strict=True)
+        with pytest.raises(L2BookError, match="before book snapshot"):
+            book.apply_single_delta({"side": "BUY", "price": "0.55", "size": "100"})
+
+    def test_apply_single_delta_lenient_before_snapshot_returns_false(self):
+        book = L2Book("tok1", strict=False)
+        result = book.apply_single_delta({"side": "BUY", "price": "0.55", "size": "100"})
+        assert result is False
+        assert book.best_bid is None
+
+
+# ---------------------------------------------------------------------------
+# ReplayRunner: modern batched price_changes[] format
+# ---------------------------------------------------------------------------
+
+
+def _batched_price_change(
+    seq: int,
+    ts: float,
+    entries: list[dict],
+) -> dict:
+    """Build a modern batched price_change event (no top-level asset_id)."""
+    return {
+        "parser_version": PARSER_VERSION,
+        "seq": seq,
+        "ts_recv": ts,
+        "event_type": "price_change",
+        "price_changes": entries,
+    }
+
+
+class TestReplayRunnerBatchedPriceChange:
+    """ReplayRunner handles the modern Polymarket batched price_changes[] format."""
+
+    # Tape: two book snapshots (YES + NO) then one batched price_change.
+    _YES = "yes-tok"
+    _NO = "no-tok"
+
+    def _make_tape(self, tmp_path: Path) -> Path:
+        tape = tmp_path / "events.jsonl"
+        events = [
+            # YES snapshot
+            _book_event(seq=0, ts=0.0, asset_id=self._YES,
+                        bids=[{"price": "0.44", "size": "300"}],
+                        asks=[{"price": "0.46", "size": "200"}]),
+            # NO snapshot
+            _book_event(seq=1, ts=1.0, asset_id=self._NO,
+                        bids=[{"price": "0.52", "size": "100"}],
+                        asks=[{"price": "0.54", "size": "150"}]),
+            # Batched delta: updates YES bid AND NO ask simultaneously.
+            _batched_price_change(seq=2, ts=2.0, entries=[
+                {"asset_id": self._YES, "side": "BUY", "price": "0.45", "size": "80"},
+                {"asset_id": self._NO, "side": "SELL", "price": "0.53", "size": "90"},
+            ]),
+        ]
+        _write_events(tape, events)
+        return tape
+
+    def test_both_books_updated_by_batch(self, tmp_path):
+        tape = self._make_tape(tmp_path)
+        out = ReplayRunner(tape, tmp_path / "run1", strict=True).run()
+        rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
+        # Extract final row per asset_id to check end state.
+        yes_rows = [r for r in rows if r["asset_id"] == self._YES]
+        no_rows  = [r for r in rows if r["asset_id"] == self._NO]
+        assert yes_rows, "Expected timeline rows for YES asset"
+        assert no_rows, "Expected timeline rows for NO asset"
+        # YES bid updated to 0.45 by the batch.
+        assert yes_rows[-1]["best_bid"] == pytest.approx(0.45)
+        # NO ask updated to 0.53 (lower than 0.54 snapshot).
+        assert no_rows[-1]["best_ask"] == pytest.approx(0.53)
+
+    def test_batched_event_emits_multiple_timeline_rows(self, tmp_path):
+        tape = self._make_tape(tmp_path)
+        out = ReplayRunner(tape, tmp_path / "run1", strict=True).run()
+        rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
+        # 2 snapshot rows + 2 rows from the batched price_change (one per entry).
+        assert len(rows) == 4
+
+    def test_batched_event_rows_carry_correct_event_type(self, tmp_path):
+        tape = self._make_tape(tmp_path)
+        out = ReplayRunner(tape, tmp_path / "run1", strict=True).run()
+        rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
+        batched_rows = [r for r in rows if r["seq"] == 2]
+        assert len(batched_rows) == 2
+        assert all(r["event_type"] == "price_change" for r in batched_rows)
+
+    def test_meta_json_counts_batched_events_correctly(self, tmp_path):
+        tape = self._make_tape(tmp_path)
+        run_dir = tmp_path / "run1"
+        ReplayRunner(tape, run_dir, strict=True).run()
+        meta = json.loads((run_dir / "meta.json").read_text())
+        assert meta["total_events"] == 3   # 2 snapshots + 1 batched
+        assert meta["timeline_rows"] == 4  # 2 snapshots + 2 entries from batch
+
+    def test_batched_event_with_unknown_asset_is_skipped(self, tmp_path):
+        tape = tmp_path / "events.jsonl"
+        events = [
+            _book_event(seq=0, ts=0.0, asset_id=self._YES,
+                        bids=[{"price": "0.44", "size": "100"}],
+                        asks=[{"price": "0.46", "size": "100"}]),
+            # Batch includes an unknown asset (not in books).
+            _batched_price_change(seq=1, ts=1.0, entries=[
+                {"asset_id": self._YES, "side": "BUY", "price": "0.45", "size": "50"},
+                {"asset_id": "unknown-tok", "side": "BUY", "price": "0.30", "size": "10"},
+            ]),
+        ]
+        _write_events(tape, events)
+        out = ReplayRunner(tape, tmp_path / "run1", strict=False).run()
+        rows = [json.loads(l) for l in out.read_text().splitlines() if l.strip()]
+        # The unknown-tok book is lazily created; strict=False means no raise.
+        yes_rows = [r for r in rows if r["asset_id"] == self._YES]
+        assert yes_rows[-1]["best_bid"] == pytest.approx(0.45)
