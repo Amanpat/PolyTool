@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-26 - Completed quick-013 wave 2: OnDemand tab UI in index.html + 7 unit tests (917 total passing)
+Last activity: 2026-02-26 - Completed quick-013: SimTrader Studio OnDemand tab (engine + API + UI + 9 tests, 917 total passing)
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -54,5 +54,4 @@ None currently.
 | 010 | quickrun --list-candidates N + --exclude-market SLUG (9 new tests, 56->65) | 2026-02-25 | b95f20b | [10-quickrun-list-candidates-and-exclude-mar](./quick/10-quickrun-list-candidates-and-exclude-mar/) |
 | 011 | Sync public docs with shipped simtrader features (probe, clean, diff) | 2026-02-25 | 7de79c4 | [11-sync-public-docs-with-current-simtrader-](./quick/11-sync-public-docs-with-current-simtrader-/) |
 | 012 | SimTrader Studio MVP: local FastAPI web UI via `simtrader studio --open` | 2026-02-26 | c614630 | [12-implement-simtrader-studio-mvp-local-fas](./quick/12-implement-simtrader-studio-mvp-local-fas/) |
-| 013 | OnDemand engine backend: L2Book depth, OnDemandSession, 8 FastAPI routes | 2026-02-26 | c2a6218 | [13-add-simtrader-studio-ondemand-tab-manual](./quick/13-add-simtrader-studio-ondemand-tab-manual/) |
-| 013w2 | OnDemand tab UI (index.html) + 7 unit tests (917 total passing) | 2026-02-26 | 9eb38de | [13-add-simtrader-studio-ondemand-tab-manual](./quick/13-add-simtrader-studio-ondemand-tab-manual/) |
+| 013 | SimTrader Studio OnDemand tab: manual trading sim, L2Book depth, OnDemandSession, 8 API routes, UI, 9 tests | 2026-02-26 | 9913b18 | [13-add-simtrader-studio-ondemand-tab-manual](./quick/13-add-simtrader-studio-ondemand-tab-manual/) |
