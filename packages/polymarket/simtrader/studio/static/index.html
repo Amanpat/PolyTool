@@ -208,6 +208,7 @@
   <button data-tab="sessions">Sessions</button>
   <button data-tab="tapes">Tapes</button>
   <button data-tab="reports">Reports</button>
+  <button data-tab="ondemand">OnDemand</button>
 </nav>
 
 <main>
@@ -284,6 +285,92 @@
     </div>
   </div>
 
+  <!-- ================================================================ -->
+  <!-- ONDEMAND TAB                                                       -->
+  <!-- ================================================================ -->
+  <div class="tab-panel" id="tab-ondemand">
+
+    <!-- Session setup -->
+    <div class="card">
+      <h2>New OnDemand Session</h2>
+      <div class="input-row" style="flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+        <select id="od-tape-select" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;flex:2;min-width:200px;">
+          <option value="">-- select tape --</option>
+        </select>
+        <input type="text" id="od-starting-cash" placeholder="starting cash (e.g. 1000)" value="1000" style="flex:1;min-width:120px;" />
+        <input type="text" id="od-fee-rate-bps" placeholder="fee bps (default 200)" style="flex:1;min-width:100px;" />
+        <select id="od-mark-method" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;">
+          <option value="bid">mark: bid</option>
+          <option value="midpoint">mark: midpoint</option>
+        </select>
+        <button class="btn" onclick="odNewSession()">New Session</button>
+      </div>
+      <div id="od-session-info" style="color:#8888aa;font-size:12px;"></div>
+    </div>
+
+    <!-- Playback controls (hidden until session active) -->
+    <div class="card" id="od-controls-card" style="display:none;">
+      <h2>Playback</h2>
+      <div class="btn-group">
+        <button class="btn" onclick="odStep(1)">Step</button>
+        <button class="btn" onclick="odStep(50)">Play 50</button>
+        <button class="btn" onclick="odStep(200)">Play 200</button>
+        <button class="btn" onclick="odSave()">Save Artifacts</button>
+        <button class="btn danger" onclick="odClose()">Close Session</button>
+      </div>
+      <div id="od-status" style="color:#8888aa;font-size:12px;margin-top:8px;">No session.</div>
+    </div>
+
+    <!-- Market state -->
+    <div class="card" id="od-market-card" style="display:none;">
+      <h2>Market State</h2>
+      <div id="od-bbo" style="font-family:monospace;font-size:13px;margin-bottom:8px;"></div>
+      <div style="display:flex;gap:16px;">
+        <div style="flex:1;">
+          <div style="color:#a0a8cc;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Bids</div>
+          <table id="od-bids-table"><thead><tr><th>Price</th><th>Size</th></tr></thead><tbody></tbody></table>
+        </div>
+        <div style="flex:1;">
+          <div style="color:#a0a8cc;font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Asks</div>
+          <table id="od-asks-table"><thead><tr><th>Price</th><th>Size</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div id="od-ltp" style="margin-top:8px;color:#8888aa;font-size:12px;"></div>
+    </div>
+
+    <!-- Portfolio -->
+    <div class="card" id="od-portfolio-card" style="display:none;">
+      <h2>Portfolio</h2>
+      <div id="od-portfolio" style="font-family:monospace;font-size:13px;"></div>
+    </div>
+
+    <!-- Order entry -->
+    <div class="card" id="od-order-card" style="display:none;">
+      <h2>Order Entry</h2>
+      <div class="input-row" style="flex-wrap:wrap;gap:8px;">
+        <input type="text" id="od-order-asset" placeholder="asset_id" style="flex:2;min-width:160px;" />
+        <select id="od-order-side" style="background:#0d0d1a;border:1px solid #0f3460;border-radius:4px;color:#e0e0f0;font-size:13px;padding:7px 10px;">
+          <option value="BUY">BUY</option>
+          <option value="SELL">SELL</option>
+        </select>
+        <input type="text" id="od-order-price" placeholder="limit price (0-1)" style="flex:1;min-width:100px;" />
+        <input type="text" id="od-order-size" placeholder="size" style="flex:1;min-width:80px;" />
+        <button class="btn" onclick="odSubmitOrder()">Submit</button>
+      </div>
+      <div id="od-order-msg" style="color:#8888aa;font-size:12px;margin-top:6px;"></div>
+    </div>
+
+    <!-- Open orders -->
+    <div class="card" id="od-openorders-card" style="display:none;">
+      <h2>Open Orders</h2>
+      <table id="od-orders-table">
+        <thead><tr><th>Order ID</th><th>Asset</th><th>Side</th><th>Price</th><th>Size</th><th>Filled</th><th>Status</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
 </main>
 
 <div id="status-bar">Ready.</div>
@@ -339,6 +426,7 @@ document.getElementById('tab-nav').addEventListener('click', (e) => {
   if (tabId === 'sessions') renderSessions();
   if (tabId === 'tapes') loadTapes();
   if (tabId === 'reports') renderReports();
+  if (tabId === 'ondemand') odRefreshTapes();
 });
 
 // ---------------------------------------------------------------------------
@@ -569,6 +657,217 @@ function escAttr(str) {
   // Auto-refresh every 30 seconds.
   setInterval(refreshDashboard, 30000);
 })();
+
+// ---------------------------------------------------------------------------
+// OnDemand tab state
+// ---------------------------------------------------------------------------
+const od = {
+  sessionId: null,
+  state: null,
+};
+
+// Populate tape selector when OnDemand tab is activated.
+function odRefreshTapes() {
+  fetch('/api/tapes')
+    .then(r => r.json())
+    .then(data => {
+      const sel = document.getElementById('od-tape-select');
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">-- select tape --</option>';
+      (data.tapes || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.tape_path;
+        opt.textContent = t.tape_id + ' (' + (t.timestamp || '').slice(0, 16) + ')';
+        sel.appendChild(opt);
+      });
+      if (prev) sel.value = prev;
+    })
+    .catch(() => {});
+}
+
+function odShowCards(visible) {
+  ['od-controls-card', 'od-market-card', 'od-portfolio-card', 'od-order-card', 'od-openorders-card'].forEach(id => {
+    document.getElementById(id).style.display = visible ? '' : 'none';
+  });
+}
+
+function odNewSession() {
+  const tapePath = document.getElementById('od-tape-select').value;
+  if (!tapePath) { setStatus('Select a tape first.', 'err'); return; }
+  const startingCash = document.getElementById('od-starting-cash').value || '1000';
+  const feeBps = document.getElementById('od-fee-rate-bps').value || '';
+  const markMethod = document.getElementById('od-mark-method').value || 'bid';
+  setStatus('Creating session...');
+  fetch('/api/ondemand/new', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tape_path: tapePath, starting_cash: startingCash, fee_rate_bps: feeBps || null, mark_method: markMethod }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.detail) { setStatus('Error: ' + data.detail, 'err'); return; }
+    od.sessionId = data.session_id;
+    od.state = data.state;
+    document.getElementById('od-session-info').textContent = 'Session: ' + od.sessionId;
+    odShowCards(true);
+    odRenderState(data.state);
+    setStatus('Session created: ' + od.sessionId, 'ok');
+  })
+  .catch(e => setStatus('Error: ' + e, 'err'));
+}
+
+function odStep(n) {
+  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
+  fetch(`/api/ondemand/${od.sessionId}/step`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ n_steps: n }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.detail) { setStatus('Error: ' + data.detail, 'err'); return; }
+    od.state = data.state;
+    odRenderState(data.state);
+  })
+  .catch(e => setStatus('Error: ' + e, 'err'));
+}
+
+function odSubmitOrder() {
+  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
+  const assetId = document.getElementById('od-order-asset').value.trim();
+  const side = document.getElementById('od-order-side').value;
+  const price = document.getElementById('od-order-price').value.trim();
+  const size = document.getElementById('od-order-size').value.trim();
+  if (!assetId || !price || !size) {
+    document.getElementById('od-order-msg').textContent = 'Fill in all order fields.';
+    return;
+  }
+  fetch(`/api/ondemand/${od.sessionId}/order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ asset_id: assetId, side: side, limit_price: price, size: size }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.detail) { document.getElementById('od-order-msg').textContent = 'Error: ' + data.detail; return; }
+    document.getElementById('od-order-msg').textContent = 'Submitted: ' + data.order_id;
+    od.state = data.state;
+    odRenderState(data.state);
+  })
+  .catch(e => { document.getElementById('od-order-msg').textContent = 'Error: ' + e; });
+}
+
+function odCancelOrder(orderId) {
+  if (!od.sessionId) return;
+  fetch(`/api/ondemand/${od.sessionId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_id: orderId }),
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.detail) { setStatus('Cancel error: ' + data.detail, 'err'); return; }
+    od.state = data.state;
+    odRenderState(data.state);
+  })
+  .catch(e => setStatus('Error: ' + e, 'err'));
+}
+
+function odSave() {
+  if (!od.sessionId) { setStatus('No active session.', 'err'); return; }
+  fetch(`/api/ondemand/${od.sessionId}/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.detail) { setStatus('Save error: ' + data.detail, 'err'); return; }
+    setStatus('Artifacts saved to: ' + data.artifact_dir, 'ok');
+  })
+  .catch(e => setStatus('Error: ' + e, 'err'));
+}
+
+function odClose() {
+  if (!od.sessionId) return;
+  fetch(`/api/ondemand/${od.sessionId}`, { method: 'DELETE' })
+    .then(() => {
+      od.sessionId = null;
+      od.state = null;
+      document.getElementById('od-session-info').textContent = '';
+      document.getElementById('od-status').textContent = 'Session closed.';
+      odShowCards(false);
+      setStatus('Session closed.', 'ok');
+    })
+    .catch(() => {});
+}
+
+function odRenderState(state) {
+  if (!state) return;
+  const cursor = state.cursor || 0;
+  const total = state.total_events || 0;
+  const pct = total > 0 ? ((cursor / total) * 100).toFixed(1) : '0.0';
+  const done = state.done ? ' [DONE]' : '';
+  document.getElementById('od-status').textContent =
+    `seq ${state.seq ?? '-'} | cursor ${cursor} / ${total} (${pct}%)${done}`;
+
+  // BBO
+  const bboEl = document.getElementById('od-bbo');
+  const bboLines = [];
+  for (const [assetId, bbo] of Object.entries(state.bbo || {})) {
+    const shortId = assetId.length > 15 ? assetId.slice(0, 12) + '...' : assetId;
+    bboLines.push(`${shortId}  bid=${bbo.best_bid ?? '-'}  ask=${bbo.best_ask ?? '-'}`);
+  }
+  bboEl.textContent = bboLines.join('\n') || 'No BBO yet.';
+
+  // Depth — show first asset only
+  const depthEntries = Object.entries(state.depth || {});
+  const bidsTbody = document.querySelector('#od-bids-table tbody');
+  const asksTbody = document.querySelector('#od-asks-table tbody');
+  bidsTbody.innerHTML = '';
+  asksTbody.innerHTML = '';
+  if (depthEntries.length > 0) {
+    const [, depth] = depthEntries[0];
+    (depth.bids || []).forEach(l => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td style="color:#80d080">${l.price.toFixed(4)}</td><td>${l.size.toFixed(2)}</td>`;
+      bidsTbody.appendChild(tr);
+    });
+    (depth.asks || []).forEach(l => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td style="color:#f08080">${l.price.toFixed(4)}</td><td>${l.size.toFixed(2)}</td>`;
+      asksTbody.appendChild(tr);
+    });
+  }
+
+  // LTP
+  document.getElementById('od-ltp').textContent =
+    state.last_trade_price != null ? 'Last trade: ' + state.last_trade_price : '';
+
+  // Portfolio
+  const ps = state.portfolio_snapshot || {};
+  document.getElementById('od-portfolio').textContent =
+    `cash=${ps.final_cash ?? '-'}  equity=${ps.final_equity ?? '-'}  realized_pnl=${ps.realized_pnl ?? '-'}  unrealized_pnl=${ps.unrealized_pnl ?? '-'}  fees=${ps.total_fees ?? '-'}`;
+
+  // Open orders
+  const ordersTbody = document.querySelector('#od-orders-table tbody');
+  ordersTbody.innerHTML = '';
+  (state.open_orders || []).forEach(o => {
+    const tr = document.createElement('tr');
+    const sideColor = o.side === 'BUY' ? '#80d080' : '#f08080';
+    tr.innerHTML = `
+      <td style="font-family:monospace;font-size:11px">${escHtml(o.order_id)}</td>
+      <td style="font-family:monospace;font-size:11px">${escHtml(o.asset_id.slice(0, 10))}...</td>
+      <td style="color:${sideColor}">${escHtml(o.side)}</td>
+      <td>${escHtml(o.limit_price)}</td>
+      <td>${escHtml(String(o.size))}</td>
+      <td>${escHtml(String(o.filled_size))}</td>
+      <td>${escHtml(o.status)}</td>
+      <td><button class="btn small danger" onclick="odCancelOrder('${escAttr(o.order_id)}')">Cancel</button></td>
+    `;
+    ordersTbody.appendChild(tr);
+  });
+}
 </script>
 
 </body>
