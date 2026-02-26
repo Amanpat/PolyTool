@@ -38,12 +38,16 @@ mcp = [
 simtrader = [
     "websocket-client>=1.6",
 ]
+studio = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
 all = [
-    "polytool[rag,mcp,simtrader,dev]",
+    "polytool[rag,mcp,simtrader,studio,dev]",
 ]
 
 [project.scripts]
@@ -60,6 +64,7 @@ packages = [
     "polyttool",
     "packages", "packages.polymarket", "packages.polymarket.rag",
     "packages.polymarket.simtrader",
+    "packages.polymarket.simtrader.studio",
     "packages.polymarket.simtrader.tape",
     "packages.polymarket.simtrader.orderbook",
     "packages.polymarket.simtrader.replay",

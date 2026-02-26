@@ -8,7 +8,8 @@ Commands
   python -m polytool simtrader tape-info --tape <PATH/events.jsonl>
   python -m polytool simtrader trade  --tape <PATH/events.jsonl> --buy --limit 0.42 --size 100 --at-seq 5
   python -m polytool simtrader run    --tape <PATH/events.jsonl> --strategy copy_wallet_replay \\
-                                       --strategy-config '{"trades_path":"trades.jsonl"}'
+                                       --strategy-config-json '{"trades_path":"trades.jsonl"}'
+  python -m polytool simtrader diff   --a <PATH/run_a_dir> --b <PATH/run_b_dir>
 """
 
 from __future__ import annotations
@@ -33,6 +34,11 @@ from packages.polymarket.simtrader.strategy_presets import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_ARTIFACTS_DIR = Path("artifacts/simtrader")
+DEFAULT_MIN_EVENTS = 50
+_QUIET_TAPE_MSG = (
+    "Warning: tape is quiet (event_count={count}).  "
+    "Replay may see no opportunities; pick a more active market or increase duration."
+)
 DEFAULT_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 DEFAULT_BATCH_NUM_MARKETS = 5
 DEFAULT_BATCH_DURATION_SECONDS = 300.0
@@ -551,35 +557,38 @@ def _parse_json_object_arg(raw: Any, *, flag_name: str) -> dict[str, Any]:
     return payload
 
 
+def _strategy_config_cli_inputs(
+    args: argparse.Namespace,
+) -> tuple[Any, Any, str | None]:
+    """Resolve strategy config CLI source across legacy and modern flags."""
+    raw_path = getattr(args, "strategy_config_path", None)
+    raw_json = getattr(args, "strategy_config_json", None)
+    raw_legacy = getattr(args, "strategy_config", None)
+
+    if raw_json is not None and raw_legacy is not None:
+        raise ValueError(
+            "Provide only one of --strategy-config-json and --strategy-config."
+        )
+
+    if raw_json is not None:
+        return raw_path, raw_json, "--strategy-config-json"
+    if raw_legacy is not None:
+        return raw_path, raw_legacy, "--strategy-config"
+    return raw_path, None, None
+
+
 def _load_strategy_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     from packages.polymarket.simtrader.config_loader import (
         ConfigLoadError,
-        load_json_from_path,
-        load_json_from_string,
+        load_strategy_config,
     )
 
-    raw_config = getattr(args, "strategy_config", None)
-    raw_path = getattr(args, "strategy_config_path", None)
-
-    if raw_config is not None and raw_path is not None:
-        raise ValueError(
-            "Provide only one of --strategy-config or --strategy-config-path."
-        )
-
-    if raw_path is not None:
-        cfg_path = Path(str(raw_path))
-        if not cfg_path.exists():
-            raise ValueError(f"--strategy-config-path file not found: {cfg_path}")
-        try:
-            return load_json_from_path(cfg_path)
-        except ConfigLoadError as exc:
-            raise ValueError(str(exc)) from exc
-
-    if raw_config is None:
-        return {}
-
+    raw_path, raw_config, _ = _strategy_config_cli_inputs(args)
     try:
-        return load_json_from_string(raw_config)
+        return load_strategy_config(
+            config_path=raw_path,
+            config_json=raw_config,
+        )
     except ConfigLoadError as exc:
         raise ValueError(str(exc)) from exc
 
@@ -591,10 +600,118 @@ def _as_nonempty_str(value: Any) -> str | None:
     return text if text else None
 
 
+def _read_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:  # noqa: BLE001
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _extract_market_context_from_context_dict(
+    context: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    market_slug: str | None = None
+    for key in ("selected_slug", "market_slug", "market", "slug"):
+        market_slug = _as_nonempty_str(context.get(key))
+        if market_slug is not None:
+            break
+    yes_token_id = _as_nonempty_str(context.get("yes_token_id"))
+    no_token_id = _as_nonempty_str(context.get("no_token_id"))
+    return market_slug, yes_token_id, no_token_id
+
+
+def _extract_market_context_from_meta_payload(
+    payload: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    market_slug: str | None = None
+    yes_token_id: str | None = None
+    no_token_id: str | None = None
+    for context_key in ("quickrun_context", "shadow_context"):
+        context = payload.get(context_key)
+        if not isinstance(context, dict):
+            continue
+        slug, yes_id, no_id = _extract_market_context_from_context_dict(context)
+        if market_slug is None and slug is not None:
+            market_slug = slug
+        if yes_token_id is None and yes_id is not None:
+            yes_token_id = yes_id
+        if no_token_id is None and no_id is not None:
+            no_token_id = no_id
+        if market_slug and yes_token_id and no_token_id:
+            break
+    return market_slug, yes_token_id, no_token_id
+
+
+def _extract_market_context_from_shadow_manifest(
+    shadow_manifest: dict[str, Any],
+) -> tuple[str | None, str | None, str | None]:
+    shadow_context = shadow_manifest.get("shadow_context")
+    if not isinstance(shadow_context, dict):
+        return None, None, None
+    return _extract_market_context_from_context_dict(shadow_context)
+
+
+def _shadow_manifest_path_for_tape_id(tape_id: str | None) -> Path | None:
+    if not tape_id:
+        return None
+    return DEFAULT_ARTIFACTS_DIR / "shadow_runs" / tape_id / "run_manifest.json"
+
+
+def _resolve_market_context_for_tape(
+    events_path: Path,
+    *,
+    yes_token_id_override: Any = None,
+    no_token_id_override: Any = None,
+) -> dict[str, Any]:
+    tape_id = _as_nonempty_str(events_path.parent.name)
+    market_slug: str | None = None
+    yes_token_id: str | None = None
+    no_token_id: str | None = None
+
+    tape_meta = _read_json_object(events_path.parent / "meta.json")
+    if isinstance(tape_meta, dict):
+        market_slug, yes_token_id, no_token_id = _extract_market_context_from_meta_payload(
+            tape_meta
+        )
+
+    if tape_id and (market_slug is None or yes_token_id is None or no_token_id is None):
+        shadow_manifest_path = _shadow_manifest_path_for_tape_id(tape_id)
+        if shadow_manifest_path is not None:
+            shadow_manifest = _read_json_object(shadow_manifest_path)
+            if isinstance(shadow_manifest, dict):
+                fallback_slug, fallback_yes, fallback_no = (
+                    _extract_market_context_from_shadow_manifest(shadow_manifest)
+                )
+                if market_slug is None and fallback_slug is not None:
+                    market_slug = fallback_slug
+                if yes_token_id is None and fallback_yes is not None:
+                    yes_token_id = fallback_yes
+                if no_token_id is None and fallback_no is not None:
+                    no_token_id = fallback_no
+
+    if yes_token_id is None:
+        yes_token_id = _as_nonempty_str(yes_token_id_override)
+    if no_token_id is None:
+        no_token_id = _as_nonempty_str(no_token_id_override)
+
+    return {
+        "market_slug": market_slug,
+        "yes_token_id": yes_token_id,
+        "no_token_id": no_token_id,
+        "tape_id": tape_id,
+        "tape_path": str(events_path),
+    }
+
+
 def _infer_binary_arb_ids_from_tape_meta(events_path: Path) -> tuple[str, str]:
     meta_path = events_path.parent / "meta.json"
+    tape_id = _as_nonempty_str(events_path.parent.name)
     guidance = (
-        "Pass IDs via --strategy-config / --strategy-config-path, "
+        "Pass IDs via --strategy-config-json / --strategy-config-path "
+        "(legacy: --strategy-config), "
         "or use --yes-asset-id and --no-asset-id."
     )
     if not meta_path.exists():
@@ -617,14 +734,20 @@ def _infer_binary_arb_ids_from_tape_meta(events_path: Path) -> tuple[str, str]:
             f"Expected JSON object in {meta_path}. {guidance}"
         )
 
-    for context_key in ("quickrun_context", "shadow_context"):
-        context = payload.get(context_key)
-        if not isinstance(context, dict):
-            continue
-        yes_token_id = _as_nonempty_str(context.get("yes_token_id"))
-        no_token_id = _as_nonempty_str(context.get("no_token_id"))
-        if yes_token_id and no_token_id:
-            return yes_token_id, no_token_id
+    _, yes_token_id, no_token_id = _extract_market_context_from_meta_payload(payload)
+    if yes_token_id and no_token_id:
+        return yes_token_id, no_token_id
+
+    if tape_id:
+        shadow_manifest_path = _shadow_manifest_path_for_tape_id(tape_id)
+        if shadow_manifest_path is not None and shadow_manifest_path.exists():
+            shadow_manifest = _read_json_object(shadow_manifest_path)
+            if isinstance(shadow_manifest, dict):
+                _, yes_token_id, no_token_id = _extract_market_context_from_shadow_manifest(
+                    shadow_manifest
+                )
+                if yes_token_id and no_token_id:
+                    return yes_token_id, no_token_id
 
     raise ValueError(
         "binary_complement_arb requires yes/no asset IDs. "
@@ -639,6 +762,7 @@ def _resolve_binary_arb_strategy_config(
     strategy_name: str,
     strategy_config: dict[str, Any],
     events_path: Path,
+    strategy_preset: str = "sane",
     yes_asset_id_override: Any = None,
     no_asset_id_override: Any = None,
 ) -> tuple[dict[str, Any], bool]:
@@ -664,12 +788,101 @@ def _resolve_binary_arb_strategy_config(
             no_asset_id = inferred_no
             inferred_from_tape_meta = True
 
-    resolved_config["yes_asset_id"] = yes_asset_id
-    resolved_config["no_asset_id"] = no_asset_id
+    resolved_config = build_binary_complement_strategy_config(
+        yes_asset_id=str(yes_asset_id),
+        no_asset_id=str(no_asset_id),
+        strategy_preset=strategy_preset,
+        user_overrides=resolved_config,
+    )
+
+    # Manual flags must remain highest-precedence over JSON config values.
+    resolved_config["yes_asset_id"] = str(yes_asset_id)
+    resolved_config["no_asset_id"] = str(no_asset_id)
     return resolved_config, inferred_from_tape_meta
 
 
-def _mark_run_manifest_inferred_ids(run_dir: Path) -> None:
+def _resolve_primary_asset_id(
+    *,
+    strategy_name: str,
+    explicit_asset_id: Any,
+    strategy_config: dict[str, Any],
+) -> str | None:
+    """Resolve the primary asset passed to StrategyRunner."""
+    asset_id = _as_nonempty_str(explicit_asset_id)
+    if asset_id is not None:
+        return asset_id
+    if strategy_name != "binary_complement_arb":
+        return None
+    return _as_nonempty_str(strategy_config.get("yes_asset_id"))
+
+
+def _build_run_reproduce_command(
+    *,
+    args: argparse.Namespace,
+    events_path: Path,
+    strategy_name: str,
+    strategy_preset: str,
+    include_asset_id: bool,
+) -> str:
+    """Return a run reproduce command with non-default flag overrides."""
+    raw_path, raw_config, raw_config_flag = _strategy_config_cli_inputs(args)
+
+    parts = [
+        "python -m polytool simtrader run",
+        f"--tape {events_path}",
+        f"--strategy {strategy_name}",
+    ]
+
+    if raw_config_flag is not None and raw_config is not None:
+        parts.append(f"{raw_config_flag} {raw_config}")
+    if raw_path is not None:
+        parts.append(f"--strategy-config-path {raw_path}")
+    if strategy_preset != "sane":
+        parts.append(f"--strategy-preset {strategy_preset}")
+
+    run_id = _as_nonempty_str(getattr(args, "run_id", None))
+    if run_id is not None:
+        parts.append(f"--run-id {run_id}")
+
+    if include_asset_id:
+        asset_id = _as_nonempty_str(getattr(args, "asset_id", None))
+        if asset_id is not None:
+            parts.append(f"--asset-id {asset_id}")
+
+    yes_asset_id = _as_nonempty_str(getattr(args, "yes_asset_id", None))
+    if yes_asset_id is not None:
+        parts.append(f"--yes-asset-id {yes_asset_id}")
+
+    no_asset_id = _as_nonempty_str(getattr(args, "no_asset_id", None))
+    if no_asset_id is not None:
+        parts.append(f"--no-asset-id {no_asset_id}")
+
+    if getattr(args, "starting_cash", 1000.0) != 1000.0:
+        parts.append(f"--starting-cash {args.starting_cash}")
+    if getattr(args, "fee_rate_bps", None) is not None:
+        parts.append(f"--fee-rate-bps {args.fee_rate_bps}")
+    if getattr(args, "mark_method", "bid") != "bid":
+        parts.append(f"--mark-method {args.mark_method}")
+    if getattr(args, "latency_ticks", 0) != 0:
+        parts.append(f"--latency-ticks {args.latency_ticks}")
+    if getattr(args, "cancel_latency_ticks", 0) != 0:
+        parts.append(f"--cancel-latency-ticks {args.cancel_latency_ticks}")
+    if getattr(args, "strict", False):
+        parts.append("--strict")
+    if getattr(args, "allow_degraded", False):
+        parts.append("--allow-degraded")
+
+    return "  " + " ".join(parts)
+
+
+def _enrich_run_manifest_market_context(
+    *,
+    run_dir: Path,
+    events_path: Path,
+    yes_token_id_override: Any = None,
+    no_token_id_override: Any = None,
+    inferred_ids_from_tape_meta: bool = False,
+) -> None:
     manifest_path = run_dir / "run_manifest.json"
     if not manifest_path.exists():
         return
@@ -680,7 +893,21 @@ def _mark_run_manifest_inferred_ids(run_dir: Path) -> None:
     if not isinstance(payload, dict):
         return
 
-    payload["inferred_ids_from_tape_meta"] = True
+    market_context = _resolve_market_context_for_tape(
+        events_path,
+        yes_token_id_override=yes_token_id_override,
+        no_token_id_override=no_token_id_override,
+    )
+    payload["market_context"] = market_context
+    payload.setdefault("tape_path", str(events_path))
+
+    market_slug = _as_nonempty_str(market_context.get("market_slug"))
+    if market_slug is not None:
+        payload["market_slug"] = market_slug
+
+    if inferred_ids_from_tape_meta:
+        payload["inferred_ids_from_tape_meta"] = True
+
     manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
@@ -721,15 +948,31 @@ def _run(args: argparse.Namespace) -> int:
 
     strategy_name: str = args.strategy
     inferred_ids_from_tape_meta = False
+    asset_id_was_explicit = _as_nonempty_str(getattr(args, "asset_id", None)) is not None
     try:
+        strategy_preset = normalize_strategy_preset(
+            getattr(args, "strategy_preset", "sane")
+        )
         strategy_config = _load_strategy_config_from_args(args)
         strategy_config, inferred_ids_from_tape_meta = _resolve_binary_arb_strategy_config(
             strategy_name=strategy_name,
             strategy_config=strategy_config,
             events_path=events_path,
+            strategy_preset=strategy_preset,
             yes_asset_id_override=getattr(args, "yes_asset_id", None),
             no_asset_id_override=getattr(args, "no_asset_id", None),
         )
+        resolved_asset_id = _resolve_primary_asset_id(
+            strategy_name=strategy_name,
+            explicit_asset_id=getattr(args, "asset_id", None),
+            strategy_config=strategy_config,
+        )
+        if (
+            strategy_name == "binary_complement_arb"
+            and getattr(args, "asset_id", None) is None
+            and resolved_asset_id is not None
+        ):
+            args.asset_id = resolved_asset_id
         starting_cash = _parse_starting_cash_arg(args.starting_cash)
         fee_rate_bps = _parse_fee_rate_bps_arg(args.fee_rate_bps)
     except ValueError as exc:
@@ -740,6 +983,36 @@ def _run(args: argparse.Namespace) -> int:
 
     run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
+
+    # -- Quiet-tape warning (best-effort from tape meta or line count) --------
+    min_events: int = getattr(args, "min_events", DEFAULT_MIN_EVENTS)
+    tape_meta_path = events_path.parent / "meta.json"
+    tape_event_count: int | None = None
+    if tape_meta_path.exists():
+        try:
+            _tm = json.loads(tape_meta_path.read_text(encoding="utf-8"))
+            if isinstance(_tm, dict):
+                tape_event_count = (
+                    _tm.get("event_count")
+                    or _tm.get("parsed_events")
+                    or _tm.get("total_events")
+                )
+        except Exception:  # noqa: BLE001
+            pass
+    if tape_event_count is None:
+        # Fallback: quick line count (not parsed, just non-blank lines).
+        try:
+            tape_event_count = sum(
+                1 for line in events_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    if tape_event_count is not None and min_events > 0 and tape_event_count < min_events:
+        print(
+            _QUIET_TAPE_MSG.format(count=tape_event_count),
+            file=sys.stderr,
+        )
 
     print(f"[simtrader run] tape           : {events_path}", file=sys.stderr)
     print(f"[simtrader run] run dir        : {run_dir}", file=sys.stderr)
@@ -757,6 +1030,13 @@ def _run(args: argparse.Namespace) -> int:
         f"submit={args.latency_ticks} cancel={args.cancel_latency_ticks}",
         file=sys.stderr,
     )
+    print(
+        f"[simtrader run] asset-id       : "
+        f"{resolved_asset_id if resolved_asset_id is not None else '(auto)'}",
+        file=sys.stderr,
+    )
+    if strategy_name == "binary_complement_arb":
+        print(f"[simtrader run] strategy-preset: {strategy_preset}", file=sys.stderr)
     print(f"[simtrader run] allow-degraded : {args.allow_degraded}", file=sys.stderr)
 
     try:
@@ -766,7 +1046,7 @@ def _run(args: argparse.Namespace) -> int:
                 run_dir=run_dir,
                 strategy_name=strategy_name,
                 strategy_config=strategy_config,
-                asset_id=args.asset_id or None,
+                asset_id=resolved_asset_id,
                 starting_cash=starting_cash,
                 fee_rate_bps=fee_rate_bps,
                 mark_method=mark_method,
@@ -783,8 +1063,15 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Error during strategy run: {exc}", file=sys.stderr)
         return 1
 
+    _enrich_run_manifest_market_context(
+        run_dir=run_dir,
+        events_path=events_path,
+        yes_token_id_override=getattr(args, "yes_asset_id", None),
+        no_token_id_override=getattr(args, "no_asset_id", None),
+        inferred_ids_from_tape_meta=inferred_ids_from_tape_meta,
+    )
+
     if inferred_ids_from_tape_meta:
-        _mark_run_manifest_inferred_ids(run_dir)
         print(
             "[simtrader run] yes/no asset IDs inferred from tape meta.json",
             file=sys.stderr,
@@ -797,6 +1084,17 @@ def _run(args: argparse.Namespace) -> int:
         f"(net_profit={run_result.metrics['net_profit']})"
     )
     print(f"  manifest     : run_manifest.json")
+    print()
+    print("Reproduce:")
+    print(
+        _build_run_reproduce_command(
+            args=args,
+            events_path=events_path,
+            strategy_name=strategy_name,
+            strategy_preset=strategy_preset,
+            include_asset_id=asset_id_was_explicit,
+        )
+    )
     return 0
 
 
@@ -814,10 +1112,31 @@ def _sweep(args: argparse.Namespace) -> int:
         print(f"Error: tape file not found: {events_path}", file=sys.stderr)
         return 1
 
+    strategy_name: str = args.strategy
     try:
-        strategy_config = _parse_json_object_arg(
-            args.strategy_config, flag_name="--strategy-config"
+        strategy_preset = normalize_strategy_preset(
+            getattr(args, "strategy_preset", "sane")
         )
+        strategy_config = _load_strategy_config_from_args(args)
+        strategy_config, _ = _resolve_binary_arb_strategy_config(
+            strategy_name=strategy_name,
+            strategy_config=strategy_config,
+            events_path=events_path,
+            strategy_preset=strategy_preset,
+            yes_asset_id_override=getattr(args, "yes_asset_id", None),
+            no_asset_id_override=getattr(args, "no_asset_id", None),
+        )
+        resolved_asset_id = _resolve_primary_asset_id(
+            strategy_name=strategy_name,
+            explicit_asset_id=getattr(args, "asset_id", None),
+            strategy_config=strategy_config,
+        )
+        if (
+            strategy_name == "binary_complement_arb"
+            and getattr(args, "asset_id", None) is None
+            and resolved_asset_id is not None
+        ):
+            args.asset_id = resolved_asset_id
         sweep_config = parse_sweep_config_json(args.sweep_config)
         starting_cash = _parse_starting_cash_arg(args.starting_cash)
         fee_rate_bps = _parse_fee_rate_bps_arg(args.fee_rate_bps)
@@ -826,8 +1145,18 @@ def _sweep(args: argparse.Namespace) -> int:
         return 1
 
     print(f"[simtrader sweep] tape           : {events_path}", file=sys.stderr)
-    print(f"[simtrader sweep] strategy       : {args.strategy}", file=sys.stderr)
+    print(f"[simtrader sweep] strategy       : {strategy_name}", file=sys.stderr)
     print(f"[simtrader sweep] strategy-config: {strategy_config}", file=sys.stderr)
+    print(
+        f"[simtrader sweep] asset-id       : "
+        f"{resolved_asset_id if resolved_asset_id is not None else '(auto)'}",
+        file=sys.stderr,
+    )
+    if strategy_name == "binary_complement_arb":
+        print(
+            f"[simtrader sweep] strategy-preset: {strategy_preset}",
+            file=sys.stderr,
+        )
     print(f"[simtrader sweep] sweep-config   : {sweep_config}", file=sys.stderr)
     print(f"[simtrader sweep] starting-cash  : {starting_cash}", file=sys.stderr)
     print(
@@ -846,9 +1175,9 @@ def _sweep(args: argparse.Namespace) -> int:
         sweep_result = run_sweep(
             SweepRunParams(
                 events_path=events_path,
-                strategy_name=args.strategy,
+                strategy_name=strategy_name,
                 strategy_config=strategy_config,
-                asset_id=args.asset_id or None,
+                asset_id=resolved_asset_id,
                 starting_cash=starting_cash,
                 fee_rate_bps=fee_rate_bps,
                 mark_method=args.mark_method,
@@ -1052,6 +1381,20 @@ def _quickrun(args: argparse.Namespace) -> int:
     exclude_slugs_set: set[str] = set(getattr(args, "exclude_markets", None) or [])
     list_candidates_n: int = getattr(args, "list_candidates", 0) or 0
 
+    # -- Activeness probe config ------------------------------------------------
+    _probe_seconds: float = getattr(args, "activeness_probe_seconds", 0.0) or 0.0
+    _min_probe_updates: int = getattr(args, "min_probe_updates", 1) or 1
+    _require_active: bool = getattr(args, "require_active", False)
+    probe_config: Any = (
+        {
+            "probe_seconds": _probe_seconds,
+            "min_updates": _min_probe_updates,
+            "require_active": _require_active,
+        }
+        if _probe_seconds > 0
+        else None
+    )
+
     # -- List-candidates mode --------------------------------------------------
     # Only active when --list-candidates N > 0 and no explicit --market.
     if list_candidates_n > 0 and not args.market:
@@ -1063,6 +1406,7 @@ def _quickrun(args: argparse.Namespace) -> int:
                 min_depth_size=min_depth_size,
                 top_n_levels=top_n_levels,
                 exclude_slugs=exclude_slugs_set if exclude_slugs_set else None,
+                probe_config=probe_config,
             )
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
@@ -1107,6 +1451,20 @@ def _quickrun(args: argparse.Namespace) -> int:
             print(
                 f"[candidate {i}] NO  bid  : {no_bid}  ask: {no_ask}  depth: {no_depth}"
             )
+            # Show activeness probe stats if the probe was run.
+            if cand.probe_results:
+                for role, tid in (
+                    ("YES", cand.yes_token_id),
+                    ("NO", cand.no_token_id),
+                ):
+                    pr = cand.probe_results.get(tid)
+                    if pr is not None:
+                        status = "ACTIVE" if pr.active else "inactive"
+                        print(
+                            f"[candidate {i}] {role} probe : "
+                            f"{pr.updates} updates in {pr.probe_seconds:.1f}s"
+                            f" — {status}"
+                        )
 
         print(f"Listed {len(candidates)} candidates.")
         return 0
@@ -1150,6 +1508,7 @@ def _quickrun(args: argparse.Namespace) -> int:
                 top_n_levels=top_n_levels,
                 collect_skips=skip_log if args.dry_run else None,
                 exclude_slugs=exclude_slugs_set if exclude_slugs_set else None,
+                probe_config=probe_config,
             )
             # Re-validate selected books so quickrun_context captures concrete details.
             yes_val = picker.validate_book(
@@ -1605,6 +1964,51 @@ def _shadow(args: argparse.Namespace) -> int:
         print("dry_run=True : exiting.")
         return 0
 
+    # -- Activeness probe preflight --------------------------------------------
+    probe_seconds: float = getattr(args, "activeness_probe_seconds", 0.0)
+    if probe_seconds > 0:
+        from packages.polymarket.simtrader.activeness_probe import ActivenessProbe
+
+        min_probe_updates: int = getattr(args, "min_probe_updates", 1)
+        require_active: bool = getattr(args, "require_active", False)
+
+        probe = ActivenessProbe(
+            asset_ids=[yes_id, no_id],
+            probe_seconds=probe_seconds,
+            min_updates=min_probe_updates,
+            ws_url=getattr(args, "ws_url", DEFAULT_WS_URL),
+        )
+        print(
+            f"[shadow] activeness probe: {probe_seconds}s, "
+            f"min_updates={min_probe_updates}",
+            file=sys.stderr,
+        )
+
+        probe_results = probe.run()
+        for tid, pr in probe_results.items():
+            tag = "YES" if tid == yes_id else "NO"
+            status = "active" if pr.active else "INACTIVE"
+            print(
+                f"[shadow] probe {tag} : {pr.updates} updates in "
+                f"{pr.probe_seconds:.1f}s -> {status}",
+                file=sys.stderr,
+            )
+
+        if require_active:
+            inactive = [
+                ("YES" if tid == yes_id else "NO", pr)
+                for tid, pr in probe_results.items()
+                if not pr.active
+            ]
+            if inactive:
+                labels = ", ".join(tag for tag, _ in inactive)
+                print(
+                    f"Error: activeness probe failed for {labels}. "
+                    f"Required {min_probe_updates} updates in {probe_seconds}s.",
+                    file=sys.stderr,
+                )
+                return 1
+
     # -- Load strategy config --------------------------------------------------
     cfg_path = getattr(args, "strategy_config_path", None)
     cfg_json = getattr(args, "strategy_config_json", None)
@@ -1708,6 +2112,27 @@ def _shadow(args: argparse.Namespace) -> int:
 
     net_profit = pnl_summary.get("net_profit", "0")
 
+    # -- Quiet-tape warning (post-run) -----------------------------------------
+    shadow_event_count: int | None = None
+    shadow_meta_path = run_dir / "meta.json"
+    if shadow_meta_path.exists():
+        try:
+            _sm = json.loads(shadow_meta_path.read_text(encoding="utf-8"))
+            if isinstance(_sm, dict):
+                shadow_event_count = _sm.get("total_events")
+        except Exception:  # noqa: BLE001
+            pass
+    min_events_shadow: int = getattr(args, "min_events", DEFAULT_MIN_EVENTS)
+    if (
+        shadow_event_count is not None
+        and min_events_shadow > 0
+        and shadow_event_count < min_events_shadow
+    ):
+        print(
+            _QUIET_TAPE_MSG.format(count=shadow_event_count),
+            file=sys.stderr,
+        )
+
     print()
     print("Shadow run complete")
     print(f"  Market     : {resolved.slug}")
@@ -1735,6 +2160,426 @@ def _shadow(args: argparse.Namespace) -> int:
     if not record_tape:
         reproduce += " --no-record-tape"
     print(reproduce)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Clean sub-command
+# ---------------------------------------------------------------------------
+
+
+_CLEAN_CATEGORY_DIRS: dict[str, str] = {
+    "runs": "runs",
+    "tapes": "tapes",
+    "sweeps": "sweeps",
+    "batches": "batches",
+    "shadow": "shadow_runs",
+}
+
+
+def _clean(args: argparse.Namespace) -> int:
+    """Delete artifacts under artifacts/simtrader/ with a safe dry-run default."""
+    import shutil
+
+    root = DEFAULT_ARTIFACTS_DIR.resolve()
+
+    # Hard guard: refuse to operate if the root doesn't end with the
+    # expected path segment so we never accidentally rm the wrong tree.
+    if root.name != "simtrader" or (root.parent.name != "artifacts"):
+        print(
+            f"Error: expected artifacts root to be artifacts/simtrader, got {root}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not root.exists():
+        print(f"Nothing to clean — {root} does not exist.")
+        return 0
+
+    # Determine which categories to clean.
+    selected = [
+        cat
+        for cat in _CLEAN_CATEGORY_DIRS
+        if getattr(args, cat, False)
+    ]
+    if not selected:
+        # No targeting flags → clean everything.
+        selected = list(_CLEAN_CATEGORY_DIRS)
+
+    dry_run = not args.yes
+    total_bytes = 0
+    total_dirs = 0
+    skipped: list[str] = []
+
+    for cat in sorted(_CLEAN_CATEGORY_DIRS):
+        subdir_name = _CLEAN_CATEGORY_DIRS[cat]
+        cat_dir = root / subdir_name
+
+        if cat not in selected:
+            if cat_dir.exists():
+                skipped.append(subdir_name)
+            continue
+
+        if not cat_dir.exists():
+            continue
+
+        # Safety: verify the resolved path is actually inside root.
+        try:
+            resolved = cat_dir.resolve()
+            resolved.relative_to(root)
+        except (ValueError, OSError):
+            print(
+                f"Error: {cat_dir} resolves outside the artifacts root — skipping.",
+                file=sys.stderr,
+            )
+            skipped.append(subdir_name)
+            continue
+
+        # Walk children (each child is one run/sweep/batch/tape folder).
+        children = sorted(cat_dir.iterdir())
+        for child in children:
+            if not child.is_dir():
+                continue
+            # Best-effort size.
+            try:
+                dir_bytes = sum(
+                    f.stat().st_size
+                    for f in child.rglob("*")
+                    if f.is_file()
+                )
+            except OSError:
+                dir_bytes = 0
+
+            if dry_run:
+                print(f"[dry-run] would delete {child}  (~{dir_bytes:,} bytes)")
+            else:
+                shutil.rmtree(child)
+
+            total_bytes += dir_bytes
+            total_dirs += 1
+
+    # Summary.
+    action = "Would delete" if dry_run else "Deleted"
+    print()
+    print(f"{action} {total_dirs} folder(s), ~{total_bytes:,} bytes freed.")
+    if skipped:
+        print(f"Skipped: {', '.join(skipped)}")
+    if dry_run and total_dirs:
+        print("Re-run with --yes to actually delete.")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Diff sub-command helpers + handler
+# ---------------------------------------------------------------------------
+
+
+def _count_non_empty_lines(path: Path) -> int:
+    if not path.exists() or not path.is_file():
+        return 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return sum(1 for line in fh if line.strip())
+    except OSError:
+        return 0
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _extract_rejection_counts(run_manifest: dict[str, Any]) -> dict[str, int]:
+    for container_key in ("strategy_debug", "modeled_arb_summary"):
+        container = run_manifest.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        raw_counts = container.get("rejection_counts")
+        if not isinstance(raw_counts, dict):
+            continue
+        normalized: dict[str, int] = {}
+        for key, value in raw_counts.items():
+            name = str(key).strip()
+            count = _coerce_int(value)
+            if name and count > 0:
+                normalized[name] = count
+        return normalized
+    return {}
+
+
+def _sorted_count_rows(counts: dict[str, int], *, limit: int = 5) -> list[dict[str, Any]]:
+    rows = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [{"key": key, "count": count} for key, count in rows[:limit]]
+
+
+def _try_decimal(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _resolve_net_profit(summary: dict[str, Any], run_manifest: dict[str, Any]) -> str:
+    for candidate in (
+        summary.get("net_profit"),
+        run_manifest.get("net_profit"),
+        (run_manifest.get("run_metrics") or {}).get("net_profit")
+        if isinstance(run_manifest.get("run_metrics"), dict)
+        else None,
+    ):
+        if candidate is None:
+            continue
+        text = str(candidate).strip()
+        if text:
+            return text
+    return "unknown"
+
+
+def _resolve_exit_reason(run_manifest: dict[str, Any], meta: dict[str, Any]) -> str:
+    for candidate in (run_manifest.get("exit_reason"), meta.get("exit_reason")):
+        if candidate is None:
+            continue
+        text = str(candidate).strip()
+        if text:
+            return text
+    return "none"
+
+
+def _extract_strategy_name(run_manifest: dict[str, Any]) -> str:
+    for key in ("strategy", "strategy_name", "command"):
+        value = run_manifest.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    mode = run_manifest.get("mode")
+    if isinstance(mode, str) and mode.strip():
+        return f"mode:{mode.strip()}"
+    return "unknown"
+
+
+def _extract_config_snapshot(run_manifest: dict[str, Any]) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {}
+    for key in (
+        "strategy_config",
+        "portfolio_config",
+        "latency_config",
+    ):
+        value = run_manifest.get(key)
+        if isinstance(value, dict):
+            snapshot[key] = value
+    for key in ("asset_id", "extra_book_asset_ids"):
+        value = run_manifest.get(key)
+        if value is not None:
+            snapshot[key] = value
+    return snapshot
+
+
+def _load_run_diff_snapshot(run_dir: Path) -> dict[str, Any]:
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+
+    manifest_path = run_dir / "run_manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"run_manifest.json not found: {manifest_path}")
+
+    run_manifest = _read_json_dict(manifest_path)
+    if not run_manifest:
+        raise ValueError(f"run_manifest.json is empty or invalid JSON: {manifest_path}")
+
+    summary = _read_json_dict(run_dir / "summary.json")
+    meta = _read_json_dict(run_dir / "meta.json")
+
+    decisions_lines = _count_non_empty_lines(run_dir / "decisions.jsonl")
+    orders_lines = _count_non_empty_lines(run_dir / "orders.jsonl")
+    fills_lines = _count_non_empty_lines(run_dir / "fills.jsonl")
+
+    decisions_count = (
+        decisions_lines if decisions_lines > 0 else _coerce_int(run_manifest.get("decisions_count"))
+    )
+    orders_count = (
+        orders_lines if orders_lines > 0 else _coerce_int(run_manifest.get("orders_count"))
+    )
+    fills_count = fills_lines if fills_lines > 0 else _coerce_int(run_manifest.get("fills_count"))
+
+    rejection_counts = _extract_rejection_counts(run_manifest)
+
+    return {
+        "path": run_dir.resolve().as_posix(),
+        "run_id": str(run_manifest.get("run_id") or run_dir.name),
+        "strategy": _extract_strategy_name(run_manifest),
+        "config": _extract_config_snapshot(run_manifest),
+        "counts": {
+            "decisions": decisions_count,
+            "orders": orders_count,
+            "fills": fills_count,
+        },
+        "net_pnl": _resolve_net_profit(summary, run_manifest),
+        "exit_reason": _resolve_exit_reason(run_manifest, meta),
+        "rejection_counts": rejection_counts,
+        "dominant_rejections": _sorted_count_rows(rejection_counts, limit=5),
+    }
+
+
+def _format_rejection_rows(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "none"
+    return ", ".join(f"{row['key']}={row['count']}" for row in rows)
+
+
+def _build_diff_summary(snapshot_a: dict[str, Any], snapshot_b: dict[str, Any]) -> dict[str, Any]:
+    counts: dict[str, Any] = {}
+    for key in ("decisions", "orders", "fills"):
+        a_value = _coerce_int((snapshot_a.get("counts") or {}).get(key))
+        b_value = _coerce_int((snapshot_b.get("counts") or {}).get(key))
+        counts[key] = {
+            "a": a_value,
+            "b": b_value,
+            "delta": b_value - a_value,
+        }
+
+    pnl_a = str(snapshot_a.get("net_pnl") or "unknown")
+    pnl_b = str(snapshot_b.get("net_pnl") or "unknown")
+    delta_decimal: Optional[Decimal] = None
+    a_decimal = _try_decimal(pnl_a)
+    b_decimal = _try_decimal(pnl_b)
+    if a_decimal is not None and b_decimal is not None:
+        delta_decimal = b_decimal - a_decimal
+
+    rej_a = snapshot_a.get("rejection_counts") or {}
+    rej_b = snapshot_b.get("rejection_counts") or {}
+    all_rejection_keys = sorted(set(rej_a.keys()) | set(rej_b.keys()))
+    rejection_deltas = [
+        {
+            "key": key,
+            "a": _coerce_int(rej_a.get(key)),
+            "b": _coerce_int(rej_b.get(key)),
+            "delta": _coerce_int(rej_b.get(key)) - _coerce_int(rej_a.get(key)),
+        }
+        for key in all_rejection_keys
+    ]
+    rejection_deltas = sorted(
+        rejection_deltas,
+        key=lambda row: (-abs(_coerce_int(row.get("delta"))), str(row.get("key"))),
+    )
+
+    strategy_a = str(snapshot_a.get("strategy") or "unknown")
+    strategy_b = str(snapshot_b.get("strategy") or "unknown")
+    config_a = snapshot_a.get("config") if isinstance(snapshot_a.get("config"), dict) else {}
+    config_b = snapshot_b.get("config") if isinstance(snapshot_b.get("config"), dict) else {}
+    exit_a = str(snapshot_a.get("exit_reason") or "none")
+    exit_b = str(snapshot_b.get("exit_reason") or "none")
+
+    return {
+        "runs": {
+            "a": {
+                "run_id": str(snapshot_a.get("run_id") or ""),
+                "path": str(snapshot_a.get("path") or ""),
+            },
+            "b": {
+                "run_id": str(snapshot_b.get("run_id") or ""),
+                "path": str(snapshot_b.get("path") or ""),
+            },
+        },
+        "strategy": {
+            "a": strategy_a,
+            "b": strategy_b,
+            "changed": strategy_a != strategy_b,
+        },
+        "config": {
+            "a": config_a,
+            "b": config_b,
+            "changed": config_a != config_b,
+        },
+        "counts": counts,
+        "net_pnl": {
+            "a": pnl_a,
+            "b": pnl_b,
+            "delta": str(delta_decimal) if delta_decimal is not None else None,
+        },
+        "exit_reason": {
+            "a": exit_a,
+            "b": exit_b,
+            "changed": exit_a != exit_b,
+        },
+        "dominant_rejections": {
+            "a": snapshot_a.get("dominant_rejections") or [],
+            "b": snapshot_b.get("dominant_rejections") or [],
+            "delta_by_key": rejection_deltas[:10],
+        },
+    }
+
+
+def _diff(args: argparse.Namespace) -> int:
+    run_dir_a = Path(args.a)
+    run_dir_b = Path(args.b)
+
+    try:
+        snapshot_a = _load_run_diff_snapshot(run_dir_a)
+        snapshot_b = _load_run_diff_snapshot(run_dir_b)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    diff_payload = _build_diff_summary(snapshot_a, snapshot_b)
+
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        diff_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        output_dir = DEFAULT_ARTIFACTS_DIR / "diffs" / f"{diff_id}_diff"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "diff_summary.json"
+    output_path.write_text(
+        json.dumps(diff_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    count_rows = diff_payload.get("counts") or {}
+    decisions_row = count_rows.get("decisions") or {}
+    orders_row = count_rows.get("orders") or {}
+    fills_row = count_rows.get("fills") or {}
+    net_row = diff_payload.get("net_pnl") or {}
+    exit_row = diff_payload.get("exit_reason") or {}
+    strategy_row = diff_payload.get("strategy") or {}
+    config_row = diff_payload.get("config") or {}
+    rejections_row = diff_payload.get("dominant_rejections") or {}
+
+    print("SimTrader diff summary")
+    print(f"A: {snapshot_a['path']}")
+    print(f"B: {snapshot_b['path']}")
+    print(
+        f"Strategy: {strategy_row.get('a')} -> {strategy_row.get('b')} "
+        f"(changed={strategy_row.get('changed')})"
+    )
+    print(f"Config changed: {config_row.get('changed')}")
+    print(
+        "Counts (A -> B): "
+        f"decisions {decisions_row.get('a', 0)} -> {decisions_row.get('b', 0)} "
+        f"({decisions_row.get('delta', 0):+d}), "
+        f"orders {orders_row.get('a', 0)} -> {orders_row.get('b', 0)} "
+        f"({orders_row.get('delta', 0):+d}), "
+        f"fills {fills_row.get('a', 0)} -> {fills_row.get('b', 0)} "
+        f"({fills_row.get('delta', 0):+d})"
+    )
+    if net_row.get("delta") is None:
+        print(f"Net PnL: {net_row.get('a')} -> {net_row.get('b')} (delta=n/a)")
+    else:
+        print(
+            f"Net PnL: {net_row.get('a')} -> {net_row.get('b')} "
+            f"(delta={net_row.get('delta')})"
+        )
+    print(
+        f"Exit reason: {exit_row.get('a')} -> {exit_row.get('b')} "
+        f"(changed={exit_row.get('changed')})"
+    )
+    print(f"Dominant rejections A: {_format_rejection_rows(rejections_row.get('a') or [])}")
+    print(f"Dominant rejections B: {_format_rejection_rows(rejections_row.get('b') or [])}")
+    print(f"Diff summary JSON: {output_path}")
     return 0
 
 
@@ -2027,6 +2872,16 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="JSON",
         dest="strategy_config",
         help=(
+            "Legacy alias for --strategy-config-json."
+        ),
+    )
+    run_p.add_argument(
+        "--strategy-config-json",
+        default=None,
+        type=str,
+        metavar="JSON",
+        dest="strategy_config_json",
+        help=(
             "JSON object passed as keyword arguments to the strategy constructor.  "
             "Example: '{\"trades_path\": \"trades.jsonl\", \"signal_delay_ticks\": 2}'."
         ),
@@ -2036,7 +2891,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         dest="strategy_config_path",
-        help="Path to a JSON file containing the strategy config object.",
+        help=(
+            "Path to a JSON file containing the strategy config object "
+            "(accepts UTF-8 BOM)."
+        ),
+    )
+    run_p.add_argument(
+        "--strategy-preset",
+        default="sane",
+        choices=list(STRATEGY_PRESET_CHOICES),
+        metavar="NAME",
+        dest="strategy_preset",
+        help=(
+            "Named strategy profile (binary_complement_arb): "
+            "sane=conservative defaults; "
+            "loose=min_top_size(1), min_edge(0.0005), max_notional(25)."
+        ),
     )
     run_p.add_argument(
         "--asset-id",
@@ -2130,6 +3000,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "The run is marked degraded instead of invalid."
         ),
     )
+    run_p.add_argument(
+        "--min-events",
+        type=int,
+        default=DEFAULT_MIN_EVENTS,
+        metavar="N",
+        dest="min_events",
+        help=(
+            "Warn when the tape has fewer than N events "
+            f"(default: {DEFAULT_MIN_EVENTS}).  Use 0 to disable."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # sweep
@@ -2158,12 +3039,42 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sweep_p.add_argument(
         "--strategy-config",
-        default="{}",
+        default=None,
         metavar="JSON",
         dest="strategy_config",
         help=(
+            "Legacy alias for --strategy-config-json."
+        ),
+    )
+    sweep_p.add_argument(
+        "--strategy-config-json",
+        default=None,
+        metavar="JSON",
+        dest="strategy_config_json",
+        help=(
             "Base strategy config JSON object used by all scenarios "
             "(scenario overrides are patch-merged onto this)."
+        ),
+    )
+    sweep_p.add_argument(
+        "--strategy-config-path",
+        default=None,
+        metavar="PATH",
+        dest="strategy_config_path",
+        help=(
+            "Path to a JSON file containing the base strategy config object "
+            "(accepts UTF-8 BOM)."
+        ),
+    )
+    sweep_p.add_argument(
+        "--strategy-preset",
+        default="sane",
+        choices=list(STRATEGY_PRESET_CHOICES),
+        metavar="NAME",
+        dest="strategy_preset",
+        help=(
+            "Named strategy profile for binary_complement_arb base config: "
+            "sane or loose."
         ),
     )
     sweep_p.add_argument(
@@ -2308,6 +3219,41 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="N",
         dest="cancel_latency_ticks",
         help="Cancel latency in tape ticks (default: 0).",
+    )
+    qr.add_argument(
+        "--activeness-probe-seconds",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        dest="activeness_probe_seconds",
+        help=(
+            "Subscribe to the market's WS feed for SECONDS and count "
+            "price_change / last_trade_price events before committing.  "
+            "0 disables probing (default).  Combine with --require-active "
+            "to skip quiet markets."
+        ),
+    )
+    qr.add_argument(
+        "--min-probe-updates",
+        type=int,
+        default=1,
+        metavar="N",
+        dest="min_probe_updates",
+        help=(
+            "Minimum number of WS updates (price_change or last_trade_price) "
+            "required per token for a market to be considered active "
+            "(default: 1).  Only applies when --activeness-probe-seconds > 0."
+        ),
+    )
+    qr.add_argument(
+        "--require-active",
+        action="store_true",
+        default=False,
+        dest="require_active",
+        help=(
+            "Skip markets that do not meet the activeness probe threshold.  "
+            "Only applies when --activeness-probe-seconds > 0."
+        ),
     )
     qr.add_argument(
         "--allow-empty-book",
@@ -2719,6 +3665,52 @@ def _build_parser() -> argparse.ArgumentParser:
             "Set 0 to disable."
         ),
     )
+    shadow_p.add_argument(
+        "--activeness-probe-seconds",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        dest="activeness_probe_seconds",
+        help=(
+            "Subscribe to the market's WS feed for SECONDS and count "
+            "price_change / last_trade_price events before starting the shadow run.  "
+            "0 disables probing (default).  Combine with --require-active "
+            "to abort on quiet markets."
+        ),
+    )
+    shadow_p.add_argument(
+        "--min-probe-updates",
+        type=int,
+        default=1,
+        metavar="N",
+        dest="min_probe_updates",
+        help=(
+            "Minimum WS updates per token to be considered active "
+            "(default: 1).  Only applies when --activeness-probe-seconds > 0."
+        ),
+    )
+    shadow_p.add_argument(
+        "--require-active",
+        action="store_true",
+        default=False,
+        dest="require_active",
+        help=(
+            "Abort the shadow run if either token fails the activeness probe.  "
+            "Only applies when --activeness-probe-seconds > 0."
+        ),
+    )
+    shadow_p.add_argument(
+        "--min-events",
+        type=int,
+        default=DEFAULT_MIN_EVENTS,
+        metavar="N",
+        dest="min_events",
+        help=(
+            "Print a quiet-tape warning after the shadow run when the total "
+            f"event count is below N (default: {DEFAULT_MIN_EVENTS}).  "
+            "Use 0 to disable."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # browse
@@ -2761,6 +3753,12 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="report_all",
         help="Generate report.html for all listed artifacts.",
     )
+    browse_p.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Regenerate report.html even when it already exists.",
+    )
 
     # ------------------------------------------------------------------
     # report
@@ -2787,6 +3785,106 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         dest="open_report",
         help="Print friendly instructions for opening the generated report.html.",
+    )
+
+    # ------------------------------------------------------------------
+    # diff
+    # ------------------------------------------------------------------
+    diff_p = sub.add_parser(
+        "diff",
+        help=(
+            "Compare two SimTrader run directories and emit a concise "
+            "diff_summary.json (metadata + counts only)."
+        ),
+    )
+    diff_p.add_argument(
+        "--a",
+        required=True,
+        metavar="DIR",
+        help="Path to run directory A (must contain run_manifest.json).",
+    )
+    diff_p.add_argument(
+        "--b",
+        required=True,
+        metavar="DIR",
+        help="Path to run directory B (must contain run_manifest.json).",
+    )
+    diff_p.add_argument(
+        "--output-dir",
+        default=None,
+        metavar="DIR",
+        dest="output_dir",
+        help=(
+            "Optional directory where diff_summary.json will be written. "
+            "Default: artifacts/simtrader/diffs/<timestamp>_diff/"
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # clean
+    # ------------------------------------------------------------------
+    clean_p = sub.add_parser(
+        "clean",
+        help=(
+            "Delete SimTrader artifact folders under artifacts/simtrader/. "
+            "Defaults to dry-run; pass --yes to actually delete."
+        ),
+    )
+    clean_p.add_argument(
+        "--yes",
+        action="store_true",
+        default=False,
+        help="Actually delete (default is dry-run).",
+    )
+    clean_p.add_argument(
+        "--runs",
+        action="store_true",
+        default=False,
+        help="Only clean runs/ artifacts.",
+    )
+    clean_p.add_argument(
+        "--tapes",
+        action="store_true",
+        default=False,
+        help="Only clean tapes/ artifacts.",
+    )
+    clean_p.add_argument(
+        "--sweeps",
+        action="store_true",
+        default=False,
+        help="Only clean sweeps/ artifacts.",
+    )
+    clean_p.add_argument(
+        "--batches",
+        action="store_true",
+        default=False,
+        help="Only clean batches/ artifacts.",
+    )
+    clean_p.add_argument(
+        "--shadow",
+        action="store_true",
+        default=False,
+        help="Only clean shadow_runs/ artifacts.",
+    )
+
+    # ------------------------------------------------------------------
+    # studio
+    # ------------------------------------------------------------------
+    studio_p = sub.add_parser(
+        "studio",
+        help="Launch SimTrader Studio local web UI (FastAPI + browser UI).",
+    )
+    studio_p.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port to bind the studio server (default: 8765).",
+    )
+    studio_p.add_argument(
+        "--open",
+        action="store_true",
+        default=False,
+        help="Open browser automatically after server starts.",
     )
 
     return parser
@@ -3085,21 +4183,41 @@ def _infer_browse_timestamp(
 
 
 def _extract_run_market_slug(run_manifest: dict[str, Any]) -> str:
-    quickrun_context = run_manifest.get("quickrun_context")
-    if isinstance(quickrun_context, dict):
-        slug = _text_or_none(quickrun_context.get("selected_slug"))
+    direct_slug = _text_or_none(run_manifest.get("market_slug"))
+    if direct_slug:
+        return direct_slug
+
+    market_context = run_manifest.get("market_context")
+    if isinstance(market_context, dict):
+        context_slug = _text_or_none(market_context.get("market_slug"))
+        if context_slug:
+            return context_slug
+
+    # Backward-compatible fallback for older manifests that only carried
+    # quickrun_context/shadow_context.
+    for context_key in ("quickrun_context", "shadow_context"):
+        context = run_manifest.get(context_key)
+        if not isinstance(context, dict):
+            continue
+        slug, _, _ = _extract_market_context_from_context_dict(context)
         if slug is not None:
             return slug
 
-    shadow_context = run_manifest.get("shadow_context")
-    if isinstance(shadow_context, dict):
-        for key in ("selected_slug", "market", "slug"):
-            slug = _text_or_none(shadow_context.get(key))
+    # Fall back to tape meta.json via tape_dir or tape_path
+    tape_dir_str = run_manifest.get("tape_dir")
+    if not tape_dir_str:
+        tape_path_str = run_manifest.get("tape_path")
+        if tape_path_str:
+            tape_dir_str = str(Path(tape_path_str).parent)
+    if tape_dir_str:
+        meta_path = Path(tape_dir_str) / "meta.json"
+        if meta_path.exists():
+            meta = _read_json_dict(meta_path)
+            slug, _, _ = _extract_market_context_from_meta_payload(meta)
             if slug is not None:
                 return slug
 
-    direct_slug = _text_or_none(run_manifest.get("market_slug"))
-    return direct_slug or "-"
+    return "-"
 
 
 def _extract_batch_market_slug(
@@ -3283,6 +4401,10 @@ def _browse(args: argparse.Namespace) -> int:
     errors = 0
     for row in report_targets:
         artifact_dir = row["artifact_dir"]
+        existing_report_path = artifact_dir / "report.html"
+        if existing_report_path.exists() and not args.force:
+            generated_paths[artifact_dir] = existing_report_path
+            continue
         try:
             result = generate_report(artifact_dir)
         except SimTraderReportError as exc:
@@ -3308,8 +4430,7 @@ def _browse(args: argparse.Namespace) -> int:
         report_path = generated_paths.get(newest_dir)
         if report_path is not None:
             print()
-            print("Open this report in a browser:")
-            _print_open_report_instructions(report_path)
+            print(f'ii "{report_path}"')
         elif report_targets:
             errors += 1
 
@@ -3351,6 +4472,46 @@ def _report(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Studio sub-command handler
+# ---------------------------------------------------------------------------
+
+
+def _studio(args: argparse.Namespace) -> int:
+    """Launch SimTrader Studio local web UI."""
+    try:
+        import uvicorn
+        from packages.polymarket.simtrader.studio.app import create_app
+    except ImportError as exc:
+        print(
+            f"Error: SimTrader Studio requires 'fastapi' and 'uvicorn'. "
+            f"Install with: pip install polytool[studio]\n  Detail: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+
+    host = "127.0.0.1"
+    port = args.port
+    url = f"http://{host}:{port}"
+    print(f"[simtrader studio] Starting SimTrader Studio at {url}")
+    print(f"[simtrader studio] Press Ctrl-C to stop.")
+
+    if args.open:
+        import threading
+        import webbrowser
+
+        def _open_browser() -> None:
+            import time
+            time.sleep(1.2)
+            webbrowser.open(url)
+
+        threading.Thread(target=_open_browser, daemon=True).start()
+
+    app = create_app()
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -3387,6 +4548,12 @@ def main(argv: list[str]) -> int:
         return _browse(args)
     if args.subcommand == "report":
         return _report(args)
+    if args.subcommand == "diff":
+        return _diff(args)
+    if args.subcommand == "clean":
+        return _clean(args)
+    if args.subcommand == "studio":
+        return _studio(args)
 
     parser.print_help()
     return 1
