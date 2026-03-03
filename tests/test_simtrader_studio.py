@@ -76,6 +76,62 @@ def test_artifacts_endpoint_with_run(tmp_path):
     assert data["artifacts"][0]["artifact_id"] == "20260226T120000Z_testmarket"
 
 
+def test_artifacts_endpoint_uses_manifest_display_name(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    run_dir = tmp_path / "runs" / "20260226T120000Z_named"
+    run_dir.mkdir(parents=True)
+    expected_name = (
+        "2026-02-26 12:00Z | run | market=will-btc-above-100k | "
+        "strategy=binary_complement_arb | preset=sane"
+    )
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"display_name": expected_name}),
+        encoding="utf-8",
+    )
+
+    app = create_app(artifacts_dir=tmp_path)
+    client = TestClient(app)
+    resp = client.get("/api/artifacts")
+    assert resp.status_code == 200
+    artifact = resp.json()["artifacts"][0]
+    assert artifact["artifact_id"] == "20260226T120000Z_named"
+    assert artifact["display_name"] == expected_name
+
+
+def test_artifacts_endpoint_derives_display_name_when_legacy_manifest_missing_field(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    run_dir = tmp_path / "runs" / "20260226T183132Z_legacy"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "20260226T183132Z_legacy",
+                "created_at": "2026-02-26T18:31:32+00:00",
+                "market_slug": "will-btc-above-100k",
+                "strategy": "binary_complement_arb",
+                "strategy_preset": "sane",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    app = create_app(artifacts_dir=tmp_path)
+    client = TestClient(app)
+    resp = client.get("/api/artifacts")
+    assert resp.status_code == 200
+    name = resp.json()["artifacts"][0]["display_name"]
+    assert "run" in name
+    assert "market=will-btc-above-100k" in name
+    assert "strategy=binary_complement_arb" in name
+    assert "preset=sane" in name
+
+
 # ---------------------------------------------------------------------------
 # Test 4: /api/run rejects commands not on the allowlist (HTTP 400)
 # ---------------------------------------------------------------------------
@@ -286,6 +342,60 @@ def test_session_viewer_endpoint(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Test 4f: /api/simulation/{type}/{id}/series downsamples best_bid_ask.jsonl
+# ---------------------------------------------------------------------------
+
+
+def test_simulation_series_endpoint_downsamples_best_bid_ask(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    run_id = "20260226T150000Z_simulation_unit"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+
+    rows = []
+    for seq in range(40):
+        rows.append(
+            json.dumps(
+                {
+                    "seq": seq,
+                    "ts_recv": 1772120000.0 + seq,
+                    "asset_id": "asset_yes",
+                    "event_type": "price_change",
+                    "best_bid": 0.20 + (seq * 0.001),
+                    "best_ask": 0.30 + (seq * 0.001),
+                }
+            )
+        )
+    (run_dir / "best_bid_ask.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (run_dir / "run_manifest.json").write_text(
+        json.dumps({"asset_id": "asset_yes", "extra_book_asset_ids": ["asset_no"]}),
+        encoding="utf-8",
+    )
+
+    app = create_app(artifacts_dir=tmp_path)
+    client = TestClient(app)
+
+    resp = client.get(f"/api/simulation/run/{run_id}/series?max_points=9")
+    assert resp.status_code == 200
+    payload = resp.json()
+    series = payload["series"]
+
+    assert payload["artifact"]["artifact_type"] == "run"
+    assert payload["artifact"]["artifact_id"] == run_id
+    assert series["source_rows"] == 40
+    assert series["filtered_rows"] == 40
+    assert series["downsampled_rows"] == 9
+    assert len(series["points"]) == 9
+    assert series["points"][0]["seq"] == 0
+    assert series["points"][-1]["seq"] == 39
+    seqs = [row["seq"] for row in series["points"]]
+    assert seqs == sorted(seqs)
+
+
+# ---------------------------------------------------------------------------
 # Test 5: /api/tapes returns empty list when tapes dir does not exist
 # ---------------------------------------------------------------------------
 
@@ -373,3 +483,142 @@ def test_studio_parser_host_explicit():
     parser = _build_parser()
     args = parser.parse_args(["studio", "--host", "0.0.0.0"])
     assert args.host == "0.0.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Test 9: /api/sessions/{id}/monitor returns lightweight stats shape
+# ---------------------------------------------------------------------------
+
+
+def test_session_monitor_endpoint_no_artifact_dir(tmp_path):
+    """Monitor endpoint returns correct shape even when session has no artifact_dir."""
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+    from packages.polymarket.simtrader.studio_sessions import (
+        TERMINAL_STATUSES,
+        StudioSessionManager,
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    script = "import sys\nprint('monitor test')\nsys.stdout.flush()\n"
+
+    def command_builder(subcommand: str, args: list[str]) -> list[str]:
+        return [sys.executable, "-u", "-c", script]
+
+    manager = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
+    app = create_app(artifacts_dir=artifacts_root, session_manager=manager)
+    client = TestClient(app)
+
+    start = client.post("/api/sessions", json={"command": "clean", "args": "--yes"})
+    assert start.status_code == 200
+    session_id = start.json()["session"]["session_id"]
+
+    for _ in range(120):
+        detail = client.get(f"/api/sessions/{session_id}").json()["session"]
+        if detail["status"] in TERMINAL_STATUSES:
+            break
+        import time
+        time.sleep(0.05)
+    else:
+        raise AssertionError("session did not reach terminal state")
+
+    resp = client.get(f"/api/sessions/{session_id}/monitor")
+    assert resp.status_code == 200
+    payload = resp.json()
+    # Required fields present
+    assert payload["session_id"] == session_id
+    assert "status" in payload
+    assert "started_at" in payload
+    assert "subcommand" in payload
+    assert "report_url" in payload
+    assert "artifact_dir" in payload
+    assert "run_metrics" in payload
+    assert "net_profit" in payload
+    assert "strategy" in payload
+    assert "decisions_count" in payload
+    assert "orders_count" in payload
+    assert "fills_count" in payload
+    # No artifact_dir => run_metrics is empty dict, counts are None
+    assert payload["run_metrics"] == {}
+    assert payload["net_profit"] is None
+    assert payload["strategy"] is None
+
+
+def test_session_monitor_endpoint_with_artifact_dir(tmp_path):
+    """Monitor endpoint reads run_manifest.json and summary.json for metrics."""
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+    from packages.polymarket.simtrader.studio_sessions import (
+        TERMINAL_STATUSES,
+        StudioSessionManager,
+    )
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+
+    def command_builder(subcommand: str, args: list[str]) -> list[str]:
+        # run subcommand receives --run-id; use it to write artifacts
+        run_id = ""
+        for idx, token in enumerate(args):
+            if token == "--run-id" and idx + 1 < len(args):
+                run_id = args[idx + 1]
+                break
+        assert run_id, f"--run-id not found in args: {args}"
+        run_dir = artifacts_root / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "run_metrics": {
+                "events_received": 42,
+                "ws_reconnects": 1,
+                "ws_timeouts": 0,
+            },
+            "strategy": "binary_complement_arb",
+        }
+        (run_dir / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        summary_data = {"net_profit": "3.14", "orders_count": 5, "fills_count": 3}
+        (run_dir / "summary.json").write_text(json.dumps(summary_data), encoding="utf-8")
+        return [sys.executable, "-u", "-c", "print('done')"]
+
+    manager = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
+    app = create_app(artifacts_dir=artifacts_root, session_manager=manager)
+    client = TestClient(app)
+
+    start = client.post(
+        "/api/sessions",
+        json={"command": "run", "args": ["--tape", "ignored.jsonl", "--strategy", "noop"]},
+    )
+    assert start.status_code == 200
+    session_id = start.json()["session"]["session_id"]
+
+    for _ in range(120):
+        detail = client.get(f"/api/sessions/{session_id}").json()["session"]
+        if detail["status"] in TERMINAL_STATUSES:
+            break
+        import time
+        time.sleep(0.05)
+    else:
+        raise AssertionError("session did not reach terminal state")
+
+    resp = client.get(f"/api/sessions/{session_id}/monitor")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["run_metrics"]["events_received"] == 42
+    assert payload["run_metrics"]["ws_reconnects"] == 1
+    assert payload["run_metrics"]["ws_timeouts"] == 0
+    assert payload["strategy"] == "binary_complement_arb"
+    assert payload["net_profit"] == "3.14"
+    assert payload["orders_count"] == 5
+    assert payload["fills_count"] == 3
+
+
+def test_session_monitor_endpoint_unknown_returns_404(tmp_path):
+    """Monitor endpoint returns 404 for unknown session_id."""
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    app = create_app(artifacts_dir=tmp_path)
+    client = TestClient(app)
+    resp = client.get("/api/sessions/nonexistent-id/monitor")
+    assert resp.status_code == 404

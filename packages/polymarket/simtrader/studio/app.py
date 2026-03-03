@@ -10,18 +10,21 @@ Factory function ``create_app(artifacts_dir)`` returns a FastAPI app that:
 from __future__ import annotations
 
 import asyncio
+import math
 import json
 import re
 import shlex
+from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..display_name import derive_artifact_display_name, derive_session_display_name
 from ..studio_sessions import TERMINAL_STATUSES, StudioSessionManager
 
 # ---------------------------------------------------------------------------
@@ -94,9 +97,26 @@ def _scan_artifacts(artifacts_dir: Path) -> list[dict[str, Any]]:
         for entry in entries:
             if not entry.is_dir():
                 continue
-            has_manifest = (entry / "run_manifest.json").exists()
-            has_meta = (entry / "meta.json").exists()
-            if not (has_manifest or has_meta):
+            manifest_payload: dict[str, Any] = {}
+            if artifact_type in {"run", "shadow"}:
+                run_manifest = _read_json_file(entry / "run_manifest.json")
+                has_meta = (entry / "meta.json").exists()
+                if run_manifest is None and not has_meta:
+                    continue
+                manifest_payload = run_manifest or {}
+            elif artifact_type == "sweep":
+                sweep_manifest = _read_json_file(entry / "sweep_manifest.json")
+                sweep_summary = _read_json_file(entry / "sweep_summary.json")
+                if sweep_manifest is None and sweep_summary is None:
+                    continue
+                manifest_payload = sweep_manifest or sweep_summary or {}
+            elif artifact_type == "batch":
+                batch_manifest = _read_json_file(entry / "batch_manifest.json")
+                batch_summary = _read_json_file(entry / "batch_summary.json")
+                if batch_manifest is None and batch_summary is None:
+                    continue
+                manifest_payload = batch_manifest or batch_summary or {}
+            else:
                 continue
             try:
                 ts = _extract_timestamp(entry)
@@ -105,6 +125,11 @@ def _scan_artifacts(artifacts_dir: Path) -> list[dict[str, Any]]:
                     {
                         "artifact_type": artifact_type,
                         "artifact_id": entry.name,
+                        "display_name": derive_artifact_display_name(
+                            artifact_type=artifact_type,
+                            artifact_id=entry.name,
+                            manifest=manifest_payload,
+                        ),
                         "artifact_path": str(entry),
                         "timestamp": ts,
                         "has_report": has_report,
@@ -241,8 +266,341 @@ def _extract_rejection_rows(
     return []
 
 
+def _iter_jsonl_dict_rows(path: Path) -> Iterator[dict[str, Any]]:
+    if not path.exists() or not path.is_file():
+        return
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    payload = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict):
+                    yield payload
+    except OSError:
+        return
+
+
+def _as_float(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        value = float(raw)
+    elif isinstance(raw, Decimal):
+        value = float(raw)
+    else:
+        text = str(raw).strip()
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError:
+            return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def _parse_time_bound(raw: str | None) -> float | None:
+    if raw is None:
+        return None
+    text = raw.strip()
+    if not text:
+        return None
+    as_float = _as_float(text)
+    if as_float is not None:
+        return as_float
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        raise ValueError(f"invalid time bound: {raw!r}. expected unix seconds or ISO-8601")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.timestamp()
+
+
+def _normalize_bbo_point(raw: dict[str, Any]) -> dict[str, Any] | None:
+    best_bid = _as_float(raw.get("best_bid"))
+    best_ask = _as_float(raw.get("best_ask"))
+    if best_bid is None and best_ask is None:
+        return None
+    seq_raw = raw.get("seq")
+    seq: int | None = None
+    try:
+        if seq_raw is not None and str(seq_raw).strip() != "":
+            seq = int(seq_raw)
+    except (TypeError, ValueError):
+        seq = None
+    ts_recv = _as_float(raw.get("ts_recv"))
+    mid = (best_bid + best_ask) / 2 if best_bid is not None and best_ask is not None else None
+    return {
+        "seq": seq,
+        "ts_recv": ts_recv,
+        "asset_id": str(raw.get("asset_id") or ""),
+        "event_type": str(raw.get("event_type") or ""),
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "mid": mid,
+    }
+
+
+def _downsample_rows(rows: list[dict[str, Any]], max_points: int) -> list[dict[str, Any]]:
+    if max_points <= 0 or len(rows) <= max_points:
+        return rows
+    if max_points == 1:
+        return [rows[-1]]
+    first = rows[0]
+    last = rows[-1]
+    step = (len(rows) - 1) / float(max_points - 1)
+    sampled: list[dict[str, Any]] = []
+    prev_idx = -1
+    for i in range(max_points):
+        idx = int(round(i * step))
+        if idx <= prev_idx:
+            idx = min(len(rows) - 1, prev_idx + 1)
+        sampled.append(rows[idx])
+        prev_idx = idx
+    sampled[0] = first
+    sampled[-1] = last
+    return sampled
+
+
+def _resolve_simulation_artifact_dir(
+    artifacts_root: Path,
+    artifact_type: str,
+    artifact_id: str,
+) -> Path:
+    artifact_type_norm = artifact_type.strip().lower()
+    if artifact_type_norm not in {"run", "shadow"}:
+        raise HTTPException(
+            status_code=400,
+            detail="artifact_type must be 'run' or 'shadow'",
+        )
+    artifact_id_norm = artifact_id.strip()
+    if not artifact_id_norm:
+        raise HTTPException(status_code=400, detail="artifact_id is required")
+
+    artifact_rel = Path(artifact_id_norm)
+    if ".." in artifact_rel.parts or len(artifact_rel.parts) != 1:
+        raise HTTPException(status_code=400, detail="invalid artifact_id path")
+
+    target = (
+        artifacts_root / _BROWSE_TYPE_DIRS[artifact_type_norm] / artifact_id_norm
+    ).resolve()
+    if not _is_relative_to(target, artifacts_root):
+        raise HTTPException(status_code=400, detail="artifact path escapes artifacts root")
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return target
+
+
+def _extract_asset_context(run_manifest: dict[str, Any]) -> dict[str, Any]:
+    yes_asset_id = str(run_manifest.get("asset_id") or "").strip() or None
+    no_asset_id: str | None = None
+    extras = run_manifest.get("extra_book_asset_ids")
+    if isinstance(extras, list):
+        for raw in extras:
+            text = str(raw or "").strip()
+            if text:
+                no_asset_id = text
+                break
+
+    yes_label = "YES"
+    no_label = "NO"
+    shadow_context = run_manifest.get("shadow_context")
+    if isinstance(shadow_context, dict):
+        yes_shadow = str(shadow_context.get("yes_token_id") or "").strip()
+        no_shadow = str(shadow_context.get("no_token_id") or "").strip()
+        if yes_shadow:
+            yes_asset_id = yes_shadow
+        if no_shadow:
+            no_asset_id = no_shadow
+        yes_no_mapping = shadow_context.get("yes_no_mapping")
+        if isinstance(yes_no_mapping, dict):
+            yes_label = str(yes_no_mapping.get("yes_label") or yes_label)
+            no_label = str(yes_no_mapping.get("no_label") or no_label)
+
+    if yes_asset_id and no_asset_id and yes_asset_id == no_asset_id:
+        no_asset_id = None
+
+    return {
+        "yes_asset_id": yes_asset_id,
+        "no_asset_id": no_asset_id,
+        "yes_label": yes_label,
+        "no_label": no_label,
+    }
+
+
+def _infer_row_leg(row: dict[str, Any], asset_context: dict[str, Any]) -> str | None:
+    yes_asset_id = asset_context.get("yes_asset_id")
+    no_asset_id = asset_context.get("no_asset_id")
+    asset_id = str(row.get("asset_id") or "").strip()
+    if yes_asset_id and asset_id == yes_asset_id:
+        return "yes"
+    if no_asset_id and asset_id == no_asset_id:
+        return "no"
+
+    leg_raw = row.get("leg")
+    if leg_raw is None:
+        meta = row.get("meta")
+        if isinstance(meta, dict):
+            leg_raw = meta.get("leg")
+    if isinstance(leg_raw, str):
+        leg = leg_raw.strip().lower()
+        if leg in {"yes", "no"}:
+            return leg
+    return None
+
+
+def _row_in_time_window(
+    row: dict[str, Any],
+    *,
+    time_from: float | None,
+    time_to: float | None,
+) -> bool:
+    if time_from is None and time_to is None:
+        return True
+    ts_recv = _as_float(row.get("ts_recv"))
+    if ts_recv is None:
+        return False
+    if time_from is not None and ts_recv < time_from:
+        return False
+    if time_to is not None and ts_recv > time_to:
+        return False
+    return True
+
+
+def _filter_rows(
+    rows: list[dict[str, Any]],
+    *,
+    time_from: float | None = None,
+    time_to: float | None = None,
+    asset_filter: str = "all",
+    reason_type: str | None = None,
+    asset_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        if not _row_in_time_window(row, time_from=time_from, time_to=time_to):
+            continue
+        if asset_filter in {"yes", "no"} and asset_context is not None:
+            leg = _infer_row_leg(row, asset_context)
+            if leg != asset_filter:
+                continue
+        if reason_type is not None:
+            reason = str(row.get("reason") or "").strip()
+            if reason != reason_type:
+                continue
+        filtered.append(row)
+    return filtered
+
+
+def _load_best_bid_ask_series(
+    path: Path,
+    *,
+    max_points: int,
+    time_from: float | None = None,
+    time_to: float | None = None,
+    asset_filter: str = "all",
+    asset_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    source_rows = 0
+    filtered_rows: list[dict[str, Any]] = []
+    for raw in _iter_jsonl_dict_rows(path):
+        point = _normalize_bbo_point(raw)
+        if point is None:
+            continue
+        source_rows += 1
+        if not _row_in_time_window(point, time_from=time_from, time_to=time_to):
+            continue
+        if asset_filter in {"yes", "no"} and asset_context is not None:
+            leg = _infer_row_leg(point, asset_context)
+            if leg != asset_filter:
+                continue
+        filtered_rows.append(point)
+
+    sampled_rows = _downsample_rows(filtered_rows, max_points=max_points)
+
+    asset_ids = sorted(
+        {
+            str(row.get("asset_id") or "")
+            for row in filtered_rows
+            if str(row.get("asset_id") or "")
+        }
+    )
+    ts_values = [
+        ts
+        for ts in (_as_float(row.get("ts_recv")) for row in filtered_rows)
+        if ts is not None
+    ]
+    seq_values = [
+        seq
+        for seq in (
+            int(row["seq"])
+            for row in filtered_rows
+            if row.get("seq") is not None and str(row.get("seq")).strip() != ""
+        )
+    ]
+
+    return {
+        "source_rows": source_rows,
+        "filtered_rows": len(filtered_rows),
+        "downsampled_rows": len(sampled_rows),
+        "points": sampled_rows,
+        "asset_ids": asset_ids,
+        "min_ts_recv": min(ts_values) if ts_values else None,
+        "max_ts_recv": max(ts_values) if ts_values else None,
+        "min_seq": min(seq_values) if seq_values else None,
+        "max_seq": max(seq_values) if seq_values else None,
+    }
+
+
+def _build_reason_counts(
+    *,
+    decisions: list[dict[str, Any]],
+    rejection_reasons: list[dict[str, Any]],
+    reason_type: str | None = None,
+) -> list[dict[str, Any]]:
+    counts: Counter[str] = Counter()
+    for row in rejection_reasons:
+        reason = str(row.get("reason") or "").strip()
+        if not reason:
+            continue
+        if reason_type is not None and reason != reason_type:
+            continue
+        try:
+            count = int(row.get("count") or 0)
+        except (TypeError, ValueError):
+            count = 0
+        if count > 0:
+            counts[reason] += count
+    for row in decisions:
+        reason = str(row.get("reason") or "").strip()
+        if not reason:
+            continue
+        if reason_type is not None and reason != reason_type:
+            continue
+        counts[reason] += 1
+    return [
+        {"reason": reason, "count": count}
+        for reason, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
 def _decorate_session_snapshot(snapshot: dict[str, Any], artifacts_root: Path) -> dict[str, Any]:
     row = dict(snapshot)
+    display_name = row.get("display_name")
+    if isinstance(display_name, str) and display_name.strip():
+        row["display_name"] = display_name.strip()
+    else:
+        row["display_name"] = derive_session_display_name(row)
     row["artifact_relpath"] = None
     row["has_report"] = False
     row["report_url"] = None
@@ -362,6 +720,205 @@ def create_app(
     async def list_tapes() -> dict[str, Any]:
         return {"tapes": _scan_tapes(_artifacts_dir)}
 
+    @app.get("/api/simulation/{artifact_type}/{artifact_id}/series")
+    async def simulation_series(
+        artifact_type: str,
+        artifact_id: str,
+        max_points: int = Query(default=1200, ge=2, le=5000),
+        time_from: str | None = Query(default=None),
+        time_to: str | None = Query(default=None),
+        asset: str = Query(default="all"),
+    ) -> dict[str, Any]:
+        artifact_dir = _resolve_simulation_artifact_dir(
+            _artifacts_dir,
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+        )
+        asset_filter = asset.strip().lower()
+        if asset_filter not in {"all", "yes", "no"}:
+            raise HTTPException(status_code=400, detail="asset must be one of: all, yes, no")
+        try:
+            from_bound = _parse_time_bound(time_from)
+            to_bound = _parse_time_bound(time_to)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if from_bound is not None and to_bound is not None and from_bound > to_bound:
+            raise HTTPException(status_code=400, detail="time_from must be <= time_to")
+
+        run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
+        artifact_display_name = derive_artifact_display_name(
+            artifact_type=artifact_type.strip().lower(),
+            artifact_id=artifact_id.strip(),
+            manifest=run_manifest,
+        )
+        asset_context = _extract_asset_context(run_manifest)
+        series = _load_best_bid_ask_series(
+            artifact_dir / "best_bid_ask.jsonl",
+            max_points=max_points,
+            time_from=from_bound,
+            time_to=to_bound,
+            asset_filter=asset_filter,
+            asset_context=asset_context,
+        )
+        return {
+            "artifact": {
+                "artifact_type": artifact_type.strip().lower(),
+                "artifact_id": artifact_id.strip(),
+                "display_name": artifact_display_name,
+                "artifact_path": str(artifact_dir),
+                "timestamp": _extract_timestamp(artifact_dir),
+            },
+            "asset_context": asset_context,
+            "series": series,
+            "filters": {
+                "time_from": from_bound,
+                "time_to": to_bound,
+                "asset": asset_filter,
+            },
+        }
+
+    @app.get("/api/simulation/{artifact_type}/{artifact_id}/viewer")
+    async def simulation_viewer(
+        artifact_type: str,
+        artifact_id: str,
+        series_points: int = Query(default=1200, ge=2, le=5000),
+        equity_limit: int = Query(default=2000, ge=10, le=10000),
+        row_limit: int = Query(default=1000, ge=10, le=10000),
+        time_from: str | None = Query(default=None),
+        time_to: str | None = Query(default=None),
+        reason_type: str | None = Query(default=None),
+        asset: str = Query(default="all"),
+    ) -> dict[str, Any]:
+        artifact_dir = _resolve_simulation_artifact_dir(
+            _artifacts_dir,
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+        )
+
+        asset_filter = asset.strip().lower()
+        if asset_filter not in {"all", "yes", "no"}:
+            raise HTTPException(status_code=400, detail="asset must be one of: all, yes, no")
+        reason_filter = (reason_type or "").strip()
+        if not reason_filter or reason_filter.lower() == "all":
+            reason_filter = ""
+
+        try:
+            from_bound = _parse_time_bound(time_from)
+            to_bound = _parse_time_bound(time_to)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if from_bound is not None and to_bound is not None and from_bound > to_bound:
+            raise HTTPException(status_code=400, detail="time_from must be <= time_to")
+
+        run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
+        artifact_display_name = derive_artifact_display_name(
+            artifact_type=artifact_type.strip().lower(),
+            artifact_id=artifact_id.strip(),
+            manifest=run_manifest,
+        )
+        summary = _read_json_file(artifact_dir / "summary.json") or {}
+        asset_context = _extract_asset_context(run_manifest)
+        rejection_reasons = _extract_rejection_rows(run_manifest=run_manifest, summary=summary)
+
+        best_bid_ask = _load_best_bid_ask_series(
+            artifact_dir / "best_bid_ask.jsonl",
+            max_points=series_points,
+            time_from=from_bound,
+            time_to=to_bound,
+            asset_filter=asset_filter,
+            asset_context=asset_context,
+        )
+
+        equity_curve_raw = _read_jsonl_rows(artifact_dir / "equity_curve.jsonl", limit=equity_limit)
+        orders_raw = _read_jsonl_rows(artifact_dir / "orders.jsonl", limit=row_limit)
+        fills_raw = _read_jsonl_rows(artifact_dir / "fills.jsonl", limit=row_limit)
+        decisions_raw = _read_jsonl_rows(artifact_dir / "decisions.jsonl", limit=row_limit)
+        ledger_raw = _read_jsonl_rows(artifact_dir / "ledger.jsonl", limit=row_limit)
+
+        equity_curve = _filter_rows(
+            equity_curve_raw,
+            time_from=from_bound,
+            time_to=to_bound,
+        )
+        orders = _filter_rows(
+            orders_raw,
+            time_from=from_bound,
+            time_to=to_bound,
+            asset_filter=asset_filter,
+            asset_context=asset_context,
+        )
+        fills = _filter_rows(
+            fills_raw,
+            time_from=from_bound,
+            time_to=to_bound,
+            asset_filter=asset_filter,
+            asset_context=asset_context,
+        )
+        decisions = _filter_rows(
+            decisions_raw,
+            time_from=from_bound,
+            time_to=to_bound,
+            asset_filter=asset_filter,
+            reason_type=reason_filter or None,
+            asset_context=asset_context,
+        )
+        ledger_snapshots = _filter_rows(
+            ledger_raw,
+            time_from=from_bound,
+            time_to=to_bound,
+        )
+        if reason_filter:
+            rejection_reasons = [
+                row
+                for row in rejection_reasons
+                if str(row.get("reason") or "").strip() == reason_filter
+            ]
+
+        reason_counts = _build_reason_counts(
+            decisions=decisions,
+            rejection_reasons=rejection_reasons,
+            reason_type=reason_filter or None,
+        )
+
+        reason_types: set[str] = {
+            str(row.get("reason") or "").strip()
+            for row in rejection_reasons
+            if str(row.get("reason") or "").strip()
+        }
+        reason_types.update(
+            str(row.get("reason") or "").strip()
+            for row in decisions_raw
+            if str(row.get("reason") or "").strip()
+        )
+
+        return {
+            "artifact": {
+                "artifact_type": artifact_type.strip().lower(),
+                "artifact_id": artifact_id.strip(),
+                "display_name": artifact_display_name,
+                "artifact_path": str(artifact_dir),
+                "timestamp": _extract_timestamp(artifact_dir),
+            },
+            "asset_context": asset_context,
+            "summary": summary,
+            "run_manifest": run_manifest,
+            "best_bid_ask": best_bid_ask,
+            "equity_curve": equity_curve,
+            "orders": orders,
+            "fills": fills,
+            "decisions": decisions,
+            "ledger_snapshots": ledger_snapshots,
+            "rejection_reasons": rejection_reasons,
+            "reason_counts": reason_counts,
+            "available_reason_types": sorted(reason_types),
+            "filters": {
+                "time_from": from_bound,
+                "time_to": to_bound,
+                "asset": asset_filter,
+                "reason_type": reason_filter or "all",
+            },
+        }
+
     @app.get("/artifacts/{rest:path}")
     async def serve_artifact(rest: str):
         rel = Path(rest)
@@ -435,6 +992,67 @@ def create_app(
             "session": _get_tracked_session(session_id),
             "offset": next_offset,
             "lines": lines,
+        }
+
+    @app.get("/api/sessions/{session_id}/monitor")
+    async def session_monitor(session_id: str) -> dict[str, Any]:
+        """Lightweight stats endpoint — reads only run_manifest.json and summary.json.
+
+        Returns run_metrics, net_profit, strategy, and basic counts without
+        loading equity_curve, orders, fills, or decisions rows.
+        """
+        session = _get_tracked_session(session_id)
+
+        artifact_raw = session.get("artifact_dir")
+        run_metrics: dict[str, Any] = {}
+        net_profit = None
+        strategy = None
+        decisions_count = None
+        orders_count = None
+        fills_count = None
+
+        if isinstance(artifact_raw, str) and artifact_raw:
+            artifact_dir = Path(artifact_raw).resolve()
+            if artifact_dir.exists() and artifact_dir.is_dir():
+                run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
+                summary = _read_json_file(artifact_dir / "summary.json") or {}
+
+                raw_metrics = run_manifest.get("run_metrics")
+                if isinstance(raw_metrics, dict):
+                    run_metrics = {
+                        "events_received": raw_metrics.get("events_received"),
+                        "ws_reconnects": raw_metrics.get("ws_reconnects"),
+                        "ws_timeouts": raw_metrics.get("ws_timeouts"),
+                    }
+
+                net_profit = run_manifest.get("net_profit") or summary.get("net_profit")
+                strategy = run_manifest.get("strategy") or summary.get("strategy")
+
+                decisions_count = run_manifest.get("decisions_count")
+                if decisions_count is None:
+                    decisions_count = summary.get("decisions_count")
+
+                orders_count = run_manifest.get("orders_count")
+                if orders_count is None:
+                    orders_count = summary.get("orders_count")
+
+                fills_count = run_manifest.get("fills_count")
+                if fills_count is None:
+                    fills_count = summary.get("fills_count")
+
+        return {
+            "session_id": session_id,
+            "status": session.get("status"),
+            "started_at": session.get("started_at"),
+            "subcommand": session.get("subcommand") or session.get("kind"),
+            "report_url": session.get("report_url"),
+            "artifact_dir": session.get("artifact_dir"),
+            "run_metrics": run_metrics,
+            "net_profit": net_profit,
+            "strategy": strategy,
+            "decisions_count": decisions_count,
+            "orders_count": orders_count,
+            "fills_count": fills_count,
         }
 
     @app.get("/api/sessions/{session_id}/viewer")
@@ -567,12 +1185,66 @@ def create_app(
             except InvalidOperation:
                 raise HTTPException(status_code=400, detail=f"invalid fee_rate_bps: {fee_str!r}")
 
+        checkpoint_create_kwargs: dict[str, Any] = {}
+
+        checkpoint_every_events_raw = body.get("checkpoint_every_events")
+        if checkpoint_every_events_raw is not None and str(checkpoint_every_events_raw).strip():
+            try:
+                checkpoint_create_kwargs["checkpoint_every_events"] = int(checkpoint_every_events_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid checkpoint_every_events: {checkpoint_every_events_raw!r}",
+                )
+
+        checkpoint_every_seconds_raw = body.get("checkpoint_every_seconds")
+        if checkpoint_every_seconds_raw is not None and str(checkpoint_every_seconds_raw).strip():
+            try:
+                checkpoint_create_kwargs["checkpoint_every_seconds"] = float(checkpoint_every_seconds_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid checkpoint_every_seconds: {checkpoint_every_seconds_raw!r}",
+                )
+
+        max_checkpoints_raw = body.get("max_checkpoints")
+        if max_checkpoints_raw is not None and str(max_checkpoints_raw).strip():
+            try:
+                checkpoint_create_kwargs["max_checkpoints"] = int(max_checkpoints_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"invalid max_checkpoints: {max_checkpoints_raw!r}",
+                )
+
         mark_method = body.get("mark_method", "bid")
         if mark_method not in ("bid", "midpoint"):
             raise HTTPException(status_code=400, detail=f"mark_method must be 'bid' or 'midpoint'; got {mark_method!r}")
 
-        session = _ondemand_sessions.create(tape_path_str, starting_cash, fee_rate_bps, mark_method)
+        try:
+            session = _ondemand_sessions.create(
+                tape_path_str,
+                starting_cash,
+                fee_rate_bps,
+                mark_method,
+                **checkpoint_create_kwargs,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         return {"session_id": session.session_id, "state": session.get_state()}
+
+    @app.get("/api/ondemand")
+    async def ondemand_list() -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
+        for session in _ondemand_sessions.list():
+            rows.append(
+                {
+                    "session_id": session.session_id,
+                    "tape_path": session.tape_path,
+                    "state": session.get_state(),
+                }
+            )
+        return {"sessions": rows}
 
     @app.get("/api/ondemand/{session_id}/state")
     async def ondemand_state(session_id: str) -> dict[str, Any]:
@@ -592,6 +1264,18 @@ def create_app(
         n_steps = int(body.get("n_steps", 50))
         n_steps = max(1, min(n_steps, 500))
         return {"state": session.step(n_steps)}
+
+    @app.post("/api/ondemand/{session_id}/seek")
+    async def ondemand_seek(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        session = _get_ondemand_session(_ondemand_sessions, session_id)
+        raw_timestamp = body.get("timestamp")
+        if raw_timestamp is None or str(raw_timestamp).strip() == "":
+            raise HTTPException(status_code=400, detail="timestamp is required")
+        try:
+            timestamp = float(raw_timestamp)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"invalid timestamp: {raw_timestamp!r}")
+        return {"state": session.seek_to(timestamp)}
 
     @app.post("/api/ondemand/{session_id}/order")
     async def ondemand_order(session_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -665,3 +1349,4 @@ def create_app(
 # ---------------------------------------------------------------------------
 
 app = create_app()
+
