@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -6,21 +6,94 @@
   <title>SimTrader Studio</title>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Segoe UI, system-ui, sans-serif; background: #101827; color: #e6edf6; }
-    header { padding: 14px 20px; background: #11233b; border-bottom: 1px solid #1f3650; display: flex; justify-content: space-between; align-items: center; }
-    header h1 { margin: 0; font-size: 18px; color: #7dd3fc; }
-    header .sub { color: #93a9c5; font-size: 12px; }
-    nav.tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid #1f3650; background: #0f1a2c; overflow-x: auto; }
-    nav.tabs button { border: 0; border-bottom: 2px solid transparent; color: #8fa5c3; background: transparent; padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
-    nav.tabs button.active { color: #dbeafe; border-bottom-color: #7dd3fc; }
-    main { padding: 16px; padding-bottom: 50px; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Space Grotesk", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(1200px 700px at 10% -20%, #1d324e 0%, rgba(29,50,78,0) 70%),
+        radial-gradient(900px 540px at 100% 0%, #163e39 0%, rgba(22,62,57,0) 72%),
+        #0d1623;
+      color: #d9e6f4;
+    }
+    header {
+      padding: 14px 18px;
+      background: linear-gradient(180deg, #11243b 0%, #0f1e32 100%);
+      border-bottom: 1px solid #25425f;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(4px);
+    }
+    header h1 { margin: 0; font-size: 18px; color: #95e8ff; letter-spacing: 0.04em; text-transform: uppercase; }
+    header .sub { color: #91a9c7; font-size: 12px; }
+    nav.tabs {
+      display: flex;
+      gap: 4px;
+      padding: 8px 14px;
+      border-bottom: 1px solid #25425f;
+      background: rgba(12, 25, 40, 0.9);
+      overflow-x: auto;
+      position: sticky;
+      top: 57px;
+      z-index: 35;
+      backdrop-filter: blur(4px);
+    }
+    nav.tabs button {
+      border: 1px solid transparent;
+      border-bottom: 2px solid transparent;
+      color: #8fa7c5;
+      background: transparent;
+      padding: 8px 13px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    nav.tabs button.active {
+      color: #dff5ff;
+      border-bottom-color: #6be1ff;
+      background: #13263e;
+      border-color: #2a4f6f;
+      border-radius: 8px 8px 0 0;
+    }
+    main { padding: 12px; padding-bottom: 56px; }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
-    .card { background: #132038; border: 1px solid #20354f; border-radius: 8px; padding: 14px; margin-bottom: 14px; }
-    .card h2 { margin: 0 0 10px 0; color: #d7e8ff; font-size: 14px; }
+    .card {
+      background: linear-gradient(180deg, rgba(20, 35, 54, 0.96) 0%, rgba(15, 27, 43, 0.96) 100%);
+      border: 1px solid #284866;
+      border-radius: 11px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: 0 12px 24px rgba(3, 7, 15, 0.28);
+    }
+    .card h2 { margin: 0 0 10px 0; color: #d7edff; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    input[type="text"], select { border: 1px solid #2a4461; background: #0f1a2c; color: #e6edf6; border-radius: 5px; padding: 7px 9px; min-height: 34px; }
-    .btn { border: 1px solid #2a4461; border-radius: 5px; padding: 7px 11px; color: #dbeafe; background: #1c3350; cursor: pointer; font-size: 13px; }
+    input[type="text"], input[type="datetime-local"], input[type="number"], select {
+      border: 1px solid #345a7d;
+      background: #0f1b2e;
+      color: #e6edf6;
+      border-radius: 6px;
+      padding: 7px 9px;
+      min-height: 34px;
+    }
+    input::placeholder { color: #7e9bbd; }
+    .btn {
+      border: 1px solid #3b6b95;
+      border-radius: 6px;
+      padding: 7px 11px;
+      color: #e6f4ff;
+      background: linear-gradient(180deg, #21507a 0%, #1c4060 100%);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
     .btn.small { padding: 5px 8px; font-size: 12px; }
     .btn.danger { background: #4a2323; border-color: #6d3232; }
     .btn.ghost { background: transparent; border-color: #365676; color: #b8d0ec; }
@@ -28,8 +101,13 @@
     .mono { font-family: Consolas, Courier New, monospace; font-size: 12px; }
     .empty { color: #839bb8; font-style: italic; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { text-align: left; color: #9fc0e4; background: #162742; padding: 7px 8px; border-bottom: 1px solid #284566; }
-    td { padding: 7px 8px; border-bottom: 1px solid #1f3550; }
+    th { text-align: left; color: #b5d8ff; background: #18304d; padding: 7px 8px; border-bottom: 1px solid #2c567b; position: sticky; top: 0; }
+    td { padding: 7px 8px; border-bottom: 1px solid #1f3956; }
+    tr:hover td { background: rgba(53, 96, 140, 0.16); }
+    tr.table-row-highlight td {
+      background: rgba(63, 135, 201, 0.26);
+      box-shadow: inset 0 0 0 1px rgba(107, 225, 255, 0.28);
+    }
     .status { border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 700; display: inline-block; }
     .status.starting { background: #324460; color: #d3e6ff; }
     .status.running, .status.succeeded { background: #1f4f3a; color: #a9f6c7; }
@@ -42,6 +120,126 @@
     .workspace-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
     .workspace-tabs button { border: 1px solid #2a4461; background: #14253f; color: #c7dcf6; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
     .workspace-tabs button.active { background: #265780; border-color: #3678ad; color: #f0f7ff; }
+    .workspace-layout-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+    .workspace-panels { display: block; }
+    .workspace-panels.grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .workspace-card {
+      border: 1px solid #2b4b69;
+      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(16, 29, 45, 0.92) 0%, rgba(11, 21, 34, 0.92) 100%);
+      padding: 12px;
+      min-width: 0;
+    }
+    .workspace-card.active { border-color: #6be1ff; box-shadow: inset 0 0 0 1px rgba(107, 225, 255, 0.25); }
+    .workspace-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .workspace-label {
+      color: #e5f4ff;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+    .workspace-kind {
+      color: #90aac8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .workspace-source-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .workspace-source-card {
+      border: 1px solid #274764;
+      border-radius: 8px;
+      background: #0f1d30;
+      padding: 10px;
+      min-width: 0;
+    }
+    .workspace-source-card h3 {
+      margin: 0 0 8px 0;
+      color: #bdd9f8;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .workspace-source-card .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; font-size: 12px; }
+    .workspace-source-card .kv .k { color: #83a4c6; }
+    .workspace-source-card .kv .v { color: #e2f0ff; min-width: 0; word-break: break-word; }
+    .workspace-log { min-height: 120px; max-height: 180px; margin-top: 8px; }
+    .sim-subtabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .sim-subtabs button { border: 1px solid #2a4461; background: #14253f; color: #c7dcf6; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    .sim-subtabs button.active { background: #265780; border-color: #3678ad; color: #f0f7ff; }
+    .sim-bottom-panel { display: none; }
+    .sim-bottom-panel.active { display: block; }
+    .cockpit-shell { display: grid; grid-template-columns: 270px minmax(0, 1fr) 320px; gap: 12px; align-items: start; }
+    .cockpit-column { min-width: 0; }
+    .cockpit-left .table-wrap, .cockpit-right .table-wrap { max-height: 220px; }
+    .cockpit-list { display: flex; flex-direction: column; gap: 6px; }
+    .cockpit-item {
+      border: 1px solid #2d506f;
+      background: #112238;
+      color: #d2e6fb;
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: left;
+      width: 100%;
+    }
+    .cockpit-item:hover { border-color: #5f93bf; background: #143151; }
+    .cockpit-item.active { border-color: #6be1ff; background: #184064; color: #f2fbff; }
+    .book-grid { display: grid; grid-template-columns: repeat(4, minmax(100px, 1fr)); gap: 8px; }
+    .book-cell {
+      border: 1px solid #2d506f;
+      border-radius: 8px;
+      background: #0f1f34;
+      padding: 8px;
+    }
+    .book-cell .label { color: #87a8cb; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .book-cell .value { color: #dff3ff; font-size: 14px; margin-top: 4px; font-weight: 700; font-family: Consolas, monospace; }
+    .ticket-side-toggle { display: flex; gap: 6px; }
+    .ticket-side-toggle button { flex: 1; }
+    .ticket-side-toggle button.active { border-color: #6be1ff; background: #1a537c; }
+    .ticket-row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 8px; }
+    .ticket-help { color: #86a6c7; font-size: 11px; line-height: 1.3; }
+    .reasons-filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+    .reasons-filter-row label { font-size: 11px; color: #9bb8d5; display: flex; align-items: center; gap: 5px; }
+    #sim-reasons-table-wrap .btn { padding: 4px 8px; font-size: 11px; }
+    .sidebar-heading { color: #94b4d4; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 7px 0; }
+    .ws-visual-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ws-visual-tabs span {
+      border: 1px solid #32587b;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: #c7ddf7;
+      background: #132a43;
+      white-space: nowrap;
+    }
+    .ws-visual-tabs .placeholder { color: #7f99b8; background: #111e31; border-style: dashed; }
+    @media (max-width: 1300px) {
+      .cockpit-shell { grid-template-columns: 250px minmax(0, 1fr); }
+      .cockpit-right { grid-column: 1 / -1; }
+    }
+    @media (max-width: 900px) {
+      .cockpit-shell { grid-template-columns: 1fr; }
+      .book-grid { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
+      .workspace-panels.grid { grid-template-columns: 1fr; }
+      .workspace-source-grid { grid-template-columns: 1fr; }
+      nav.tabs { top: 56px; }
+    }
     #status-bar { position: fixed; bottom: 0; left: 0; right: 0; border-top: 1px solid #20354f; background: #0c1524; color: #95adc9; padding: 7px 14px; font-size: 12px; }
     #status-bar.ok { color: #9af3bd; }
     #status-bar.err { color: #ffb5b5; }
@@ -57,16 +255,18 @@
   </header>
 
   <nav class="tabs" id="tab-nav">
-    <button class="active" data-tab="dashboard">Dashboard</button>
+    <button data-tab="dashboard">Dashboard</button>
     <button data-tab="sessions">Sessions</button>
+    <button class="active" data-tab="simulation">Cockpit</button>
     <button data-tab="workspaces">Workspaces</button>
     <button data-tab="tapes">Tapes</button>
     <button data-tab="reports">Reports</button>
     <button data-tab="ondemand">OnDemand</button>
+    <button data-tab="settings">Settings</button>
   </nav>
 
   <main>
-    <section class="tab-panel active" id="tab-dashboard">
+    <section class="tab-panel" id="tab-dashboard">
       <div class="card">
         <h2>Quick Start</h2>
         <div class="row">
@@ -127,6 +327,135 @@
       </div>
     </section>
 
+    <section class="tab-panel active" id="tab-simulation">
+      <div class="cockpit-shell">
+        <aside class="cockpit-column cockpit-left">
+          <div class="card">
+            <h2>Workspace Tabs</h2>
+            <div class="ws-visual-tabs" id="sim-workspace-tabs-visual">
+              <span class="placeholder">No workspace tabs yet</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="sidebar-heading">Markets</p>
+            <div class="cockpit-list" id="sim-markets-wrap"><div class="empty">No markets loaded.</div></div>
+          </div>
+
+          <div class="card">
+            <p class="sidebar-heading">Tapes</p>
+            <div class="cockpit-list" id="sim-sidebar-tapes-wrap"><div class="empty">No tapes found.</div></div>
+          </div>
+
+          <div class="card">
+            <p class="sidebar-heading">Sessions</p>
+            <div class="cockpit-list" id="sim-sidebar-sessions-wrap"><div class="empty">No sessions found.</div></div>
+          </div>
+        </aside>
+
+        <section class="cockpit-column cockpit-center">
+          <div class="card">
+            <h2>Simulation Source</h2>
+            <div class="row">
+              <select id="sim-artifact-select" style="flex:1;"></select>
+              <button class="btn" onclick="loadSimulationSelected()">Load</button>
+              <button class="btn ghost" onclick="refreshArtifacts()">Refresh</button>
+            </div>
+            <div class="muted mono" id="sim-artifact-label" style="margin-top:8px;">No simulation artifact selected.</div>
+          </div>
+
+          <div class="card">
+            <h2>Filters</h2>
+            <div class="row">
+              <label class="muted" for="sim-time-from">From</label>
+              <input type="datetime-local" id="sim-time-from" />
+              <label class="muted" for="sim-time-to">To</label>
+              <input type="datetime-local" id="sim-time-to" />
+              <select id="sim-asset-filter">
+                <option value="all">Asset: All</option>
+                <option value="yes">Asset: YES</option>
+                <option value="no">Asset: NO</option>
+              </select>
+              <select id="sim-reason-filter">
+                <option value="all">Reason Type: All</option>
+              </select>
+              <button class="btn small" onclick="applySimulationFilters()">Apply</button>
+              <button class="btn small ghost" onclick="resetSimulationFilters()">Reset</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Price Chart + Book Snapshot</h2>
+            <div class="muted mono" id="sim-summary" style="margin:8px 0;"></div>
+            <canvas id="sim-price-chart" height="260" style="width:100%; border:1px solid #2a4461; border-radius:6px; background:#0b1422;"></canvas>
+            <div class="book-grid" id="sim-book-wrap" style="margin-top:10px;">
+              <div class="book-cell"><div class="label">Best Bid</div><div class="value">-</div></div>
+              <div class="book-cell"><div class="label">Best Ask</div><div class="value">-</div></div>
+              <div class="book-cell"><div class="label">Mid</div><div class="value">-</div></div>
+              <div class="book-cell"><div class="label">Spread</div><div class="value">-</div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>Equity Curve</h2>
+            <canvas id="sim-equity-chart" height="170" style="width:100%; border:1px solid #2a4461; border-radius:6px; background:#0b1422;"></canvas>
+          </div>
+
+          <div class="card">
+            <h2>Bottom Panel</h2>
+            <div class="sim-subtabs" id="sim-bottom-tabs">
+              <button class="active" data-sim-tab="reasons" onclick="setSimulationBottomTab('reasons')">Reasons</button>
+              <button data-sim-tab="orders" onclick="setSimulationBottomTab('orders')">Orders</button>
+              <button data-sim-tab="fills" onclick="setSimulationBottomTab('fills')">Fills</button>
+              <button data-sim-tab="logs" onclick="setSimulationBottomTab('logs')">Logs</button>
+            </div>
+
+            <div class="sim-bottom-panel active" id="sim-panel-reasons">
+              <div class="reasons-filter-row">
+                <input type="text" id="sim-reason-contains" placeholder="reason contains..." style="min-width:180px;" />
+                <label><input type="checkbox" id="sim-reason-only-rejects" /> only rejects</label>
+                <label><input type="checkbox" id="sim-reason-only-trades" /> only trades</label>
+                <button class="btn small ghost" onclick="applySimulationFilters()">Apply Reason Filters</button>
+              </div>
+              <div class="table-wrap" id="sim-reasons-table-wrap"><div class="empty" style="padding:10px;">No reason rows.</div></div>
+              <div id="sim-reason-counts-wrap" style="display:none;"></div>
+              <div id="sim-decisions-wrap" style="display:none;"></div>
+            </div>
+            <div class="sim-bottom-panel" id="sim-panel-orders">
+              <div class="table-wrap" id="sim-orders-wrap"><div class="empty" style="padding:10px;">No data.</div></div>
+            </div>
+            <div class="sim-bottom-panel" id="sim-panel-fills">
+              <div class="table-wrap" id="sim-fills-wrap"><div class="empty" style="padding:10px;">No data.</div></div>
+            </div>
+            <div class="sim-bottom-panel" id="sim-panel-logs">
+              <pre class="log" id="sim-logs-box">No session selected.</pre>
+              <div id="sim-ledger-wrap" style="display:none;"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="cockpit-column cockpit-right">
+          <div class="card">
+            <h2>Trade Ticket</h2>
+            <div class="ticket-row">
+              <div class="ticket-side-toggle">
+                <button class="btn active" id="sim-ticket-side-yes" onclick="setSimulationTicketSide('yes')">YES</button>
+                <button class="btn ghost" id="sim-ticket-side-no" onclick="setSimulationTicketSide('no')">NO</button>
+              </div>
+              <label class="muted" for="sim-ticket-price">Limit Price</label>
+              <input type="number" id="sim-ticket-price" step="0.001" min="0" max="1" placeholder="0.500" />
+              <label class="muted" for="sim-ticket-size">Size</label>
+              <input type="number" id="sim-ticket-size" step="1" min="1" placeholder="100" />
+              <button class="btn" onclick="submitSimulationTicket()">Submit (Visual)</button>
+              <div class="ticket-help">
+                Ticket is a cockpit UI stub for now. Existing API endpoints and run/shadow artifact viewers are unchanged.
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
     <section class="tab-panel" id="tab-workspaces">
       <div class="card">
         <h2>Open Workspace</h2>
@@ -140,9 +469,13 @@
         </div>
       </div>
       <div class="card">
-        <h2>Workspace Tabs</h2>
+        <h2>Workspaces</h2>
+        <div class="workspace-layout-toggle">
+          <button class="btn small" id="workspace-layout-tabs" onclick="setWorkspaceLayout('tabs')">Tabs</button>
+          <button class="btn small ghost" id="workspace-layout-grid" onclick="setWorkspaceLayout('grid')">2x2 Grid</button>
+        </div>
         <div class="workspace-tabs" id="workspace-tabs"></div>
-        <div id="workspace-panel" class="empty">Open a market or tape workspace.</div>
+        <div id="workspace-panel" class="workspace-panels"><div class="empty">Open a market or tape workspace.</div></div>
       </div>
     </section>
 
@@ -179,19 +512,57 @@
           <input type="text" id="od-starting-cash" value="1000" placeholder="starting cash" />
           <button class="btn" onclick="odNewSession()">New Session</button>
         </div>
+        <details style="margin-top:8px;">
+          <summary>Advanced checkpointing</summary>
+          <div class="row" style="margin-top:8px;">
+            <input type="number" id="od-checkpoint-every-events" value="250" min="1" step="1" placeholder="checkpoint every events" />
+            <input type="number" id="od-checkpoint-every-seconds" value="30" min="0" step="0.1" placeholder="checkpoint every seconds" />
+            <input type="number" id="od-max-checkpoints" value="0" min="0" step="1" placeholder="max checkpoints" />
+          </div>
+          <div class="muted" style="margin-top:8px;">Use <code>0</code> for unlimited checkpoints (current behavior).</div>
+        </details>
         <div class="muted" id="od-session-info" style="margin-top:8px;"></div>
       </div>
       <div class="card" id="od-controls-card" style="display:none;">
         <h2>Playback</h2>
         <div class="row">
           <button class="btn" onclick="odStep(1)">Step</button>
-          <button class="btn" onclick="odStep(50)">Play 50</button>
+          <input type="number" id="od-play-steps" value="50" min="1" max="500" style="width:100px;" />
+          <button class="btn" onclick="odPlay()">Play</button>
           <button class="btn" onclick="odSave()">Save Artifacts</button>
           <button class="btn danger" onclick="odClose()">Close</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input type="range" id="od-time-slider" min="0" max="0" step="0.001" value="0" style="flex:1;" oninput="odSyncSeekInputFromSlider()" />
+          <input type="number" id="od-seek-ts" step="0.001" placeholder="timestamp" style="width:180px;" />
+          <button class="btn" onclick="odJump()">Jump</button>
         </div>
         <div class="muted" id="od-status" style="margin-top:8px;">No session.</div>
       </div>
     </section>
+    <section class="tab-panel" id="tab-settings">
+      <div class="card">
+        <h2>Workspace Layout Persistence</h2>
+        <div class="row">
+          <button class="btn" onclick="exportWorkspaceLayout()">Export Layout JSON</button>
+          <button class="btn ghost" onclick="importWorkspaceLayout()">Import Layout JSON</button>
+        </div>
+        <p class="muted" style="margin-top:8px;">
+          <strong>Export</strong> saves all workspace tabs and attachments as a shareable JSON file.<br>
+          <strong>Import</strong> replaces the current workspace list with one from a previously exported file.<br>
+          Layout is also saved automatically in your browser after every change
+          (schema&nbsp;version&nbsp;<span id="settings-schema-version"></span>).
+        </p>
+      </div>
+      <div class="card">
+        <h2>Reset</h2>
+        <div class="row">
+          <button class="btn danger" onclick="clearWorkspaceStorage()">Clear Saved Workspaces</button>
+        </div>
+        <p class="muted" style="margin-top:8px;">Removes all persisted workspace state from localStorage and resets to an empty layout.</p>
+      </div>
+    </section>
+    <input type="file" id="workspace-import-file" accept=".json,application/json" style="display:none;" onchange="onWorkspaceImportFile(event)" />
   </main>
 
   <div id="status-bar">Ready.</div>
@@ -202,12 +573,35 @@
       tapes: [],
       sessions: [],
       sessionById: new Map(),
+      ondemandSessions: [],
+      ondemandById: new Map(),
       selectedSessionId: null,
       selectedSessionLogOffset: 0,
       sessionEventSource: null,
       workspaces: [],
       activeWorkspaceId: null,
+      workspaceLayout: "tabs",
+      workspaceArtifactCache: new Map(),
+      workspaceArtifactLoading: new Set(),
+      wsMonitorCache: new Map(),    // session_id -> monitor payload
+      wsMonitorFetching: new Set(), // session_ids currently being fetched
       viewerPayload: null,
+      simulation: {
+        selectedArtifactKey: "",
+        payload: null,
+        filtered: null,
+        activeBottomTab: "reasons",
+        reasonRowsForCopy: [],
+        orderRowsForCopy: [],
+        fillRowsForCopy: [],
+        selectedOrderRowKey: "",
+        selectedFillRowKey: "",
+        priceChartMeta: null,
+        priceChartHover: null,
+        activeMarket: "",
+        activeTape: "",
+        ticketSide: "yes",
+      },
     };
 
     function setStatus(msg, cls) {
@@ -240,6 +634,60 @@
       }
     }
 
+    function shortUtcStamp(ts, fallbackId) {
+      if (ts) {
+        try {
+          const d = new Date(ts);
+          if (!Number.isNaN(d.getTime())) {
+            const iso = d.toISOString();
+            return iso.slice(0, 16).replace("T", " ") + "Z";
+          }
+        } catch (_) {}
+      }
+      const text = String(fallbackId || "");
+      const m = text.match(/(20\d{6}T\d{6}Z)/);
+      if (m) {
+        const raw = m[1];
+        return raw.slice(0, 4) + "-" + raw.slice(4, 6) + "-" + raw.slice(6, 8)
+          + " " + raw.slice(9, 11) + ":" + raw.slice(11, 13) + "Z";
+      }
+      return "unknown-time";
+    }
+
+    function fallbackDisplayName(kind, timestamp, fallbackId, marketSlug, strategy, preset) {
+      const parts = [shortUtcStamp(timestamp, fallbackId), String(kind || "artifact").toLowerCase()];
+      if (marketSlug) parts.push("market=" + String(marketSlug));
+      if (strategy) parts.push("strategy=" + String(strategy));
+      if (preset) parts.push("preset=" + String(preset));
+      return parts.join(" | ");
+    }
+
+    function artifactDisplayName(row) {
+      if (row && row.display_name) return String(row.display_name);
+      if (!row) return "unknown-time | artifact";
+      return fallbackDisplayName(
+        row.artifact_type || "artifact",
+        row.timestamp,
+        row.artifact_id,
+        row.market_slug,
+        row.strategy,
+        row.strategy_preset
+      );
+    }
+
+    function sessionDisplayName(row) {
+      if (row && row.display_name) return String(row.display_name);
+      if (!row) return "unknown-time | session";
+      return fallbackDisplayName(
+        row.kind || "ondemand",
+        row.started_at,
+        row.session_id,
+        row.market_slug || findArg(row.args, "--market"),
+        row.strategy || findArg(row.args, "--strategy"),
+        row.strategy_preset || findArg(row.args, "--strategy-preset")
+      );
+    }
+
     async function apiJson(url, opts) {
       const resp = await fetch(url, opts);
       if (!resp.ok) {
@@ -266,6 +714,10 @@
       document.getElementById("session-count-label").textContent = "Sessions: " + state.sessions.length;
     }
 
+    function ensureOnDemandMap() {
+      state.ondemandById = new Map(state.ondemandSessions.map((row) => [row.session_id, row]));
+    }
+
     function activateTab(tabId) {
       document.querySelectorAll("#tab-nav button").forEach((btn) => {
         btn.classList.toggle("active", btn.dataset.tab === tabId);
@@ -273,6 +725,16 @@
       document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.classList.toggle("active", panel.id === "tab-" + tabId);
       });
+      if (tabId === "simulation") {
+        renderSimulationArtifactOptions();
+        renderSimulationSidebar();
+        if (!state.simulation.payload && state.simulation.selectedArtifactKey) {
+          loadSimulationSelected();
+        } else if (state.simulation.filtered) {
+          rerenderSimulationPriceChart();
+          drawSimulationEquityChart(state.simulation.filtered.equityRows);
+        }
+      }
       if (tabId === "workspaces") renderWorkspacePanel();
       if (tabId === "reports") renderReports();
       if (tabId === "tapes") renderTapes();
@@ -288,6 +750,9 @@
       const data = await apiJson("/api/artifacts");
       state.artifacts = data.artifacts || [];
       renderReports();
+      renderSimulationArtifactOptions();
+      renderSimulationSidebar();
+      renderWorkspacePanel();
     }
 
     async function refreshTapes() {
@@ -295,6 +760,8 @@
       state.tapes = data.tapes || [];
       renderTapes();
       syncTapeSelectors();
+      renderSimulationSidebar();
+      renderWorkspacePanel();
     }
 
     async function refreshSessions() {
@@ -304,14 +771,29 @@
       renderDashboardRecent();
       renderSessions();
       renderWorkspacePanel();
+      renderSimulationSidebar();
       if (state.selectedSessionId) {
         loadViewer(state.selectedSessionId);
       }
     }
 
+    async function refreshOnDemandSessions() {
+      const data = await apiJson("/api/ondemand");
+      state.ondemandSessions = data.sessions || [];
+      ensureOnDemandMap();
+      if (od.sessionId) {
+        const row = state.ondemandById.get(od.sessionId);
+        if (row && row.state) {
+          odRenderState(row.state);
+        }
+      }
+      renderWorkspacePanel();
+    }
+
     async function refreshAll() {
       try {
-        await Promise.all([refreshArtifacts(), refreshTapes(), refreshSessions()]);
+        await Promise.all([refreshArtifacts(), refreshTapes(), refreshSessions(), refreshOnDemandSessions()]);
+        await refreshWorkspaceSessionLogs();
         setStatus("Studio refreshed.", "ok");
       } catch (err) {
         setStatus("Refresh failed: " + err.message, "err");
@@ -333,8 +815,16 @@
           if (ws && !ws.sessionIds.includes(session.session_id)) {
             ws.sessionIds.unshift(session.session_id);
           }
+          if (ws) {
+            ws.attachedSessionId = session.session_id;
+            ws.sessionLogOffset = 0;
+            ws.sessionLogText = "";
+          }
         }
         await refreshSessions();
+        if (workspaceId) {
+          await refreshWorkspaceSessionLogs(true);
+        }
         if (selectAfterStart !== false) {
           await selectSession(session.session_id);
           activateTab("sessions");
@@ -387,6 +877,7 @@
       state.selectedSessionId = sessionId;
       renderSessions();
       renderWorkspacePanel();
+      renderSimulationSidebar();
       document.getElementById("selected-session-label").textContent = "Session: " + sessionId;
 
       try {
@@ -396,6 +887,7 @@
       } catch (err) {
         document.getElementById("session-log-box").textContent = "Error loading log: " + err.message;
       }
+      syncSimulationLogsPanel();
       connectSessionStream(sessionId, state.selectedSessionLogOffset);
       loadViewer(sessionId);
     }
@@ -434,6 +926,7 @@
           const box = document.getElementById("session-log-box");
           box.textContent = (box.textContent ? box.textContent + "\n" : "") + line;
           box.scrollTop = box.scrollHeight;
+          syncSimulationLogsPanel();
         } catch (_) {}
       });
 
@@ -469,7 +962,10 @@
         }
 
         return "<tr>"
-          + "<td class='mono'>" + escHtml(row.session_id) + "</td>"
+          + "<td>"
+          + "<div>" + escHtml(sessionDisplayName(row)) + "</div>"
+          + "<div class='mono muted'>" + escHtml(row.session_id) + "</div>"
+          + "</td>"
           + "<td>" + escHtml(row.subcommand || row.kind || "") + "</td>"
           + "<td><span class='status " + escHtml(row.status || "") + "'>" + escHtml(row.status || "") + "</span></td>"
           + "<td>" + escHtml(fmtDate(row.started_at)) + "</td>"
@@ -480,7 +976,7 @@
       }).join("");
 
       return "<table><thead><tr>"
-        + "<th>ID</th><th>Command</th><th>Status</th><th>Started</th><th>Args</th><th>Artifact</th>"
+        + "<th>Session</th><th>Command</th><th>Status</th><th>Started</th><th>Args</th><th>Artifact</th>"
         + (includeActions ? "<th>Actions</th>" : "")
         + "</tr></thead><tbody>" + body + "</tbody></table>";
     }
@@ -547,8 +1043,44 @@
       return Number.isFinite(n) ? n : null;
     }
 
+    async function copyTextToClipboard(text, successMessage) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        }
+        setStatus(successMessage || "Copied to clipboard.", "ok");
+      } catch (err) {
+        setStatus("Copy failed: " + err.message, "err");
+      }
+    }
+
+    function simulationRecordKey(kind, row, suffix) {
+      const parts = [
+        String(kind || ""),
+        String(pickFirst(row || {}, ["seq", "submit_seq", "fill_seq"]) || ""),
+        String(pickFirst(row || {}, ["ts_recv"]) || ""),
+        String(pickFirst(row || {}, ["order_id"]) || ""),
+        String(pickFirst(row || {}, ["event", "event_type", "fill_status"]) || ""),
+        String(pickFirst(row || {}, ["limit_price", "fill_price", "price"]) || ""),
+        String(pickFirst(row || {}, ["size", "fill_size"]) || ""),
+      ];
+      if (suffix != null && suffix !== "") parts.push(String(suffix));
+      return parts.join("|");
+    }
+
     function renderCompactTable(containerId, columns, rows) {
       const container = document.getElementById(containerId);
+      if (!container) return;
       if (!rows || rows.length === 0) {
         container.innerHTML = "<div class='empty' style='padding:10px;'>No data.</div>";
         return;
@@ -559,6 +1091,33 @@
         return "<tr>" + cells + "</tr>";
       }).join("");
       container.innerHTML = "<table><thead><tr>" + headerHtml + "</tr></thead><tbody>" + rowHtml + "</tbody></table>";
+    }
+
+    function renderSimulationRecordTable(containerId, columns, rows, selectedRowKey, copyFnName) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      if (!rows || rows.length === 0) {
+        container.innerHTML = "<div class='empty' style='padding:10px;'>No data.</div>";
+        return;
+      }
+      const headerHtml = columns.map((c) => "<th>" + escHtml(c) + "</th>").join("") + "<th>debug</th>";
+      const rowHtml = rows.map((row, idx) => {
+        const cells = columns.map((c) => "<td>" + escHtml(String(row[c] ?? "")) + "</td>").join("");
+        const isSelected = selectedRowKey && row._rowKey === selectedRowKey;
+        return "<tr data-row-key='" + escAttr(row._rowKey || "") + "'" + (isSelected ? " class='table-row-highlight'" : "") + ">"
+          + cells
+          + "<td><button class='btn small ghost' onclick='copySimulationRecordRow(\"" + escAttr(copyFnName) + "\"," + idx + ")'>Copy row JSON</button></td>"
+          + "</tr>";
+      }).join("");
+      container.innerHTML = "<table><thead><tr>" + headerHtml + "</tr></thead><tbody>" + rowHtml + "</tbody></table>";
+    }
+
+    function scrollToSelectedSimulationRow(containerId) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const row = container.querySelector("tr.table-row-highlight");
+      if (!row || typeof row.scrollIntoView !== "function") return;
+      row.scrollIntoView({ block: "nearest" });
     }
 
     function drawViewerChart(rows) {
@@ -684,6 +1243,1194 @@
         clearViewer("Viewer unavailable for this session.");
       }
     }
+
+    function simulationArtifacts() {
+      return state.artifacts.filter((a) => a.artifact_type === "run" || a.artifact_type === "shadow");
+    }
+
+    function simulationArtifactKey(row) {
+      return String(row.artifact_type) + ":" + String(row.artifact_id);
+    }
+
+    function parseSimulationArtifactKey(key) {
+      const idx = String(key || "").indexOf(":");
+      if (idx <= 0) return null;
+      return {
+        artifactType: String(key).slice(0, idx),
+        artifactId: String(key).slice(idx + 1),
+      };
+    }
+
+    function renderSimulationArtifactOptions() {
+      const select = document.getElementById("sim-artifact-select");
+      if (!select) return;
+      const rows = simulationArtifacts();
+      if (rows.length === 0) {
+        state.simulation.selectedArtifactKey = "";
+        select.innerHTML = "<option value=''>-- no run/shadow artifacts found --</option>";
+        clearSimulationViewer("No run/shadow artifacts found.");
+        return;
+      }
+      const keys = rows.map((row) => simulationArtifactKey(row));
+      if (!keys.includes(state.simulation.selectedArtifactKey)) {
+        state.simulation.selectedArtifactKey = keys[0];
+        state.simulation.payload = null;
+        state.simulation.filtered = null;
+      }
+      select.innerHTML = rows.map((row) => {
+        const key = simulationArtifactKey(row);
+        const label = artifactDisplayName(row);
+        return "<option value='" + escHtml(key) + "'>" + escHtml(label) + "</option>";
+      }).join("");
+      select.value = state.simulation.selectedArtifactKey;
+    }
+
+    function simulationArtifactKeyFromSession(row) {
+      if (!row || !row.artifact_relpath) return "";
+      const rel = String(row.artifact_relpath).replace(/\\/g, "/");
+      const parts = rel.split("/");
+      if (parts.length < 2) return "";
+      if (parts[0] === "runs") return "run:" + parts[1];
+      if (parts[0] === "shadow_runs") return "shadow:" + parts[1];
+      return "";
+    }
+
+    function renderSimulationWorkspaceTabsVisual() {
+      const wrap = document.getElementById("sim-workspace-tabs-visual");
+      if (!wrap) return;
+      if (!state.workspaces.length) {
+        wrap.innerHTML = "<span class='placeholder'>No workspace tabs yet</span>";
+        return;
+      }
+      wrap.innerHTML = state.workspaces.map((ws) => {
+        const active = ws.id === state.activeWorkspaceId ? " style='border-color:#6be1ff; color:#f2fbff;'" : "";
+        return "<span" + active + ">" + escHtml(ws.label || ws.id) + "</span>";
+      }).join("");
+    }
+
+    function renderSimulationMarketsSidebar() {
+      const wrap = document.getElementById("sim-markets-wrap");
+      if (!wrap) return;
+      const seen = new Set();
+      const marketRows = [];
+
+      for (const ws of state.workspaces) {
+        if (ws.kind === "market" && ws.value && !seen.has(ws.value)) {
+          seen.add(ws.value);
+          marketRows.push({ kind: "market", value: ws.value, label: ws.value });
+        }
+      }
+      for (const session of state.sessions) {
+        const market = findArg(session.args, "--market");
+        if (market && !seen.has(market)) {
+          seen.add(market);
+          marketRows.push({ kind: "market", value: market, label: market });
+        }
+      }
+
+      if (!marketRows.length) {
+        const artifacts = simulationArtifacts().slice(0, 8);
+        for (const row of artifacts) {
+          const key = simulationArtifactKey(row);
+          marketRows.push({
+            kind: "artifact",
+            value: key,
+            label: artifactDisplayName(row),
+          });
+        }
+      }
+
+      if (!marketRows.length) {
+        wrap.innerHTML = "<div class='empty'>No markets loaded.</div>";
+        return;
+      }
+
+      wrap.innerHTML = marketRows.slice(0, 14).map((row) => {
+        const active = row.kind === "market"
+          ? state.simulation.activeMarket === row.value
+          : state.simulation.selectedArtifactKey === row.value;
+        const title = row.kind === "artifact" ? "Open artifact in cockpit" : "Open market workspace";
+        return "<button class='cockpit-item" + (active ? " active" : "") + "' title='" + escHtml(title) + "' onclick=\"selectSimulationMarket('" + escAttr(row.kind) + "','" + escAttr(row.value) + "')\">"
+          + escHtml(row.label)
+          + "</button>";
+      }).join("");
+    }
+
+    function renderSimulationTapesSidebar() {
+      const wrap = document.getElementById("sim-sidebar-tapes-wrap");
+      if (!wrap) return;
+      if (!state.tapes.length) {
+        wrap.innerHTML = "<div class='empty'>No tapes found.</div>";
+        return;
+      }
+      wrap.innerHTML = state.tapes.slice(0, 14).map((row) => {
+        const active = state.simulation.activeTape === row.tape_path;
+        return "<button class='cockpit-item" + (active ? " active" : "") + "' onclick=\"selectSimulationTape('" + escAttr(row.tape_path) + "')\">"
+          + "<div class='mono'>" + escHtml(row.tape_id) + "</div>"
+          + "<div class='muted'>" + escHtml(fmtDate(row.timestamp)) + "</div>"
+          + "</button>";
+      }).join("");
+    }
+
+    function renderSimulationSessionsSidebar() {
+      const wrap = document.getElementById("sim-sidebar-sessions-wrap");
+      if (!wrap) return;
+      if (!state.sessions.length) {
+        wrap.innerHTML = "<div class='empty'>No sessions found.</div>";
+        return;
+      }
+      wrap.innerHTML = state.sessions.slice(0, 16).map((row) => {
+        const active = state.selectedSessionId === row.session_id;
+        return "<button class='cockpit-item" + (active ? " active" : "") + "' onclick=\"selectSimulationSessionFromSidebar('" + escAttr(row.session_id) + "')\">"
+          + "<div class='row' style='justify-content:space-between; align-items:center; margin-bottom:4px;'>"
+          + "<span>" + escHtml(sessionDisplayName(row)) + "</span>"
+          + "<span class='status " + escHtml(row.status || "") + "'>" + escHtml(row.status || "") + "</span>"
+          + "</div>"
+          + "<div class='muted mono'>" + escHtml(row.session_id) + "</div>"
+          + "<div class='muted'>" + escHtml(row.subcommand || row.kind || "") + " • " + escHtml(fmtDate(row.started_at)) + "</div>"
+          + "</button>";
+      }).join("");
+    }
+
+    function renderSimulationSidebar() {
+      renderSimulationWorkspaceTabsVisual();
+      renderSimulationMarketsSidebar();
+      renderSimulationTapesSidebar();
+      renderSimulationSessionsSidebar();
+      syncSimulationLogsPanel();
+    }
+
+    function selectSimulationMarket(kind, value) {
+      if (kind === "artifact") {
+        state.simulation.selectedArtifactKey = value;
+        const select = document.getElementById("sim-artifact-select");
+        if (select) select.value = value;
+        loadSimulationSelected();
+        setStatus("Loaded artifact from market list.", "ok");
+        return;
+      }
+      state.simulation.activeMarket = value;
+      openWorkspace("market", value);
+      activateTab("simulation");
+      renderSimulationSidebar();
+      setStatus("Opened market workspace: " + value, "ok");
+    }
+
+    function selectSimulationTape(tapePath) {
+      state.simulation.activeTape = tapePath;
+      openWorkspace("tape", tapePath);
+      activateTab("simulation");
+      renderSimulationSidebar();
+      setStatus("Opened tape workspace.", "ok");
+    }
+
+    async function selectSimulationSessionFromSidebar(sessionId) {
+      await selectSession(sessionId);
+      const row = state.sessionById.get(sessionId);
+      const artifactKey = simulationArtifactKeyFromSession(row);
+      if (artifactKey) {
+        state.simulation.selectedArtifactKey = artifactKey;
+        const select = document.getElementById("sim-artifact-select");
+        if (select) select.value = artifactKey;
+        await loadSimulationSelected();
+      }
+      activateTab("simulation");
+    }
+
+    function syncSimulationLogsPanel() {
+      const box = document.getElementById("sim-logs-box");
+      const source = document.getElementById("session-log-box");
+      if (!box || !source) return;
+      const sessionLabel = state.selectedSessionId ? ("Session: " + state.selectedSessionId + "\n") : "No session selected.\n";
+      const logText = source.textContent || "";
+      box.textContent = sessionLabel + (logText || "No logs yet.");
+    }
+
+    function setSimulationTicketSide(side) {
+      const normalized = side === "no" ? "no" : "yes";
+      state.simulation.ticketSide = normalized;
+      const yesBtn = document.getElementById("sim-ticket-side-yes");
+      const noBtn = document.getElementById("sim-ticket-side-no");
+      if (yesBtn) {
+        yesBtn.classList.toggle("active", normalized === "yes");
+        yesBtn.classList.toggle("ghost", normalized !== "yes");
+      }
+      if (noBtn) {
+        noBtn.classList.toggle("active", normalized === "no");
+        noBtn.classList.toggle("ghost", normalized !== "no");
+      }
+    }
+
+    function submitSimulationTicket() {
+      const price = document.getElementById("sim-ticket-price").value;
+      const size = document.getElementById("sim-ticket-size").value;
+      setStatus(
+        "Ticket captured (visual only): side=" + state.simulation.ticketSide.toUpperCase()
+        + " price=" + (price || "-")
+        + " size=" + (size || "-"),
+        "ok"
+      );
+    }
+
+    function renderSimulationBookSnapshot(seriesRows) {
+      const wrap = document.getElementById("sim-book-wrap");
+      if (!wrap) return;
+      const latest = (seriesRows && seriesRows.length) ? seriesRows[seriesRows.length - 1] : null;
+
+      function fmt(value) {
+        const n = numberOrNull(value);
+        return n == null ? "-" : n.toFixed(3);
+      }
+
+      const bid = latest ? numberOrNull(latest.best_bid) : null;
+      const ask = latest ? numberOrNull(latest.best_ask) : null;
+      const mid = (bid != null && ask != null) ? ((bid + ask) / 2) : null;
+      const spread = (bid != null && ask != null) ? (ask - bid) : null;
+
+      wrap.innerHTML = ""
+        + "<div class='book-cell'><div class='label'>Best Bid</div><div class='value'>" + escHtml(fmt(bid)) + "</div></div>"
+        + "<div class='book-cell'><div class='label'>Best Ask</div><div class='value'>" + escHtml(fmt(ask)) + "</div></div>"
+        + "<div class='book-cell'><div class='label'>Mid</div><div class='value'>" + escHtml(fmt(mid)) + "</div></div>"
+        + "<div class='book-cell'><div class='label'>Spread</div><div class='value'>" + escHtml(fmt(spread)) + "</div></div>";
+    }
+
+    function decisionIsTrade(row) {
+      const action = String((row || {}).action || "").toLowerCase();
+      return action === "submit" || action === "trade" || action === "fill";
+    }
+
+    function decisionIsReject(row) {
+      const action = String((row || {}).action || "").toLowerCase();
+      const reason = String((row || {}).reason || "").trim();
+      const meta = row && typeof row.meta === "object" ? row.meta : null;
+      if (action === "cancel" || action.includes("reject") || action.includes("skip") || action.includes("block")) {
+        return true;
+      }
+      if (meta && (meta.rejected === true || String(meta.reject_reason || "").trim())) return true;
+      return Boolean(reason) && !decisionIsTrade(row);
+    }
+
+    function inferDecisionEdge(row) {
+      const meta = row && typeof row.meta === "object" ? row.meta : {};
+      const candidates = [
+        row && row.edge,
+        meta.edge,
+        meta.expected_edge,
+        meta.expected_profit_per_share,
+        meta.modeled_profit_per_share,
+        meta.profit_per_share,
+      ];
+      for (const candidate of candidates) {
+        const num = numberOrNull(candidate);
+        if (num != null) return num.toFixed(4);
+      }
+      const sumAsk = numberOrNull(meta.sum_ask);
+      if (sumAsk != null) return (1 - sumAsk).toFixed(4);
+      return "";
+    }
+
+    function formatSimulationTs(tsRaw) {
+      const ts = numberOrNull(tsRaw);
+      if (ts == null) return "-";
+      try {
+        return new Date(ts * 1000).toLocaleString();
+      } catch (_) {
+        return String(tsRaw);
+      }
+    }
+
+    function reasonDetailsText(row) {
+      const parts = [];
+      const asset = String((row || {}).asset_id || "");
+      if (asset) {
+        const shortAsset = asset.length > 18 ? (asset.slice(0, 8) + "..." + asset.slice(-6)) : asset;
+        parts.push("asset=" + shortAsset);
+      }
+      if (row && row.side) parts.push("side=" + row.side);
+      if (row && row.limit_price != null) parts.push("px=" + row.limit_price);
+      if (row && row.size != null) parts.push("size=" + row.size);
+      const meta = row && typeof row.meta === "object" ? row.meta : null;
+      if (meta && Object.keys(meta).length) parts.push("meta=" + JSON.stringify(meta));
+      const text = parts.join(" | ");
+      return text.length > 240 ? (text.slice(0, 237) + "...") : text;
+    }
+
+    function renderSimulationReasonsTable(reasonRows) {
+      const wrap = document.getElementById("sim-reasons-table-wrap");
+      if (!wrap) return;
+      if (!reasonRows.length) {
+        state.simulation.reasonRowsForCopy = [];
+        wrap.innerHTML = "<div class='empty' style='padding:10px;'>No reason rows.</div>";
+        return;
+      }
+      state.simulation.reasonRowsForCopy = reasonRows.map((row) => row.raw);
+
+      const rowsHtml = reasonRows.map((row, idx) => {
+        return "<tr>"
+          + "<td>" + escHtml(row.ts) + "</td>"
+          + "<td>" + escHtml(row.action) + "</td>"
+          + "<td class='mono'>" + escHtml(row.edge) + "</td>"
+          + "<td>" + escHtml(row.reason) + "</td>"
+          + "<td>" + escHtml(row.details) + "</td>"
+          + "<td><button class='btn small ghost' onclick='copySimulationReasonRow(" + idx + ")'>Copy row JSON</button></td>"
+          + "</tr>";
+      }).join("");
+
+      wrap.innerHTML = "<table><thead><tr>"
+        + "<th>ts</th><th>action</th><th>edge</th><th>reason</th><th>details</th><th>debug</th>"
+        + "</tr></thead><tbody>" + rowsHtml + "</tbody></table>";
+    }
+
+    async function copySimulationReasonRow(index) {
+      const row = (state.simulation.reasonRowsForCopy || [])[index];
+      if (!row) {
+        setStatus("Reason row not available.", "err");
+        return;
+      }
+      await copyTextToClipboard(JSON.stringify(row, null, 2), "Copied reason row JSON.");
+    }
+
+    async function copySimulationOrderRow(index) {
+      const row = (state.simulation.orderRowsForCopy || [])[index];
+      if (!row) {
+        setStatus("Order row not available.", "err");
+        return;
+      }
+      await copyTextToClipboard(JSON.stringify(row, null, 2), "Copied order row JSON.");
+    }
+
+    async function copySimulationFillRow(index) {
+      const row = (state.simulation.fillRowsForCopy || [])[index];
+      if (!row) {
+        setStatus("Fill row not available.", "err");
+        return;
+      }
+      await copyTextToClipboard(JSON.stringify(row, null, 2), "Copied fill row JSON.");
+    }
+
+    function copySimulationRecordRow(kind, index) {
+      if (kind === "order") return copySimulationOrderRow(index);
+      if (kind === "fill") return copySimulationFillRow(index);
+      return copySimulationReasonRow(index);
+    }
+
+    function renderSimulationOrdersTable(rows) {
+      state.simulation.orderRowsForCopy = (rows || []).map((row) => row._raw || null).filter(Boolean);
+      renderSimulationRecordTable(
+        "sim-orders-wrap",
+        ["seq", "ts_recv", "event", "order_id", "asset_id", "side", "price", "size", "status"],
+        rows || [],
+        state.simulation.selectedOrderRowKey,
+        "order"
+      );
+    }
+
+    function renderSimulationFillsTable(rows) {
+      state.simulation.fillRowsForCopy = (rows || []).map((row) => row._raw || null).filter(Boolean);
+      renderSimulationRecordTable(
+        "sim-fills-wrap",
+        ["seq", "ts_recv", "order_id", "asset_id", "side", "fill_price", "fill_size", "fill_status"],
+        rows || [],
+        state.simulation.selectedFillRowKey,
+        "fill"
+      );
+    }
+
+    function rerenderSimulationPriceChart() {
+      const filtered = state.simulation.filtered;
+      if (!filtered) {
+        drawSimulationPriceChart([], [], []);
+        return;
+      }
+      drawSimulationPriceChart(
+        filtered.seriesRows || [],
+        filtered.orderChartMarkers || [],
+        filtered.fillChartMarkers || []
+      );
+    }
+
+    function simulationChartPointer(evt) {
+      const canvas = document.getElementById("sim-price-chart");
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top,
+      };
+    }
+
+    function selectSimulationMarkerRow(kind, rowKey) {
+      if (kind === "order") {
+        state.simulation.selectedOrderRowKey = rowKey || "";
+        setSimulationBottomTab("orders");
+        renderSimulationOrdersTable((state.simulation.filtered || {}).orderTableRows || []);
+        scrollToSelectedSimulationRow("sim-orders-wrap");
+      } else if (kind === "fill") {
+        state.simulation.selectedFillRowKey = rowKey || "";
+        setSimulationBottomTab("fills");
+        renderSimulationFillsTable((state.simulation.filtered || {}).fillTableRows || []);
+        scrollToSelectedSimulationRow("sim-fills-wrap");
+      }
+      rerenderSimulationPriceChart();
+    }
+
+    function onSimulationPriceChartMove(evt) {
+      const meta = state.simulation.priceChartMeta;
+      const pointer = simulationChartPointer(evt);
+      const canvas = document.getElementById("sim-price-chart");
+      if (!meta || !pointer || !meta.bounds) {
+        if (canvas) canvas.style.cursor = "";
+        return;
+      }
+      const inside = pointer.x >= meta.bounds.left
+        && pointer.x <= meta.bounds.right
+        && pointer.y >= meta.bounds.top
+        && pointer.y <= meta.bounds.bottom;
+      if (canvas) {
+        canvas.style.cursor = inside ? "crosshair" : "";
+      }
+      if (inside && canvas) {
+        const markers = (meta.orderMarkers || []).concat(meta.fillMarkers || []);
+        for (const marker of markers) {
+          const dx = pointer.x - marker.px;
+          const dy = pointer.y - marker.py;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist <= (marker.hitRadius || 7)) {
+            canvas.style.cursor = "pointer";
+            break;
+          }
+        }
+      }
+      const nextHover = inside ? pointer : null;
+      const prev = state.simulation.priceChartHover;
+      const changed = !prev || !nextHover
+        ? prev !== nextHover
+        : Math.abs(prev.x - nextHover.x) > 0.5 || Math.abs(prev.y - nextHover.y) > 0.5;
+      if (!changed) return;
+      state.simulation.priceChartHover = nextHover;
+      rerenderSimulationPriceChart();
+    }
+
+    function onSimulationPriceChartLeave() {
+      const canvas = document.getElementById("sim-price-chart");
+      if (canvas) {
+        canvas.style.cursor = "";
+      }
+      if (!state.simulation.priceChartHover) return;
+      state.simulation.priceChartHover = null;
+      rerenderSimulationPriceChart();
+    }
+
+    function onSimulationPriceChartClick(evt) {
+      const meta = state.simulation.priceChartMeta;
+      const pointer = simulationChartPointer(evt);
+      if (!meta || !pointer) return;
+      let best = null;
+      let bestDist = Infinity;
+      const markers = (meta.orderMarkers || []).concat(meta.fillMarkers || []);
+      for (const marker of markers) {
+        const dx = pointer.x - marker.px;
+        const dy = pointer.y - marker.py;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const limit = (marker.hitRadius || 7);
+        if (dist <= limit && dist < bestDist) {
+          best = marker;
+          bestDist = dist;
+        }
+      }
+      if (!best) return;
+      selectSimulationMarkerRow(best.kind, best.rowKey);
+    }
+
+    function setSimulationAssetFilterOptions(assetContext) {
+      const select = document.getElementById("sim-asset-filter");
+      if (!select) return;
+      const ctx = assetContext || {};
+      const yesLabel = String(ctx.yes_label || "YES");
+      const noLabel = String(ctx.no_label || "NO");
+      const current = select.value || "all";
+      select.innerHTML = ""
+        + "<option value='all'>Asset: All</option>"
+        + "<option value='yes'>Asset: " + escHtml(yesLabel.toUpperCase()) + "</option>"
+        + "<option value='no'>Asset: " + escHtml(noLabel.toUpperCase()) + "</option>";
+      select.value = ["all", "yes", "no"].includes(current) ? current : "all";
+    }
+
+    function setSimulationReasonFilterOptions(reasonTypes) {
+      const select = document.getElementById("sim-reason-filter");
+      if (!select) return;
+      const current = select.value || "all";
+      const rows = Array.isArray(reasonTypes) ? reasonTypes : [];
+      const options = ["<option value='all'>Reason: All</option>"]
+        .concat(rows.map((reason) =>
+          "<option value='" + escHtml(String(reason)) + "'>" + escHtml("Reason: " + String(reason)) + "</option>"
+        ))
+        .join("");
+      select.innerHTML = options;
+      if (current !== "all" && rows.includes(current)) {
+        select.value = current;
+      } else {
+        select.value = "all";
+      }
+    }
+
+    function clearSimulationViewer(message) {
+      state.simulation.payload = null;
+      state.simulation.filtered = null;
+      state.simulation.reasonRowsForCopy = [];
+      state.simulation.orderRowsForCopy = [];
+      state.simulation.fillRowsForCopy = [];
+      state.simulation.selectedOrderRowKey = "";
+      state.simulation.selectedFillRowKey = "";
+      state.simulation.priceChartMeta = null;
+      state.simulation.priceChartHover = null;
+      document.getElementById("sim-artifact-label").textContent = message || "No simulation artifact selected.";
+      document.getElementById("sim-summary").textContent = "";
+      drawSimulationPriceChart([], [], []);
+      drawSimulationEquityChart([]);
+      renderSimulationBookSnapshot([]);
+      renderSimulationReasonsTable([]);
+      renderCompactTable("sim-reason-counts-wrap", ["reason", "count"], []);
+      renderSimulationOrdersTable([]);
+      renderSimulationFillsTable([]);
+      syncSimulationLogsPanel();
+    }
+
+    function simulationRowLeg(row, assetContext) {
+      const ctx = assetContext || {};
+      const yesAsset = String(ctx.yes_asset_id || "");
+      const noAsset = String(ctx.no_asset_id || "");
+      const assetId = String((row || {}).asset_id || "");
+      if (yesAsset && assetId === yesAsset) return "yes";
+      if (noAsset && assetId === noAsset) return "no";
+      const meta = row && typeof row.meta === "object" ? row.meta : null;
+      const legRaw = (row && row.leg) != null ? row.leg : (meta ? meta.leg : null);
+      const leg = String(legRaw || "").toLowerCase();
+      if (leg === "yes" || leg === "no") return leg;
+      return "";
+    }
+
+    function simulationRowInTime(row, fromTs, toTs) {
+      if (fromTs == null && toTs == null) return true;
+      const ts = numberOrNull((row || {}).ts_recv);
+      if (ts == null) return false;
+      if (fromTs != null && ts < fromTs) return false;
+      if (toTs != null && ts > toTs) return false;
+      return true;
+    }
+
+    function parseDateTimeInputToEpoch(inputValue) {
+      const text = String(inputValue || "").trim();
+      if (!text) return null;
+      const dt = new Date(text);
+      const ms = dt.getTime();
+      if (!Number.isFinite(ms)) return null;
+      return ms / 1000;
+    }
+
+    async function loadSimulationSelected() {
+      const select = document.getElementById("sim-artifact-select");
+      const selectedKey = (select && select.value) || state.simulation.selectedArtifactKey;
+      if (!selectedKey) {
+        clearSimulationViewer("No simulation artifact selected.");
+        return;
+      }
+      state.simulation.selectedArtifactKey = selectedKey;
+      const parsed = parseSimulationArtifactKey(selectedKey);
+      if (!parsed) {
+        clearSimulationViewer("Invalid simulation artifact selection.");
+        return;
+      }
+      const url = "/api/simulation/" + encodeURIComponent(parsed.artifactType)
+        + "/" + encodeURIComponent(parsed.artifactId)
+        + "/viewer?series_points=1600&equity_limit=2500&row_limit=2500";
+      try {
+        const payload = await apiJson(url);
+        state.simulation.payload = payload;
+        state.simulation.selectedOrderRowKey = "";
+        state.simulation.selectedFillRowKey = "";
+        state.simulation.priceChartHover = null;
+        state.simulation.priceChartMeta = null;
+        const artifactMeta = (payload && payload.artifact) || {};
+        const displayName = artifactMeta.display_name
+          || artifactDisplayName({
+            artifact_type: parsed.artifactType,
+            artifact_id: parsed.artifactId,
+            timestamp: artifactMeta.timestamp,
+          });
+        document.getElementById("sim-artifact-label").textContent =
+          String(displayName);
+        setSimulationAssetFilterOptions(payload.asset_context || {});
+        setSimulationReasonFilterOptions(payload.available_reason_types || []);
+        applySimulationFilters();
+        renderSimulationSidebar();
+        setStatus("Loaded simulation artifact " + String(displayName), "ok");
+      } catch (err) {
+        clearSimulationViewer("Simulation viewer failed to load.");
+        setStatus("Simulation load failed: " + err.message, "err");
+      }
+    }
+
+    function applySimulationFilters() {
+      const payload = state.simulation.payload;
+      if (!payload) {
+        clearSimulationViewer("No simulation artifact selected.");
+        return;
+      }
+      state.simulation.priceChartHover = null;
+      let fromTs = parseDateTimeInputToEpoch(document.getElementById("sim-time-from").value);
+      let toTs = parseDateTimeInputToEpoch(document.getElementById("sim-time-to").value);
+      if (fromTs != null && toTs != null && fromTs > toTs) {
+        const tmp = fromTs;
+        fromTs = toTs;
+        toTs = tmp;
+      }
+      const assetFilter = String(document.getElementById("sim-asset-filter").value || "all");
+      const reasonFilter = String(document.getElementById("sim-reason-filter").value || "all");
+      const reasonContains = String((document.getElementById("sim-reason-contains") || {}).value || "").trim().toLowerCase();
+      const onlyRejects = Boolean((document.getElementById("sim-reason-only-rejects") || {}).checked);
+      const onlyTrades = Boolean((document.getElementById("sim-reason-only-trades") || {}).checked);
+      const assetContext = payload.asset_context || {};
+
+      const seriesRows = (((payload.best_bid_ask || {}).points) || []).filter((row) =>
+        simulationRowInTime(row, fromTs, toTs)
+        && (assetFilter === "all" || simulationRowLeg(row, assetContext) === assetFilter)
+      );
+      const ordersRows = (payload.orders || []).filter((row) =>
+        simulationRowInTime(row, fromTs, toTs)
+        && (assetFilter === "all" || simulationRowLeg(row, assetContext) === assetFilter)
+      );
+      const fillsRows = (payload.fills || []).filter((row) =>
+        simulationRowInTime(row, fromTs, toTs)
+        && (assetFilter === "all" || simulationRowLeg(row, assetContext) === assetFilter)
+      );
+      const decisionsBase = (payload.decisions || []).filter((row) =>
+        simulationRowInTime(row, fromTs, toTs)
+        && (assetFilter === "all" || simulationRowLeg(row, assetContext) === assetFilter)
+        && (reasonFilter === "all" || String(row.reason || "") === reasonFilter)
+      );
+      const equityRows = (payload.equity_curve || []).filter((row) => simulationRowInTime(row, fromTs, toTs));
+      const ledgerRows = (payload.ledger_snapshots || []).filter((row) => simulationRowInTime(row, fromTs, toTs));
+
+      const decisionsRows = decisionsBase.filter((row) => {
+        const reasonText = String(row.reason || "").toLowerCase();
+        if (reasonContains && !reasonText.includes(reasonContains)) {
+          return false;
+        }
+        const rejectMatch = decisionIsReject(row);
+        const tradeMatch = decisionIsTrade(row);
+        if (onlyRejects && onlyTrades) {
+          if (!rejectMatch && !tradeMatch) return false;
+        } else {
+          if (onlyRejects && !rejectMatch) return false;
+          if (onlyTrades && !tradeMatch) return false;
+        }
+        return true;
+      });
+
+      const reasonMap = new Map();
+      for (const row of (payload.rejection_reasons || [])) {
+        const reason = String((row || {}).reason || "").trim();
+        if (!reason) continue;
+        if (reasonFilter !== "all" && reason !== reasonFilter) continue;
+        const prev = Number(reasonMap.get(reason) || 0);
+        const count = Number((row || {}).count || 0);
+        reasonMap.set(reason, prev + (Number.isFinite(count) ? count : 0));
+      }
+      for (const row of decisionsRows) {
+        const reason = String((row || {}).reason || "").trim();
+        if (!reason) continue;
+        const prev = Number(reasonMap.get(reason) || 0);
+        reasonMap.set(reason, prev + 1);
+      }
+      const reasonCounts = Array.from(reasonMap.entries())
+        .map((entry) => ({ reason: entry[0], count: entry[1] }))
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          return String(a.reason).localeCompare(String(b.reason));
+        });
+
+      const reasonTableRows = decisionsRows.slice(-400).reverse().map((row) => ({
+        ts: formatSimulationTs(row.ts_recv),
+        action: String(row.action || ""),
+        edge: inferDecisionEdge(row) || "-",
+        reason: String(row.reason || ""),
+        details: reasonDetailsText(row),
+        raw: row,
+      }));
+
+      const orderDisplayRows = ordersRows.slice(-300).map((row, idx) => ({
+        raw: row,
+        rowKey: simulationRecordKey("order", row, idx),
+      }));
+      const orderChartMarkers = orderDisplayRows.map((row) => ({
+        raw: row.raw,
+        rowKey: row.rowKey,
+      }));
+      const orderTableRows = orderDisplayRows.slice().reverse().map((row) => ({
+        seq: pickFirst(row.raw, ["seq", "submit_seq"]),
+        ts_recv: pickFirst(row.raw, ["ts_recv"]),
+        event: pickFirst(row.raw, ["event", "event_type"]),
+        order_id: pickFirst(row.raw, ["order_id"]),
+        asset_id: pickFirst(row.raw, ["asset_id"]),
+        side: pickFirst(row.raw, ["side"]),
+        price: pickFirst(row.raw, ["limit_price", "price"]),
+        size: pickFirst(row.raw, ["size", "fill_size"]),
+        status: pickFirst(row.raw, ["status", "fill_status"]),
+        _rowKey: row.rowKey,
+        _raw: row.raw,
+      }));
+
+      const fillDisplayRows = fillsRows.slice(-300).map((row, idx) => ({
+        raw: row,
+        rowKey: simulationRecordKey("fill", row, idx),
+      }));
+      const fillChartMarkers = fillDisplayRows.map((row) => ({
+        raw: row.raw,
+        rowKey: row.rowKey,
+      }));
+      const fillTableRows = fillDisplayRows.slice().reverse().map((row) => ({
+        seq: pickFirst(row.raw, ["seq", "fill_seq"]),
+        ts_recv: pickFirst(row.raw, ["ts_recv"]),
+        order_id: pickFirst(row.raw, ["order_id"]),
+        asset_id: pickFirst(row.raw, ["asset_id"]),
+        side: pickFirst(row.raw, ["side"]),
+        fill_price: pickFirst(row.raw, ["fill_price", "price"]),
+        fill_size: pickFirst(row.raw, ["fill_size", "size"]),
+        fill_status: pickFirst(row.raw, ["fill_status", "status"]),
+        _rowKey: row.rowKey,
+        _raw: row.raw,
+      }));
+
+      state.simulation.filtered = {
+        seriesRows: seriesRows,
+        ordersRows: ordersRows,
+        fillsRows: fillsRows,
+        decisionsRows: decisionsRows,
+        equityRows: equityRows,
+        ledgerRows: ledgerRows,
+        reasonCounts: reasonCounts,
+        reasonTableRows: reasonTableRows,
+        orderTableRows: orderTableRows,
+        fillTableRows: fillTableRows,
+        orderChartMarkers: orderChartMarkers,
+        fillChartMarkers: fillChartMarkers,
+        fromTs: fromTs,
+        toTs: toTs,
+        assetFilter: assetFilter,
+        reasonFilter: reasonFilter,
+      };
+
+      const summary = payload.summary || {};
+      const manifest = payload.run_manifest || {};
+      const netProfit = pickFirst(summary, ["net_profit"]) || pickFirst(manifest, ["net_profit"]) || "-";
+      document.getElementById("sim-summary").textContent =
+        "points=" + String(seriesRows.length)
+        + " | orders=" + String(ordersRows.length)
+        + " | fills=" + String(fillsRows.length)
+        + " | decisions=" + String(decisionsRows.length)
+        + " | net_profit=" + String(netProfit)
+        + (onlyRejects ? " | rejects-only" : "")
+        + (onlyTrades ? " | trades-only" : "");
+
+      drawSimulationPriceChart(seriesRows, orderChartMarkers, fillChartMarkers);
+      drawSimulationEquityChart(equityRows);
+      renderSimulationBookSnapshot(seriesRows);
+
+      renderCompactTable("sim-reason-counts-wrap", ["reason", "count"], reasonCounts.slice(0, 200));
+      renderSimulationReasonsTable(reasonTableRows);
+      renderSimulationOrdersTable(orderTableRows);
+      renderSimulationFillsTable(fillTableRows);
+
+      setSimulationBottomTab(state.simulation.activeBottomTab || "reasons");
+      syncSimulationLogsPanel();
+    }
+
+    function resetSimulationFilters() {
+      document.getElementById("sim-time-from").value = "";
+      document.getElementById("sim-time-to").value = "";
+      document.getElementById("sim-asset-filter").value = "all";
+      document.getElementById("sim-reason-filter").value = "all";
+      document.getElementById("sim-reason-contains").value = "";
+      document.getElementById("sim-reason-only-rejects").checked = false;
+      document.getElementById("sim-reason-only-trades").checked = false;
+      applySimulationFilters();
+    }
+
+    function setSimulationBottomTab(tabName) {
+      const active = String(tabName || "reasons");
+      state.simulation.activeBottomTab = active;
+      document.querySelectorAll("#sim-bottom-tabs button").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.simTab === active);
+      });
+      document.querySelectorAll(".sim-bottom-panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.id === "sim-panel-" + active);
+      });
+      if (active === "logs") {
+        syncSimulationLogsPanel();
+      }
+    }
+
+    function drawSimulationPriceChart(seriesRows, orderMarkerRows, fillMarkerRows) {
+      const canvas = document.getElementById("sim-price-chart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const cssWidth = Math.max(300, canvas.clientWidth || 300);
+      const cssHeight = Number(canvas.getAttribute("height") || "240");
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      state.simulation.priceChartMeta = null;
+
+      const points = [];
+      for (const row of (seriesRows || [])) {
+        const x = numberOrNull(pickFirst(row, ["ts_recv", "seq"]));
+        if (x == null) continue;
+        points.push({
+          x: x,
+          seq: numberOrNull(row.seq),
+          ts_recv: numberOrNull(row.ts_recv),
+          bid: numberOrNull(row.best_bid),
+          ask: numberOrNull(row.best_ask),
+          mid: numberOrNull(row.mid),
+        });
+      }
+      if (points.length < 2) {
+        state.simulation.priceChartHover = null;
+        ctx.fillStyle = "#96acc7";
+        ctx.font = "12px Segoe UI, sans-serif";
+        ctx.fillText("No price series data for this filter.", 12, 24);
+        return;
+      }
+
+      let minX = points[0].x;
+      let maxX = points[0].x;
+      for (const point of points) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+      }
+      if (maxX <= minX) maxX = minX + 1;
+
+      const yValues = [];
+      for (const point of points) {
+        if (point.bid != null) yValues.push(point.bid);
+        if (point.ask != null) yValues.push(point.ask);
+        if (point.mid != null) yValues.push(point.mid);
+      }
+      for (const marker of (orderMarkerRows || [])) {
+        const raw = marker && typeof marker === "object" && marker.raw ? marker.raw : marker;
+        const v = numberOrNull(pickFirst(raw || {}, ["limit_price", "price"]));
+        if (v != null) yValues.push(v);
+      }
+      for (const marker of (fillMarkerRows || [])) {
+        const raw = marker && typeof marker === "object" && marker.raw ? marker.raw : marker;
+        const v = numberOrNull(pickFirst(raw || {}, ["fill_price", "price"]));
+        if (v != null) yValues.push(v);
+      }
+      if (yValues.length === 0) {
+        state.simulation.priceChartHover = null;
+        ctx.fillStyle = "#96acc7";
+        ctx.font = "12px Segoe UI, sans-serif";
+        ctx.fillText("No price values available.", 12, 24);
+        return;
+      }
+
+      let minY = Math.min.apply(null, yValues);
+      let maxY = Math.max.apply(null, yValues);
+      if (maxY <= minY) {
+        minY -= 0.01;
+        maxY += 0.01;
+      }
+
+      const padL = 50;
+      const padR = 16;
+      const padT = 14;
+      const padB = 24;
+      const innerW = Math.max(10, cssWidth - padL - padR);
+      const innerH = Math.max(10, cssHeight - padT - padB);
+
+      const xToPx = (xVal) => padL + ((xVal - minX) / (maxX - minX)) * innerW;
+      const yToPx = (yVal) => padT + (1 - ((yVal - minY) / (maxY - minY))) * innerH;
+
+      ctx.strokeStyle = "#2b4767";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(padL, padT, innerW, innerH);
+
+      for (let i = 0; i <= 4; i += 1) {
+        const yVal = minY + ((maxY - minY) * i / 4);
+        const y = yToPx(yVal);
+        ctx.strokeStyle = "#1f3550";
+        ctx.beginPath();
+        ctx.moveTo(padL, y);
+        ctx.lineTo(padL + innerW, y);
+        ctx.stroke();
+        ctx.fillStyle = "#8fa5c3";
+        ctx.font = "10px Consolas, monospace";
+        ctx.fillText(yVal.toFixed(3), 4, y + 3);
+      }
+
+      function drawLine(key, color) {
+        let drew = false;
+        ctx.beginPath();
+        for (const point of points) {
+          const yValue = point[key];
+          if (yValue == null) continue;
+          const x = xToPx(point.x);
+          const y = yToPx(yValue);
+          if (!drew) {
+            ctx.moveTo(x, y);
+            drew = true;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        if (drew) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+        }
+      }
+
+      drawLine("bid", "#22c55e");
+      drawLine("ask", "#ef4444");
+      drawLine("mid", "#67e8f9");
+
+      function markerX(row) {
+        const xVal = numberOrNull(pickFirst(row, ["ts_recv", "seq"]));
+        if (xVal == null) return null;
+        return xToPx(Math.max(minX, Math.min(maxX, xVal)));
+      }
+
+      const orderMarkers = [];
+      const fillMarkers = [];
+
+      for (const marker of (orderMarkerRows || [])) {
+        const row = marker && typeof marker === "object" && marker.raw ? marker.raw : marker;
+        const rowKey = marker && typeof marker === "object" ? String(marker.rowKey || "") : "";
+        const x = markerX(row || {});
+        const price = numberOrNull(pickFirst(row || {}, ["limit_price", "price"]));
+        if (x == null || price == null) continue;
+        const y = yToPx(Math.max(minY, Math.min(maxY, price)));
+        const side = String((row || {}).side || "").toUpperCase();
+        ctx.fillStyle = side === "SELL" ? "#fb923c" : "#60a5fa";
+        ctx.fillRect(x - 3, y - 3, 6, 6);
+        if (rowKey && rowKey === state.simulation.selectedOrderRowKey) {
+          ctx.strokeStyle = "#f8fafc";
+          ctx.lineWidth = 1.4;
+          ctx.strokeRect(x - 5, y - 5, 10, 10);
+        }
+        orderMarkers.push({
+          kind: "order",
+          rowKey: rowKey,
+          px: x,
+          py: y,
+          hitRadius: 8,
+        });
+      }
+
+      for (const marker of (fillMarkerRows || [])) {
+        const row = marker && typeof marker === "object" && marker.raw ? marker.raw : marker;
+        const rowKey = marker && typeof marker === "object" ? String(marker.rowKey || "") : "";
+        const x = markerX(row || {});
+        const price = numberOrNull(pickFirst(row || {}, ["fill_price", "price"]));
+        if (x == null || price == null) continue;
+        const y = yToPx(Math.max(minY, Math.min(maxY, price)));
+        ctx.fillStyle = "#facc15";
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        if (rowKey && rowKey === state.simulation.selectedFillRowKey) {
+          ctx.strokeStyle = "#f8fafc";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        fillMarkers.push({
+          kind: "fill",
+          rowKey: rowKey,
+          px: x,
+          py: y,
+          hitRadius: 8,
+        });
+      }
+
+      const hover = state.simulation.priceChartHover;
+      if (hover) {
+        let nearest = points[0];
+        let nearestPx = xToPx(points[0].x);
+        let bestDistance = Math.abs(nearestPx - hover.x);
+        for (let i = 1; i < points.length; i += 1) {
+          const px = xToPx(points[i].x);
+          const distance = Math.abs(px - hover.x);
+          if (distance < bestDistance) {
+            nearest = points[i];
+            nearestPx = px;
+            bestDistance = distance;
+          }
+        }
+
+        const midValue = nearest.mid != null
+          ? nearest.mid
+          : (
+            nearest.bid != null && nearest.ask != null
+              ? (nearest.bid + nearest.ask) / 2
+              : (nearest.bid != null ? nearest.bid : nearest.ask)
+          );
+        const spreadValue = nearest.bid != null && nearest.ask != null
+          ? (nearest.ask - nearest.bid)
+          : null;
+        const midY = midValue != null
+          ? yToPx(Math.max(minY, Math.min(maxY, midValue)))
+          : hover.y;
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(107, 225, 255, 0.65)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(nearestPx, padT);
+        ctx.lineTo(nearestPx, padT + innerH);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(padL, midY);
+        ctx.lineTo(padL + innerW, midY);
+        ctx.stroke();
+        ctx.restore();
+
+        const tooltipLines = [
+          "time " + String(formatSimulationTs(nearest.ts_recv != null ? nearest.ts_recv : nearest.x)),
+          "mid " + (midValue == null ? "-" : midValue.toFixed(4)),
+          "spread " + (spreadValue == null ? "-" : spreadValue.toFixed(4)),
+        ];
+        ctx.font = "11px Consolas, monospace";
+        let tooltipWidth = 0;
+        for (const line of tooltipLines) {
+          tooltipWidth = Math.max(tooltipWidth, ctx.measureText(line).width);
+        }
+        const boxWidth = tooltipWidth + 16;
+        const boxHeight = tooltipLines.length * 16 + 10;
+        let boxX = Math.min(nearestPx + 10, cssWidth - boxWidth - 8);
+        let boxY = Math.min(midY + 10, cssHeight - boxHeight - 8);
+        if (boxX < 8) boxX = 8;
+        if (boxY < 8) boxY = 8;
+
+        ctx.fillStyle = "rgba(9, 18, 30, 0.92)";
+        ctx.strokeStyle = "rgba(107, 225, 255, 0.55)";
+        ctx.lineWidth = 1;
+        ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+        ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+        ctx.fillStyle = "#dcf7ff";
+        for (let i = 0; i < tooltipLines.length; i += 1) {
+          ctx.fillText(tooltipLines[i], boxX + 8, boxY + 18 + (i * 16));
+        }
+      }
+
+      ctx.fillStyle = "#9fc0e4";
+      ctx.font = "11px Consolas, monospace";
+      ctx.fillText("bid", padL + 6, padT + 12);
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(padL + 34, padT + 4, 12, 2);
+      ctx.fillStyle = "#9fc0e4";
+      ctx.fillText("ask", padL + 54, padT + 12);
+      ctx.fillStyle = "#ef4444";
+      ctx.fillRect(padL + 82, padT + 4, 12, 2);
+      ctx.fillStyle = "#9fc0e4";
+      ctx.fillText("mid", padL + 102, padT + 12);
+      ctx.fillStyle = "#67e8f9";
+      ctx.fillRect(padL + 128, padT + 4, 12, 2);
+      ctx.fillStyle = "#60a5fa";
+      ctx.fillRect(padL + 150, padT + 2, 6, 6);
+      ctx.fillStyle = "#9fc0e4";
+      ctx.fillText("order", padL + 160, padT + 12);
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.arc(padL + 208, padT + 7, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#9fc0e4";
+      ctx.fillText("fill", padL + 216, padT + 12);
+
+      state.simulation.priceChartMeta = {
+        bounds: {
+          left: padL,
+          right: padL + innerW,
+          top: padT,
+          bottom: padT + innerH,
+        },
+        orderMarkers: orderMarkers,
+        fillMarkers: fillMarkers,
+      };
+    }
+
+    function drawSimulationEquityChart(rows) {
+      const canvas = document.getElementById("sim-equity-chart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const cssWidth = Math.max(300, canvas.clientWidth || 300);
+      const cssHeight = Number(canvas.getAttribute("height") || "180");
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+      const points = [];
+      for (const row of (rows || [])) {
+        const x = numberOrNull(pickFirst(row, ["ts_recv", "seq"]));
+        const y = numberOrNull(pickFirst(row, ["equity", "final_equity"]));
+        if (x == null || y == null) continue;
+        points.push({ x: x, y: y });
+      }
+      if (points.length < 2) {
+        ctx.fillStyle = "#96acc7";
+        ctx.font = "12px Segoe UI, sans-serif";
+        ctx.fillText("No equity data for this filter.", 12, 24);
+        return;
+      }
+
+      let minX = points[0].x;
+      let maxX = points[0].x;
+      let minY = points[0].y;
+      let maxY = points[0].y;
+      for (const point of points) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      }
+      if (maxX <= minX) maxX = minX + 1;
+      const rangeY = Math.max(1e-9, maxY - minY);
+
+      const pad = 14;
+      const innerW = cssWidth - pad * 2;
+      const innerH = cssHeight - pad * 2;
+      const xToPx = (xVal) => pad + ((xVal - minX) / (maxX - minX)) * innerW;
+      const yToPx = (yVal) => pad + (1 - ((yVal - minY) / rangeY)) * innerH;
+
+      ctx.strokeStyle = "#2b4767";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad, pad, innerW, innerH);
+
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i += 1) {
+        const x = xToPx(points[i].x);
+        const y = yToPx(points[i].y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = "#34d399";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "#9fc0e4";
+      ctx.font = "11px Consolas, monospace";
+      ctx.fillText("min " + minY.toFixed(4), pad, cssHeight - 4);
+      ctx.fillText("max " + maxY.toFixed(4), cssWidth - 110, cssHeight - 4);
+    }
+
     function syncTapeSelectors() {
       const wsTape = document.getElementById("workspace-tape-select");
       const odTape = document.getElementById("od-tape-select");
@@ -696,12 +2443,23 @@
       odTape.innerHTML = options;
     }
 
+    function getWorkspaceById(workspaceId) {
+      return state.workspaces.find((w) => w.id === workspaceId) || null;
+    }
+
+    function setWorkspaceLayout(mode) {
+      state.workspaceLayout = mode === "grid" ? "grid" : "tabs";
+      saveWorkspacesToStorage();
+      renderWorkspacePanel();
+    }
+
     function openWorkspace(kind, value) {
       if (!value) return;
       const normalized = String(value).trim();
       const existing = state.workspaces.find((w) => w.kind === kind && w.value === normalized);
       if (existing) {
         state.activeWorkspaceId = existing.id;
+        saveWorkspacesToStorage();
         renderWorkspaceTabs();
         renderWorkspacePanel();
         activateTab("workspaces");
@@ -715,12 +2473,18 @@
         value: normalized,
         label: label,
         sessionIds: [],
+        attachedSessionId: "",
+        attachedOnDemandId: "",
+        attachedArtifactKey: "",
+        sessionLogOffset: 0,
+        sessionLogText: "",
         command: kind === "market" ? "shadow" : "run",
         args: "",
       };
       workspace.args = defaultArgsForWorkspace(workspace, workspace.command);
       state.workspaces.push(workspace);
       state.activeWorkspaceId = workspace.id;
+      saveWorkspacesToStorage();
       renderWorkspaceTabs();
       renderWorkspacePanel();
       activateTab("workspaces");
@@ -752,6 +2516,11 @@
       if (market) {
         const ws = openWorkspace("market", market);
         if (ws && !ws.sessionIds.includes(sessionId)) ws.sessionIds.unshift(sessionId);
+        if (ws) {
+          ws.attachedSessionId = sessionId;
+          const artifactKey = simulationArtifactKeyFromSession(row);
+          if (artifactKey) ws.attachedArtifactKey = artifactKey;
+        }
         renderWorkspacePanel();
         return;
       }
@@ -765,6 +2534,11 @@
         }
         const ws = openWorkspace("tape", tapePath);
         if (ws && !ws.sessionIds.includes(sessionId)) ws.sessionIds.unshift(sessionId);
+        if (ws) {
+          ws.attachedSessionId = sessionId;
+          const artifactKey = simulationArtifactKeyFromSession(row);
+          if (artifactKey) ws.attachedArtifactKey = artifactKey;
+        }
         renderWorkspacePanel();
         return;
       }
@@ -790,24 +2564,39 @@
 
     function renderWorkspaceTabs() {
       const tabs = document.getElementById("workspace-tabs");
+      const tabsBtn = document.getElementById("workspace-layout-tabs");
+      const gridBtn = document.getElementById("workspace-layout-grid");
+      if (tabsBtn) {
+        tabsBtn.classList.toggle("ghost", state.workspaceLayout !== "tabs");
+      }
+      if (gridBtn) {
+        gridBtn.classList.toggle("ghost", state.workspaceLayout === "tabs");
+      }
       if (state.workspaces.length === 0) {
         tabs.innerHTML = "<span class='empty'>No workspaces.</span>";
+        renderSimulationWorkspaceTabsVisual();
         return;
       }
       tabs.innerHTML = state.workspaces.map((ws) => {
         const active = ws.id === state.activeWorkspaceId ? "active" : "";
-        return "<button class='" + active + "' onclick=\"selectWorkspace('" + escAttr(ws.id) + "')\">" + escHtml(ws.label) + "</button>";
+        return "<button class='" + active + "' onclick=\"selectWorkspace('" + escAttr(ws.id) + "')\">"
+          + escHtml(ws.label)
+          + "<span style='margin-left:6px;opacity:0.55;font-size:13px;line-height:1;' title='Close workspace'"
+          + " onclick=\"event.stopPropagation();closeWorkspace('" + escAttr(ws.id) + "')\">×</span>"
+          + "</button>";
       }).join("");
+      renderSimulationWorkspaceTabsVisual();
     }
 
     function selectWorkspace(workspaceId) {
       state.activeWorkspaceId = workspaceId;
+      saveWorkspacesToStorage();
       renderWorkspaceTabs();
       renderWorkspacePanel();
     }
 
     function currentWorkspace() {
-      return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
+      return getWorkspaceById(state.activeWorkspaceId);
     }
 
     function workspaceMatchesSession(ws, row) {
@@ -826,49 +2615,422 @@
       return state.sessions.filter((row) => workspaceMatchesSession(ws, row));
     }
 
-    function workspaceCommandChanged() {
-      const ws = currentWorkspace();
+    function workspaceSessionCandidates(ws) {
+      const rows = [];
+      const seen = new Set();
+      const orderedSets = [
+        state.sessions.filter((row) => ws.sessionIds.includes(row.session_id)),
+        state.sessions.filter((row) => workspaceMatchesSession(ws, row)),
+        state.sessions,
+      ];
+      for (const group of orderedSets) {
+        for (const row of group) {
+          if (seen.has(row.session_id)) continue;
+          seen.add(row.session_id);
+          rows.push(row);
+        }
+      }
+      return rows;
+    }
+
+    function workspaceOnDemandMatches(ws, row) {
+      if (!row || !row.tape_path) return false;
+      if (ws.kind !== "tape") return false;
+      const left = String(ws.value).replace(/\\/g, "/").replace(/\/$/, "");
+      const right = String(row.tape_path).replace(/\\/g, "/").replace(/\/$/, "");
+      return left === right;
+    }
+
+    function workspaceOnDemandCandidates(ws) {
+      const matched = state.ondemandSessions.filter((row) => workspaceOnDemandMatches(ws, row));
+      if (matched.length) return matched.concat(state.ondemandSessions.filter((row) => !workspaceOnDemandMatches(ws, row)));
+      return state.ondemandSessions.slice();
+    }
+
+    function workspaceArtifactCandidates() {
+      return simulationArtifacts();
+    }
+
+    function trimWorkspaceLogText(text) {
+      const lines = String(text || "").split("\n");
+      if (lines.length <= 160) return String(text || "");
+      return lines.slice(-160).join("\n");
+    }
+
+    async function refreshWorkspaceSessionLogs(forceReset) {
+      let changed = false;
+      for (const ws of state.workspaces) {
+        if (!ws.attachedSessionId) continue;
+        try {
+          const offset = forceReset ? 0 : Number(ws.sessionLogOffset || 0);
+          const data = await apiJson(
+            "/api/sessions/" + encodeURIComponent(ws.attachedSessionId) + "/log?offset=" + offset
+          );
+          const lines = data.lines || [];
+          const chunk = lines.join("\n");
+          const nextText = forceReset
+            ? trimWorkspaceLogText(chunk)
+            : trimWorkspaceLogText(
+              ws.sessionLogText
+                ? (chunk ? (ws.sessionLogText + "\n" + chunk) : ws.sessionLogText)
+                : chunk
+            );
+          const nextOffset = Number(data.offset || offset);
+          if (nextText !== ws.sessionLogText || nextOffset !== Number(ws.sessionLogOffset || 0)) {
+            ws.sessionLogText = nextText;
+            ws.sessionLogOffset = nextOffset;
+            changed = true;
+          }
+        } catch (_) {
+          if (ws.sessionLogText || ws.sessionLogOffset) {
+            ws.sessionLogText = "";
+            ws.sessionLogOffset = 0;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        renderWorkspacePanel();
+      }
+    }
+
+    async function refreshWorkspaceMonitorMetrics() {
+      // Collect unique attached session IDs across all workspaces
+      const needed = new Set();
+      for (const ws of state.workspaces) {
+        if (ws.attachedSessionId) needed.add(ws.attachedSessionId);
+      }
+      const toFetch = [...needed].filter((id) => !state.wsMonitorFetching.has(id));
+      if (!toFetch.length) return;
+      await Promise.all(toFetch.map(async (sessionId) => {
+        state.wsMonitorFetching.add(sessionId);
+        try {
+          const data = await apiJson("/api/sessions/" + encodeURIComponent(sessionId) + "/monitor");
+          state.wsMonitorCache.set(sessionId, data);
+        } catch (_) {
+          // keep stale data; don't evict on transient failure
+        } finally {
+          state.wsMonitorFetching.delete(sessionId);
+        }
+      }));
+    }
+
+    function ensureWorkspaceArtifactLoaded(workspaceId) {
+      const ws = typeof workspaceId === "string" ? getWorkspaceById(workspaceId) : workspaceId;
+      if (!ws || !ws.attachedArtifactKey) return;
+      const key = ws.attachedArtifactKey;
+      if (state.workspaceArtifactCache.has(key) || state.workspaceArtifactLoading.has(key)) return;
+      const parsed = parseSimulationArtifactKey(key);
+      if (!parsed) return;
+      state.workspaceArtifactLoading.add(key);
+      const url = "/api/simulation/" + encodeURIComponent(parsed.artifactType)
+        + "/" + encodeURIComponent(parsed.artifactId)
+        + "/viewer?series_points=120&equity_limit=160&row_limit=120";
+      apiJson(url)
+        .then((payload) => {
+          state.workspaceArtifactCache.set(key, payload);
+        })
+        .catch((err) => {
+          state.workspaceArtifactCache.set(key, { error: err.message });
+        })
+        .finally(() => {
+          state.workspaceArtifactLoading.delete(key);
+          renderWorkspacePanel();
+        });
+    }
+
+    function syncWorkspaceSelections() {
+      const artifactKeys = new Set(workspaceArtifactCandidates().map((row) => simulationArtifactKey(row)));
+      for (const ws of state.workspaces) {
+        const sessionCandidates = workspaceSessionCandidates(ws);
+        if (ws.attachedSessionId && !sessionCandidates.some((row) => row.session_id === ws.attachedSessionId)) {
+          ws.attachedSessionId = "";
+          ws.sessionLogOffset = 0;
+          ws.sessionLogText = "";
+        }
+        if (!ws.attachedSessionId) {
+          const preferredSessions = state.sessions.filter((row) =>
+            ws.sessionIds.includes(row.session_id) || workspaceMatchesSession(ws, row)
+          );
+          if (preferredSessions.length) {
+            ws.attachedSessionId = preferredSessions[0].session_id;
+          }
+        }
+
+        const ondemandCandidates = workspaceOnDemandCandidates(ws);
+        if (ws.attachedOnDemandId && !ondemandCandidates.some((row) => row.session_id === ws.attachedOnDemandId)) {
+          ws.attachedOnDemandId = "";
+        }
+        if (!ws.attachedOnDemandId) {
+          const preferredOnDemand = state.ondemandSessions.filter((row) => workspaceOnDemandMatches(ws, row));
+          if (preferredOnDemand.length) {
+            ws.attachedOnDemandId = preferredOnDemand[0].session_id;
+          }
+        }
+
+        if (ws.attachedArtifactKey && !artifactKeys.has(ws.attachedArtifactKey)) {
+          ws.attachedArtifactKey = "";
+        }
+      }
+    }
+
+    function workspaceCommandChanged(workspaceId) {
+      const ws = getWorkspaceById(workspaceId) || currentWorkspace();
       if (!ws) return;
-      ws.command = document.getElementById("ws-command").value;
+      ws.command = document.getElementById("ws-command-" + ws.id).value;
       ws.args = defaultArgsForWorkspace(ws, ws.command);
+      saveWorkspacesToStorage();
       renderWorkspacePanel();
     }
 
-    function workspaceArgsChanged() {
-      const ws = currentWorkspace();
+    function workspaceArgsChanged(workspaceId) {
+      const ws = getWorkspaceById(workspaceId) || currentWorkspace();
       if (!ws) return;
-      ws.args = document.getElementById("ws-args").value;
+      ws.args = document.getElementById("ws-args-" + ws.id).value;
+      saveWorkspacesToStorage();
     }
 
-    function startWorkspaceSession() {
-      const ws = currentWorkspace();
+    function workspaceAttachSession(workspaceId) {
+      const ws = getWorkspaceById(workspaceId);
       if (!ws) return;
-      ws.command = document.getElementById("ws-command").value;
-      ws.args = document.getElementById("ws-args").value.trim();
+      ws.attachedSessionId = document.getElementById("ws-session-" + ws.id).value || "";
+      ws.sessionLogOffset = 0;
+      ws.sessionLogText = "";
+      saveWorkspacesToStorage();
+      renderWorkspacePanel();
+      refreshWorkspaceSessionLogs(true);
+    }
+
+    function workspaceAttachOnDemand(workspaceId) {
+      const ws = getWorkspaceById(workspaceId);
+      if (!ws) return;
+      ws.attachedOnDemandId = document.getElementById("ws-ondemand-" + ws.id).value || "";
+      saveWorkspacesToStorage();
+      renderWorkspacePanel();
+    }
+
+    function workspaceAttachArtifact(workspaceId) {
+      const ws = getWorkspaceById(workspaceId);
+      if (!ws) return;
+      ws.attachedArtifactKey = document.getElementById("ws-artifact-" + ws.id).value || "";
+      if (ws.attachedArtifactKey) {
+        ensureWorkspaceArtifactLoaded(ws);
+      }
+      saveWorkspacesToStorage();
+      renderWorkspacePanel();
+    }
+
+    function startWorkspaceSession(workspaceId) {
+      const ws = getWorkspaceById(workspaceId) || currentWorkspace();
+      if (!ws) return;
+      ws.command = document.getElementById("ws-command-" + ws.id).value;
+      ws.args = document.getElementById("ws-args-" + ws.id).value.trim();
       startSession(ws.command, ws.args, ws.id, true);
+    }
+
+    function renderWorkspaceSessionCard(ws) {
+      if (!ws.attachedSessionId) {
+        return "<div class='workspace-source-card'><h3>Running Session</h3><div class='empty'>No session attached.</div></div>";
+      }
+      const row = state.sessionById.get(ws.attachedSessionId);
+      if (!row) {
+        return "<div class='workspace-source-card'><h3>Running Session</h3><div class='empty'>Session no longer available.</div></div>";
+      }
+      const mon = state.wsMonitorCache.get(ws.attachedSessionId) || {};
+      const rm = mon.run_metrics || {};
+      const eventsReceived = rm.events_received != null ? String(rm.events_received) : "-";
+      const reconnects = rm.ws_reconnects != null ? String(rm.ws_reconnects) : "-";
+      const wsTimeouts = rm.ws_timeouts != null ? String(rm.ws_timeouts) : "-";
+      const netProfit = mon.net_profit != null ? String(mon.net_profit) : "-";
+      const decisionsCount = mon.decisions_count != null ? String(mon.decisions_count) : "-";
+      const ordersCount = mon.orders_count != null ? String(mon.orders_count) : "-";
+      const fillsCount = mon.fills_count != null ? String(mon.fills_count) : "-";
+      const lastLogLine = (ws.sessionLogText || "").split("\n").filter(Boolean).slice(-1)[0] || "";
+      const lastLogShort = lastLogLine.length > 60 ? lastLogLine.slice(0, 60) + "\u2026" : lastLogLine;
+      const isActive = ["running", "starting", "terminating"].includes(String(row.status));
+      const reportUrl = row.report_url || mon.report_url || "";
+      const openReportBtn = reportUrl
+        ? "<button class='btn small' onclick=\"openReport('" + escAttr(reportUrl) + "')\">Open Report</button>"
+        : "<button class='btn small ghost' disabled>No Report</button>";
+      const killBtn = isActive
+        ? "<button class='btn small danger' onclick=\"killSession('" + escAttr(ws.attachedSessionId) + "')\">Kill</button>"
+        : "";
+      return "<div class='workspace-source-card'>"
+        + "<h3>Running Session</h3>"
+        + "<div class='kv'>"
+        + "<div class='k'>status</div><div class='v'><span class='status " + escHtml(row.status || "") + "'>" + escHtml(row.status || "unknown") + "</span></div>"
+        + "<div class='k'>kind</div><div class='v'>" + escHtml(row.subcommand || row.kind || "-") + "</div>"
+        + "<div class='k'>started</div><div class='v'>" + escHtml(fmtDate(row.started_at)) + "</div>"
+        + "<div class='k'>events</div><div class='v'>" + escHtml(eventsReceived) + "</div>"
+        + "<div class='k'>reconnects</div><div class='v'>" + escHtml(reconnects) + "</div>"
+        + "<div class='k'>stalls</div><div class='v'>" + escHtml(wsTimeouts) + "</div>"
+        + "<div class='k'>decisions</div><div class='v'>" + escHtml(decisionsCount) + "</div>"
+        + "<div class='k'>orders</div><div class='v'>" + escHtml(ordersCount) + "</div>"
+        + "<div class='k'>fills</div><div class='v'>" + escHtml(fillsCount) + "</div>"
+        + "<div class='k'>net PnL</div><div class='v'>" + escHtml(netProfit) + "</div>"
+        + "<div class='k'>last log</div><div class='v mono muted'>" + escHtml(lastLogShort || "\u2014") + "</div>"
+        + "</div>"
+        + "<div class='row' style='margin-top:8px;gap:6px;'>"
+        + openReportBtn + " " + killBtn
+        + "</div>"
+        + "</div>";
+    }
+
+    function renderWorkspaceOnDemandCard(ws) {
+      if (!ws.attachedOnDemandId) {
+        return "<div class='workspace-source-card'><h3>OnDemand</h3><div class='empty'>No OnDemand session attached.</div></div>";
+      }
+      const row = state.ondemandById.get(ws.attachedOnDemandId);
+      if (!row || !row.state) {
+        return "<div class='workspace-source-card'><h3>OnDemand</h3><div class='empty'>OnDemand session no longer available.</div></div>";
+      }
+      const st = row.state || {};
+      const snapshot = st.portfolio_snapshot || {};
+      const cursor = st.cursor != null ? String(st.cursor) : "0";
+      const total = st.total_events != null ? String(st.total_events) : "?";
+      const pct = (st.total_events && st.cursor != null)
+        ? " (" + Math.round(100 * st.cursor / st.total_events) + "%)"
+        : "";
+      const tsRecv = st.ts_recv != null ? String(st.ts_recv) : "-";
+      const openOrders = (st.open_orders || []).length;
+      const equity = snapshot.final_equity != null ? String(snapshot.final_equity) : "-";
+      const cash = snapshot.final_cash != null ? String(snapshot.final_cash) : (snapshot.cash != null ? String(snapshot.cash) : "-");
+      const netProfit = snapshot.net_profit != null ? String(snapshot.net_profit) : "-";
+      return "<div class='workspace-source-card'>"
+        + "<h3>OnDemand</h3>"
+        + "<div class='kv'>"
+        + "<div class='k'>cursor</div><div class='v'>" + escHtml(cursor + " / " + total + pct) + "</div>"
+        + "<div class='k'>timestamp</div><div class='v mono'>" + escHtml(tsRecv) + "</div>"
+        + "<div class='k'>open orders</div><div class='v'>" + escHtml(String(openOrders)) + "</div>"
+        + "<div class='k'>cash</div><div class='v'>" + escHtml(cash) + "</div>"
+        + "<div class='k'>equity</div><div class='v'>" + escHtml(equity) + "</div>"
+        + "<div class='k'>net PnL</div><div class='v'>" + escHtml(netProfit) + "</div>"
+        + "</div>"
+        + "</div>";
+    }
+
+    function openSimulationArtifact(key) {
+      state.simulation.selectedArtifactKey = key;
+      state.simulation.payload = null;
+      state.simulation.filtered = null;
+      activateTab("simulation");
+      loadSimulationSelected();
+    }
+
+    function renderWorkspaceArtifactCard(ws) {
+      if (!ws.attachedArtifactKey) {
+        return "<div class='workspace-source-card'><h3>Simulation Viewer</h3><div class='empty'>No artifact attached.</div></div>";
+      }
+      const payload = state.workspaceArtifactCache.get(ws.attachedArtifactKey);
+      if (state.workspaceArtifactLoading.has(ws.attachedArtifactKey) || !payload) {
+        ensureWorkspaceArtifactLoaded(ws);
+        return "<div class='workspace-source-card'><h3>Simulation Viewer</h3><div class='muted'>Loading artifact summary...</div></div>";
+      }
+      if (payload.error) {
+        return "<div class='workspace-source-card'><h3>Simulation Viewer</h3><div class='empty'>Load failed: " + escHtml(String(payload.error)) + "</div></div>";
+      }
+      const artifact = payload.artifact || {};
+      const summary = payload.summary || {};
+      const rejectionReasons = payload.rejection_reasons || [];
+      const dominantReason = rejectionReasons.length > 0
+        ? String(rejectionReasons[0].reason || "-")
+        : "-";
+      const dominantCount = rejectionReasons.length > 0
+        ? String(rejectionReasons[0].count || "")
+        : "";
+      const netProfit = summary.net_profit != null ? String(summary.net_profit) : "-";
+      const strategy = summary.strategy || (payload.run_manifest || {}).strategy || "-";
+      const openViewerBtn = "<button class='btn small' onclick=\"openSimulationArtifact('" + escAttr(ws.attachedArtifactKey) + "')\">Open Viewer</button>";
+      return "<div class='workspace-source-card'>"
+        + "<h3>Simulation Viewer</h3>"
+        + "<div class='kv'>"
+        + "<div class='k'>artifact</div><div class='v'>" + escHtml(String(artifact.display_name || ws.attachedArtifactKey)) + "</div>"
+        + "<div class='k'>strategy</div><div class='v'>" + escHtml(strategy) + "</div>"
+        + "<div class='k'>net PnL</div><div class='v'>" + escHtml(netProfit) + "</div>"
+        + "<div class='k'>top reject</div><div class='v'>" + escHtml(dominantReason) + (dominantCount ? " (" + escHtml(dominantCount) + ")" : "") + "</div>"
+        + "<div class='k'>orders</div><div class='v'>" + escHtml(String((payload.orders || []).length)) + "</div>"
+        + "<div class='k'>fills</div><div class='v'>" + escHtml(String((payload.fills || []).length)) + "</div>"
+        + "</div>"
+        + "<div style='margin-top:8px;'>" + openViewerBtn + "</div>"
+        + "</div>";
+    }
+
+    function renderWorkspaceCard(ws) {
+      const commandOptions = COMMANDS.map((cmd) =>
+        "<option value='" + cmd + "'" + (cmd === ws.command ? " selected" : "") + ">" + cmd + "</option>"
+      ).join("");
+      const sessionOptions = ["<option value=''>-- no session --</option>"]
+        .concat(workspaceSessionCandidates(ws).map((row) =>
+          "<option value='" + escHtml(row.session_id) + "'" + (row.session_id === ws.attachedSessionId ? " selected" : "") + ">"
+          + escHtml(sessionDisplayName(row))
+          + "</option>"
+        ))
+        .join("");
+      const ondemandOptions = ["<option value=''>-- no ondemand --</option>"]
+        .concat(workspaceOnDemandCandidates(ws).map((row) => {
+          const st = row.state || {};
+          const label = String(row.session_id) + " | " + String(st.cursor || 0) + "/" + String(st.total_events || 0);
+          return "<option value='" + escHtml(row.session_id) + "'" + (row.session_id === ws.attachedOnDemandId ? " selected" : "") + ">"
+            + escHtml(label)
+            + "</option>";
+        }))
+        .join("");
+      const artifactOptions = ["<option value=''>-- no artifact --</option>"]
+        .concat(workspaceArtifactCandidates().map((row) => {
+          const key = simulationArtifactKey(row);
+          return "<option value='" + escHtml(key) + "'" + (key === ws.attachedArtifactKey ? " selected" : "") + ">"
+            + escHtml(artifactDisplayName(row))
+            + "</option>";
+        }))
+        .join("");
+
+      return "<div class='workspace-card" + (ws.id === state.activeWorkspaceId ? " active" : "") + "'>"
+        + "<div class='workspace-head'>"
+        + "<div>"
+        + "<div class='workspace-label'>" + escHtml(ws.label) + "</div>"
+        + "<div class='workspace-kind'>" + escHtml(ws.kind) + " workspace</div>"
+        + "</div>"
+        + "<div style='display:flex;gap:6px;'>"
+        + "<button class='btn small ghost' onclick=\"selectWorkspace('" + escAttr(ws.id) + "')\">Focus</button>"
+        + "<button class='btn small danger' onclick=\"closeWorkspace('" + escAttr(ws.id) + "')\">Close</button>"
+        + "</div>"
+        + "</div>"
+        + "<div class='row' style='margin-bottom:10px;'>"
+        + "<select id='ws-command-" + escAttr(ws.id) + "' onchange=\"workspaceCommandChanged('" + escAttr(ws.id) + "')\">" + commandOptions + "</select>"
+        + "<input type='text' id='ws-args-" + escAttr(ws.id) + "' style='flex:1;' value=\"" + escHtml(ws.args || "") + "\" oninput=\"workspaceArgsChanged('" + escAttr(ws.id) + "')\" />"
+        + "<button class='btn' onclick=\"startWorkspaceSession('" + escAttr(ws.id) + "')\">Start Session</button>"
+        + "</div>"
+        + "<div class='row'>"
+        + "<select id='ws-session-" + escAttr(ws.id) + "' style='flex:1;' onchange=\"workspaceAttachSession('" + escAttr(ws.id) + "')\">" + sessionOptions + "</select>"
+        + "<select id='ws-ondemand-" + escAttr(ws.id) + "' style='flex:1;' onchange=\"workspaceAttachOnDemand('" + escAttr(ws.id) + "')\">" + ondemandOptions + "</select>"
+        + "<select id='ws-artifact-" + escAttr(ws.id) + "' style='flex:1;' onchange=\"workspaceAttachArtifact('" + escAttr(ws.id) + "')\">" + artifactOptions + "</select>"
+        + "</div>"
+        + "<div class='workspace-source-grid'>"
+        + renderWorkspaceSessionCard(ws)
+        + renderWorkspaceOnDemandCard(ws)
+        + renderWorkspaceArtifactCard(ws)
+        + "</div>"
+        + "</div>";
     }
 
     function renderWorkspacePanel() {
       renderWorkspaceTabs();
+      syncWorkspaceSelections();
       const panel = document.getElementById("workspace-panel");
-      const ws = currentWorkspace();
-      if (!ws) {
+      const layout = state.workspaceLayout === "grid" ? "grid" : "tabs";
+      panel.className = "workspace-panels" + (layout === "grid" ? " grid" : "");
+      if (state.workspaces.length === 0) {
         panel.innerHTML = "<div class='empty'>Open a market or tape workspace.</div>";
         return;
       }
-      const sessions = workspaceSessions(ws);
-      const sessionRows = sessions.length === 0
-        ? "<div class='empty'>No sessions in this workspace yet.</div>"
-        : "<div class='table-wrap'>" + buildSessionsTable(sessions, true) + "</div>";
-      const commandOptions = COMMANDS.map((cmd) => "<option value='" + cmd + "'" + (cmd === ws.command ? " selected" : "") + ">" + cmd + "</option>").join("");
-
-      panel.innerHTML = "<div class='muted' style='margin-bottom:8px;'>" + escHtml(ws.label) + "</div>"
-        + "<div class='row' style='margin-bottom:10px;'>"
-        + "<select id='ws-command' onchange='workspaceCommandChanged()'>" + commandOptions + "</select>"
-        + "<input type='text' id='ws-args' style='flex:1;' value=\"" + escHtml(ws.args || "") + "\" oninput='workspaceArgsChanged()' />"
-        + "<button class='btn' onclick='startWorkspaceSession()'>Start Session</button>"
-        + "</div>"
-        + sessionRows;
+      const rows = layout === "grid"
+        ? state.workspaces
+        : (currentWorkspace() ? [currentWorkspace()] : []);
+      if (!rows.length) {
+        panel.innerHTML = "<div class='empty'>Open a market or tape workspace.</div>";
+        return;
+      }
+      panel.innerHTML = rows.map((ws) => renderWorkspaceCard(ws)).join("");
     }
 
     function renderTapes() {
@@ -898,9 +3060,12 @@
         const openBtn = reportUrl
           ? "<button class='btn small' onclick=\"openReport('" + escAttr(reportUrl) + "')\">Open</button>"
           : "<span class='muted'>-</span>";
-        return "<tr><td>" + escHtml(a.artifact_type) + "</td><td class='mono'>" + escHtml(a.artifact_id) + "</td><td>" + escHtml(fmtDate(a.timestamp)) + "</td><td>" + openBtn + "</td></tr>";
+        return "<tr><td>" + escHtml(a.artifact_type) + "</td><td>"
+          + escHtml(artifactDisplayName(a))
+          + "<div class='mono muted'>" + escHtml(a.artifact_id) + "</div>"
+          + "</td><td>" + escHtml(fmtDate(a.timestamp)) + "</td><td>" + openBtn + "</td></tr>";
       }).join("");
-      wrap.innerHTML = "<table><thead><tr><th>Type</th><th>ID</th><th>Timestamp</th><th>Open</th></tr></thead><tbody>" + rows + "</tbody></table>";
+      wrap.innerHTML = "<table><thead><tr><th>Type</th><th>Display Name</th><th>Timestamp</th><th>Open</th></tr></thead><tbody>" + rows + "</tbody></table>";
     }
 
     function generateManualReport() {
@@ -912,7 +3077,40 @@
       startSession("report", '--path "' + path + '"', null, false);
     }
 
-    const od = { sessionId: null };
+    const od = { sessionId: null, lastState: null, playSteps: 50 };
+
+    function odCurrentPlaySteps() {
+      const input = document.getElementById("od-play-steps");
+      const raw = parseInt(input.value || "50", 10);
+      const next = Number.isFinite(raw) ? Math.max(1, Math.min(raw, 500)) : 50;
+      input.value = String(next);
+      od.playSteps = next;
+      return next;
+    }
+
+    function odSyncSeekInputFromSlider() {
+      document.getElementById("od-seek-ts").value = document.getElementById("od-time-slider").value;
+    }
+
+    function odRenderState(st) {
+      od.lastState = st || {};
+      const slider = document.getElementById("od-time-slider");
+      const seekInput = document.getElementById("od-seek-ts");
+      const startTs = Number((st || {}).tape_start_ts ?? 0);
+      const endTs = Number((st || {}).tape_end_ts ?? startTs);
+      const currentTs = Number((st || {}).ts_recv ?? startTs);
+      slider.min = String(startTs);
+      slider.max = String(endTs);
+      slider.step = String(endTs > startTs ? Math.max((endTs - startTs) / 1000, 0.001) : 0.001);
+      slider.value = String(currentTs);
+      seekInput.value = String(currentTs);
+      const speed = odCurrentPlaySteps();
+      document.getElementById("od-status").textContent =
+        "time " + String((st || {}).ts_recv ?? "-")
+        + " | seq " + String((st || {}).seq ?? "-")
+        + " | cursor " + String((st || {}).cursor || 0) + " / " + String((st || {}).total_events || 0)
+        + " | speed " + String(speed) + " ev/click";
+    }
 
     async function odNewSession() {
       const tapePath = document.getElementById("od-tape-select").value;
@@ -921,16 +3119,26 @@
         return;
       }
       const startingCash = document.getElementById("od-starting-cash").value || "1000";
+      const checkpointEveryEvents = document.getElementById("od-checkpoint-every-events").value || "250";
+      const checkpointEverySeconds = document.getElementById("od-checkpoint-every-seconds").value || "30";
+      const maxCheckpoints = document.getElementById("od-max-checkpoints").value || "0";
       try {
         const data = await apiJson("/api/ondemand/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tape_path: tapePath, starting_cash: startingCash }),
+          body: JSON.stringify({
+            tape_path: tapePath,
+            starting_cash: startingCash,
+            checkpoint_every_events: checkpointEveryEvents,
+            checkpoint_every_seconds: checkpointEverySeconds,
+            max_checkpoints: maxCheckpoints,
+          }),
         });
         od.sessionId = data.session_id;
         document.getElementById("od-session-info").textContent = "Session: " + data.session_id;
         document.getElementById("od-controls-card").style.display = "";
-        document.getElementById("od-status").textContent = "cursor 0 / " + String((data.state || {}).total_events || 0);
+        odRenderState(data.state || {});
+        refreshOnDemandSessions();
         setStatus("OnDemand session created.", "ok");
       } catch (err) {
         setStatus("OnDemand create failed: " + err.message, "err");
@@ -945,10 +3153,35 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ n_steps: n }),
         });
-        const st = data.state || {};
-        document.getElementById("od-status").textContent = "seq " + String(st.seq ?? "-") + " | cursor " + String(st.cursor || 0) + " / " + String(st.total_events || 0);
+        odRenderState(data.state || {});
+        refreshOnDemandSessions();
       } catch (err) {
         setStatus("OnDemand step failed: " + err.message, "err");
+      }
+    }
+
+    async function odPlay() {
+      await odStep(odCurrentPlaySteps());
+    }
+
+    async function odJump() {
+      if (!od.sessionId) return;
+      const raw = document.getElementById("od-seek-ts").value;
+      if (!raw) {
+        setStatus("Choose a timestamp first.", "err");
+        return;
+      }
+      try {
+        const data = await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId) + "/seek", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timestamp: raw }),
+        });
+        odRenderState(data.state || {});
+        refreshOnDemandSessions();
+        setStatus("OnDemand session jumped to " + raw, "ok");
+      } catch (err) {
+        setStatus("OnDemand seek failed: " + err.message, "err");
       }
     }
 
@@ -972,34 +3205,235 @@
         await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId), { method: "DELETE" });
       } catch (_) {}
       od.sessionId = null;
+      od.lastState = null;
       document.getElementById("od-session-info").textContent = "";
       document.getElementById("od-controls-card").style.display = "none";
+      document.getElementById("od-time-slider").value = "0";
+      document.getElementById("od-seek-ts").value = "";
       document.getElementById("od-status").textContent = "No session.";
+      refreshOnDemandSessions();
       setStatus("OnDemand session closed.", "ok");
     }
+
+    // ── Workspace persistence ─────────────────────────────────────────────────
+    const STORAGE_KEY = "simtrader_studio_state";
+    const SCHEMA_VERSION = 1;
+    let _savePending = null;
+
+    function _serializeWorkspaces() {
+      return {
+        schema_version: SCHEMA_VERSION,
+        workspaceLayout: state.workspaceLayout,
+        activeWorkspaceId: state.activeWorkspaceId,
+        workspaces: state.workspaces.map((ws) => ({
+          id: ws.id,
+          kind: ws.kind,
+          value: ws.value,
+          label: ws.label,
+          sessionIds: Array.isArray(ws.sessionIds) ? ws.sessionIds.slice() : [],
+          attachedSessionId: ws.attachedSessionId || "",
+          attachedOnDemandId: ws.attachedOnDemandId || "",
+          attachedArtifactKey: ws.attachedArtifactKey || "",
+          command: ws.command || "",
+          args: ws.args || "",
+        })),
+      };
+    }
+
+    function _deserializeWorkspace(ws) {
+      return {
+        id: String(ws.id || ""),
+        kind: String(ws.kind || "market"),
+        value: String(ws.value || ""),
+        label: String(ws.label || ""),
+        sessionIds: Array.isArray(ws.sessionIds) ? ws.sessionIds.map(String) : [],
+        attachedSessionId: String(ws.attachedSessionId || ""),
+        attachedOnDemandId: String(ws.attachedOnDemandId || ""),
+        attachedArtifactKey: String(ws.attachedArtifactKey || ""),
+        sessionLogOffset: 0,
+        sessionLogText: "",
+        command: String(ws.command || "run"),
+        args: String(ws.args || ""),
+      };
+    }
+
+    function saveWorkspacesToStorage() {
+      if (_savePending) clearTimeout(_savePending);
+      _savePending = setTimeout(() => {
+        _savePending = null;
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(_serializeWorkspaces()));
+        } catch (_) {}
+      }, 100);
+    }
+
+    function loadWorkspacesFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (!data || data.schema_version !== SCHEMA_VERSION) return;
+        if (Array.isArray(data.workspaces)) {
+          state.workspaces = data.workspaces.map(_deserializeWorkspace);
+        }
+        if (typeof data.workspaceLayout === "string") {
+          state.workspaceLayout = data.workspaceLayout === "grid" ? "grid" : "tabs";
+        }
+        const preferred = (typeof data.activeWorkspaceId === "string") ? data.activeWorkspaceId : null;
+        if (preferred && state.workspaces.some((w) => w.id === preferred)) {
+          state.activeWorkspaceId = preferred;
+        } else if (state.workspaces.length) {
+          state.activeWorkspaceId = state.workspaces[0].id;
+        }
+      } catch (_) {}
+    }
+
+    function exportWorkspaceLayout() {
+      try {
+        const payload = Object.assign({ exported_at: new Date().toISOString() }, _serializeWorkspaces());
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "studio-workspaces.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setStatus("Workspace layout exported.", "ok");
+      } catch (err) {
+        setStatus("Export failed: " + err.message, "err");
+      }
+    }
+
+    function importWorkspaceLayout() {
+      document.getElementById("workspace-import-file").click();
+    }
+
+    function onWorkspaceImportFile(evt) {
+      const file = evt.target.files && evt.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data || data.schema_version !== SCHEMA_VERSION) {
+            setStatus("Import failed: incompatible schema version (expected " + SCHEMA_VERSION + ").", "err");
+            return;
+          }
+          if (!Array.isArray(data.workspaces)) {
+            setStatus("Import failed: invalid format.", "err");
+            return;
+          }
+          state.workspaces = data.workspaces.map(_deserializeWorkspace);
+          if (typeof data.workspaceLayout === "string") {
+            state.workspaceLayout = data.workspaceLayout === "grid" ? "grid" : "tabs";
+          }
+          const preferred = (typeof data.activeWorkspaceId === "string") ? data.activeWorkspaceId : null;
+          if (preferred && state.workspaces.some((w) => w.id === preferred)) {
+            state.activeWorkspaceId = preferred;
+          } else {
+            state.activeWorkspaceId = state.workspaces.length ? state.workspaces[0].id : null;
+          }
+          saveWorkspacesToStorage();
+          renderWorkspacePanel();
+          setStatus("Imported " + state.workspaces.length + " workspace(s).", "ok");
+        } catch (err) {
+          setStatus("Import failed: " + err.message, "err");
+        }
+        evt.target.value = "";
+      };
+      reader.readAsText(file);
+    }
+
+    function clearWorkspaceStorage() {
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      state.workspaces = [];
+      state.activeWorkspaceId = null;
+      renderWorkspacePanel();
+      setStatus("Workspace storage cleared.", "ok");
+    }
+
+    function closeWorkspace(workspaceId) {
+      const idx = state.workspaces.findIndex((w) => w.id === workspaceId);
+      if (idx < 0) return;
+      state.workspaces.splice(idx, 1);
+      if (state.activeWorkspaceId === workspaceId) {
+        state.activeWorkspaceId = state.workspaces.length
+          ? state.workspaces[Math.min(idx, state.workspaces.length - 1)].id
+          : null;
+      }
+      saveWorkspacesToStorage();
+      renderWorkspacePanel();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     function initCommandSelectors() {
       const optionHtml = COMMANDS.map((cmd) => "<option value='" + cmd + "'>" + cmd + "</option>").join("");
       document.getElementById("session-command").innerHTML = optionHtml;
     }
 
+    function initSimulationControls() {
+      const artifactSelect = document.getElementById("sim-artifact-select");
+      const priceChart = document.getElementById("sim-price-chart");
+      artifactSelect.addEventListener("change", () => {
+        state.simulation.selectedArtifactKey = artifactSelect.value;
+      });
+      document.getElementById("sim-time-from").addEventListener("change", () => applySimulationFilters());
+      document.getElementById("sim-time-to").addEventListener("change", () => applySimulationFilters());
+      document.getElementById("sim-asset-filter").addEventListener("change", () => applySimulationFilters());
+      document.getElementById("sim-reason-filter").addEventListener("change", () => applySimulationFilters());
+      document.getElementById("sim-reason-contains").addEventListener("input", () => applySimulationFilters());
+      document.getElementById("sim-reason-only-rejects").addEventListener("change", () => applySimulationFilters());
+      document.getElementById("sim-reason-only-trades").addEventListener("change", () => applySimulationFilters());
+      if (priceChart) {
+        priceChart.addEventListener("mousemove", onSimulationPriceChartMove);
+        priceChart.addEventListener("mouseleave", onSimulationPriceChartLeave);
+        priceChart.addEventListener("click", onSimulationPriceChartClick);
+      }
+      setSimulationTicketSide("yes");
+    }
+
     async function boot() {
       initCommandSelectors();
+      initSimulationControls();
+      loadWorkspacesFromStorage();
+      const schemaEl = document.getElementById("settings-schema-version");
+      if (schemaEl) schemaEl.textContent = String(SCHEMA_VERSION);
       await refreshAll();
+      activateTab("simulation");
+      renderSimulationArtifactOptions();
+      renderSimulationSidebar();
       renderWorkspaceTabs();
       document.getElementById("session-log-box").textContent = "";
       clearViewer("No session selected.");
+      if (state.simulation.selectedArtifactKey) {
+        await loadSimulationSelected();
+      } else {
+        clearSimulationViewer("No simulation artifact selected.");
+      }
       setInterval(async () => {
         try {
-          await Promise.all([refreshSessions(), refreshArtifacts()]);
+          await Promise.all([refreshSessions(), refreshArtifacts(), refreshOnDemandSessions()]);
+          await Promise.all([refreshWorkspaceSessionLogs(), refreshWorkspaceMonitorMetrics()]);
         } catch (_) {}
       }, 3000);
+      setInterval(async () => {
+        try {
+          await refreshWorkspaceMonitorMetrics();
+          renderWorkspacePanel();
+        } catch (_) {}
+      }, 1000);
     }
 
     window.addEventListener("beforeunload", () => closeSessionStream());
     window.addEventListener("resize", () => {
       if (state.viewerPayload) {
         drawViewerChart(state.viewerPayload.equity_curve || []);
+      }
+      if (state.simulation.filtered) {
+        rerenderSimulationPriceChart();
+        drawSimulationEquityChart(state.simulation.filtered.equityRows || []);
       }
     });
     boot();
