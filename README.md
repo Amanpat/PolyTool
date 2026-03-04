@@ -29,29 +29,77 @@ python -m polytool simtrader browse --open
 
 ---
 
-## Studio UI
+## SimTrader Studio (UI) — User Guide
 
-Studio is a local browser dashboard for SimTrader artifacts (sessions, tapes, reports).
+SimTrader Studio is a browser dashboard for SimTrader: sessions, tapes, reports, and interactive OnDemand replays in a single-page workspace grid.
 
-**Windows PowerShell:**
+### Launch
 
-```powershell
-.\scripts\studio_docker.ps1
-```
-
-**Mac / Linux:**
+Local dev:
 
 ```bash
-bash scripts/studio_docker.sh
+pip install polytool[studio]
+python -m polytool simtrader studio --open
+# Opens http://localhost:8765
 ```
 
-**Without Docker (local dev):**
+Docker (binds all interfaces):
 
 ```bash
-python -m polytool simtrader studio --port 8765
+docker compose up --build polytool
+# Opens http://localhost:8765
 ```
 
-Then open `http://localhost:8765`.
+Inside a Docker container omit `--open` (no local browser to open).
+
+### Tabs at a glance
+
+| Tab | What it does |
+|-----|--------------|
+| Dashboard | Command launcher + recent session summary |
+| Sessions | List of all running and completed sessions with status |
+| Cockpit | Workspace grid: attach sessions, OnDemand replays, or static artifacts to panels |
+| Workspaces | Manage saved workspace layouts and panel arrangement |
+| Tapes | Browse recorded WS tapes |
+| Reports | Browse and open HTML run/sweep/batch reports |
+| OnDemand | Create and control interactive tape replay sessions |
+| Settings | Export/import workspace layout JSON; clear saved workspaces |
+
+### Start here: three workflows
+
+**Workflow A — Live practice (Shadow to Viewer to Rewind):**
+
+1. Go to Dashboard, click **Shadow** (fill in market slug + duration) to start a live simulation session.
+2. Switch to the Sessions tab — the new session appears. Click it to open the Simulation Viewer (equity curve, orders, fills, Reasons tab).
+3. When the shadow run ends, go to the OnDemand tab, select the tape that was recorded, and replay it interactively to scrub/seek with different strategy configs.
+
+**Workflow B — OnDemand prop trading (replay and iterate):**
+
+1. Go to the OnDemand tab; select a tape from the list.
+2. Click **Start** to create a replay session. Use seek/scrub controls to advance through events.
+3. Adjust strategy config (inline JSON or preset) and restart from any position.
+4. Artifacts (`run_manifest.json`, `summary.json`, `ledger.jsonl`) are written to `artifacts/simtrader/` on finish.
+
+**Workflow C — Visual bot playback (interpret a simulation run):**
+
+1. Go to Cockpit, open a workspace, and attach it to an existing Session or Artifact.
+2. The workspace shows the equity curve chart, orders table, fills table, and the Reasons tab.
+3. The Reasons tab lists rejection counters — `no_bbo`, `edge_below_threshold`, `fee_kills_edge`, etc. — explaining why a no-trade run produced no fills.
+
+### Troubleshooting
+
+- **"0 trades" is normal** — check the Reasons tab for the dominant rejection counter (e.g. `edge_below_threshold` means the strategy threshold is stricter than the market spread).
+- **No tapes available** — run a shadow session first: Dashboard → Shadow; tapes are written to `artifacts/simtrader/tapes/` by default.
+- **WS stall** — the shadow run exits early. Pick a more active market or increase `--max-ws-stalls-seconds` in the shadow config form.
+- **Studio won't start** — ensure `pip install polytool[studio]` was run. Port conflicts: pass `--port 9000` or another free port.
+
+### Further reading
+
+| Resource | Purpose |
+|----------|---------|
+| [docs/README_SIMTRADER.md](docs/README_SIMTRADER.md) | Full CLI operator guide: quickrun, shadow, sweeps, batch, artifact layout |
+| [docs/features/FEATURE-simtrader-studio.md](docs/features/FEATURE-simtrader-studio.md) | Studio architecture, API endpoints, workspace types, monitor cards |
+| [docs/TODO_SIMTRADER_STUDIO.md](docs/TODO_SIMTRADER_STUDIO.md) | Planned features: Live button, Rewind button, auto-attach, playback speed |
 
 ---
 
