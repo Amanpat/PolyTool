@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-03 - Completed quick-016: studio workspace grid real-time monitor — /api/sessions/{id}/monitor endpoint, wsMonitorCache, enhanced session/artifact/ondemand cards
+Last activity: 2026-03-04 - Completed quick-017: update README.md with SimTrader Studio user guide — full launch/tab/workflow/troubleshooting section replacing the Studio UI stub
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -60,3 +60,4 @@ None currently.
 | 014 | --host flag for simtrader studio Docker binding: help text update, 2 parser tests, README Docker note | 2026-02-26 | 92e4f8e | [14-add-host-flag-to-simtrader-studio-for-do](./quick/14-add-host-flag-to-simtrader-studio-for-do/) |
 | 015 | Fix batch time_budget StopIteration: check budget before fetch, wrap next() in try/except StopIteration | 2026-02-26 | d3f2b33 | [15-fix-batch-time-budget-stopiteration-in-d](./quick/15-fix-batch-time-budget-stopiteration-in-d/) |
 | 016 | Studio workspace grid real-time monitor: /api/sessions/{id}/monitor, 1s refresh, enhanced session/artifact/ondemand cards | 2026-03-03 | c3f5e73 | [16-studio-workspace-grid-real-time-monitor-](./quick/16-studio-workspace-grid-real-time-monitor-/) |
+| 017 | Update README.md with SimTrader Studio user guide: launch, 8-tab reference, workflows A/B/C, troubleshooting, doc links | 2026-03-04 | 76b398e | [17-update-readme-md-with-simtrader-studio-u](./quick/17-update-readme-md-with-simtrader-studio-u/) |
