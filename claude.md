@@ -41,7 +41,7 @@ docker compose down
 
 ## Database Access
 
-- **Admin**: `polyttool_admin` / `polyttool_admin` (full access)
+- **Admin**: `polytool_admin` / `polytool_admin` (full access)
 - **Grafana**: `grafana_ro` / `grafana_readonly_local` (SELECT only)
 
 ## When Adding Features

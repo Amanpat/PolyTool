@@ -8,11 +8,14 @@ import json
 import re
 import shutil
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
+from ..artifact_ids import build_deterministic_sweep_id
 from ..config_loader import ConfigLoadError, load_json_from_string
+from ..display_name import build_display_name
 from ..strategy.facade import (
     StrategyRunConfigError,
     StrategyRunParams,
@@ -56,6 +59,8 @@ class SweepRunParams:
     strict: bool = False
     sweep_id: Optional[str] = None
     artifacts_root: Path = Path("artifacts/simtrader")
+    strategy_preset: Optional[str] = None
+    market_slug: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +156,8 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
                 latency_submit_ticks=scenario_submit_ticks,
                 latency_cancel_ticks=scenario_cancel_ticks,
                 strict=params.strict,
+                strategy_preset=params.strategy_preset,
+                market_slug=params.market_slug,
             )
         )
 
@@ -183,8 +190,11 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
 
     manifest: dict[str, Any] = {
         "sweep_id": sweep_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "tape_path": params.events_path.as_posix(),
         "strategy": params.strategy_name,
+        "strategy_preset": params.strategy_preset,
+        "market_slug": params.market_slug,
         "base_config": {
             "asset_id": params.asset_id,
             "starting_cash": str(params.starting_cash),
@@ -208,6 +218,14 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
             for scenario in scenarios
         ],
     }
+    manifest["display_name"] = build_display_name(
+        kind="sweep",
+        timestamp=manifest.get("created_at"),
+        fallback_id=sweep_id,
+        market_slug=params.market_slug,
+        strategy=params.strategy_name,
+        strategy_preset=params.strategy_preset,
+    )
 
     _write_json(sweep_dir / "sweep_manifest.json", manifest)
     _write_json(sweep_dir / "sweep_summary.json", summary)
@@ -466,7 +484,12 @@ def _derive_sweep_id(params: SweepRunParams, scenarios: list[_ScenarioDef]) -> s
         default=str,
     )
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
-    return f"sweep-{digest}"
+    return build_deterministic_sweep_id(
+        digest=digest,
+        market_slug=params.market_slug,
+        strategy=params.strategy_name,
+        preset=params.strategy_preset,
+    )
 
 
 def _sha256_file(path: Path) -> str:

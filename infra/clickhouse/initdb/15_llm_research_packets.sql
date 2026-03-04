@@ -1,6 +1,6 @@
 -- LLM Research Packet v1 export history
 
-CREATE TABLE IF NOT EXISTS polyttool.user_dossier_exports
+CREATE TABLE IF NOT EXISTS polytool.user_dossier_exports
 (
     export_id String,
     proxy_wallet String,
@@ -32,16 +32,16 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(generated_at)
 ORDER BY (proxy_wallet, generated_at);
 
-ALTER TABLE polyttool.user_dossier_exports
+ALTER TABLE polytool.user_dossier_exports
     ADD COLUMN IF NOT EXISTS username String;
 
-ALTER TABLE polyttool.user_dossier_exports
+ALTER TABLE polytool.user_dossier_exports
     ADD COLUMN IF NOT EXISTS username_slug String;
 
-ALTER TABLE polyttool.user_dossier_exports
+ALTER TABLE polytool.user_dossier_exports
     ADD COLUMN IF NOT EXISTS artifact_path String;
 
-CREATE OR REPLACE VIEW polyttool.user_dossier_exports_latest AS
+CREATE OR REPLACE VIEW polytool.user_dossier_exports_latest AS
 SELECT
     proxy_wallet,
     export_id,
@@ -96,9 +96,9 @@ FROM
         argMax(memo_md, generated_at) AS memo_md,
         argMax(anchor_trade_uids, generated_at) AS anchor_trade_uids,
         argMax(notes, generated_at) AS notes
-    FROM polyttool.user_dossier_exports
+    FROM polytool.user_dossier_exports
     GROUP BY proxy_wallet
 );
 
-GRANT SELECT ON polyttool.user_dossier_exports TO grafana_ro;
-GRANT SELECT ON polyttool.user_dossier_exports_latest TO grafana_ro;
+GRANT SELECT ON polytool.user_dossier_exports TO grafana_ro;
+GRANT SELECT ON polytool.user_dossier_exports_latest TO grafana_ro;

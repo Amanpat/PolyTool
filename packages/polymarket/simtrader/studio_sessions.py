@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from .display_name import derive_session_display_name
+
 SESSION_KINDS = {"shadow", "run", "sweep", "batch", "ondemand"}
 TERMINAL_STATUSES = {"succeeded", "failed", "terminated", "stopped"}
 RUNNING_STATUSES = {"starting", "running", "terminating"}
@@ -102,9 +104,21 @@ class StudioSessionRecord:
     ended_at: str | None = None
     return_code: int | None = None
 
+    def _display_name(self) -> str:
+        return derive_session_display_name(
+            {
+                "session_id": self.session_id,
+                "kind": self.kind,
+                "subcommand": self.subcommand,
+                "started_at": self.started_at,
+                "args": list(self.args),
+            }
+        )
+
     def to_manifest(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
+            "display_name": self._display_name(),
             "kind": self.kind,
             "subcommand": self.subcommand,
             "status": self.status,
@@ -125,6 +139,7 @@ class StudioSessionRecord:
     def to_snapshot(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
+            "display_name": self._display_name(),
             "kind": self.kind,
             "subcommand": self.subcommand,
             "status": self.status,

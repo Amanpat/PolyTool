@@ -81,6 +81,40 @@ def _book_events(asset_id: str = "tok1") -> list:
     ]
 
 
+def _long_tape_events(count: int, asset_id: str = "tok1") -> list:
+    """Return a longer synthetic tape for checkpoint-cap coverage."""
+    if count < 1:
+        return []
+
+    events = [
+        {
+            "event_type": "book",
+            "seq": 1,
+            "ts_recv": 1000.0,
+            "asset_id": asset_id,
+            "bids": [{"price": "0.52", "size": "100"}],
+            "asks": [{"price": "0.53", "size": "100"}],
+        }
+    ]
+    for idx in range(1, count):
+        events.append(
+            {
+                "event_type": "last_trade_price",
+                "seq": idx + 1,
+                "ts_recv": 1000.0 + idx,
+                "asset_id": asset_id,
+                "price": round(0.52 + (idx * 0.001), 3),
+            }
+        )
+    return events
+
+
+def _state_without_session_id(state: dict) -> dict:
+    """Normalize state for equality checks across separate sessions."""
+    ignored = {"session_id", "activity", "activity_total"}
+    return {key: value for key, value in state.items() if key not in ignored}
+
+
 # ---------------------------------------------------------------------------
 # Test 1: L2Book.top_bids / top_asks
 # ---------------------------------------------------------------------------
@@ -135,6 +169,8 @@ def test_ondemand_engine_step(tmp_path):
     state = sess.step(1)
     assert state["cursor"] == 1
     assert state["done"] is False
+    assert state["asset_ids"] == ["tok1"]
+    assert state["activity"] == []
     # After the book snapshot, bbo should be populated for tok1
     assert "tok1" in state["bbo"]
     assert state["bbo"]["tok1"]["best_bid"] == pytest.approx(0.52)
@@ -188,8 +224,21 @@ def test_ondemand_engine_order_and_fill(tmp_path):
     # Order appears in open_orders immediately after submission
     assert any(o["order_id"] == order_id for o in state["open_orders"])
 
+    submit_actions = [
+        item
+        for item in state["activity"]
+        if item["kind"] == "user_action" and item["action"] == "submit_order"
+    ]
+    assert submit_actions
+    assert submit_actions[-1]["order_id"] == order_id
+
     # Step forward — broker processes the book event which can trigger fill
     state2 = sess.step(1)
+
+    fill_entries = [item for item in state2["activity"] if item["kind"] == "fill"]
+    assert fill_entries
+    assert fill_entries[-1]["fill_price"] == "0.51"
+    assert "because" in fill_entries[-1]
 
     # user_actions log should have the submit_order entry
     assert len(sess._user_actions) == 1
@@ -228,7 +277,66 @@ def test_ondemand_save_artifacts(tmp_path):
     assert "session_id" in manifest
     assert "tape_path" in manifest
     assert "summary" in manifest
+    assert "display_name" in manifest
     assert manifest["cursor"] == 4
+
+
+def test_ondemand_seek_matches_full_replay(tmp_path):
+    from packages.polymarket.simtrader.studio.ondemand import OnDemandSession
+
+    tape_dir = _write_tape(tmp_path, _book_events())
+
+    baseline_mid = OnDemandSession(str(tape_dir), Decimal("1000"))
+    baseline_mid.step(1)
+    baseline_mid.submit_order("tok1", "BUY", Decimal("0.60"), Decimal("10"))
+    expected_mid = _state_without_session_id(baseline_mid.step(1))
+
+    baseline_end = OnDemandSession(str(tape_dir), Decimal("1000"))
+    baseline_end.step(1)
+    baseline_end.submit_order("tok1", "BUY", Decimal("0.60"), Decimal("10"))
+    expected_end = _state_without_session_id(baseline_end.step(3))
+
+    sess = OnDemandSession(str(tape_dir), Decimal("1000"))
+    sess.step(1)
+    sess.submit_order("tok1", "BUY", Decimal("0.60"), Decimal("10"))
+    sess.step(3)
+
+    mid_state = _state_without_session_id(sess.seek_to(1001.0))
+    assert mid_state == expected_mid
+
+    end_state = _state_without_session_id(sess.seek_to(1003.0))
+    assert end_state == expected_end
+
+
+def test_ondemand_checkpoint_cap_preserves_seek(tmp_path):
+    from packages.polymarket.simtrader.studio.ondemand import OnDemandSession
+
+    tape_dir = _write_tape(tmp_path, _long_tape_events(10))
+
+    baseline = OnDemandSession(
+        str(tape_dir),
+        Decimal("1000"),
+        checkpoint_every_events=1,
+        checkpoint_every_seconds=0.0,
+        max_checkpoints=3,
+    )
+    expected_state = _state_without_session_id(baseline.step(5))
+
+    sess = OnDemandSession(
+        str(tape_dir),
+        Decimal("1000"),
+        checkpoint_every_events=1,
+        checkpoint_every_seconds=0.0,
+        max_checkpoints=3,
+    )
+    sess.step(10)
+
+    assert len(sess._checkpoints) == 3
+    assert sess._checkpoints[0].cursor == 0
+
+    sought_state = _state_without_session_id(sess.seek_to(1004.0))
+    assert len(sess._checkpoints) == 3
+    assert sought_state == expected_state
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +360,9 @@ def test_api_new_session(tmp_path):
             "starting_cash": "1000",
             "fee_rate_bps": None,
             "mark_method": "bid",
+            "checkpoint_every_events": 2,
+            "checkpoint_every_seconds": 1.5,
+            "max_checkpoints": 3,
         },
     )
     assert resp.status_code == 200
@@ -293,6 +404,38 @@ def test_api_step(tmp_path):
     assert state["seq"] is not None
     # After 2 steps (book + price_change), bbo should have tok1
     assert "tok1" in state["bbo"]
+
+
+def test_api_seek(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    tape_dir = _write_tape(tmp_path, _book_events())
+    app = create_app(tmp_path)
+    client = TestClient(app)
+
+    new_resp = client.post(
+        "/api/ondemand/new",
+        json={"tape_path": str(tape_dir), "starting_cash": "1000"},
+    )
+    assert new_resp.status_code == 200
+    session_id = new_resp.json()["session_id"]
+
+    client.post(
+        f"/api/ondemand/{session_id}/step",
+        json={"n_steps": 4},
+    )
+
+    seek_resp = client.post(
+        f"/api/ondemand/{session_id}/seek",
+        json={"timestamp": 1001.0},
+    )
+    assert seek_resp.status_code == 200
+    state = seek_resp.json()["state"]
+    assert state["cursor"] == 2
+    assert state["seq"] == 2
+    assert state["ts_recv"] == pytest.approx(1001.0)
 
 
 # ---------------------------------------------------------------------------
@@ -341,3 +484,5 @@ def test_api_order(tmp_path):
     # Either it's open or it was filled — just verify order_id is a valid string
     assert isinstance(data["order_id"], str)
     assert "state" in data
+
+

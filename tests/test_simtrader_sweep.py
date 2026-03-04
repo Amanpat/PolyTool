@@ -353,6 +353,8 @@ def test_sweep_summary_activity_and_rejection_aggregates_offline(
     )
 
     aggregate = result.summary["aggregate"]
+    assert "display_name" in result.manifest
+    assert "sweep" in result.manifest["display_name"]
 
     assert aggregate["total_decisions"] == 22
     assert aggregate["total_orders"] == 25

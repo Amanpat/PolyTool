@@ -181,8 +181,10 @@ def test_sessions_start_and_detail(tmp_path):
 
     artifacts_root = tmp_path / "artifacts" / "simtrader"
     run_dir = (artifacts_root / "shadow_runs" / "unit-shadow").resolve()
+    tape_dir = (artifacts_root / "tapes" / "unit-shadow-tape").resolve()
     script = (
         "import sys\n"
+        f"print('  Tape dir   : {tape_dir.as_posix()}')\n"
         f"print('[shadow] run dir  : {run_dir.as_posix()}')\n"
         "print('Orders: 2   Fills: 1')\n"
         "sys.stdout.flush()\n"
@@ -213,8 +215,11 @@ def test_sessions_start_and_detail(tmp_path):
         raise AssertionError("session did not reach terminal state")
 
     assert detail["status"] == "succeeded"
+    assert detail["artifact_dir"] == str(run_dir)
+    assert detail["tape_dir"] == str(tape_dir)
     listed = client.get("/api/sessions").json()["sessions"]
-    assert any(row["session_id"] == session_id for row in listed)
+    row = next(row for row in listed if row["session_id"] == session_id)
+    assert row["tape_dir"] == str(tape_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +344,64 @@ def test_session_viewer_endpoint(tmp_path):
     assert len(payload["orders"]) == 1
     assert len(payload["fills"]) == 1
     assert payload["rejection_reasons"][0]["reason"] == "edge_below_threshold"
+
+
+def test_session_viewer_endpoint_accepts_tape_only_session(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from packages.polymarket.simtrader.studio.app import create_app
+
+    artifacts_root = tmp_path / "artifacts" / "simtrader"
+    tape_dir = (artifacts_root / "tapes" / "shadow-viewer-tape").resolve()
+    tape_dir.mkdir(parents=True)
+    (tape_dir / "events.jsonl").write_text('{"type":"book","seq":1}\n', encoding="utf-8")
+
+    session_id = "shadow-viewer"
+    row = {
+        "session_id": session_id,
+        "kind": "shadow",
+        "subcommand": "shadow",
+        "status": "running",
+        "started_at": "2026-03-03T00:00:00+00:00",
+        "artifact_dir": None,
+        "tape_dir": str(tape_dir),
+        "args": ["--market", "slug"],
+        "pid": None,
+        "exit_reason": None,
+        "log_path": str((artifacts_root / "studio_sessions" / session_id / "logs.txt").resolve()),
+        "counters": {},
+        "ended_at": None,
+        "return_code": None,
+    }
+
+    class FakeSessionManager:
+        def list_sessions(self):
+            return [row]
+
+        def get_session(self, requested_session_id: str):
+            if requested_session_id == session_id:
+                return dict(row)
+            return None
+
+        def start_session(self, *args, **kwargs):
+            raise AssertionError("start_session should not be called")
+
+        def kill_session(self, *args, **kwargs):
+            raise KeyError("unused")
+
+        def read_log_chunk(self, *args, **kwargs):
+            return 0, []
+
+    app = create_app(artifacts_dir=artifacts_root, session_manager=FakeSessionManager())
+    client = TestClient(app)
+
+    viewer = client.get(f"/api/sessions/{session_id}/viewer")
+    assert viewer.status_code == 200
+    payload = viewer.json()
+    assert payload["session"]["session_id"] == session_id
+    assert payload["session"]["artifact_dir"] is None
+    assert payload["session"]["tape_dir"] == str(tape_dir)
+    assert payload["equity_curve"] == []
 
 
 # ---------------------------------------------------------------------------

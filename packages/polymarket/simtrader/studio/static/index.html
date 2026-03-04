@@ -214,10 +214,112 @@
     .ticket-side-toggle button.active { border-color: #6be1ff; background: #1a537c; }
     .ticket-row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 8px; }
     .ticket-help { color: #86a6c7; font-size: 11px; line-height: 1.3; }
+    .od-grid {
+      display: grid;
+      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+      align-items: start;
+    }
+    .od-panel {
+      border: 1px solid #274764;
+      border-radius: 10px;
+      background: rgba(12, 24, 38, 0.84);
+      padding: 10px;
+      min-width: 0;
+    }
+    .od-estimate-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .od-estimate-cell {
+      border: 1px solid #2d506f;
+      border-radius: 8px;
+      background: #0f1f34;
+      padding: 8px;
+    }
+    .od-estimate-cell .label {
+      color: #87a8cb;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .od-estimate-cell .value {
+      color: #def4ff;
+      font-size: 13px;
+      margin-top: 4px;
+      font-weight: 700;
+      font-family: Consolas, monospace;
+    }
+    .od-open-orders {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .od-open-order {
+      border: 1px solid #2d506f;
+      border-radius: 8px;
+      background: #102033;
+      padding: 8px;
+    }
+    .od-open-order-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+    }
+    .od-open-order-meta {
+      color: #9fbbd8;
+      font-size: 11px;
+      margin-top: 6px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .od-activity-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 440px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .od-activity-item {
+      border: 1px solid #2d506f;
+      border-radius: 8px;
+      background: #102033;
+      padding: 8px;
+    }
+    .od-activity-title {
+      color: #def4ff;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    .od-activity-meta {
+      color: #89a8c8;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+    .od-activity-body {
+      color: #b8d4ef;
+      font-size: 11px;
+      margin-top: 6px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ticket-side-toggle .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
     .reasons-filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
     .reasons-filter-row label { font-size: 11px; color: #9bb8d5; display: flex; align-items: center; gap: 5px; }
     #sim-reasons-table-wrap .btn { padding: 4px 8px; font-size: 11px; }
     .sidebar-heading { color: #94b4d4; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 7px 0; }
+    @media (max-width: 980px) {
+      .od-grid { grid-template-columns: 1fr; }
+    }
     .ws-visual-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
     .ws-visual-tabs span {
       border: 1px solid #32587b;
@@ -538,6 +640,40 @@
           <button class="btn" onclick="odJump()">Jump</button>
         </div>
         <div class="muted" id="od-status" style="margin-top:8px;">No session.</div>
+        <div class="od-grid">
+          <div class="od-panel">
+            <div class="sidebar-heading">Order Ticket</div>
+            <div class="ticket-row">
+              <div class="ticket-side-toggle">
+                <button class="btn active" id="od-ticket-leg-yes" onclick="odSetTicketLeg('yes')">YES</button>
+                <button class="btn ghost" id="od-ticket-leg-no" onclick="odSetTicketLeg('no')">NO</button>
+              </div>
+            </div>
+            <div class="ticket-row">
+              <div class="ticket-side-toggle">
+                <button class="btn active" id="od-ticket-side-buy" onclick="odSetTicketSide('BUY')">Buy</button>
+                <button class="btn ghost" id="od-ticket-side-sell" onclick="odSetTicketSide('SELL')">Sell</button>
+              </div>
+            </div>
+            <div class="row">
+              <input type="number" id="od-ticket-price" min="0.0001" max="1" step="0.0001" value="0.50" placeholder="limit price" style="flex:1;" oninput="odRenderTicket()" />
+              <input type="number" id="od-ticket-size" min="0.0001" step="0.01" value="10" placeholder="size" style="flex:1;" oninput="odRenderTicket()" />
+            </div>
+            <div class="muted" id="od-ticket-asset" style="margin-top:8px;"></div>
+            <div class="od-estimate-grid" id="od-ticket-estimates" style="margin-top:8px;"></div>
+            <div class="muted" id="od-ticket-note" style="margin-top:8px;"></div>
+            <div class="row" style="margin-top:8px;">
+              <button class="btn" onclick="odSubmitOrder()">Place Order</button>
+            </div>
+            <div class="sidebar-heading" style="margin-top:12px;">Open Orders</div>
+            <div id="od-open-orders" class="od-open-orders"></div>
+          </div>
+          <div class="od-panel">
+            <div class="sidebar-heading">Activity</div>
+            <div class="muted" id="od-activity-summary">No activity yet.</div>
+            <div id="od-activity-feed" class="od-activity-feed" style="margin-top:8px;"></div>
+          </div>
+        </div>
       </div>
     </section>
     <section class="tab-panel" id="tab-settings">
@@ -951,14 +1087,27 @@
 
         let actionCell = "";
         if (includeActions) {
-          actionCell = "<td>"
-            + "<button class='btn small' onclick=\"selectSession('" + escAttr(row.session_id) + "')\">Logs</button> "
-            + "<button class='btn small' onclick=\"openWorkspaceFromSession('" + escAttr(row.session_id) + "')\">Workspace</button> "
-            + reportCell + " ";
-          if (["running", "starting", "terminating"].includes(String(row.status))) {
-            actionCell += "<button class='btn small danger' onclick=\"killSession('" + escAttr(row.session_id) + "')\">Kill</button>";
+          const actionButtons = [
+            "<button class='btn small' onclick=\"selectSession('" + escAttr(row.session_id) + "')\">Logs</button>",
+            "<button class='btn small' onclick=\"openWorkspaceFromSession('" + escAttr(row.session_id) + "')\">Workspace</button>",
+          ];
+          if (canOpenSessionViewer(row)) {
+            actionButtons.push(
+              "<button class='btn small' onclick=\"openSessionViewer('" + escAttr(row.session_id) + "')\">Open Viewer</button>"
+            );
           }
-          actionCell += "</td>";
+          if (canOpenSessionTapeInOnDemand(row)) {
+            actionButtons.push(
+              "<button class='btn small' onclick=\"openSessionTapeInOnDemand('" + escAttr(row.session_id) + "')\">Open Tape in OnDemand</button>"
+            );
+          }
+          actionButtons.push(reportCell);
+          if (["running", "starting", "terminating"].includes(String(row.status))) {
+            actionButtons.push(
+              "<button class='btn small danger' onclick=\"killSession('" + escAttr(row.session_id) + "')\">Kill</button>"
+            );
+          }
+          actionCell = "<td>" + actionButtons.join(" ") + "</td>";
         }
 
         return "<tr>"
@@ -979,6 +1128,45 @@
         + "<th>Session</th><th>Command</th><th>Status</th><th>Started</th><th>Args</th><th>Artifact</th>"
         + (includeActions ? "<th>Actions</th>" : "")
         + "</tr></thead><tbody>" + body + "</tbody></table>";
+    }
+
+    function sessionPathValue(value) {
+      return typeof value === "string" && value.trim() ? value.trim() : "";
+    }
+
+    function sessionTapePath(row) {
+      const tapeDir = sessionPathValue((row || {}).tape_dir);
+      if (tapeDir) return tapeDir;
+      const artifactDir = sessionPathValue((row || {}).artifact_dir);
+      if (artifactDir && /[\\\/]tapes[\\\/]/i.test(artifactDir)) {
+        return artifactDir;
+      }
+      return "";
+    }
+
+    function canOpenSessionViewer(row) {
+      return String((row || {}).kind || "").toLowerCase() === "shadow"
+        && Boolean(sessionPathValue((row || {}).artifact_dir) || sessionTapePath(row));
+    }
+
+    function canOpenSessionTapeInOnDemand(row) {
+      return String((row || {}).kind || "").toLowerCase() === "shadow"
+        && Boolean(sessionTapePath(row));
+    }
+
+    async function openSessionViewer(sessionId) {
+      activateTab("sessions");
+      await selectSession(sessionId);
+    }
+
+    async function openSessionTapeInOnDemand(sessionId, workspaceId) {
+      const row = state.sessionById.get(sessionId);
+      const tapePath = sessionTapePath(row);
+      if (!tapePath) {
+        setStatus("Session has no recorded tape yet.", "err");
+        return;
+      }
+      await createOnDemandSessionFromTape(tapePath, workspaceId || null);
     }
 
     function renderDashboardRecent() {
@@ -1387,7 +1575,7 @@
           + "<span class='status " + escHtml(row.status || "") + "'>" + escHtml(row.status || "") + "</span>"
           + "</div>"
           + "<div class='muted mono'>" + escHtml(row.session_id) + "</div>"
-          + "<div class='muted'>" + escHtml(row.subcommand || row.kind || "") + " • " + escHtml(fmtDate(row.started_at)) + "</div>"
+          + "<div class='muted'>" + escHtml(row.subcommand || row.kind || "") + " â€¢ " + escHtml(fmtDate(row.started_at)) + "</div>"
           + "</button>";
       }).join("");
     }
@@ -2582,7 +2770,7 @@
         return "<button class='" + active + "' onclick=\"selectWorkspace('" + escAttr(ws.id) + "')\">"
           + escHtml(ws.label)
           + "<span style='margin-left:6px;opacity:0.55;font-size:13px;line-height:1;' title='Close workspace'"
-          + " onclick=\"event.stopPropagation();closeWorkspace('" + escAttr(ws.id) + "')\">×</span>"
+          + " onclick=\"event.stopPropagation();closeWorkspace('" + escAttr(ws.id) + "')\">Ã—</span>"
           + "</button>";
       }).join("");
       renderSimulationWorkspaceTabsVisual();
@@ -2849,12 +3037,27 @@
       const lastLogShort = lastLogLine.length > 60 ? lastLogLine.slice(0, 60) + "\u2026" : lastLogLine;
       const isActive = ["running", "starting", "terminating"].includes(String(row.status));
       const reportUrl = row.report_url || mon.report_url || "";
-      const openReportBtn = reportUrl
-        ? "<button class='btn small' onclick=\"openReport('" + escAttr(reportUrl) + "')\">Open Report</button>"
-        : "<button class='btn small ghost' disabled>No Report</button>";
-      const killBtn = isActive
-        ? "<button class='btn small danger' onclick=\"killSession('" + escAttr(ws.attachedSessionId) + "')\">Kill</button>"
-        : "";
+      const actionButtons = [];
+      if (canOpenSessionViewer(row)) {
+        actionButtons.push(
+          "<button class='btn small' onclick=\"openSessionViewer('" + escAttr(ws.attachedSessionId) + "')\">Open Viewer</button>"
+        );
+      }
+      if (canOpenSessionTapeInOnDemand(row)) {
+        actionButtons.push(
+          "<button class='btn small' onclick=\"openSessionTapeInOnDemand('" + escAttr(ws.attachedSessionId) + "','" + escAttr(ws.id) + "')\">Open Tape in OnDemand</button>"
+        );
+      }
+      actionButtons.push(
+        reportUrl
+          ? "<button class='btn small' onclick=\"openReport('" + escAttr(reportUrl) + "')\">Open Report</button>"
+          : "<button class='btn small ghost' disabled>No Report</button>"
+      );
+      if (isActive) {
+        actionButtons.push(
+          "<button class='btn small danger' onclick=\"killSession('" + escAttr(ws.attachedSessionId) + "')\">Kill</button>"
+        );
+      }
       return "<div class='workspace-source-card'>"
         + "<h3>Running Session</h3>"
         + "<div class='kv'>"
@@ -2871,7 +3074,7 @@
         + "<div class='k'>last log</div><div class='v mono muted'>" + escHtml(lastLogShort || "\u2014") + "</div>"
         + "</div>"
         + "<div class='row' style='margin-top:8px;gap:6px;'>"
-        + openReportBtn + " " + killBtn
+        + actionButtons.join(" ")
         + "</div>"
         + "</div>";
     }
@@ -3077,7 +3280,13 @@
       startSession("report", '--path "' + path + '"', null, false);
     }
 
-    const od = { sessionId: null, lastState: null, playSteps: 50 };
+    const od = { sessionId: null, lastState: null, playSteps: 50, ticketLeg: "yes", ticketSide: "BUY" };
+
+    function odFmt(value, digits) {
+      const n = numberOrNull(value);
+      const places = typeof digits === "number" ? digits : 4;
+      return n == null ? "-" : n.toFixed(places);
+    }
 
     function odCurrentPlaySteps() {
       const input = document.getElementById("od-play-steps");
@@ -3090,6 +3299,253 @@
 
     function odSyncSeekInputFromSlider() {
       document.getElementById("od-seek-ts").value = document.getElementById("od-time-slider").value;
+    }
+
+    function odAvailableLegs(st) {
+      const stateRow = st || {};
+      const assetIds = Array.isArray(stateRow.asset_ids) && stateRow.asset_ids.length
+        ? stateRow.asset_ids
+        : Object.keys(stateRow.bbo || {});
+      return {
+        yes: assetIds[0] || "",
+        no: assetIds[1] || "",
+      };
+    }
+
+    function odNormalizeTicketLeg(st) {
+      const legs = odAvailableLegs(st);
+      if (od.ticketLeg === "no" && !legs.no) od.ticketLeg = "yes";
+      if (od.ticketLeg !== "yes" && od.ticketLeg !== "no") od.ticketLeg = "yes";
+      if (!legs.yes && legs.no) od.ticketLeg = "no";
+    }
+
+    function odSelectedAssetId(st) {
+      const legs = odAvailableLegs(st);
+      if (od.ticketLeg === "no") return legs.no || "";
+      return legs.yes || legs.no || "";
+    }
+
+    function odAssetLabel(st, assetId) {
+      const legs = odAvailableLegs(st);
+      if (assetId && assetId === legs.yes) return "YES";
+      if (assetId && assetId === legs.no) return "NO";
+      return "LEG";
+    }
+
+    function odFormatTs(tsRaw) {
+      const ts = numberOrNull(tsRaw);
+      if (ts == null || ts <= 0) return "-";
+      try {
+        return new Date(ts * 1000).toLocaleTimeString();
+      } catch (_) {
+        return String(tsRaw);
+      }
+    }
+
+    function odCurrentFeeRateBps(st) {
+      const raw = (((st || {}).portfolio_snapshot || {}).fee_rate_bps);
+      const parsed = numberOrNull(raw);
+      return parsed == null ? 200 : parsed;
+    }
+
+    function odEstimateFee(size, price, feeRateBps) {
+      if (!(size > 0) || !(price > 0) || !(price < 1)) return 0;
+      const rate = feeRateBps / 10000;
+      const curve = Math.pow(price * (1 - price), 2);
+      return size * price * rate * curve;
+    }
+
+    function odCurrentPositionSize(st, assetId) {
+      const positions = (((st || {}).portfolio_snapshot || {}).open_positions) || {};
+      const row = assetId ? positions[assetId] : null;
+      const parsed = row ? numberOrNull(row.total_size) : null;
+      return parsed == null ? 0 : parsed;
+    }
+
+    function odSetTicketLeg(leg) {
+      od.ticketLeg = leg === "no" ? "no" : "yes";
+      odRenderTicket();
+    }
+
+    function odSetTicketSide(side) {
+      od.ticketSide = side === "SELL" ? "SELL" : "BUY";
+      odRenderTicket();
+    }
+
+    function odActivityTitle(st, item) {
+      const entry = item || {};
+      const leg = odAssetLabel(st, entry.asset_id);
+      if (entry.kind === "user_action" && entry.action === "submit_order") {
+        return (
+          "You submitted "
+          + String(entry.side || "").toUpperCase()
+          + " " + leg
+          + " @ " + odFmt(entry.limit_price, 4)
+          + " x " + odFmt(entry.size, 2)
+        ).trim();
+      }
+      if (entry.kind === "user_action" && entry.action === "cancel_order") {
+        return "You requested cancel " + String(entry.order_id || "");
+      }
+      if (entry.action === "fill") {
+        return (
+          "Filled "
+          + String(entry.side || "").toUpperCase()
+          + " " + leg
+          + " " + odFmt(entry.fill_size || entry.size, 2)
+          + " @ " + odFmt(entry.fill_price, 4)
+        ).trim();
+      }
+      return "Broker " + String(entry.action || "event").replace(/_/g, " ");
+    }
+
+    function odActivityBody(item) {
+      const entry = item || {};
+      const parts = [];
+      if (entry.order_id) parts.push("order " + String(entry.order_id));
+      if (entry.asset_id) parts.push("asset " + String(entry.asset_id));
+      if (entry.remaining != null && entry.remaining !== "") parts.push("remaining " + String(entry.remaining));
+      if (entry.fill_status) parts.push("status " + String(entry.fill_status));
+      if (entry.reason) parts.push("reason " + String(entry.reason));
+      if (entry.because && typeof entry.because === "object") {
+        const becauseParts = [];
+        if (entry.because.eval_seq != null) becauseParts.push("eval seq " + String(entry.because.eval_seq));
+        if (entry.because.book_best_bid != null) becauseParts.push("bid " + odFmt(entry.because.book_best_bid, 4));
+        if (entry.because.book_best_ask != null) becauseParts.push("ask " + odFmt(entry.because.book_best_ask, 4));
+        if (Array.isArray(entry.because.levels_consumed) && entry.because.levels_consumed.length) {
+          const levels = entry.because.levels_consumed.slice(0, 3).map((level) => (
+            odFmt(level.price, 4) + " x " + odFmt(level.size, 2)
+          ));
+          becauseParts.push("levels " + levels.join(", "));
+        }
+        if (becauseParts.length) parts.push("because " + becauseParts.join(" | "));
+      }
+      return parts.join(" | ");
+    }
+
+    function odRenderOpenOrders(st) {
+      const wrap = document.getElementById("od-open-orders");
+      if (!wrap) return;
+      const orders = Array.isArray((st || {}).open_orders) ? st.open_orders : [];
+      if (!orders.length) {
+        wrap.innerHTML = "<div class='empty'>No open orders.</div>";
+        return;
+      }
+      wrap.innerHTML = orders.map((row) => {
+        const title = odAssetLabel(st, row.asset_id)
+          + " " + String(row.side || "")
+          + " @ " + odFmt(row.limit_price, 4)
+          + " x " + odFmt(row.size, 2);
+        const meta = "filled " + odFmt(row.filled_size, 2)
+          + " | status " + String(row.status || "-")
+          + " | id " + String(row.order_id || "");
+        return ""
+          + "<div class='od-open-order'>"
+          + "<div class='od-open-order-head'>"
+          + "<div class='od-activity-title'>" + escHtml(title.trim()) + "</div>"
+          + "<button class='btn ghost small' onclick=\"odCancelOrder('" + escAttr(row.order_id) + "')\">Cancel</button>"
+          + "</div>"
+          + "<div class='od-open-order-meta'>" + escHtml(meta) + "</div>"
+          + "</div>";
+      }).join("");
+    }
+
+    function odRenderActivity(st) {
+      const summary = document.getElementById("od-activity-summary");
+      const wrap = document.getElementById("od-activity-feed");
+      if (!summary || !wrap) return;
+      const stateRow = st || {};
+      const activity = Array.isArray(stateRow.activity) ? stateRow.activity.slice().reverse() : [];
+      const total = numberOrNull(stateRow.activity_total);
+      if (!activity.length) {
+        summary.textContent = "No activity yet.";
+        wrap.innerHTML = "<div class='empty'>Submit an order or step into a fill to populate this feed.</div>";
+        return;
+      }
+      summary.textContent = "Showing " + activity.length + " of " + String(total == null ? activity.length : total) + " entries.";
+      wrap.innerHTML = activity.map((item) => {
+        const meta = [
+          "cursor " + String(item.cursor || 0),
+          "seq " + String(item.seq || 0),
+          "time " + odFormatTs(item.ts_recv),
+        ].join(" | ");
+        const body = odActivityBody(item);
+        return ""
+          + "<div class='od-activity-item'>"
+          + "<div class='od-activity-title'>" + escHtml(odActivityTitle(stateRow, item)) + "</div>"
+          + "<div class='od-activity-meta'>" + escHtml(meta) + "</div>"
+          + (body ? ("<div class='od-activity-body'>" + escHtml(body) + "</div>") : "")
+          + "</div>";
+      }).join("");
+    }
+
+    function odRenderTicket() {
+      const st = od.lastState || {};
+      const yesBtn = document.getElementById("od-ticket-leg-yes");
+      const noBtn = document.getElementById("od-ticket-leg-no");
+      const buyBtn = document.getElementById("od-ticket-side-buy");
+      const sellBtn = document.getElementById("od-ticket-side-sell");
+      const assetLabel = document.getElementById("od-ticket-asset");
+      const estimates = document.getElementById("od-ticket-estimates");
+      const note = document.getElementById("od-ticket-note");
+      if (!yesBtn || !noBtn || !buyBtn || !sellBtn || !assetLabel || !estimates || !note) return;
+
+      odNormalizeTicketLeg(st);
+      const legs = odAvailableLegs(st);
+      const assetId = odSelectedAssetId(st);
+      const price = numberOrNull((document.getElementById("od-ticket-price") || {}).value);
+      const size = numberOrNull((document.getElementById("od-ticket-size") || {}).value);
+      const book = assetId ? (((st || {}).bbo || {})[assetId] || {}) : {};
+      const bestBid = numberOrNull(book.best_bid);
+      const bestAsk = numberOrNull(book.best_ask);
+      const feeRateBps = odCurrentFeeRateBps(st);
+      const feeEstimate = (price != null && size != null) ? odEstimateFee(size, price, feeRateBps) : null;
+      const notional = (price != null && size != null) ? (price * size) : null;
+      const cashFlow = (notional != null && feeEstimate != null)
+        ? (od.ticketSide === "BUY" ? (notional + feeEstimate) : (notional - feeEstimate))
+        : null;
+      const currentPosition = odCurrentPositionSize(st, assetId);
+      const resultingPosition = size == null
+        ? currentPosition
+        : (od.ticketSide === "BUY" ? (currentPosition + size) : (currentPosition - size));
+
+      yesBtn.disabled = !legs.yes;
+      noBtn.disabled = !legs.no;
+      yesBtn.classList.toggle("active", od.ticketLeg === "yes");
+      yesBtn.classList.toggle("ghost", od.ticketLeg !== "yes");
+      noBtn.classList.toggle("active", od.ticketLeg === "no");
+      noBtn.classList.toggle("ghost", od.ticketLeg !== "no");
+      buyBtn.classList.toggle("active", od.ticketSide === "BUY");
+      buyBtn.classList.toggle("ghost", od.ticketSide !== "BUY");
+      sellBtn.classList.toggle("active", od.ticketSide === "SELL");
+      sellBtn.classList.toggle("ghost", od.ticketSide !== "SELL");
+
+      assetLabel.textContent = assetId
+        ? (odAssetLabel(st, assetId) + " leg -> " + assetId)
+        : "No tradable asset is available on this tape yet.";
+
+      const primaryLabel = od.ticketSide === "BUY" ? "Est. Cost" : "Est. Proceeds";
+      estimates.innerHTML = ""
+        + "<div class='od-estimate-cell'><div class='label'>Best Bid</div><div class='value'>" + escHtml(odFmt(bestBid, 4)) + "</div></div>"
+        + "<div class='od-estimate-cell'><div class='label'>Best Ask</div><div class='value'>" + escHtml(odFmt(bestAsk, 4)) + "</div></div>"
+        + "<div class='od-estimate-cell'><div class='label'>" + escHtml(primaryLabel) + "</div><div class='value'>" + escHtml(odFmt(cashFlow, 4)) + "</div></div>"
+        + "<div class='od-estimate-cell'><div class='label'>Fee Est.</div><div class='value'>" + escHtml(odFmt(feeEstimate, 4)) + "</div></div>"
+        + "<div class='od-estimate-cell'><div class='label'>Current Pos.</div><div class='value'>" + escHtml(odFmt(currentPosition, 2)) + "</div></div>"
+        + "<div class='od-estimate-cell'><div class='label'>Post-Fill Pos.</div><div class='value'>" + escHtml(odFmt(resultingPosition, 2)) + "</div></div>";
+
+      const notes = [];
+      if (!assetId) notes.push("This ticket stays disabled until a tape exposes at least one asset.");
+      if (price == null || !(price > 0 && price <= 1)) notes.push("Limit price must be in (0, 1].");
+      if (size == null || !(size > 0)) notes.push("Size must be greater than 0.");
+      if (od.ticketSide === "SELL" && size != null && size > currentPosition) {
+        notes.push("Sell size exceeds the current visible position.");
+      }
+      if (!notes.length) {
+        notes.push("Fee estimate uses the same deterministic curve formula as the backend ledger.");
+      }
+      note.textContent = notes.join(" ");
+
+      odRenderOpenOrders(st);
     }
 
     function odRenderState(st) {
@@ -3110,13 +3566,14 @@
         + " | seq " + String((st || {}).seq ?? "-")
         + " | cursor " + String((st || {}).cursor || 0) + " / " + String((st || {}).total_events || 0)
         + " | speed " + String(speed) + " ev/click";
+      odRenderTicket();
+      odRenderActivity(st || {});
     }
 
-    async function odNewSession() {
-      const tapePath = document.getElementById("od-tape-select").value;
+    async function createOnDemandSessionFromTape(tapePath, workspaceId) {
       if (!tapePath) {
         setStatus("Select a tape first.", "err");
-        return;
+        return null;
       }
       const startingCash = document.getElementById("od-starting-cash").value || "1000";
       const checkpointEveryEvents = document.getElementById("od-checkpoint-every-events").value || "250";
@@ -3138,10 +3595,92 @@
         document.getElementById("od-session-info").textContent = "Session: " + data.session_id;
         document.getElementById("od-controls-card").style.display = "";
         odRenderState(data.state || {});
-        refreshOnDemandSessions();
+        if (workspaceId) {
+          const ws = getWorkspaceById(workspaceId);
+          if (ws) {
+            ws.attachedOnDemandId = data.session_id;
+            saveWorkspacesToStorage();
+          }
+        }
+        await refreshOnDemandSessions();
+        try {
+          await refreshTapes();
+        } catch (_) {}
+        const tapeSelect = document.getElementById("od-tape-select");
+        if (tapeSelect) tapeSelect.value = tapePath;
+        activateTab("ondemand");
+        renderWorkspacePanel();
         setStatus("OnDemand session created.", "ok");
+        return data;
       } catch (err) {
         setStatus("OnDemand create failed: " + err.message, "err");
+        return null;
+      }
+    }
+
+    async function odNewSession() {
+      const tapePath = document.getElementById("od-tape-select").value;
+      if (!tapePath) {
+        setStatus("Select a tape first.", "err");
+        return;
+      }
+      await createOnDemandSessionFromTape(tapePath, null);
+    }
+
+    async function odSubmitOrder() {
+      if (!od.sessionId) return;
+      const st = od.lastState || {};
+      const assetId = odSelectedAssetId(st);
+      const priceInput = document.getElementById("od-ticket-price");
+      const sizeInput = document.getElementById("od-ticket-size");
+      const priceText = priceInput ? String(priceInput.value || "").trim() : "";
+      const sizeText = sizeInput ? String(sizeInput.value || "").trim() : "";
+      const price = numberOrNull(priceText);
+      const size = numberOrNull(sizeText);
+      if (!assetId) {
+        setStatus("No asset is available for the current tape.", "err");
+        return;
+      }
+      if (price == null || !(price > 0 && price <= 1)) {
+        setStatus("Limit price must be in (0, 1].", "err");
+        return;
+      }
+      if (size == null || !(size > 0)) {
+        setStatus("Size must be greater than 0.", "err");
+        return;
+      }
+      try {
+        const data = await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId) + "/order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            asset_id: assetId,
+            side: od.ticketSide,
+            limit_price: priceText,
+            size: sizeText,
+          }),
+        });
+        odRenderState(data.state || {});
+        refreshOnDemandSessions();
+        setStatus("OnDemand order placed on " + odAssetLabel(st, assetId) + ".", "ok");
+      } catch (err) {
+        setStatus("OnDemand order failed: " + err.message, "err");
+      }
+    }
+
+    async function odCancelOrder(orderId) {
+      if (!od.sessionId || !orderId) return;
+      try {
+        const data = await apiJson("/api/ondemand/" + encodeURIComponent(od.sessionId) + "/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: orderId }),
+        });
+        odRenderState(data.state || {});
+        refreshOnDemandSessions();
+        setStatus("OnDemand cancel submitted for " + orderId + ".", "ok");
+      } catch (err) {
+        setStatus("OnDemand cancel failed: " + err.message, "err");
       }
     }
 
@@ -3206,16 +3745,20 @@
       } catch (_) {}
       od.sessionId = null;
       od.lastState = null;
+      od.ticketLeg = "yes";
+      od.ticketSide = "BUY";
       document.getElementById("od-session-info").textContent = "";
       document.getElementById("od-controls-card").style.display = "none";
       document.getElementById("od-time-slider").value = "0";
       document.getElementById("od-seek-ts").value = "";
       document.getElementById("od-status").textContent = "No session.";
+      odRenderTicket();
+      odRenderActivity({});
       refreshOnDemandSessions();
       setStatus("OnDemand session closed.", "ok");
     }
 
-    // ── Workspace persistence ─────────────────────────────────────────────────
+    // â”€â”€ Workspace persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const STORAGE_KEY = "simtrader_studio_state";
     const SCHEMA_VERSION = 1;
     let _savePending = null;
@@ -3366,7 +3909,7 @@
       saveWorkspacesToStorage();
       renderWorkspacePanel();
     }
-    // ─────────────────────────────────────────────────────────────────────────
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     function initCommandSelectors() {
       const optionHtml = COMMANDS.map((cmd) => "<option value='" + cmd + "'>" + cmd + "</option>").join("");

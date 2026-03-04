@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -91,14 +91,14 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "timeseries",
@@ -106,7 +106,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  toStartOfHour(ts) AS time,\n  count() AS trades\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  toStartOfHour(ts) AS time,\n  count() AS trades\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -116,7 +116,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -204,14 +204,14 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "table",
@@ -219,7 +219,7 @@
             }
           },
           "queryType": "table",
-          "rawSql": "SELECT\n  upper(side) AS side,\n  count() AS n\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY side\nORDER BY n DESC",
+          "rawSql": "SELECT\n  upper(side) AS side,\n  count() AS n\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY side\nORDER BY n DESC",
           "refId": "A"
         }
       ],
@@ -229,7 +229,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -277,12 +277,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count() AS total_trades\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT count() AS total_trades\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -292,7 +292,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -340,12 +340,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count(DISTINCT token_id) AS unique_tokens\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT count(DISTINCT token_id) AS unique_tokens\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -355,7 +355,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -403,12 +403,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT round(sum(size * price), 2) AS total_volume\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT round(sum(size * price), 2) AS total_volume\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -418,7 +418,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -466,12 +466,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT round(avg(price), 4) AS avg_price\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
+          "rawSql": "SELECT round(avg(price), 4) AS avg_price\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'",
           "refId": "A"
         }
       ],
@@ -481,7 +481,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -556,12 +556,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  left(token_id, 20) AS token,\n  count() AS trades\nFROM polyttool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY token_id\nORDER BY trades DESC\nLIMIT 10",
+          "rawSql": "SELECT\n  left(token_id, 20) AS token,\n  count() AS trades\nFROM polytool.user_trades\nWHERE proxy_wallet = '$proxy_wallet'\nGROUP BY token_id\nORDER BY trades DESC\nLIMIT 10",
           "refId": "A"
         }
       ],
@@ -571,7 +571,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -651,14 +651,14 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "timeseries",
@@ -666,7 +666,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polyttool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  sum(ifNull(size, 0) * ifNull(price, 0)) AS notional\nFROM deduped\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY time\nORDER BY time",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polytool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  sum(ifNull(size, 0) * ifNull(price, 0)) AS notional\nFROM deduped\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -676,7 +676,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -756,14 +756,14 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "timeseries",
@@ -771,7 +771,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polyttool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  activity_type,\n  count() AS events\nFROM deduped\nGROUP BY time, activity_type\nORDER BY time",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(ts, ingested_at) AS ts,\n    argMax(activity_type, ingested_at) AS activity_type\n  FROM polytool.user_activity\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  toStartOfHour(ts) AS time,\n  activity_type,\n  count() AS events\nFROM deduped\nGROUP BY time, activity_type\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -781,7 +781,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -831,17 +831,17 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(resolved_token_id, ingested_at) AS token_id,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type,\n    argMax(market_slug, ingested_at) AS market_slug,\n    argMax(question, ingested_at) AS question\n  FROM polyttool.user_activity_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  if(\n    length(question) > 0,\n    question,\n    if(length(market_slug) > 0, market_slug, token_id)\n  ) AS market_slug,\n  count() AS trades,\n  round(sum(ifNull(size, 0) * ifNull(price, 0)), 4) AS notional\nFROM deduped\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY market_slug\nORDER BY notional DESC\nLIMIT 20",
+          "rawSql": "WITH deduped AS (\n  SELECT\n    activity_uid,\n    argMax(resolved_token_id, ingested_at) AS token_id,\n    argMax(size, ingested_at) AS size,\n    argMax(price, ingested_at) AS price,\n    argMax(activity_type, ingested_at) AS activity_type,\n    argMax(market_slug, ingested_at) AS market_slug,\n    argMax(question, ingested_at) AS question\n  FROM polytool.user_activity_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n  GROUP BY activity_uid\n)\nSELECT\n  if(\n    length(question) > 0,\n    question,\n    if(length(market_slug) > 0, market_slug, token_id)\n  ) AS market_slug,\n  count() AS trades,\n  round(sum(ifNull(size, 0) * ifNull(price, 0)), 4) AS notional\nFROM deduped\nWHERE activity_type IN ('TRADE', 'BUY', 'SELL')\nGROUP BY market_slug\nORDER BY notional DESC\nLIMIT 20",
           "refId": "A",
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "table",
@@ -863,7 +863,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -913,17 +913,17 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH latest_snapshot AS (\n  SELECT max(snapshot_ts) AS s\n  FROM polyttool.user_positions_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  coalesce(nullIf(ups.question, ''), nullIf(ups.market_slug, ''), ups.resolved_condition_id, ups.token_id) AS market_slug,\n  ups.resolved_token_id AS token_id,\n  coalesce(nullIf(argMax(ups.resolved_outcome_name, ups.ingested_at), ''), argMax(ups.outcome, ups.ingested_at)) AS outcome,\n  argMax(ups.shares, ups.ingested_at) AS shares,\n  argMax(ups.avg_cost, ups.ingested_at) AS avg_cost,\n  round(argMax(ups.shares, ups.ingested_at) * ifNull(argMax(ups.avg_cost, ups.ingested_at), 0), 4) AS notional\nFROM polyttool.user_positions_resolved AS ups\nWHERE ups.proxy_wallet = '$proxy_wallet'\n  AND ups.snapshot_ts = (SELECT s FROM latest_snapshot)\nGROUP BY ups.resolved_token_id, market_slug\nORDER BY shares DESC\nLIMIT 20",
+          "rawSql": "WITH latest_snapshot AS (\n  SELECT max(snapshot_ts) AS s\n  FROM polytool.user_positions_resolved\n  WHERE proxy_wallet = '$proxy_wallet'\n)\nSELECT\n  coalesce(nullIf(ups.question, ''), nullIf(ups.market_slug, ''), ups.resolved_condition_id, ups.token_id) AS market_slug,\n  ups.resolved_token_id AS token_id,\n  coalesce(nullIf(argMax(ups.resolved_outcome_name, ups.ingested_at), ''), argMax(ups.outcome, ups.ingested_at)) AS outcome,\n  argMax(ups.shares, ups.ingested_at) AS shares,\n  argMax(ups.avg_cost, ups.ingested_at) AS avg_cost,\n  round(argMax(ups.shares, ups.ingested_at) * ifNull(argMax(ups.avg_cost, ups.ingested_at), 0), 4) AS notional\nFROM polytool.user_positions_resolved AS ups\nWHERE ups.proxy_wallet = '$proxy_wallet'\n  AND ups.snapshot_ts = (SELECT s FROM latest_snapshot)\nGROUP BY ups.resolved_token_id, market_slug\nORDER BY shares DESC\nLIMIT 20",
           "refId": "A",
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "table",
@@ -946,7 +946,7 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
-    "polyttool",
+    "polytool",
     "trades",
     "user"
   ],
@@ -956,16 +956,16 @@
         "current": {},
         "datasource": {
           "type": "grafana-clickhouse-datasource",
-          "uid": "clickhouse-polyttool"
+          "uid": "clickhouse-polytool"
         },
-        "definition": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "definition": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "hide": 0,
         "includeAll": false,
         "label": "User",
         "multi": false,
         "name": "proxy_wallet",
         "options": [],
-        "query": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "query": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -976,16 +976,16 @@
         "current": {},
         "datasource": {
           "type": "grafana-clickhouse-datasource",
-          "uid": "clickhouse-polyttool"
+          "uid": "clickhouse-polytool"
         },
-        "definition": "SELECT username FROM polyttool.users WHERE proxy_wallet = '$proxy_wallet' LIMIT 1",
+        "definition": "SELECT username FROM polytool.users WHERE proxy_wallet = '$proxy_wallet' LIMIT 1",
         "hide": 2,
         "includeAll": false,
         "label": "Username",
         "multi": false,
         "name": "username",
         "options": [],
-        "query": "SELECT username FROM polyttool.users WHERE proxy_wallet = '$proxy_wallet' LIMIT 1",
+        "query": "SELECT username FROM polytool.users WHERE proxy_wallet = '$proxy_wallet' LIMIT 1",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -1001,7 +1001,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - User Trades",
-  "uid": "polyttool-user-trades",
+  "uid": "polytool-user-trades",
   "version": 1,
   "weekStart": ""
 }

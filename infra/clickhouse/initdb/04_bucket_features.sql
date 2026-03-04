@@ -3,7 +3,7 @@
 
 -- user_bucket_features: aggregated trading metrics per user per time bucket
 -- Supports day, hour, and week granularity
-CREATE TABLE IF NOT EXISTS polyttool.user_bucket_features
+CREATE TABLE IF NOT EXISTS polytool.user_bucket_features
 (
     proxy_wallet String,
     bucket_type String,          -- 'day', 'hour', 'week'
@@ -25,4 +25,4 @@ ENGINE = ReplacingMergeTree(computed_at)
 ORDER BY (proxy_wallet, bucket_type, bucket_start);
 
 -- Grant SELECT access to grafana_ro user
-GRANT SELECT ON polyttool.user_bucket_features TO grafana_ro;
+GRANT SELECT ON polytool.user_bucket_features TO grafana_ro;

@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages
 from polymarket.gamma import GammaClient
 from polymarket.llm_research_packets import _username_to_slug
 
-DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
-DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
+DEFAULT_CLICKHOUSE_USER = "polytool_admin"
+DEFAULT_CLICKHOUSE_PASSWORD = "polytool_admin"
 DEFAULT_GAMMA_BASE = "https://gamma-api.polymarket.com"
 DEFAULT_HTTP_TIMEOUT = 20.0
 
@@ -44,7 +44,7 @@ def _resolve_clickhouse_port() -> int:
 
 
 def _resolve_clickhouse_database() -> str:
-    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polyttool"
+    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polytool"
 
 
 def load_env_file(path: str) -> Dict[str, str]:

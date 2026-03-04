@@ -594,6 +594,63 @@ def _build_reason_counts(
     ]
 
 
+_SESSION_TAPE_LINE_RE = re.compile(r"tape dir\s*:\s*(?P<path>.+)$", re.IGNORECASE)
+
+
+def _resolve_session_path(raw_path: Any, *, parent_if_file: bool = False) -> Path | None:
+    if not isinstance(raw_path, str):
+        return None
+    text = raw_path.strip().strip('"').strip("'")
+    if not text:
+        return None
+    candidate = Path(text.rstrip("/\\"))
+    if not candidate.is_absolute():
+        candidate = (Path.cwd() / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+    if parent_if_file and candidate.suffix:
+        candidate = candidate.parent
+    return candidate
+
+
+def _find_session_tape_dir(
+    row: dict[str, Any],
+    artifacts_root: Path,
+    artifact_dir: Path | None,
+) -> Path | None:
+    tape_dir = _resolve_session_path(row.get("tape_dir"), parent_if_file=True)
+    if tape_dir is not None and _is_relative_to(tape_dir, artifacts_root):
+        return tape_dir
+
+    if artifact_dir is not None and _is_relative_to(artifact_dir, artifacts_root):
+        artifact_text = str(artifact_dir).replace("\\", "/").lower()
+        if "/tapes/" in artifact_text:
+            return artifact_dir
+
+        run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
+        tape_dir = _resolve_session_path(run_manifest.get("tape_dir"), parent_if_file=True)
+        if tape_dir is not None and _is_relative_to(tape_dir, artifacts_root):
+            return tape_dir
+
+    log_path = _resolve_session_path(row.get("log_path"))
+    if log_path is None or not log_path.exists() or not log_path.is_file():
+        return None
+
+    tape_dir = None
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                match = _SESSION_TAPE_LINE_RE.search(line.rstrip("\r\n"))
+                if match is None:
+                    continue
+                candidate = _resolve_session_path(match.group("path"), parent_if_file=True)
+                if candidate is not None and _is_relative_to(candidate, artifacts_root):
+                    tape_dir = candidate
+    except OSError:
+        return None
+    return tape_dir
+
+
 def _decorate_session_snapshot(snapshot: dict[str, Any], artifacts_root: Path) -> dict[str, Any]:
     row = dict(snapshot)
     display_name = row.get("display_name")
@@ -605,16 +662,15 @@ def _decorate_session_snapshot(snapshot: dict[str, Any], artifacts_root: Path) -
     row["has_report"] = False
     row["report_url"] = None
 
-    artifact_raw = row.get("artifact_dir")
-    if not isinstance(artifact_raw, str) or not artifact_raw:
-        return row
+    artifact_dir = _resolve_session_path(row.get("artifact_dir"), parent_if_file=True)
+    if artifact_dir is not None:
+        row["artifact_dir"] = str(artifact_dir)
 
-    artifact_dir = Path(artifact_raw)
-    if not artifact_dir.is_absolute():
-        artifact_dir = (Path.cwd() / artifact_dir).resolve()
-    else:
-        artifact_dir = artifact_dir.resolve()
-    row["artifact_dir"] = str(artifact_dir)
+    tape_dir = _find_session_tape_dir(row, artifacts_root, artifact_dir)
+    row["tape_dir"] = str(tape_dir) if tape_dir is not None else None
+
+    if artifact_dir is None:
+        return row
 
     if not _is_relative_to(artifact_dir, artifacts_root):
         return row
@@ -1047,6 +1103,7 @@ def create_app(
             "subcommand": session.get("subcommand") or session.get("kind"),
             "report_url": session.get("report_url"),
             "artifact_dir": session.get("artifact_dir"),
+            "tape_dir": session.get("tape_dir"),
             "run_metrics": run_metrics,
             "net_profit": net_profit,
             "strategy": strategy,
@@ -1062,21 +1119,35 @@ def create_app(
         row_limit: int = Query(default=200, ge=1, le=1000),
     ) -> dict[str, Any]:
         session = _get_tracked_session(session_id)
-        artifact_raw = session.get("artifact_dir")
-        if not isinstance(artifact_raw, str) or not artifact_raw:
+        candidate_paths = [
+            Path(raw).resolve()
+            for raw in (session.get("artifact_dir"), session.get("tape_dir"))
+            if isinstance(raw, str) and raw
+        ]
+        if not candidate_paths:
             raise HTTPException(
                 status_code=400,
-                detail=f"session has no artifact directory: {session_id}",
+                detail=f"session has no artifact or tape directory: {session_id}",
             )
 
-        artifact_dir = Path(artifact_raw).resolve()
-        if not artifact_dir.exists() or not artifact_dir.is_dir():
+        artifact_dir = next(
+            (
+                candidate
+                for candidate in candidate_paths
+                if candidate.exists() and candidate.is_dir() and _is_relative_to(candidate, _artifacts_dir)
+            ),
+            None,
+        )
+        if artifact_dir is None:
+            if any(
+                candidate.exists() and candidate.is_dir() and not _is_relative_to(candidate, _artifacts_dir)
+                for candidate in candidate_paths
+            ):
+                raise HTTPException(status_code=400, detail="artifact path escapes artifacts root")
             raise HTTPException(
                 status_code=404,
-                detail=f"artifact directory not found: {artifact_dir}",
+                detail=f"artifact directory not found: {candidate_paths[0]}",
             )
-        if not _is_relative_to(artifact_dir, _artifacts_dir):
-            raise HTTPException(status_code=400, detail="artifact path escapes artifacts root")
 
         run_manifest = _read_json_file(artifact_dir / "run_manifest.json") or {}
         summary = _read_json_file(artifact_dir / "summary.json") or {}
@@ -1349,4 +1420,3 @@ def create_app(
 # ---------------------------------------------------------------------------
 
 app = create_app()
-

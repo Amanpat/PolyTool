@@ -37,6 +37,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
 
+from ..artifact_ids import build_timestamped_artifact_id, short_hash
+from ..display_name import build_display_name
 from ..market_picker import MarketPicker, MarketPickerError
 from ..strategy_presets import (
     build_binary_complement_strategy_config,
@@ -177,14 +179,8 @@ def run_batch(
     except ValueError as exc:
         raise BatchRunError(str(exc)) from exc
 
-    # -- Batch ID / dir --------------------------------------------------------
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    batch_id = params.batch_id or _derive_batch_id(params, ts)
-    batch_dir = params.artifacts_root / "batches" / batch_id
-    markets_dir = batch_dir / "markets"
-    markets_dir.mkdir(parents=True, exist_ok=True)
-
     # -- Pick markets ----------------------------------------------------------
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     picker = MarketPicker(gamma_client, clob_client)
     markets = picker.auto_pick_many(
         n=params.num_markets,
@@ -199,6 +195,12 @@ def run_batch(
             f"no valid binary markets found in {params.max_candidates} candidates"
         )
 
+    # -- Batch ID / dir --------------------------------------------------------
+    batch_id = params.batch_id or _derive_batch_id(params, ts, markets)
+    batch_dir = params.artifacts_root / "batches" / batch_id
+    markets_dir = batch_dir / "markets"
+    markets_dir.mkdir(parents=True, exist_ok=True)
+
     # -- Write manifest (before running so it exists even on partial failure) --
     manifest: dict[str, Any] = {
         "batch_id": batch_id,
@@ -206,6 +208,8 @@ def run_batch(
         "seed": _derive_seed(params),
         "preset": params.preset,
         "strategy_preset": strategy_preset,
+        "strategy": "binary_complement_arb",
+        "market_slug": _summarize_market_slug([m.slug for m in markets]),
         "num_markets_requested": params.num_markets,
         "num_markets_found": len(markets),
         "duration": params.duration,
@@ -230,6 +234,14 @@ def run_batch(
             for m in markets
         ],
     }
+    manifest["display_name"] = build_display_name(
+        kind="batch",
+        timestamp=ts,
+        fallback_id=batch_id,
+        market_slug=manifest.get("market_slug"),
+        strategy=manifest.get("strategy"),
+        strategy_preset=manifest.get("strategy_preset"),
+    )
     _write_json(batch_dir / "batch_manifest.json", manifest)
 
     # -- Process each market ---------------------------------------------------
@@ -264,6 +276,7 @@ def run_batch(
             markets_dir=markets_dir,
             sweep_config=sweep_config,
             ts=ts,
+            strategy_preset=strategy_preset,
         )
         rows.append(row)
 
@@ -318,6 +331,7 @@ def _run_market(
     markets_dir: Path,
     sweep_config: dict[str, Any],
     ts: str,
+    strategy_preset: str,
 ) -> _MarketRow:
     """Record tape + run sweep for one market, return aggregated row."""
 
@@ -362,7 +376,13 @@ def _run_market(
     market_dir.mkdir(parents=True, exist_ok=True)
 
     # -- Record tape -----------------------------------------------------------
-    tape_dir = params.artifacts_root / "tapes" / f"{ts}_batch_{slug[:16]}_{resolved.yes_token_id[:8]}"
+    market_suffix = short_hash(resolved.yes_token_id, resolved.no_token_id)
+    tape_dir = params.artifacts_root / "tapes" / build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="tape",
+        market_slug=slug,
+        suffix=market_suffix,
+    )
     recorder = TapeRecorder(
         tape_dir=tape_dir,
         asset_ids=[resolved.yes_token_id, resolved.no_token_id],
@@ -444,11 +464,17 @@ def _run_market(
     strategy_config = build_binary_complement_strategy_config(
         yes_asset_id=resolved.yes_token_id,
         no_asset_id=resolved.no_token_id,
-        strategy_preset=params.strategy_preset,
+        strategy_preset=strategy_preset,
     )
 
     # -- Run sweep -------------------------------------------------------------
-    sweep_id = f"batch_{slug[:16]}_{resolved.yes_token_id[:8]}_{ts}"
+    sweep_id = build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="sweep",
+        market_slug=slug,
+        preset=params.preset,
+        suffix=short_hash(resolved.yes_token_id, resolved.no_token_id, params.preset),
+    )
     try:
         sweep_result = run_sweep(
             SweepRunParams(
@@ -464,6 +490,8 @@ def _run_market(
                 strict=False,
                 sweep_id=sweep_id,
                 artifacts_root=params.artifacts_root,
+                strategy_preset=strategy_preset,
+                market_slug=slug,
             ),
             sweep_config=sweep_config,
         )
@@ -822,14 +850,25 @@ def _derive_seed(params: BatchRunParams) -> int:
     return int(hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8], 16)
 
 
-def _derive_batch_id(params: BatchRunParams, ts: str) -> str:
+def _summarize_market_slug(slugs: list[str]) -> str | None:
+    clean = sorted({str(slug).strip() for slug in slugs if str(slug).strip()})
+    if not clean:
+        return None
+    if len(clean) == 1:
+        return clean[0]
+    return f"multiple({len(clean)})"
+
+
+def _derive_batch_id(params: BatchRunParams, ts: str, markets: list[Any]) -> str:
     """Derive a deterministic batch ID from parameters + timestamp."""
+    market_slugs = [str(getattr(market, "slug", "") or "").strip() for market in markets]
     payload = json.dumps(
         {
             "ts": ts,
             "preset": params.preset,
             "strategy_preset": normalize_strategy_preset(params.strategy_preset),
             "num_markets": params.num_markets,
+            "resolved_market_slugs": market_slugs,
             "duration": params.duration,
             "starting_cash": str(params.starting_cash),
             "fee_rate_bps": str(params.fee_rate_bps),
@@ -841,8 +880,23 @@ def _derive_batch_id(params: BatchRunParams, ts: str) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
-    digest = hashlib.sha256(payload.encode()).hexdigest()[:10]
-    return f"batch_{ts}_{digest}"
+    digest = hashlib.sha256(payload.encode()).hexdigest()[:8]
+    clean_slugs = [slug for slug in market_slugs if slug]
+    if len(clean_slugs) == 1:
+        return build_timestamped_artifact_id(
+            timestamp=ts,
+            kind="batch",
+            market_slug=clean_slugs[0],
+            preset=params.preset,
+            suffix=digest,
+        )
+    return build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="batch",
+        preset=params.preset,
+        batch_size=max(1, len(markets)),
+        suffix=digest,
+    )
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

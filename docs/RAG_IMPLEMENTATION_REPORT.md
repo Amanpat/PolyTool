@@ -25,7 +25,6 @@ polytool/__main__.py            # canonical module entrypoint
 tools/cli/rag_index.py
 tools/cli/rag_query.py
 tools/cli/rag_eval.py
-polyttool/__main__.py           # deprecated shim (removal after v0.2.0)
 ```
 
 ## Invocation policy
@@ -38,9 +37,8 @@ python -m polytool rag-query ...
 python -m polytool rag-eval ...
 ```
 
-`python -m polyttool ...` remains only as a backward-compatibility shim and is
-scheduled for removal after `v0.2.0` (or first stable release), per
-`docs/adr/ADR-0001-cli-and-module-rename.md`.
+The `polytool` (double-t) shim has been removed. Use `python -m polytool ...`.
+See `docs/adr/ADR-0001-cli-and-module-rename.md`.
 
 ## rag-index implementation
 
@@ -73,7 +71,7 @@ privacy and scope filtering at query time.
 
 Defaults:
 
-- Chroma collection: `polyttool_rag`
+- Chroma collection: `polytool_rag`
 - Chroma persist dir: `kb/rag/index`
 - Manifest: `kb/rag/manifests/index_manifest.json`
 - Lexical DB: `kb/rag/lexical/lexical.sqlite3`

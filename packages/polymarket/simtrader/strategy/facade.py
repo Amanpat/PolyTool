@@ -56,6 +56,8 @@ class StrategyRunParams:
     latency_cancel_ticks: int = 0
     strict: bool = False
     allow_degraded: bool = False
+    strategy_preset: Optional[str] = None
+    market_slug: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +127,9 @@ def run_strategy(params: StrategyRunParams) -> StrategyRunResult:
         mark_method=params.mark_method,
         strict=params.strict,
         allow_degraded=params.allow_degraded,
+        strategy_name=params.strategy_name,
+        strategy_preset=params.strategy_preset,
+        market_slug=params.market_slug,
     )
 
     summary = runner.run()

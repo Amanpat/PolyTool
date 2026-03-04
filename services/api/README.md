@@ -100,7 +100,7 @@ Environment variables:
 - `CLICKHOUSE_PORT` - ClickHouse HTTP port (default: 8123)
 - `CLICKHOUSE_USER` - ClickHouse username
 - `CLICKHOUSE_PASSWORD` - ClickHouse password
-- `CLICKHOUSE_DATABASE` - ClickHouse database (default: polyttool)
+- `CLICKHOUSE_DATABASE` - ClickHouse database (default: polytool)
 
 ### Orderbook Snapshot Configuration
 - `BOOK_SNAPSHOT_DEPTH_BAND_BPS` - Band for depth calculation (default: 50)

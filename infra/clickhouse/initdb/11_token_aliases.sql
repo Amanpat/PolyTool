@@ -1,7 +1,7 @@
 -- Token alias mapping and resolved views
 
 -- token_aliases: map Data API token_ids (or other aliases) to canonical CLOB token ids
-CREATE TABLE IF NOT EXISTS polyttool.token_aliases
+CREATE TABLE IF NOT EXISTS polytool.token_aliases
 (
     alias_token_id String,
     canonical_clob_token_id String,
@@ -15,10 +15,10 @@ CREATE TABLE IF NOT EXISTS polyttool.token_aliases
 ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (alias_token_id, canonical_clob_token_id);
 
-GRANT SELECT ON polyttool.token_aliases TO grafana_ro;
+GRANT SELECT ON polytool.token_aliases TO grafana_ro;
 
 -- Resolve user_trades tokens to canonical CLOB token ids
-CREATE OR REPLACE VIEW polyttool.user_trades_resolved AS
+CREATE OR REPLACE VIEW polytool.user_trades_resolved AS
 WITH
     lowerUTF8(trimBoth(t.condition_id)) AS condition_lower,
     if(
@@ -83,20 +83,20 @@ SELECT
         outcome_pos > 0, 'condition_outcome',
         'unresolved'
     ) AS resolution_source
-FROM polyttool.user_trades AS t
-LEFT JOIN polyttool.market_tokens AS mt_direct ON t.token_id = mt_direct.token_id
-LEFT JOIN polyttool.token_aliases AS ta ON t.token_id = ta.alias_token_id
-LEFT JOIN polyttool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
-LEFT JOIN polyttool.markets AS m ON if(
+FROM polytool.user_trades AS t
+LEFT JOIN polytool.market_tokens AS mt_direct ON t.token_id = mt_direct.token_id
+LEFT JOIN polytool.token_aliases AS ta ON t.token_id = ta.alias_token_id
+LEFT JOIN polytool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
+LEFT JOIN polytool.markets AS m ON if(
     startsWith(lowerUTF8(trimBoth(m.condition_id)), '0x'),
     concat('0x', substring(lowerUTF8(trimBoth(m.condition_id)), 3)),
     concat('0x', lowerUTF8(trimBoth(m.condition_id)))
 ) = condition_id_norm;
 
-GRANT SELECT ON polyttool.user_trades_resolved TO grafana_ro;
+GRANT SELECT ON polytool.user_trades_resolved TO grafana_ro;
 
 -- Resolve user_positions snapshots to canonical CLOB token ids
-CREATE OR REPLACE VIEW polyttool.user_positions_resolved AS
+CREATE OR REPLACE VIEW polytool.user_positions_resolved AS
 WITH
     lowerUTF8(trimBoth(p.condition_id)) AS condition_lower,
     if(
@@ -158,20 +158,20 @@ SELECT
         outcome_pos > 0, 'condition_outcome',
         'unresolved'
     ) AS resolution_source
-FROM polyttool.user_positions_snapshots AS p
-LEFT JOIN polyttool.market_tokens AS mt_direct ON p.token_id = mt_direct.token_id
-LEFT JOIN polyttool.token_aliases AS ta ON p.token_id = ta.alias_token_id
-LEFT JOIN polyttool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
-LEFT JOIN polyttool.markets AS m ON if(
+FROM polytool.user_positions_snapshots AS p
+LEFT JOIN polytool.market_tokens AS mt_direct ON p.token_id = mt_direct.token_id
+LEFT JOIN polytool.token_aliases AS ta ON p.token_id = ta.alias_token_id
+LEFT JOIN polytool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
+LEFT JOIN polytool.markets AS m ON if(
     startsWith(lowerUTF8(trimBoth(m.condition_id)), '0x'),
     concat('0x', substring(lowerUTF8(trimBoth(m.condition_id)), 3)),
     concat('0x', lowerUTF8(trimBoth(m.condition_id)))
 ) = condition_id_norm;
 
-GRANT SELECT ON polyttool.user_positions_resolved TO grafana_ro;
+GRANT SELECT ON polytool.user_positions_resolved TO grafana_ro;
 
 -- Resolve user activity tokens to canonical CLOB token ids
-CREATE OR REPLACE VIEW polyttool.user_activity_resolved AS
+CREATE OR REPLACE VIEW polytool.user_activity_resolved AS
 WITH
     lowerUTF8(trimBoth(a.condition_id)) AS condition_lower,
     if(
@@ -209,20 +209,20 @@ SELECT
         length(ta.canonical_clob_token_id) > 0, 'alias',
         'unresolved'
     ) AS resolution_source
-FROM polyttool.user_activity AS a
-LEFT JOIN polyttool.market_tokens AS mt_direct ON a.token_id = mt_direct.token_id
-LEFT JOIN polyttool.token_aliases AS ta ON a.token_id = ta.alias_token_id
-LEFT JOIN polyttool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
-LEFT JOIN polyttool.markets AS m ON if(
+FROM polytool.user_activity AS a
+LEFT JOIN polytool.market_tokens AS mt_direct ON a.token_id = mt_direct.token_id
+LEFT JOIN polytool.token_aliases AS ta ON a.token_id = ta.alias_token_id
+LEFT JOIN polytool.market_tokens AS mt_alias ON ta.canonical_clob_token_id = mt_alias.token_id
+LEFT JOIN polytool.markets AS m ON if(
     startsWith(lowerUTF8(trimBoth(m.condition_id)), '0x'),
     concat('0x', substring(lowerUTF8(trimBoth(m.condition_id)), 3)),
     concat('0x', lowerUTF8(trimBoth(m.condition_id)))
 ) = condition_id_norm;
 
-GRANT SELECT ON polyttool.user_activity_resolved TO grafana_ro;
+GRANT SELECT ON polytool.user_activity_resolved TO grafana_ro;
 
 -- Enrich orderbook snapshots using canonical token ids
-CREATE OR REPLACE VIEW polyttool.orderbook_snapshots_enriched AS
+CREATE OR REPLACE VIEW polytool.orderbook_snapshots_enriched AS
 SELECT
     s.snapshot_ts AS snapshot_ts,
     s.token_id AS token_id,
@@ -238,8 +238,8 @@ SELECT
     s.depth_ask_usd_50bps AS depth_ask_usd_50bps,
     s.slippage_buy_bps_100 AS slippage_buy_bps_100,
     s.slippage_sell_bps_100 AS slippage_sell_bps_100
-FROM polyttool.token_orderbook_snapshots s
-LEFT JOIN polyttool.token_aliases ta ON s.token_id = ta.alias_token_id
-LEFT JOIN polyttool.market_tokens mt ON mt.token_id = coalesce(ta.canonical_clob_token_id, s.token_id);
+FROM polytool.token_orderbook_snapshots s
+LEFT JOIN polytool.token_aliases ta ON s.token_id = ta.alias_token_id
+LEFT JOIN polytool.market_tokens mt ON mt.token_id = coalesce(ta.canonical_clob_token_id, s.token_id);
 
-GRANT SELECT ON polyttool.orderbook_snapshots_enriched TO grafana_ro;
+GRANT SELECT ON polytool.orderbook_snapshots_enriched TO grafana_ro;

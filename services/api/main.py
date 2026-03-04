@@ -90,9 +90,9 @@ OPPORTUNITY_SNAPSHOT_MAX_AGE_SECONDS = int(
 # ClickHouse configuration
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_PORT = int(os.getenv("CLICKHOUSE_PORT", "8123"))
-CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "polyttool_admin")
-CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "polyttool_admin")
-CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "polyttool")
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "polytool_admin")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "polytool_admin")
+CLICKHOUSE_DATABASE = os.getenv("CLICKHOUSE_DATABASE", "polytool")
 
 # Initialize FastAPI
 app = FastAPI(
@@ -683,7 +683,7 @@ class EnrichResolutionsResponse(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "polyttool-api"}
+    return {"status": "healthy", "service": "polytool-api"}
 
 
 @app.post("/api/resolve", response_model=ResolveResponse)

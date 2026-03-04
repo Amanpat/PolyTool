@@ -3,7 +3,7 @@ apiVersion: 1
 datasources:
   - name: ClickHouse
     type: grafana-clickhouse-datasource
-    uid: clickhouse-polyttool
+    uid: clickhouse-polytool
     access: proxy
     isDefault: true
     jsonData:
@@ -11,7 +11,7 @@ datasources:
       port: 9000
       protocol: native
       username: grafana_ro
-      defaultDatabase: polyttool
+      defaultDatabase: polytool
     secureJsonData:
       password: grafana_readonly_local
     editable: false

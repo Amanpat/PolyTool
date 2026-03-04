@@ -82,8 +82,8 @@ DEFAULT_CLV_ONLINE = True
 DEFAULT_CLV_WINDOW_MINUTES = int(DEFAULT_CLOSING_WINDOW_SECONDS / 60)
 DEFAULT_CLV_INTERVAL = DEFAULT_PRICES_INTERVAL
 DEFAULT_CLV_FIDELITY = DEFAULT_PRICES_FIDELITY
-DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
-DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
+DEFAULT_CLICKHOUSE_USER = "polytool_admin"
+DEFAULT_CLICKHOUSE_PASSWORD = "polytool_admin"
 DEFAULT_CLOB_API_BASE = "https://clob.polymarket.com"
 
 SCAN_STAGE_FLAG_TO_ATTR: dict[str, str] = {
@@ -235,7 +235,7 @@ def _resolve_clickhouse_port() -> int:
 
 
 def _resolve_clickhouse_database() -> str:
-    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polyttool"
+    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polytool"
 
 
 def _get_clickhouse_client():

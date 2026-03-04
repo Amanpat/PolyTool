@@ -210,6 +210,92 @@ class PortfolioLedger:
 
         return ledger_snapshots, equity_curve
 
+    def apply_order_event(self, evt: dict) -> Optional[dict]:
+        """Process one broker lifecycle event against the live ledger state."""
+        return self._process_order_event(evt)
+
+    def equity_snapshot(
+        self,
+        seq: int,
+        ts_recv: float,
+        best_bid: Optional[float],
+        best_ask: Optional[float],
+    ) -> dict:
+        """Return one equity snapshot without mutating external history."""
+        return self._equity_snapshot(seq, ts_recv, best_bid, best_ask)
+
+    def snapshot_state(self) -> dict[str, Any]:
+        """Return a JSON-safe snapshot of the ledger state."""
+        return {
+            "starting_cash": str(self._starting_cash),
+            "cash": str(self._cash),
+            "fee_rate_bps": (
+                str(self._fee_rate_bps) if self._fee_rate_bps is not None else None
+            ),
+            "mark_method": self._mark_method,
+            "lots": {
+                asset_id: [
+                    {"size": str(size), "cost": str(cost)}
+                    for size, cost in lots
+                ]
+                for asset_id, lots in self._lots.items()
+            },
+            "reserved_cash": {
+                order_id: str(amount)
+                for order_id, amount in self._reserved_cash.items()
+            },
+            "reserved_shares": {
+                order_id: {"asset_id": asset_id, "qty": str(qty)}
+                for order_id, (asset_id, qty) in self._reserved_shares.items()
+            },
+            "order_meta": {
+                order_id: {
+                    "side": side,
+                    "asset_id": asset_id,
+                    "limit_price": str(limit_price),
+                    "size": str(size),
+                }
+                for order_id, (side, asset_id, limit_price, size) in self._order_meta.items()
+            },
+            "realized_pnl": str(self._realized_pnl),
+            "total_fees": str(self._total_fees),
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Restore ledger state from :meth:`snapshot_state` output."""
+        self._starting_cash = Decimal(str(state.get("starting_cash", "0")))
+        self._cash = Decimal(str(state.get("cash", self._starting_cash)))
+        fee_rate = state.get("fee_rate_bps")
+        self._fee_rate_bps = Decimal(str(fee_rate)) if fee_rate is not None else None
+        self._mark_method = str(state.get("mark_method", self._mark_method))
+
+        self._lots = defaultdict(list)
+        for asset_id, lots in dict(state.get("lots", {})).items():
+            self._lots[str(asset_id)] = [
+                (Decimal(str(row["size"])), Decimal(str(row["cost"])))
+                for row in lots
+            ]
+
+        self._reserved_cash = {
+            str(order_id): Decimal(str(amount))
+            for order_id, amount in dict(state.get("reserved_cash", {})).items()
+        }
+        self._reserved_shares = {
+            str(order_id): (str(row["asset_id"]), Decimal(str(row["qty"])))
+            for order_id, row in dict(state.get("reserved_shares", {})).items()
+        }
+        self._order_meta = {
+            str(order_id): (
+                str(row["side"]),
+                str(row["asset_id"]),
+                Decimal(str(row["limit_price"])),
+                Decimal(str(row["size"])),
+            )
+            for order_id, row in dict(state.get("order_meta", {})).items()
+        }
+        self._realized_pnl = Decimal(str(state.get("realized_pnl", "0")))
+        self._total_fees = Decimal(str(state.get("total_fees", "0")))
+
     def summary(
         self,
         run_id: str,

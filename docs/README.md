@@ -30,7 +30,7 @@ table, see [INDEX.md](INDEX.md).
 ## Local config and CLI naming
 - Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
 - Use `python -m polytool ...` as the canonical invocation.
-- The legacy `polyttool` shim is deprecated, kept for compatibility, and scheduled for removal after `v0.2.0` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
+- The old `polyttool` (double-t) shim has been removed. Use `polytool` or `python -m polytool` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
 
 ## Core docs
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)

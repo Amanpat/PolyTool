@@ -43,7 +43,7 @@ Results are stored in ClickHouse:
 
 ```sql
 SELECT *
-FROM polyttool.user_opportunities_bucket
+FROM polytool.user_opportunities_bucket
 WHERE proxy_wallet = '...'
   AND bucket_type = 'day'
 ORDER BY execution_cost_bps_100 ASC
@@ -64,7 +64,7 @@ WITH latest AS (
     argMax(status, snapshot_ts) AS status,
     argMax(liquidity_grade, snapshot_ts) AS liquidity_grade,
     argMax(execution_cost_bps_100, snapshot_ts) AS execution_cost_bps_100
-  FROM polyttool.orderbook_snapshots_enriched
+  FROM polytool.orderbook_snapshots_enriched
   WHERE resolved_token_id IN ('tokenA', 'tokenB')
     AND snapshot_ts >= now() - INTERVAL 1 DAY
   GROUP BY resolved_token_id

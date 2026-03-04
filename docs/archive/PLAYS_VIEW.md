@@ -14,8 +14,8 @@ Plays are the atomic unit of trading activity. Higher-level metrics (PnL, strate
 
 ## Data Source
 
-Plays are stored in the `polyttool.user_trades` table, but dashboards read from the
-`polyttool.user_trades_resolved` view. This view resolves token ids in three steps:
+Plays are stored in the `polytool.user_trades` table, but dashboards read from the
+`polytool.user_trades_resolved` view. This view resolves token ids in three steps:
 
 1. Direct match on `market_tokens.token_id` (canonical CLOB token ids)
 2. Alias lookup in `token_aliases` (Data API / legacy token ids)

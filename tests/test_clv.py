@@ -293,7 +293,7 @@ def test_cache_lookup_sql_contract_includes_clv_snapshot_columns():
     assert "SELECT" in sql
     assert "ts_observed" in sql
     assert "price" in sql
-    assert "FROM polyttool.market_price_snapshots" in sql
+    assert "FROM polytool.market_price_snapshots" in sql
     assert "token_id = {token_id:String}" in sql
     assert "close_ts = {close_ts:DateTime64(3)}" in sql
     assert "query_window_seconds = {query_window_seconds:UInt32}" in sql

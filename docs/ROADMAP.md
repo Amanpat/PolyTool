@@ -251,10 +251,10 @@ current one is fully shipped.
 
 ---
 
-## Deprecation: polyttool shim
+## Deprecation: polytool shim
 
-The `polyttool` backward-compatibility shim (double-t typo) will be removed
-after version 0.2.0. Until then, `python -m polyttool` still works but prints
+The `polytool` backward-compatibility shim (double-t typo) will be removed
+after version 0.2.0. Until then, `python -m polytool` still works but prints
 a deprecation warning. All new docs and scripts must use `python -m polytool`.
 See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md) for details.
 

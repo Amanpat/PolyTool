@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -93,14 +93,14 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "meta": {
             "builderOptions": {
               "columns": [],
-              "database": "polyttool",
+              "database": "polytool",
               "limit": 1000,
               "mode": "list",
               "queryType": "timeseries",
@@ -108,7 +108,7 @@
             }
           },
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS detector,\n  argMax(score, computed_at) AS score\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, detector_name\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS detector,\n  argMax(score, computed_at) AS score\nFROM polytool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, detector_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -118,7 +118,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -288,12 +288,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "WITH latest_bucket AS (\n  SELECT max(bucket_start) AS b\n  FROM polyttool.detector_results\n  WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n)\nSELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(score, computed_at) AS score,\n  argMax(label, computed_at) AS label,\n  any(bucket_start) AS bucket_start_latest,\n  max(computed_at) AS computed_at_latest\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT b FROM latest_bucket)\nGROUP BY detector_name\nORDER BY strategy",
+          "rawSql": "WITH latest_bucket AS (\n  SELECT max(bucket_start) AS b\n  FROM polytool.detector_results\n  WHERE proxy_wallet = '$proxy_wallet' AND bucket_type = '$bucket_type'\n)\nSELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(score, computed_at) AS score,\n  argMax(label, computed_at) AS label,\n  any(bucket_start) AS bucket_start_latest,\n  max(computed_at) AS computed_at_latest\nFROM polytool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND bucket_start = (SELECT b FROM latest_bucket)\nGROUP BY detector_name\nORDER BY strategy",
           "refId": "A"
         }
       ],
@@ -303,7 +303,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -359,12 +359,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT avg(coverage) AS coverage\nFROM (\n  SELECT\n    bucket_start,\n    argMax(mapping_coverage, computed_at) AS coverage\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
+          "rawSql": "SELECT avg(coverage) AS coverage\nFROM (\n  SELECT\n    bucket_start,\n    argMax(mapping_coverage, computed_at) AS coverage\n  FROM polytool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -374,7 +374,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -422,12 +422,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(markets) AS markets\nFROM (\n  SELECT\n    bucket_start,\n    argMax(unique_markets, computed_at) AS markets\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
+          "rawSql": "SELECT sum(markets) AS markets\nFROM (\n  SELECT\n    bucket_start,\n    argMax(unique_markets, computed_at) AS markets\n  FROM polytool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -437,7 +437,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -485,12 +485,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(trades) AS trades\nFROM (\n  SELECT\n    bucket_start,\n    argMax(trades_count, computed_at) AS trades\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
+          "rawSql": "SELECT sum(trades) AS trades\nFROM (\n  SELECT\n    bucket_start,\n    argMax(trades_count, computed_at) AS trades\n  FROM polytool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -500,7 +500,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -548,12 +548,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(notional) AS notional\nFROM (\n  SELECT\n    bucket_start,\n    argMax(notional, computed_at) AS notional\n  FROM polyttool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
+          "rawSql": "SELECT sum(notional) AS notional\nFROM (\n  SELECT\n    bucket_start,\n    argMax(notional, computed_at) AS notional\n  FROM polytool.user_bucket_features\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)",
           "refId": "A"
         }
       ],
@@ -563,7 +563,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -643,12 +643,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(trades_count, computed_at) AS trades\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(trades_count, computed_at) AS trades\nFROM polytool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -658,7 +658,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -738,12 +738,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(notional, computed_at) AS notional\nFROM polyttool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(notional, computed_at) AS notional\nFROM polytool.user_bucket_features\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -753,7 +753,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -823,12 +823,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(label, computed_at) AS label,\n  argMax(score, computed_at) AS score,\n  bucket_start,\n  argMax(evidence_json, computed_at) AS evidence_json,\n  max(computed_at) AS computed_at\nFROM polyttool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nGROUP BY bucket_start, detector_name\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  multiIf(\n    detector_name = 'HOLDING_STYLE', 'Holding Style',\n    detector_name = 'DCA_LADDERING', 'DCA / Laddering',\n    detector_name = 'MARKET_SELECTION_BIAS', 'Market Concentration',\n    detector_name = 'COMPLETE_SET_ARBISH', 'Complete-Set Arb',\n    detector_name\n  ) AS strategy,\n  argMax(label, computed_at) AS label,\n  argMax(score, computed_at) AS score,\n  bucket_start,\n  argMax(evidence_json, computed_at) AS evidence_json,\n  max(computed_at) AS computed_at\nFROM polytool.detector_results\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND ($detector_name = '*' OR detector_name = '$detector_name')\nGROUP BY bucket_start, detector_name\nORDER BY bucket_start DESC, computed_at DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -839,7 +839,7 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
-    "polyttool",
+    "polytool",
     "detectors",
     "strategy"
   ],
@@ -849,16 +849,16 @@
         "current": {},
         "datasource": {
           "type": "grafana-clickhouse-datasource",
-          "uid": "clickhouse-polyttool"
+          "uid": "clickhouse-polytool"
         },
-        "definition": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "definition": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "hide": 0,
         "includeAll": false,
         "label": "User",
         "multi": false,
         "name": "proxy_wallet",
         "options": [],
-        "query": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "query": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -950,7 +950,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - Strategy Detectors",
-  "uid": "polyttool-strategy-detectors",
+  "uid": "polytool-strategy-detectors",
   "version": 1,
   "weekStart": ""
 }

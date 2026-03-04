@@ -25,6 +25,15 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
+from packages.polymarket.simtrader.artifact_ids import (
+    build_timestamped_artifact_id,
+    short_hash,
+)
+from packages.polymarket.simtrader.display_name import (
+    build_display_name,
+    derive_run_display_name,
+    derive_sweep_display_name,
+)
 from packages.polymarket.simtrader.strategy_presets import (
     STRATEGY_PRESET_CHOICES,
     build_binary_complement_strategy_config,
@@ -478,6 +487,7 @@ def _trade(args: argparse.Namespace) -> int:
         "run_id": run_id,
         "command": "simtrader trade",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "strategy": "manual_trade",
         "tape_path": str(events_path),
         "latency_config": {
             "submit_ticks": latency.submit_ticks,
@@ -505,6 +515,12 @@ def _trade(args: argparse.Namespace) -> int:
         "run_quality": "ok" if not warnings else "warnings",
         "warnings": warnings[:50],
     }
+    manifest["display_name"] = build_display_name(
+        kind="run",
+        timestamp=manifest.get("created_at"),
+        fallback_id=run_id,
+        strategy=manifest.get("strategy"),
+    )
     manifest_path = run_dir / "run_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -908,6 +924,10 @@ def _enrich_run_manifest_market_context(
     if inferred_ids_from_tape_meta:
         payload["inferred_ids_from_tape_meta"] = True
 
+    payload["display_name"] = derive_run_display_name(
+        payload,
+        artifact_id=run_dir.name,
+    )
     manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
@@ -980,8 +1000,22 @@ def _run(args: argparse.Namespace) -> int:
         return 1
 
     mark_method: str = args.mark_method
-
-    run_id = args.run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    market_context = _resolve_market_context_for_tape(
+        events_path,
+        yes_token_id_override=getattr(args, "yes_asset_id", None),
+        no_token_id_override=getattr(args, "no_asset_id", None),
+    )
+    market_slug = _as_nonempty_str(market_context.get("market_slug"))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = args.run_id or build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="run",
+        market_slug=market_slug or "unknown",
+        strategy=strategy_name,
+        preset=(
+            strategy_preset if strategy_name == "binary_complement_arb" else None
+        ),
+    )
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
 
     # -- Quiet-tape warning (best-effort from tape meta or line count) --------
@@ -1054,6 +1088,10 @@ def _run(args: argparse.Namespace) -> int:
                 latency_cancel_ticks=args.cancel_latency_ticks,
                 strict=args.strict,
                 allow_degraded=args.allow_degraded,
+                strategy_preset=(
+                    strategy_preset if strategy_name == "binary_complement_arb" else None
+                ),
+                market_slug=market_slug,
             )
         )
     except StrategyRunConfigError as exc:
@@ -1144,6 +1182,13 @@ def _sweep(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    market_context = _resolve_market_context_for_tape(
+        events_path,
+        yes_token_id_override=getattr(args, "yes_asset_id", None),
+        no_token_id_override=getattr(args, "no_asset_id", None),
+    )
+    market_slug = _as_nonempty_str(market_context.get("market_slug"))
+
     print(f"[simtrader sweep] tape           : {events_path}", file=sys.stderr)
     print(f"[simtrader sweep] strategy       : {strategy_name}", file=sys.stderr)
     print(f"[simtrader sweep] strategy-config: {strategy_config}", file=sys.stderr)
@@ -1186,6 +1231,10 @@ def _sweep(args: argparse.Namespace) -> int:
                 strict=args.strict,
                 sweep_id=args.sweep_id or None,
                 artifacts_root=DEFAULT_ARTIFACTS_DIR,
+                strategy_preset=(
+                    strategy_preset if strategy_name == "binary_complement_arb" else None
+                ),
+                market_slug=market_slug,
             ),
             sweep_config=sweep_config,
         )
@@ -1617,7 +1666,13 @@ def _quickrun(args: argparse.Namespace) -> int:
 
     # -- Build tape directory --------------------------------------------------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / f"{ts}_quickrun_{yes_id[:8]}"
+    pair_suffix = short_hash(yes_id, no_id)
+    tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="tape",
+        market_slug=resolved.slug,
+        suffix=pair_suffix,
+    )
     tape_id = tape_dir.name
 
     print(f"[quickrun] tape dir : {tape_dir}", file=sys.stderr)
@@ -1700,7 +1755,13 @@ def _quickrun(args: argparse.Namespace) -> int:
             return 1
 
         sweep_config = _SWEEP_PRESETS[preset_key]()  # call the factory
-        sweep_id = f"quickrun_{ts}_{yes_id[:8]}"
+        sweep_id = build_timestamped_artifact_id(
+            timestamp=ts,
+            kind="sweep",
+            market_slug=resolved.slug,
+            preset=preset_key,
+            suffix=short_hash(yes_id, no_id, preset_key),
+        )
         sweep_dir = DEFAULT_ARTIFACTS_DIR / "sweeps" / sweep_id
 
         print(f"[quickrun sweep] preset  : {preset_key}", file=sys.stderr)
@@ -1726,6 +1787,8 @@ def _quickrun(args: argparse.Namespace) -> int:
                     strict=False,
                     sweep_id=sweep_id,
                     artifacts_root=DEFAULT_ARTIFACTS_DIR,
+                    strategy_preset=strategy_preset,
+                    market_slug=resolved.slug,
                 ),
                 sweep_config=sweep_config,
             )
@@ -1742,6 +1805,10 @@ def _quickrun(args: argparse.Namespace) -> int:
             try:
                 sm = json.loads(sweep_manifest_path.read_text(encoding="utf-8"))
                 sm["quickrun_context"] = quickrun_context
+                sm["display_name"] = derive_sweep_display_name(
+                    sm,
+                    artifact_id=sweep_result.sweep_dir.name,
+                )
                 sweep_manifest_path.write_text(
                     json.dumps(sm, indent=2) + "\n", encoding="utf-8"
                 )
@@ -1796,7 +1863,13 @@ def _quickrun(args: argparse.Namespace) -> int:
     # ------------------------------------------------------------------
     # Single-run mode (original behaviour)
     # ------------------------------------------------------------------
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="run",
+        market_slug=resolved.slug,
+        strategy="binary_complement_arb",
+        preset=strategy_preset,
+    )
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
 
     # -- Run strategy ----------------------------------------------------------
@@ -1815,6 +1888,8 @@ def _quickrun(args: argparse.Namespace) -> int:
                 latency_cancel_ticks=args.cancel_latency_ticks,
                 strict=False,
                 allow_degraded=False,
+                strategy_preset=strategy_preset,
+                market_slug=resolved.slug,
             )
         )
     except StrategyRunConfigError as exc:
@@ -1856,6 +1931,10 @@ def _quickrun(args: argparse.Namespace) -> int:
         try:
             run_manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
             run_manifest_data["quickrun_context"] = quickrun_context
+            run_manifest_data["display_name"] = derive_run_display_name(
+                run_manifest_data,
+                artifact_id=run_dir.name,
+            )
             manifest_path.write_text(
                 json.dumps(run_manifest_data, indent=2) + "\n", encoding="utf-8"
             )
@@ -2050,14 +2129,19 @@ def _shadow(args: argparse.Namespace) -> int:
 
     # -- Build run directory ---------------------------------------------------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"{ts}_shadow_{yes_id[:8]}"
+    run_id = build_timestamped_artifact_id(
+        timestamp=ts,
+        kind="shadow",
+        market_slug=resolved.slug,
+        suffix=short_hash(yes_id, no_id),
+    )
     run_dir = DEFAULT_ARTIFACTS_DIR / "shadow_runs" / run_id
 
     # -- Optional tape directory -----------------------------------------------
     record_tape = not args.no_record_tape
     tape_dir: Optional[Path] = None
     if record_tape:
-        tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / f"{ts}_shadow_{yes_id[:8]}"
+        tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / run_id
 
     print(f"[shadow] run dir  : {run_dir}", file=sys.stderr)
     print(f"[shadow] duration : {args.duration}s", file=sys.stderr)
@@ -2099,6 +2183,8 @@ def _shadow(args: argparse.Namespace) -> int:
             cancel_ticks=getattr(args, "cancel_latency_ticks", 0),
         ),
         max_ws_stall_seconds=getattr(args, "max_ws_stall_seconds", 30.0),
+        strategy_name=strategy_name,
+        strategy_preset=strategy_preset,
     )
 
     try:

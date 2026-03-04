@@ -96,7 +96,7 @@ class TestResolveClickhouseDatabase:
     def test_default_database(self, monkeypatch):
         monkeypatch.delenv("CLICKHOUSE_DATABASE", raising=False)
         monkeypatch.delenv("CLICKHOUSE_DB", raising=False)
-        assert _resolve_clickhouse_database() == "polyttool"
+        assert _resolve_clickhouse_database() == "polytool"
 
     def test_clickhouse_database_takes_priority(self, monkeypatch):
         monkeypatch.setenv("CLICKHOUSE_DATABASE", "mydb")
@@ -133,9 +133,9 @@ class TestGetClickhouseClient:
         mock_cc.get_client.assert_called_once_with(
             host="localhost",
             port=8123,
-            username="polyttool_admin",
-            password="polyttool_admin",
-            database="polyttool",
+            username="polytool_admin",
+            password="polytool_admin",
+            database="polytool",
         )
         assert result is mock_client
 
@@ -156,9 +156,9 @@ class TestGetClickhouseClient:
         mock_cc.get_client.assert_called_once_with(
             host="clickhouse",
             port=8123,
-            username="polyttool_admin",
-            password="polyttool_admin",
-            database="polyttool",
+            username="polytool_admin",
+            password="polytool_admin",
+            database="polytool",
         )
 
     def test_env_overrides(self, monkeypatch):

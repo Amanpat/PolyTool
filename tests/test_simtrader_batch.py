@@ -325,6 +325,20 @@ class TestRunBatch:
             (result.batch_dir / "batch_manifest.json").read_text(encoding="utf-8")
         )
         assert manifest["min_events"] == 7
+        assert "display_name" in manifest
+        assert "batch" in manifest["display_name"]
+
+    def test_batch_default_id_includes_slug_for_single_market(self, tmp_path):
+        """Auto-generated single-market batch IDs include the market slug."""
+        result, _ = self._run(tmp_path, num_markets=1, batch_id=None)
+
+        assert f"_batch_{SLUG_1}_" in result.batch_id
+
+    def test_batch_default_id_uses_preset_and_size_for_multi_market(self, tmp_path):
+        """Auto-generated multi-market batch IDs include preset + batch size."""
+        result, _ = self._run(tmp_path, num_markets=2, batch_id=None)
+
+        assert "_batch_quick_2markets_" in result.batch_id
 
     def test_batch_warns_when_tape_shorter_than_min_events(self, tmp_path, capsys):
         """Per-market quickrun-style warning is emitted when tape is below min_events."""

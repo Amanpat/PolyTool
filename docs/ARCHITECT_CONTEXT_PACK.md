@@ -197,7 +197,7 @@ docker compose up -d --build
 docker compose ps  # All healthy
 
 # 3. Verify ClickHouse
-curl "http://localhost:18123/?query=SELECT%201&user=polyttool_admin&password=polyttool_admin"
+curl "http://localhost:18123/?query=SELECT%201&user=polytool_admin&password=polytool_admin"
 
 # 4. Run a scan
 python -m polytool scan  # Uses TARGET_USER from .env

@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -59,12 +59,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count() AS total_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT count() AS total_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -74,7 +74,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -122,12 +122,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT countIf(status = 'ok') AS ok_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT countIf(status = 'ok') AS ok_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -137,7 +137,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -185,12 +185,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT countIf(status = 'empty') AS empty_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT countIf(status = 'empty') AS empty_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -200,7 +200,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -248,12 +248,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT countIf(status = 'one_sided') AS one_sided_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT countIf(status = 'one_sided') AS one_sided_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -263,7 +263,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -311,12 +311,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT countIf(status = 'no_orderbook') AS no_orderbook_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT countIf(status = 'no_orderbook') AS no_orderbook_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -326,7 +326,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -374,12 +374,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT countIf(status = 'error') AS error_snapshots\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT countIf(status = 'error') AS error_snapshots\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -389,7 +389,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -447,12 +447,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  if(\n    countIf(status = 'ok') = 0,\n    0,\n    countIf(usable_liquidity = 1) * 100.0 / countIf(status = 'ok')\n  ) AS usable_liquidity_pct\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT\n  if(\n    countIf(status = 'ok') = 0,\n    0,\n    countIf(usable_liquidity = 1) * 100.0 / countIf(status = 'ok')\n  ) AS usable_liquidity_pct\nFROM polytool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -462,7 +462,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -512,12 +512,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT median(execution_cost_bps_100) AS median_exec_cost_bps\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\n  AND execution_cost_bps_100 > 0",
+          "rawSql": "SELECT median(execution_cost_bps_100) AS median_exec_cost_bps\nFROM polytool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\n  AND execution_cost_bps_100 > 0",
           "refId": "A"
         }
       ],
@@ -527,7 +527,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -609,12 +609,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 0,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(spread_bps) AS avg_spread_bps,\n  max(spread_bps) AS max_spread_bps,\n  min(spread_bps) AS min_spread_bps\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\n  AND spread_bps IS NOT NULL\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(spread_bps) AS avg_spread_bps,\n  max(spread_bps) AS max_spread_bps,\n  min(spread_bps) AS min_spread_bps\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\n  AND spread_bps IS NOT NULL\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -624,7 +624,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -706,12 +706,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 0,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(depth_bid_usd_50bps) AS avg_bid_depth,\n  avg(depth_ask_usd_50bps) AS avg_ask_depth\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(depth_bid_usd_50bps) AS avg_bid_depth,\n  avg(depth_ask_usd_50bps) AS avg_ask_depth\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -721,7 +721,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -803,12 +803,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 0,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(slippage_buy_bps_100) AS avg_buy_slip_100,\n  avg(slippage_sell_bps_100) AS avg_sell_slip_100,\n  avg(slippage_buy_bps_500) AS avg_buy_slip_500,\n  avg(slippage_sell_bps_500) AS avg_sell_slip_500\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\nGROUP BY time\nORDER BY time",
+          "rawSql": "SELECT\n  toStartOfHour(snapshot_ts) AS time,\n  avg(slippage_buy_bps_100) AS avg_buy_slip_100,\n  avg(slippage_sell_bps_100) AS avg_sell_slip_100,\n  avg(slippage_buy_bps_500) AS avg_buy_slip_500,\n  avg(slippage_sell_bps_500) AS avg_sell_slip_500\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'ok'\nGROUP BY time\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -818,7 +818,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -1060,12 +1060,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  e.snapshot_ts,\n  e.token_id,\n  e.market_slug,\n  e.question,\n  e.outcome_name,\n  e.status,\n  e.reason,\n  e.best_bid,\n  e.best_ask,\n  e.spread_bps,\n  e.depth_bid_usd_50bps,\n  e.depth_ask_usd_50bps,\n  e.slippage_buy_bps_100,\n  e.slippage_sell_bps_100,\n  e.execution_cost_bps_100,\n  e.usable_liquidity,\n  e.liquidity_grade\nFROM polyttool.orderbook_snapshots_enriched e\nWHERE $__timeFilter(e.snapshot_ts)\nORDER BY e.snapshot_ts DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  e.snapshot_ts,\n  e.token_id,\n  e.market_slug,\n  e.question,\n  e.outcome_name,\n  e.status,\n  e.reason,\n  e.best_bid,\n  e.best_ask,\n  e.spread_bps,\n  e.depth_bid_usd_50bps,\n  e.depth_ask_usd_50bps,\n  e.slippage_buy_bps_100,\n  e.slippage_sell_bps_100,\n  e.execution_cost_bps_100,\n  e.usable_liquidity,\n  e.liquidity_grade\nFROM polytool.orderbook_snapshots_enriched e\nWHERE $__timeFilter(e.snapshot_ts)\nORDER BY e.snapshot_ts DESC\nLIMIT 100",
           "refId": "A"
         }
       ],
@@ -1075,7 +1075,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -1192,12 +1192,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  countIf(status = 'ok') AS ok,\n  countIf(status = 'empty') AS empty,\n  countIf(status = 'one_sided') AS one_sided,\n  countIf(status = 'no_orderbook') AS no_orderbook,\n  countIf(status = 'error') AS error\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT\n  countIf(status = 'ok') AS ok,\n  countIf(status = 'empty') AS empty,\n  countIf(status = 'one_sided') AS one_sided,\n  countIf(status = 'no_orderbook') AS no_orderbook,\n  countIf(status = 'error') AS error\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -1207,7 +1207,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -1264,12 +1264,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  reason,\n  count() AS count\nFROM polyttool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'error'\n  AND reason IS NOT NULL\nGROUP BY reason\nORDER BY count DESC\nLIMIT 20",
+          "rawSql": "SELECT\n  reason,\n  count() AS count\nFROM polytool.token_orderbook_snapshots\nWHERE $__timeFilter(snapshot_ts)\n  AND status = 'error'\n  AND reason IS NOT NULL\nGROUP BY reason\nORDER BY count DESC\nLIMIT 20",
           "refId": "A"
         }
       ],
@@ -1279,7 +1279,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -1394,12 +1394,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  countIf(liquidity_grade = 'HIGH') AS high,\n  countIf(liquidity_grade = 'MED') AS med,\n  countIf(liquidity_grade = 'LOW') AS low\nFROM polyttool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
+          "rawSql": "SELECT\n  countIf(liquidity_grade = 'HIGH') AS high,\n  countIf(liquidity_grade = 'MED') AS med,\n  countIf(liquidity_grade = 'LOW') AS low\nFROM polytool.orderbook_snapshots_enriched\nWHERE $__timeFilter(snapshot_ts)",
           "refId": "A"
         }
       ],
@@ -1410,7 +1410,7 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
-    "polyttool",
+    "polytool",
     "liquidity"
   ],
   "templating": {
@@ -1423,7 +1423,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - Liquidity Snapshots",
-  "uid": "polyttool-liquidity-snapshots",
+  "uid": "polytool-liquidity-snapshots",
   "version": 1,
   "weekStart": ""
 }

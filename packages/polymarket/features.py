@@ -138,8 +138,8 @@ def compute_features_sql(
         if(count() > 0, countIf(upper(t.side) = 'BUY') * 100.0 / count(), 0) AS pct_buys,
         if(count() > 0, countIf(upper(t.side) = 'SELL') * 100.0 / count(), 0) AS pct_sells,
         if(count() > 0, countIf(length(mt.token_id) > 0) * 100.0 / count(), 0) AS mapping_coverage
-    FROM polyttool.user_trades_resolved AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
+    FROM polytool.user_trades_resolved AS t
+    LEFT JOIN polytool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
     {where_clause}
     GROUP BY t.proxy_wallet, bucket_start
     ORDER BY bucket_start
@@ -179,8 +179,8 @@ def compute_daily_features_sql(proxy_wallet: str, start_date: Optional[date] = N
         if(count() > 0, countIf(upper(t.side) = 'BUY') * 100.0 / count(), 0) AS pct_buys,
         if(count() > 0, countIf(upper(t.side) = 'SELL') * 100.0 / count(), 0) AS pct_sells,
         if(count() > 0, countIf(length(mt.token_id) > 0) * 100.0 / count(), 0) AS mapping_coverage
-    FROM polyttool.user_trades_resolved AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
+    FROM polytool.user_trades_resolved AS t
+    LEFT JOIN polytool.market_tokens AS mt ON t.resolved_token_id = mt.token_id
     {where_clause}
     GROUP BY t.proxy_wallet, bucket_day
     ORDER BY bucket_day

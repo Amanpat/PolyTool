@@ -48,7 +48,7 @@ Quick-reference index of all key docs and what they cover.
 |-----|---------|
 | [TODO](TODO.md) | Deferred items by priority, spec stubs |
 | [RAG Implementation Report](RAG_IMPLEMENTATION_REPORT.md) | Technical details of RAG implementation |
-| [ADR-0001: CLI Rename](adr/ADR-0001-cli-and-module-rename.md) | polyttool -> polytool rename decision |
+| [ADR-0001: CLI Rename](adr/ADR-0001-cli-and-module-rename.md) | polytool -> polytool rename decision |
 
 ## Specs
 

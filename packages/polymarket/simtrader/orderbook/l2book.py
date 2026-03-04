@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Optional
 
 from ..tape.schema import EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE
 
@@ -96,6 +96,30 @@ class L2Book:
             key=lambda x: x[0],
         )
         return [{"price": float(p), "size": float(s)} for p, s in sorted_levels[:n]]
+
+    def snapshot_state(self) -> dict[str, Any]:
+        """Return a JSON-safe snapshot of the current book state."""
+        return {
+            "asset_id": self.asset_id,
+            "strict": self.strict,
+            "initialized": self._initialized,
+            "bids": {price: str(size) for price, size in self._bids.items()},
+            "asks": {price: str(size) for price, size in self._asks.items()},
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Restore the book from :meth:`snapshot_state` output."""
+        self.asset_id = str(state.get("asset_id", self.asset_id))
+        self.strict = bool(state.get("strict", self.strict))
+        self._initialized = bool(state.get("initialized", False))
+        self._bids = {
+            str(price): Decimal(str(size))
+            for price, size in dict(state.get("bids", {})).items()
+        }
+        self._asks = {
+            str(price): Decimal(str(size))
+            for price, size in dict(state.get("asks", {})).items()
+        }
 
     def apply(self, event: dict) -> bool:
         """Apply a normalized tape event to update book state.

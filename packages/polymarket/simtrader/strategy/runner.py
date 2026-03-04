@@ -43,6 +43,7 @@ from typing import Any, Optional
 
 from ..broker.latency import ZERO_LATENCY, LatencyConfig
 from ..broker.sim_broker import SimBroker
+from ..display_name import build_display_name
 from ..orderbook.l2book import L2Book
 from ..portfolio.ledger import PortfolioLedger
 from ..portfolio.mark import MARK_BID
@@ -97,6 +98,9 @@ class StrategyRunner:
         mark_method: str = MARK_BID,
         strict: bool = False,
         allow_degraded: bool = False,
+        strategy_name: Optional[str] = None,
+        strategy_preset: Optional[str] = None,
+        market_slug: Optional[str] = None,
     ) -> None:
         """
         Args:
@@ -126,6 +130,9 @@ class StrategyRunner:
         self.mark_method = mark_method
         self.strict = strict
         self.allow_degraded = allow_degraded
+        self.strategy_name = strategy_name or strategy.__class__.__name__
+        self.strategy_preset = strategy_preset
+        self.market_slug = market_slug
 
     # ------------------------------------------------------------------
     # Public API
@@ -617,13 +624,26 @@ class StrategyRunner:
             "net_profit": pnl_summary["net_profit"],
             "run_quality": run_quality,
             "warnings": warnings[:50],
+            "strategy": self.strategy_name,
         }
+        if self.market_slug is not None:
+            manifest["market_slug"] = self.market_slug
+        if self.strategy_preset is not None:
+            manifest["strategy_preset"] = self.strategy_preset
         if tape_coverage is not None:
             manifest["tape_coverage"] = tape_coverage
         if modeled_arb_summary:
             manifest["modeled_arb_summary"] = modeled_arb_summary
         if rejection_counts is not None:
             manifest["strategy_debug"] = {"rejection_counts": rejection_counts}
+        manifest["display_name"] = build_display_name(
+            kind="run",
+            timestamp=manifest.get("created_at"),
+            fallback_id=run_id,
+            market_slug=manifest.get("market_slug"),
+            strategy=manifest.get("strategy"),
+            strategy_preset=manifest.get("strategy_preset"),
+        )
         (run_dir / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
@@ -682,9 +702,22 @@ class StrategyRunner:
             "warnings": warnings[:50],
             "error": error,
             "failed_fast": True,
+            "strategy": self.strategy_name,
         }
+        if self.market_slug is not None:
+            manifest["market_slug"] = self.market_slug
+        if self.strategy_preset is not None:
+            manifest["strategy_preset"] = self.strategy_preset
         if tape_coverage is not None:
             manifest["tape_coverage"] = tape_coverage
+        manifest["display_name"] = build_display_name(
+            kind="run",
+            timestamp=manifest.get("created_at"),
+            fallback_id=run_id,
+            market_slug=manifest.get("market_slug"),
+            strategy=manifest.get("strategy"),
+            strategy_preset=manifest.get("strategy_preset"),
+        )
         (run_dir / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )

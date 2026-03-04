@@ -52,7 +52,6 @@ all = [
 
 [project.scripts]
 polytool = "polytool.__main__:main"
-polyttool = "polyttool.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/polymarket/polytool"
@@ -61,7 +60,6 @@ Documentation = "https://github.com/polymarket/polytool/tree/main/docs"
 [tool.setuptools]
 packages = [
     "polytool", "polytool.reports",
-    "polyttool",
     "packages", "packages.polymarket", "packages.polymarket.rag",
     "packages.polymarket.simtrader",
     "packages.polymarket.simtrader.studio",

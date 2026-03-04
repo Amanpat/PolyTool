@@ -740,6 +740,7 @@ class TestQuickrunFullCli:
 
         # tape/meta.json has quickrun_context
         assert tape_dir_capture[0] is not None
+        assert f"_tape_{SLUG}_" in tape_dir_capture[0].name
         tape_meta_path = tape_dir_capture[0] / "meta.json"
         tape_meta = _json.loads(tape_meta_path.read_text(encoding="utf-8"))
         assert "quickrun_context" in tape_meta, "tape/meta.json missing quickrun_context"
@@ -761,6 +762,7 @@ class TestQuickrunFullCli:
 
         # run_manifest.json also has quickrun_context
         assert run_dir_capture[0] is not None
+        assert f"_run_{SLUG}_binary_complement_arb_sane" in run_dir_capture[0].name
         manifest_path = run_dir_capture[0] / "run_manifest.json"
         run_manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
         assert "quickrun_context" in run_manifest, "run_manifest.json missing quickrun_context"
@@ -1246,6 +1248,8 @@ class TestQuickrunSweepCli:
 
         # run_sweep was called (not run_strategy)
         assert sweep_params_capture[0] is not None, "run_sweep was not called"
+        assert sweep_params_capture[0].market_slug == SLUG
+        assert f"_sweep_{SLUG}_" in sweep_params_capture[0].sweep_id
 
         # sweep_config has 24 scenarios (the quick preset)
         assert sweep_config_capture[0] is not None

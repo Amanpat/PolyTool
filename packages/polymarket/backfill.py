@@ -39,8 +39,8 @@ def get_missing_condition_ids_sql(proxy_wallet: str, limit: int = 500) -> str:
             concat('0x', lowerUTF8(trimBoth(mt.condition_id)))
         ) AS mt_condition_norm
     SELECT DISTINCT t_condition_norm
-    FROM polyttool.user_trades AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t_condition_norm = mt_condition_norm
+    FROM polytool.user_trades AS t
+    LEFT JOIN polytool.market_tokens AS mt ON t_condition_norm = mt_condition_norm
     WHERE t.proxy_wallet = '{proxy_wallet}'
       AND t_condition_norm != ''
       AND (mt_condition_norm = '' OR mt_condition_norm IS NULL)
@@ -54,9 +54,9 @@ def get_missing_token_ids_sql(proxy_wallet: str, limit: int = 500) -> str:
     """
     return f"""
     SELECT DISTINCT t.token_id
-    FROM polyttool.user_trades AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t.token_id = mt.token_id
-    LEFT JOIN polyttool.token_aliases AS ta ON t.token_id = ta.alias_token_id
+    FROM polytool.user_trades AS t
+    LEFT JOIN polytool.market_tokens AS mt ON t.token_id = mt.token_id
+    LEFT JOIN polytool.token_aliases AS ta ON t.token_id = ta.alias_token_id
     WHERE t.proxy_wallet = '{proxy_wallet}'
       AND t.token_id != ''
       AND (mt.token_id = '' OR mt.token_id IS NULL)
@@ -78,11 +78,11 @@ def get_missing_slugs_sql(proxy_wallet: str, limit: int = 200) -> str:
                 JSONExtractString(raw_json, 'marketSlug'),
                 JSONExtractString(raw_json, 'market_slug')
             ) AS slug
-        FROM polyttool.user_trades
+        FROM polytool.user_trades
         WHERE proxy_wallet = '{proxy_wallet}'
     )
     WHERE slug != ''
-      AND slug NOT IN (SELECT market_slug FROM polyttool.markets)
+      AND slug NOT IN (SELECT market_slug FROM polytool.markets)
     LIMIT {limit}
     """
 
@@ -113,7 +113,7 @@ def _filter_missing_condition_ids(clickhouse_client, condition_ids: list[str]) -
                 concat('0x', lowerUTF8(trimBoth(condition_id)))
             ) AS condition_id_norm
         SELECT DISTINCT condition_id_norm
-        FROM polyttool.market_tokens
+        FROM polytool.market_tokens
         WHERE condition_id_norm IN {conditions:Array(String)}
         """,
         parameters={"conditions": unique},
@@ -129,11 +129,11 @@ def _filter_missing_token_ids(clickhouse_client, token_ids: list[str]) -> list[s
     if not unique:
         return []
     mt_result = clickhouse_client.query(
-        "SELECT token_id FROM polyttool.market_tokens WHERE token_id IN {tokens:Array(String)}",
+        "SELECT token_id FROM polytool.market_tokens WHERE token_id IN {tokens:Array(String)}",
         parameters={"tokens": unique},
     )
     ta_result = clickhouse_client.query(
-        "SELECT alias_token_id FROM polyttool.token_aliases WHERE alias_token_id IN {tokens:Array(String)}",
+        "SELECT alias_token_id FROM polytool.token_aliases WHERE alias_token_id IN {tokens:Array(String)}",
         parameters={"tokens": unique},
     )
     mapped = {row[0] for row in mt_result.result_rows if row and row[0]}
@@ -148,7 +148,7 @@ def _filter_missing_slugs(clickhouse_client, slugs: list[str]) -> list[str]:
     if not unique:
         return []
     result = clickhouse_client.query(
-        "SELECT market_slug FROM polyttool.markets WHERE market_slug IN {slugs:Array(String)}",
+        "SELECT market_slug FROM polytool.markets WHERE market_slug IN {slugs:Array(String)}",
         parameters={"slugs": unique},
     )
     existing = {row[0] for row in result.result_rows if row and row[0]}
@@ -172,7 +172,7 @@ def _load_existing_taxonomy_by_token(clickhouse_client, token_ids: list[str]) ->
                 argMax(subcategory, ingested_at) AS subcategory,
                 argMax(category_source, ingested_at) AS category_source,
                 argMax(subcategory_source, ingested_at) AS subcategory_source
-            FROM polyttool.market_tokens
+            FROM polytool.market_tokens
             WHERE token_id IN {tokens:Array(String)}
             GROUP BY token_id
             """,
@@ -191,7 +191,7 @@ def _load_existing_taxonomy_by_token(clickhouse_client, token_ids: list[str]) ->
                     token_id,
                     argMax(category, ingested_at) AS category,
                     argMax(subcategory, ingested_at) AS subcategory
-                FROM polyttool.market_tokens
+                FROM polytool.market_tokens
                 WHERE token_id IN {tokens:Array(String)}
                 GROUP BY token_id
                 """,
@@ -209,7 +209,7 @@ def _load_existing_taxonomy_by_token(clickhouse_client, token_ids: list[str]) ->
                     SELECT
                         token_id,
                         argMax(category, ingested_at) AS category
-                    FROM polyttool.market_tokens
+                    FROM polytool.market_tokens
                     WHERE token_id IN {tokens:Array(String)}
                     GROUP BY token_id
                     """,
@@ -281,8 +281,8 @@ def get_all_missing_condition_ids_sql(limit: int = 1000) -> str:
             concat('0x', lowerUTF8(trimBoth(mt.condition_id)))
         ) AS mt_condition_norm
     SELECT DISTINCT t_condition_norm
-    FROM polyttool.user_trades AS t
-    LEFT JOIN polyttool.market_tokens AS mt ON t_condition_norm = mt_condition_norm
+    FROM polytool.user_trades AS t
+    LEFT JOIN polytool.market_tokens AS mt ON t_condition_norm = mt_condition_norm
     WHERE t_condition_norm != ''
       AND (mt_condition_norm = '' OR mt_condition_norm IS NULL)
     LIMIT {limit}

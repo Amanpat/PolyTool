@@ -29,11 +29,11 @@ This guide explains each Grafana dashboard in PolyTool and how to use them.
 
 All dashboards with a User selector use the same centralized ClickHouse view for consistent labeling:
 
-**View:** `polyttool.users_grafana_dropdown`
+**View:** `polytool.users_grafana_dropdown`
 
 **Query:**
 ```sql
-SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text
+SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text
 ```
 
 **Label format:**
@@ -55,7 +55,7 @@ This ensures:
 ## PolyTool - User Overview
 
 **Location:** Dashboards > PolyTool - User Overview
-**UID:** `polyttool-user-overview`
+**UID:** `polytool-user-overview`
 
 The primary dashboard for analyzing a Polymarket user. Combines key metrics from all other dashboards into a single view.
 
@@ -154,7 +154,7 @@ See [PACKET_6_OPPORTUNITIES.md](./PACKET_6_OPPORTUNITIES.md) for Opportunity Eng
 ## PolyTool - Strategy Detectors
 
 **Location:** Dashboards > PolyTool - Strategy Detectors
-**UID:** `polyttool-strategy-detectors`
+**UID:** `polytool-strategy-detectors`
 
 Detailed view of strategy detection results with evidence exploration.
 
@@ -186,7 +186,7 @@ Detailed view of strategy detection results with evidence exploration.
 ## PolyTool - PnL
 
 **Location:** Dashboards > PolyTool - PnL
-**UID:** `polyttool-pnl`
+**UID:** `polytool-pnl`
 
 Focused view of profit/loss and exposure metrics.
 
@@ -209,7 +209,7 @@ Focused view of profit/loss and exposure metrics.
 ## PolyTool - Arb Feasibility
 
 **Location:** Dashboards > PolyTool - Arb Feasibility
-**UID:** `polyttool-arb-feasibility`
+**UID:** `polytool-arb-feasibility`
 
 Analysis of arbitrage opportunities and their execution costs.
 
@@ -237,7 +237,7 @@ Analysis of arbitrage opportunities and their execution costs.
 ## PolyTool - Liquidity Snapshots
 
 **Location:** Dashboards > PolyTool - Liquidity Snapshots
-**UID:** `polyttool-liquidity-snapshots`
+**UID:** `polytool-liquidity-snapshots`
 
 Global view of orderbook quality across all snapshots (not user-filtered).
 
@@ -272,7 +272,7 @@ Global view of orderbook quality across all snapshots (not user-filtered).
 ## PolyTool - User Trades
 
 **Location:** Dashboards > PolyTool - User Trades
-**UID:** `polyttool-user-trades`
+**UID:** `polytool-user-trades`
 
 Raw trade data exploration.
 
@@ -286,7 +286,7 @@ Raw trade data exploration.
 ## PolyTool - Infra Smoke
 
 **Location:** Dashboards > PolyTool - Infra Smoke
-**UID:** `polyttool-infra-smoke`
+**UID:** `polytool-infra-smoke`
 
 Infrastructure health monitoring.
 

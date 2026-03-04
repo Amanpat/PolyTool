@@ -74,7 +74,7 @@ Items that are out of MVP scope but should be considered for future versions.
 
 - [ ] Rename `RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
 - [ ] Add a short troubleshooting snippet in runbooks for `scan --debug-export` (empty export triage flow)
-- [ ] Add a docs guard/check so new non-deprecation `python -m polyttool` command examples fail CI
+- [ ] Add a docs guard/check so new non-deprecation `python -m polytool` command examples fail CI
 
 ### Grafana Dashboards
 

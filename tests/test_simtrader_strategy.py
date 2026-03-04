@@ -704,6 +704,47 @@ def test_cli_run_subcommand(tmp_path: Path) -> None:
     assert (run_dir / "decisions.jsonl").exists(), "decisions.jsonl not written"
 
 
+def test_cli_run_default_id_includes_market_slug_and_strategy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default ``simtrader run`` IDs include the inferred market slug and strategy."""
+    import packages.polymarket.simtrader.strategy.facade as facade
+    from tools.cli.simtrader import main as simtrader_main
+
+    tape_dir = tmp_path / "captured-tape"
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    tape_path = tape_dir / "events.jsonl"
+    _write_tape(tape_path)
+    (tape_dir / "meta.json").write_text(
+        json.dumps({"quickrun_context": {"selected_slug": "inferred-run-market"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    captured: list = []
+
+    def _fake_run_strategy(params):
+        captured.append(params)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+    rc = simtrader_main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy", "copy_wallet_replay",
+            "--strategy-config", json.dumps({"trades_path": "ignored.jsonl"}),
+        ]
+    )
+
+    assert rc == 0
+    assert len(captured) == 1
+    assert captured[0].market_slug == "inferred-run-market"
+    assert "_run_inferred-run-market_copy_wallet_replay" in captured[0].run_dir.name
+
+
 def test_cli_run_strategy_config_json_string_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`--strategy-config` JSON string is parsed once and passed through as dict."""
     import packages.polymarket.simtrader.strategy.facade as facade
@@ -1618,6 +1659,8 @@ def test_batched_price_change_timeline_rows_gt_one(tmp_path: Path) -> None:
     runner.run()
 
     manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert "display_name" in manifest
+    assert "run" in manifest["display_name"]
     assert manifest["timeline_rows"] > 1, (
         "timeline_rows should be > 1 after batched price_changes[] update"
     )

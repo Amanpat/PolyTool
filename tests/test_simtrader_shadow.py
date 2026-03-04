@@ -179,6 +179,8 @@ class TestShadowRunnerArtifacts:
         self._make_runner(run_dir).run()
         manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
         assert manifest["mode"] == "shadow"
+        assert "display_name" in manifest
+        assert "shadow" in manifest["display_name"]
 
     def test_run_manifest_has_shadow_context(self, tmp_path):
         """run_manifest.json contains shadow_context with the expected keys."""
@@ -494,8 +496,6 @@ class TestShadowCLI:
         """Full shadow run with injected events produces artifacts."""
         from tools.cli.simtrader import main
 
-        fake_events = _make_fake_events()
-
         with (
             patch("packages.polymarket.gamma.GammaClient") as MockGamma,
             patch("packages.polymarket.clob.ClobClient") as MockClob,
@@ -518,6 +518,51 @@ class TestShadowCLI:
 
         assert rc == 0
         assert mock_run.called
+
+    def test_shadow_default_ids_include_slug_and_tape_matches_run(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Default shadow artifact IDs include the market slug and reuse one ID for tape+run."""
+        from tools.cli.simtrader import main
+
+        captured: list[dict] = []
+
+        class FakeShadowRunner:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+            def run(self):
+                return {"net_profit": "0.00"}
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient") as MockGamma,
+            patch("packages.polymarket.clob.ClobClient") as MockClob,
+            patch(
+                "packages.polymarket.simtrader.shadow.runner.ShadowRunner",
+                FakeShadowRunner,
+            ),
+        ):
+            gamma_instance = MockGamma.return_value
+            gamma_instance.fetch_markets_filtered.return_value = [self._make_market()]
+            clob_instance = MockClob.return_value
+            clob_instance.fetch_book.return_value = self._make_good_book()
+
+            rc = main([
+                "shadow",
+                "--market", SLUG,
+                "--duration", "10",
+            ])
+
+        assert rc == 0
+        assert len(captured) == 1
+        params = captured[0]
+        assert params["tape_dir"] is not None
+        assert params["run_dir"].name == params["tape_dir"].name
+        assert f"_shadow_{SLUG}_" in params["run_dir"].name
 
     def test_shadow_loose_strategy_preset_expands_strategy_config(self):
         """--strategy-preset loose maps to JSON-equivalent strategy config overrides."""

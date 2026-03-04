@@ -16,10 +16,10 @@ Roadmap 5.1A CLV was executed in a real scan run and verified end-to-end through
 ## Commands Run
 
 1. Apply CLV snapshots migration:
-   - `Get-Content infra/clickhouse/initdb/20_clv_price_snapshots.sql -Raw | docker exec -i polyttool-clickhouse clickhouse-client -d polyttool --multiquery`
+   - `Get-Content infra/clickhouse/initdb/20_clv_price_snapshots.sql -Raw | docker exec -i polytool-clickhouse clickhouse-client -d polytool --multiquery`
 2. Verify migration table exists:
-   - `docker exec -i polyttool-clickhouse clickhouse-client -d polyttool -q "SHOW TABLES LIKE 'market_price_snapshots'"`
-   - `docker exec -i polyttool-clickhouse clickhouse-client -d polyttool -q "SHOW CREATE TABLE market_price_snapshots"`
+   - `docker exec -i polytool-clickhouse clickhouse-client -d polytool -q "SHOW TABLES LIKE 'market_price_snapshots'"`
+   - `docker exec -i polytool-clickhouse clickhouse-client -d polytool -q "SHOW CREATE TABLE market_price_snapshots"`
 3. Run CLV-enabled scan:
    - `python -m polytool scan --user "@drpufferfish" --compute-clv --enrich-resolutions`
 4. Inspect artifacts:

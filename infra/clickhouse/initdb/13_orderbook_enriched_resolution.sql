@@ -1,6 +1,6 @@
 -- Orderbook snapshots enrichment using token aliases + markets metadata
 
-CREATE OR REPLACE VIEW polyttool.orderbook_snapshots_enriched AS
+CREATE OR REPLACE VIEW polytool.orderbook_snapshots_enriched AS
 SELECT
     s.snapshot_ts AS snapshot_ts,
     s.token_id AS token_id,
@@ -18,10 +18,10 @@ SELECT
     s.depth_ask_usd_50bps AS depth_ask_usd_50bps,
     s.slippage_buy_bps_100 AS slippage_buy_bps_100,
     s.slippage_sell_bps_100 AS slippage_sell_bps_100
-FROM polyttool.token_orderbook_snapshots s
-LEFT JOIN polyttool.token_aliases ta ON s.token_id = ta.alias_token_id
-LEFT JOIN polyttool.market_tokens mt ON mt.token_id = coalesce(nullIf(ta.canonical_clob_token_id, ''), s.token_id)
-LEFT JOIN polyttool.markets_enriched me ON if(
+FROM polytool.token_orderbook_snapshots s
+LEFT JOIN polytool.token_aliases ta ON s.token_id = ta.alias_token_id
+LEFT JOIN polytool.market_tokens mt ON mt.token_id = coalesce(nullIf(ta.canonical_clob_token_id, ''), s.token_id)
+LEFT JOIN polytool.markets_enriched me ON if(
     startsWith(lowerUTF8(trimBoth(mt.condition_id)), '0x'),
     concat('0x', substring(lowerUTF8(trimBoth(mt.condition_id)), 3)),
     concat('0x', lowerUTF8(trimBoth(mt.condition_id)))
@@ -31,4 +31,4 @@ LEFT JOIN polyttool.markets_enriched me ON if(
     concat('0x', lowerUTF8(trimBoth(me.condition_id)))
 );
 
-GRANT SELECT ON polyttool.orderbook_snapshots_enriched TO grafana_ro;
+GRANT SELECT ON polytool.orderbook_snapshots_enriched TO grafana_ro;

@@ -50,6 +50,7 @@ from typing import Any, Generator, Iterable, Optional
 
 from ..broker.latency import ZERO_LATENCY, LatencyConfig
 from ..broker.sim_broker import SimBroker
+from ..display_name import build_display_name
 from ..orderbook.l2book import L2Book, L2BookError
 from ..portfolio.ledger import PortfolioLedger
 from ..portfolio.mark import MARK_BID
@@ -188,6 +189,8 @@ class ShadowRunner:
         max_ws_stall_seconds: float = 30.0,
         _event_source: Optional[Iterable[dict]] = None,
         _stall_after_n_events: Optional[int] = None,
+        strategy_name: Optional[str] = None,
+        strategy_preset: Optional[str] = None,
     ) -> None:
         self.run_dir = run_dir
         self.asset_ids = [str(a) for a in asset_ids if str(a)]
@@ -206,6 +209,8 @@ class ShadowRunner:
         self.max_ws_stall_seconds = max(0.0, float(max_ws_stall_seconds))
         self._event_source = _event_source
         self._stall_after_n_events = _stall_after_n_events
+        self.strategy_name = strategy_name or strategy.__class__.__name__
+        self.strategy_preset = strategy_preset
 
     # ------------------------------------------------------------------
     # Public API
@@ -880,6 +885,11 @@ class ShadowRunner:
         )
 
         run_id = run_dir.name
+        market_slug: str | None = None
+        if isinstance(self.shadow_context, dict):
+            selected_slug = self.shadow_context.get("selected_slug")
+            if isinstance(selected_slug, str) and selected_slug.strip():
+                market_slug = selected_slug.strip()
         manifest: dict[str, Any] = {
             "run_id": run_id,
             "mode": "shadow",
@@ -913,13 +923,25 @@ class ShadowRunner:
             "tape_dir": str(self.tape_dir) if self.tape_dir is not None else None,
             "shadow_context": self.shadow_context,
             "run_metrics": metrics.to_dict(),
+            "strategy": self.strategy_name,
+            "strategy_preset": self.strategy_preset,
         }
+        if market_slug is not None:
+            manifest["market_slug"] = market_slug
         if stall_exit_reason is not None:
             manifest["exit_reason"] = stall_exit_reason
         if modeled_arb_summary:
             manifest["modeled_arb_summary"] = modeled_arb_summary
         if rejection_counts is not None:
             manifest["strategy_debug"] = {"rejection_counts": rejection_counts}
+        manifest["display_name"] = build_display_name(
+            kind="shadow",
+            timestamp=started_at,
+            fallback_id=run_id,
+            market_slug=manifest.get("market_slug"),
+            strategy=manifest.get("strategy"),
+            strategy_preset=manifest.get("strategy_preset"),
+        )
 
         (run_dir / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8"

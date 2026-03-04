@@ -35,11 +35,11 @@ class _FakeClickhouse:
                     existing.get("subcategory_source", "none"),
                 ])
             return _FakeResult(rows)
-        if "FROM polyttool.market_tokens" in query:
+        if "FROM polytool.market_tokens" in query:
             return _FakeResult([])
-        if "FROM polyttool.token_aliases" in query:
+        if "FROM polytool.token_aliases" in query:
             return _FakeResult([])
-        if "FROM polyttool.markets" in query:
+        if "FROM polytool.markets" in query:
             return _FakeResult([])
         return _FakeResult([])
 

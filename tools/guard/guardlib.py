@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import posixpath
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
@@ -31,10 +32,20 @@ DATA_EXTENSIONS = {
 
 
 def normalize_path(path: str) -> str:
-    normalized = Path(path).as_posix()
-    if normalized.startswith("./"):
-        normalized = normalized[2:]
-    return normalized.lstrip("/")
+    # Normalize to POSIX separators first so behavior is stable across OSes.
+    normalized = path.replace("\\", "/")
+    normalized = posixpath.normpath(normalized)
+
+    # Keep all paths repo-relative and prevent traversal prefixes.
+    while normalized.startswith("../"):
+        normalized = normalized[3:]
+    if normalized == "..":
+        normalized = ""
+
+    normalized = normalized.lstrip("/")
+    if normalized == ".":
+        return ""
+    return normalized
 
 
 def is_secrets_like(path: str) -> bool:

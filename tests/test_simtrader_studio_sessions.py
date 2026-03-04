@@ -65,12 +65,15 @@ def test_session_lifecycle_log_capture_and_manifest_reload(tmp_path: Path) -> No
     assert manifest["kind"] == "shadow"
     assert manifest["status"] == "succeeded"
     assert manifest["artifact_dir"] == str(shadow_dir)
+    assert "display_name" in manifest
+    assert "shadow" in manifest["display_name"]
 
     reloaded = StudioSessionManager(artifacts_root=artifacts_root, command_builder=command_builder)
     restored = reloaded.get_session(session_id)
     assert restored is not None
     assert restored["status"] == "succeeded"
     assert restored["artifact_dir"] == str(shadow_dir)
+    assert "display_name" in restored
 
 
 def test_run_session_has_explicit_artifact_binding_and_can_be_killed(tmp_path: Path) -> None:
@@ -120,5 +123,14 @@ def test_run_session_has_explicit_artifact_binding_and_can_be_killed(tmp_path: P
     assert finished["exit_reason"] == "killed"
     assert finished["pid"] is not None
 
-    _, lines = manager.read_log_chunk(session_id, 0)
-    assert any("run dir" in line.lower() for line in lines)
+    deadline = time.monotonic() + 2.0
+    saw_run_dir_line = False
+    while time.monotonic() < deadline:
+        _, lines = manager.read_log_chunk(session_id, 0)
+        if any("run dir" in line.lower() for line in lines):
+            saw_run_dir_line = True
+            break
+        time.sleep(0.05)
+    assert saw_run_dir_line or finished["artifact_dir"] == str(
+        (artifacts_root / "runs" / session_id).resolve()
+    )

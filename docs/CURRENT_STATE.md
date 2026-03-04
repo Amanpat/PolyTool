@@ -111,8 +111,7 @@ Each position now includes a resolution_outcome field:
   missing, use vector-only retrieval.
 - **Index freshness**: after adding dossiers or LLM reports, rerun `rag-index`
   so the new files are searchable.
-- **CLI rename**: Use `polytool` (not `polyttool`). The old name still works
-  but prints a deprecation warning.
+- **CLI**: Use `polytool` or `python -m polytool`.
 
 ## Developer Notes
 
@@ -124,6 +123,5 @@ Each position now includes a resolution_outcome field:
 - **MCP is optional**: The MCP server (`python -m polytool mcp`) provides
   Claude Desktop integration but is not required for the core workflow.
   It is tracked separately in the roadmap.
-- **polyttool shim removal**: The `polyttool` backward-compatibility shim
-  will be removed after version 0.2.0. See
-  [ADR-0001](adr/ADR-0001-cli-and-module-rename.md).
+- **double-t shim removed**: The old `polyttool` (double 't') backward-compatibility shim
+  has been removed. See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md).

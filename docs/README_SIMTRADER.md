@@ -252,6 +252,16 @@ Note: `--open` launches a local browser and has no effect inside a Docker contai
 
 Install deps first: `pip install polytool[studio]`
 
+### Live practice + Rewind
+
+The recommended workflow for testing a strategy on live market data, then scrubbing and iterating:
+
+1. **Start Live Simulation** — from the Studio Dashboard click **Shadow** (or run `simtrader shadow` in the CLI) to stream live WS events through your strategy. Studio creates a shadow session and optionally records a tape concurrently.
+2. **Open Simulation Viewer** — the shadow session appears in the Sessions tab. Click it to view the equity curve, orders, fills, and rejection reasons live as events arrive.
+3. **Open tape in OnDemand** — once the shadow run ends, open the recorded tape in the OnDemand tab. Scrub through the feed at any replay speed and paper-trade with different strategy configs without re-recording market data.
+
+This lets you observe real market conditions first, then deterministically replay the same events to tune parameters.
+
 ### Docker quickstart (Studio container)
 
 The repo ships with a root `Dockerfile` and a `polytool` service in `docker-compose.yml`.

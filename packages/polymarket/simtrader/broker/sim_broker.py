@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from ..orderbook.l2book import L2Book
 from ..tape.schema import EVENT_TYPE_BOOK, EVENT_TYPE_PRICE_CHANGE
@@ -270,6 +270,95 @@ class SimBroker:
     def order_events(self) -> list[dict]:
         """All order lifecycle events produced so far."""
         return list(self._order_events)
+
+    @property
+    def order_event_count(self) -> int:
+        """Number of broker lifecycle events recorded so far."""
+        return len(self._order_events)
+
+    def order_events_since(self, start_index: int) -> list[dict]:
+        """Return broker lifecycle events from *start_index* onward."""
+        if start_index <= 0:
+            return list(self._order_events)
+        return list(self._order_events[start_index:])
+
+    def snapshot_state(self, include_history: bool = False) -> dict[str, Any]:
+        """Return a JSON-safe snapshot of broker state.
+
+        By default only active runtime state is captured. Historical fills and
+        lifecycle events are included only when explicitly requested.
+        """
+        payload: dict[str, Any] = {
+            "latency": {
+                "submit_ticks": self._latency.submit_ticks,
+                "cancel_ticks": self._latency.cancel_ticks,
+            },
+            "orders": [
+                {
+                    "order_id": order.order_id,
+                    "asset_id": order.asset_id,
+                    "side": order.side,
+                    "limit_price": str(order.limit_price),
+                    "size": str(order.size),
+                    "submit_seq": order.submit_seq,
+                    "effective_seq": order.effective_seq,
+                    "cancel_effective_seq": order.cancel_effective_seq,
+                    "status": order.status,
+                    "filled_size": str(order.filled_size),
+                }
+                for order in self._orders.values()
+            ],
+        }
+        if include_history:
+            payload["fills"] = [fill.to_dict() for fill in self._fills]
+            payload["order_events"] = list(self._order_events)
+        return payload
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        """Restore broker state from :meth:`snapshot_state` output."""
+        latency = dict(state.get("latency", {}))
+        self._latency = LatencyConfig(
+            submit_ticks=int(latency.get("submit_ticks", self._latency.submit_ticks)),
+            cancel_ticks=int(latency.get("cancel_ticks", self._latency.cancel_ticks)),
+        )
+        self._orders = {}
+        for row in state.get("orders", []):
+            order = Order(
+                order_id=str(row["order_id"]),
+                asset_id=str(row["asset_id"]),
+                side=str(row["side"]),
+                limit_price=Decimal(str(row["limit_price"])),
+                size=Decimal(str(row["size"])),
+                submit_seq=int(row["submit_seq"]),
+                effective_seq=int(row["effective_seq"]),
+                cancel_effective_seq=(
+                    int(row["cancel_effective_seq"])
+                    if row.get("cancel_effective_seq") is not None
+                    else None
+                ),
+                status=str(row["status"]),
+                filled_size=Decimal(str(row.get("filled_size", "0"))),
+            )
+            self._orders[order.order_id] = order
+
+        self._fills = []
+        for row in state.get("fills", []):
+            self._fills.append(
+                FillRecord(
+                    order_id=str(row["order_id"]),
+                    asset_id=str(row["asset_id"]),
+                    seq=int(row["seq"]),
+                    ts_recv=float(row["ts_recv"]),
+                    side=str(row["side"]),
+                    fill_price=Decimal(str(row["fill_price"])),
+                    fill_size=Decimal(str(row["fill_size"])),
+                    remaining=Decimal(str(row["remaining"])),
+                    fill_status=str(row["fill_status"]),
+                    reject_reason=row.get("reject_reason"),
+                    because=dict(row.get("because", {})),
+                )
+            )
+        self._order_events = list(state.get("order_events", []))
 
     def get_order(self, order_id: str) -> Order:
         """Return the Order for *order_id* (raises KeyError if not found)."""

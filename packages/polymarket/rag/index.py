@@ -21,7 +21,7 @@ from .manifest import write_manifest
 from .metadata import build_chunk_metadata, canonicalize_rel_path, compute_chunk_id, compute_doc_id
 
 ALLOWED_ROOTS = {"kb", "artifacts"}
-DEFAULT_COLLECTION = "polyttool_rag"
+DEFAULT_COLLECTION = "polytool_rag"
 DEFAULT_PERSIST_DIR = Path("kb") / "rag" / "index"
 DEFAULT_MANIFEST_PATH = Path("kb") / "rag" / "manifests" / "index_manifest.json"
 
