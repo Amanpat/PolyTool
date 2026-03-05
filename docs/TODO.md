@@ -4,6 +4,13 @@ Items that are out of MVP scope but should be considered for future versions.
 
 ## High Priority (Post-MVP)
 
+### Agent Hygiene
+
+- [ ] Agent hygiene: dirty tree protocol (.claude/*)
+  - [ ] don't stage unrelated changes
+  - [ ] show `git status --short` + `git diff --stat`
+  - [ ] list exact files touched
+
 ## Future Feature
 
 - [] find users who are highly likely to be placing insider trades (new account, hundreds of thousands placed on odd bet)
