@@ -25,6 +25,9 @@ STRATEGY_REGISTRY: dict[str, str] = {
     "binary_complement_arb": (
         "packages.polymarket.simtrader.strategies.binary_complement_arb.BinaryComplementArb"
     ),
+    "market_maker_v0": (
+        "packages.polymarket.simtrader.strategies.market_maker_v0.MarketMakerV0"
+    ),
 }
 
 _MARK_METHODS = frozenset({MARK_BID, MARK_MID})

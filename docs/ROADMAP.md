@@ -162,6 +162,261 @@ the gap and defer CLV computation.
 
 ---
 
+### Track B - Research Loop Foundation [COMPLETE]
+
+This track runs parallel to the numbered Roadmaps and covers the research
+analysis pipeline that sits on top of the scan/dossier infrastructure.
+Track B foundation is complete: wallet-scan v0, alpha-distill v0, RAG
+reliability hardening, and offline hypothesis tracking.
+
+#### Done: Track B Foundation (completed 2026-03-05)
+
+- [x] `wallet-scan` v0: batch scan for a list of handles/wallets; deterministic leaderboard by net PnL
+- [x] `alpha-distill` v0: cross-user segment aggregation → ranked edge hypothesis candidates
+- [x] RAG default collection centralized (`polytool_rag`) across all CLI tools
+- [x] `rag-index` progress logging + binary/oversized file filters + `--max-bytes` flag
+- [x] `rag-run` CLI: re-execute stored `rag_queries.json` against the current index
+- [x] LLM bundle excerpt de-noising: circular bundle artifacts excluded from RAG selection
+- [x] LLM bundle report stub: blank `reports/<date>/<run_id>_report.md` written per bundle run
+- [x] `rag_queries.json` execution status fields (`executed`/`not_executed`/`error`)
+
+**Acceptance criteria**:
+
+1. `python -m polytool wallet-scan --input wallets.txt` completes without error and emits `leaderboard.json` + `per_user_results.jsonl`.
+2. `python -m polytool alpha-distill --wallet-scan-run <path>` reads the wallet-scan output and emits `alpha_candidates.json` with at least a `summary` block.
+3. `python -m polytool rag-index` emits progress lines and a final summary with skip counters.
+4. `python -m polytool rag-run --rag-queries <path>` re-executes queries and writes updated `rag_queries.json`.
+5. `python -m polytool llm-bundle` writes a report stub at `kb/users/<slug>/reports/…`.
+6. `pytest -q` passes with no regressions (known pre-existing failures excepted).
+
+**Done artifacts**:
+
+- `tools/cli/wallet_scan.py`, `tools/cli/alpha_distill.py`, `tools/cli/rag_run.py`
+- `packages/polymarket/rag/defaults.py`
+- `docs/specs/SPEC-wallet-scan-v0.md`, `docs/specs/SPEC-alpha-distill-v0.md`, `docs/specs/LLM_BUNDLE_CONTRACT.md`
+- `tests/test_wallet_scan.py`, `tests/test_alpha_distill.py`, `tests/test_rag_run.py`, `tests/test_rag_index_progress_filters.py`, `tests/test_rag_collection_defaults.py`
+
+---
+
+#### Done: Usability Pass (completed 2026-03-07)
+
+Operator-facing improvements only. No strategy logic, gate thresholds, or test files changed.
+
+- [x] `rag-refresh` command added: thin alias for `rag-index --rebuild`, listed prominently as the one-command RAG rebuild path
+- [x] `python -m polytool --help` reorganized into 5 workflow groups (Research Loop, Analysis & Evidence, RAG & Knowledge, SimTrader / Execution, Integrations & Utilities)
+- [x] `docs/OPERATOR_QUICKSTART.md` rewritten as a 10-section end-to-end guide covering research loop, single-user examination, RAG, market scanner, gates, daily dev loop, Studio, Grafana, and Stage 0 → Stage 1
+- [x] SimTrader Studio Dashboard tab: Grafana deep-link cards for all key dashboards
+- [x] `docs/LOCAL_RAG_WORKFLOW.md`: `rag-refresh` one-command section added at top
+- [x] `docs/INDEX.md`: `OPERATOR_QUICKSTART.md` promoted to "Start here" in Getting Started table
+
+---
+
+#### Done: Hypothesis Registry v0 + experiment skeleton (`experiment-init` + `experiment-run`) (completed 2026-03-05)
+
+Research-only. Tracks hypothesis lifecycle from candidate -> tested ->
+validated/rejected/parked.
+
+- [x] `hypothesis-register`: persist a candidate from `alpha_candidates.json` into a local registry with a stable `hypothesis_id`
+- [x] Registry format: append-only JSONL at `artifacts/research/hypothesis_registry/registry.jsonl`; each event carries `schema_version="hypothesis_registry_v0"`, source provenance, lifecycle `status` (`proposed`/`testing`/`validated`/`rejected`/`parked`), timestamps, and notes
+- [x] `hypothesis-status`: append a status change event with a required human-readable `reason`
+- [x] `experiment-init`: write `experiment.json` at `artifacts/research/experiments/<hypothesis_id>/<experiment_id>/`
+- [x] `experiment-run`: create a generated experiment attempt directory under `artifacts/research/experiments/<hypothesis_id>/`
+- [x] Focused CLI coverage for register -> status -> experiment skeleton round trips
+
+**Acceptance criteria**:
+
+1. `python -m polytool hypothesis-register --candidate-file alpha_candidates.json --rank 1 --registry artifacts/research/hypothesis_registry/registry.jsonl` appends a `registered` event and prints the new `hypothesis_id`.
+2. `python -m polytool hypothesis-status --id <id> --status testing --reason "manual review" --registry artifacts/research/hypothesis_registry/registry.jsonl` appends a full-snapshot status change event.
+3. `python -m polytool experiment-init --id <id> --registry artifacts/research/hypothesis_registry/registry.jsonl --outdir artifacts/research/experiments/<hypothesis_id>/<experiment_id>` writes `experiment.json` with `schema_version="experiment_init_v0"` and a registry snapshot.
+4. `python -m polytool experiment-run --id <id> --registry artifacts/research/hypothesis_registry/registry.jsonl --outdir artifacts/research/experiments/<hypothesis_id>` creates a generated attempt directory and writes the same `experiment.json` payload there.
+5. `pytest -q tests/test_hypothesis_registry.py tests/test_experiment_init.py tests/test_experiment_run.py tests/test_hypotheses_cli.py` passes.
+
+**Done artifacts**:
+
+- `packages/research/hypotheses/registry.py`, `tools/cli/hypotheses.py`, `polytool/__main__.py`
+- `docs/specs/SPEC-hypothesis-registry-v0.md`, `docs/features/FEATURE-hypothesis-registry-v0.md`
+- `tests/test_hypothesis_registry.py`, `tests/test_experiment_init.py`, `tests/test_hypotheses_cli.py`
+
+**TODO next**: connect `experiment-run` to actual tape/sweep execution once the
+manual validation loop is ready.
+
+---
+
+### Track A - Optional Execution Layer [IN SCOPE, GATED]
+
+Track A is optional. It is not required for Track B research workflows and is
+never enabled by default.
+
+#### Current Track A status (2026-03-07)
+
+- Gate 1: PASSED
+- Gate 2: not passed yet, but tooling is implemented and working
+- Gate 3: blocked behind Gate 2
+- Gate 4: PASSED
+- Current blocker: edge scarcity / lack of qualifying live dislocations, not
+  SimTrader plumbing
+- Current next step: bounded live dislocation capture for
+  `binary_complement_arb`; see
+  `docs/dev_logs/2026-03-07_bounded_dislocation_capture_trial.md`
+- Opportunity Radar remains deferred
+
+#### Done: Track A Week 1 - Execution primitives (completed 2026-03-05)
+
+- [x] `FileBasedKillSwitch` + `KillSwitch` interface
+- [x] `TokenBucketRateLimiter` with injectable clock/sleep for offline tests
+- [x] `RiskManager` with conservative Stage-0 order, position, loss, and inventory caps
+- [x] `LiveExecutor` wrapper with kill-switch-first, dry-run-first behavior
+- [x] `LiveRunner` orchestrator and `simtrader live` CLI surface (`--live` is now the explicit live submission path)
+
+**Acceptance criteria**:
+
+1. `python -m polytool simtrader live` runs a single Stage-0 tick in dry-run mode and prints a JSON summary.
+2. `python -m polytool simtrader live --help` documents `--live`, `--kill-switch`, `--rate-limit`, and the four USD risk-cap flags.
+3. Dry-run still checks the kill switch and never calls the client; live mode enforces `kill switch -> rate limiter -> client` order.
+4. `pytest -q tests/test_live_execution.py` passes.
+
+**Done artifacts**:
+
+- `packages/polymarket/simtrader/execution/__init__.py`, `packages/polymarket/simtrader/execution/kill_switch.py`, `packages/polymarket/simtrader/execution/rate_limiter.py`, `packages/polymarket/simtrader/execution/risk_manager.py`, `packages/polymarket/simtrader/execution/live_executor.py`, `packages/polymarket/simtrader/execution/live_runner.py`
+- `tools/cli/simtrader.py`
+- `docs/specs/SPEC-0011-live-execution-layer.md`, `docs/features/FEATURE-trackA-week1-execution-primitives.md`
+- `tests/test_live_execution.py`
+
+Track A code is complete, but promotion remains blocked until the gate checklist
+below is fully closed.
+
+- [x] Replay gate: PASSED (artifact: `artifacts/gates/replay_gate/gate_passed.json`)
+- [ ] Scenario sweep gate: NOT PASSED. Tooling is ready, but no eligible tape
+  has been captured yet.
+- [ ] Shadow gate: BLOCKED behind Gate 2; follow
+  `tools/gates/shadow_gate_checklist.md` after Gate 2 passes
+- [x] Dry-run live gate: PASSED (artifact: `artifacts/gates/dry_run_gate/gate_passed.json`)
+- [ ] Stage 0 paper-live: BLOCKED until Gates 1-4 pass, then run 72 hours with zero capital
+- [ ] Stage 1 capital: BLOCKED until Stage 0 completes cleanly
+
+### Validation Pipeline (Canonical)
+
+The canonical operator validation pipeline is:
+
+1. Replay Validation -> Gate 1
+2. Sweep Validation -> Gate 2
+3. Shadow Validation -> Gate 3
+4. Dry Run -> Gate 4
+5. Stage 0 -> 72 hour paper-live run
+6. Stage 1 -> live trading with capital
+
+Historical note: older planning language may refer to a "30-day shadow
+validation." That wording is retired. Gate 3 shadow validation plus Gate 4
+dry-run live plus the 72 hour Stage 0 paper-live run now define the
+pre-capital path.
+
+**Hard promotion order**:
+`replay -> scenario sweeps -> shadow -> dry-run live -> Stage 0 paper-live -> Stage 1 capital`.
+No live capital is allowed before all four gates pass and Stage 0 completes cleanly.
+
+**Execution policy**:
+
+1. Research outputs are not signals.
+2. Execution runs only operator-supplied strategies.
+3. A strategy must pass all prior gates and risk controls before any capital stage.
+
+**Spec**: `docs/specs/SPEC-0011-live-execution-layer.md`.
+
+#### Gate Evidence
+
+Gate artifacts are written to `artifacts/gates/<gate_name>/` and contain
+`gate_passed.json` (or `gate_failed.json`) with commit hash, timestamp, and
+details.
+
+| Gate | Script | Artifact directory |
+|------|--------|--------------------|
+| Gate 1 — Replay Determinism | `tools/gates/close_replay_gate.py` | `artifacts/gates/replay_gate/` |
+| Gate 2 — Scenario Sweep | `tools/gates/close_sweep_gate.py` | `artifacts/gates/sweep_gate/` |
+| Gate 3 — Shadow Mode (manual) | `tools/gates/shadow_gate_checklist.md` | `artifacts/gates/shadow_gate/` |
+| Gate 4 — Dry-Run Live | `tools/gates/run_dry_run_gate.py` | `artifacts/gates/dry_run_gate/` |
+
+As of 2026-03-07, Gate 1 and Gate 4 have passing artifacts. Gate 2 is not yet
+passed because no eligible tape has been captured, and Gate 3 has no artifact
+because it remains blocked behind Gate 2.
+
+**Check all gate statuses:**
+
+```bash
+python tools/gates/gate_status.py
+```
+
+Returns exit code 0 when every gate shows a `gate_passed.json`; exit code 1
+otherwise. Do not start Stage 0 paper-live until this command exits 0, and do
+not promote to Stage 1 capital until Stage 0 is clean.
+
+Gates 1, 2, 3 require a live Polymarket connection.  Gate 4 runs fully offline.
+Gate 3 is manual — follow `tools/gates/shadow_gate_checklist.md` and write the
+artifact by hand after operator sign-off.
+
+---
+
+#### Done: Track A Week 2 — OrderManager + MarketMaker v0 (completed 2026-03-05)
+
+Order lifecycle management and a first concrete strategy for replay, shadow, dry-run live, and gated live deployment.
+
+- [x] `OrderManager` reconciliation loop: diffs desired quotes vs. open orders; enforces min-lifetime, cancel-rate, and place-rate caps; returns an `ActionPlan` (no side effects)
+- [x] `MarketMakerV0` Avellaneda-Stoikov quoting strategy: microprice input, rolling sigma estimate, resolution guard, bounded spreads, and binary-market quote clamps
+- [x] `market_maker_v0` registered in `STRATEGY_REGISTRY` (`strategy/facade.py`) — usable in `simtrader run`, `simtrader quickrun`, and `simtrader shadow` via `--strategy market_maker_v0`
+- [x] `simtrader live` CLI extended: `--strategy`, `--asset-id`, `--live`, `--max-position-usd`, `--daily-loss-cap-usd`, `--max-order-usd`, `--inventory-skew-limit-usd`
+- [x] Dry-run default preserved: `simtrader live --strategy market_maker_v0` prints `WOULD PLACE` lines, runs risk checks, and makes no client call unless `--live` is passed
+- [x] Kill switch checked before every place/cancel even in dry-run mode
+- [x] Sprint-end validation: 1188 tests passing total, including 12 wallet integration tests, 30 `MarketMakerV0` tests, and passing market selection coverage
+
+**Done artifacts**:
+
+- `packages/polymarket/simtrader/execution/wallet.py`
+- `packages/polymarket/simtrader/strategies/market_maker_v0.py`
+- `packages/polymarket/simtrader/execution/order_manager.py`
+- `packages/polymarket/simtrader/execution/live_executor.py`
+- `packages/polymarket/simtrader/execution/risk_manager.py`
+- `tools/cli/simtrader.py` (updated live subparser)
+- `packages/polymarket/market_selection/`
+- `tools/gates/`
+- `docs/runbooks/LIVE_DEPLOYMENT_STAGE1.md`
+- `tests/test_market_maker_v0.py`, `tests/test_order_manager.py`, `tests/test_wallet_integration.py`, `tests/test_market_selection.py`
+- `docs/features/FEATURE-trackA-week2-market-maker-v0.md`
+- `docs/features/FEATURE-trackA-live-clob-wiring.md`
+- `docs/dev_logs/2026-03-05_trackA_week2_market_maker_v0.md`
+
+The same Track A gate checklist above remains in force. Week 2 does not change
+the gate order; it adds a concrete strategy that can now be validated through
+each gate.
+
+---
+
+#### Track A Code Complete (2026-03-05)
+
+- `packages/polymarket/simtrader/execution/wallet.py`: real `ClobClient` builder and credential bootstrap helper.
+- `packages/polymarket/simtrader/execution/live_executor.py`: live create/cancel calls route through an injected real client.
+- `packages/polymarket/simtrader/execution/risk_manager.py`: inventory skew cap, last-fill tracking, and net inventory notional checks.
+- `packages/polymarket/simtrader/strategies/market_maker_v0.py`: Avellaneda-Stoikov market maker with bounded quotes and a resolution guard.
+- `packages/polymarket/market_selection/__init__.py`: package entrypoint for market selection helpers.
+- `packages/polymarket/market_selection/scorer.py`: market scoring model and `MarketScore`.
+- `packages/polymarket/market_selection/filters.py`: market pre-filter rules.
+- `packages/polymarket/market_selection/api_client.py`: Gamma and orderbook fetch helpers for candidate selection.
+- `tools/cli/market_scan.py`: CLI entrypoint for `python -m polytool market-scan`.
+- `tools/gates/close_replay_gate.py`: Gate 1 closure script.
+- `tools/gates/close_sweep_gate.py`: Gate 2 closure script.
+- `tools/gates/run_dry_run_gate.py`: Gate 4 closure script.
+- `tools/gates/gate_status.py`: consolidated gate artifact reporter.
+- `tools/gates/shadow_gate_checklist.md`: manual Gate 3 operator procedure.
+- `tools/cli/simtrader.py`: `--live`, gate artifact checks, wallet loading, `CONFIRM`, kill switch command, and USD risk flags.
+- `docs/runbooks/LIVE_DEPLOYMENT_STAGE1.md`: one-page Stage 1 operator runbook.
+
+### Roadmap: Market Selection Engine [COMPLETE]
+
+- [x] `packages/polymarket/market_selection/` package created
+- [x] Scorer, filters, API client implemented
+- [x] `python -m polytool market-scan` CLI registered
+- [x] Tests passing
+
+---
+
 ### Roadmap 6 - Source Caching & Crawl [NOT STARTED]
 
 - [ ] Full robots.txt parsing (currently basic)
@@ -236,6 +491,44 @@ tests cover edge cases.
 
 ---
 
+## Deferred Backlog
+
+Items below are explicitly deferred. They have a named trigger condition.
+Do not start implementing them until the trigger is met.
+
+---
+
+### DEFERRED: Opportunity Radar
+
+**Status**: Deferred — not started, not scoped.
+
+**What it is**: A continuous or scheduled monitoring layer that watches live
+Polymarket markets for Gate 2 conditions (complement edge + depth), surfaces
+candidates automatically, and may trigger tape capture or alerting.
+
+**Why deferred**: The current bottleneck is not market intelligence — it is
+having a clean Gate 2 -> Gate 3 tape with `executable_ticks > 0`. Building a
+monitoring layer before that tape exists adds infrastructure without unblocking
+anything.
+
+**Trigger**: Start planning Opportunity Radar only after the first clean
+Gate 2 -> Gate 3 progression is completed (i.e., a tape passes the sweep gate
+and shadow gate in sequence with no manual workarounds).
+
+**Scope when ready** (do not start implementation now):
+- Periodic live scan (`scan-gate2-candidates`) with scheduling (cron / daemon)
+- Threshold alerts when a market exceeds a configurable edge + depth score
+- Optional auto-trigger of `prepare-gate2` for top-ranked candidates
+- Persisted scan history for trend analysis
+
+**Prerequisite reading** (when trigger fires):
+- `docs/dev_logs/2026-03-06_gate2_market_scanner.md`
+- `docs/dev_logs/2026-03-06_gate2_prep_orchestrator.md`
+- `tools/cli/scan_gate2_candidates.py` (scoring logic to extend)
+- `tools/cli/prepare_gate2.py` (orchestration glue to wrap)
+
+---
+
 ## Kill / Stop Conditions (Global)
 
 These guard against feature creep. Do NOT start the next milestone until the
@@ -246,6 +539,8 @@ current one is fully shipped.
 - **No external LLM API calls** (remains local-only forever).
 - **No mobile app / web UI** (out of scope entirely).
 - **No multi-tenant hosting** (local-first only).
+- **No live capital** before Track A gates and Stage 0 are complete
+  (`replay -> scenario sweeps -> shadow -> dry-run live -> Stage 0 paper-live`).
 - If a milestone is blocked by an external dependency (API change, SDK bug),
   park it and document the blocker in TODO.md rather than working around it.
 
@@ -257,4 +552,3 @@ The `polytool` backward-compatibility shim (double-t typo) will be removed
 after version 0.2.0. Until then, `python -m polytool` still works but prints
 a deprecation warning. All new docs and scripts must use `python -m polytool`.
 See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md) for details.
-

@@ -51,7 +51,14 @@
       "Skill(gsd:plan-phase)",
       "Bash(node:*)",
       "Bash(grep:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(git:*)",
+      "Bash(ls:*)",
+      "Bash(for dir in artifacts/simtrader/tapes/20260307*)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Read(//d/Coding Projects/Polymarket/PolyTool/$dir/**)",
+      "Bash(done)",
+      "Bash(python3:*)"
     ]
   }
 }

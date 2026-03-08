@@ -24,6 +24,12 @@ from ..strategy.facade import (
     validate_mark_method,
 )
 
+# SweepEligibilityError (subclass of SweepConfigError) is defined in
+# eligibility.py and imported lazily inside run_sweep() to avoid a
+# circular-import cycle.  Callers that need it explicitly can do:
+#   from packages.polymarket.simtrader.sweeps.eligibility import SweepEligibilityError
+# The existing ``except SweepConfigError`` in the CLI catches it automatically.
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ALLOWED_OVERRIDE_KEYS = frozenset(
     {
@@ -122,6 +128,12 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
         validate_mark_method(params.mark_method)
     except StrategyRunConfigError as exc:
         raise SweepConfigError(str(exc)) from exc
+
+    # Pre-sweep eligibility check — fast-fail before running 24 scenarios on a
+    # tape that can never produce a single order.  Import lazily to avoid a
+    # circular-import cycle (eligibility.py imports SweepConfigError from here).
+    from .eligibility import check_sweep_eligibility  # noqa: PLC0415
+    check_sweep_eligibility(params.events_path, params.strategy_name, params.strategy_config)
 
     scenarios = _normalize_scenarios(sweep_config)
     sweep_id = params.sweep_id or _derive_sweep_id(params, scenarios)

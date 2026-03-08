@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Callable, Iterable, List, Optional, Tuple
 
 from .chunker import TextChunk, chunk_text
+from .defaults import RAG_DEFAULT_COLLECTION, RAG_DEFAULT_PERSIST_DIR
 from .embedder import BaseEmbedder
 from .lexical import (
     DEFAULT_LEXICAL_DB_PATH,
@@ -21,26 +25,46 @@ from .manifest import write_manifest
 from .metadata import build_chunk_metadata, canonicalize_rel_path, compute_chunk_id, compute_doc_id
 
 ALLOWED_ROOTS = {"kb", "artifacts"}
-DEFAULT_COLLECTION = "polytool_rag"
-DEFAULT_PERSIST_DIR = Path("kb") / "rag" / "index"
+DEFAULT_COLLECTION = RAG_DEFAULT_COLLECTION
+DEFAULT_PERSIST_DIR = RAG_DEFAULT_PERSIST_DIR
 DEFAULT_MANIFEST_PATH = Path("kb") / "rag" / "manifests" / "index_manifest.json"
+DEFAULT_MAX_BYTES = 4 * 1024 * 1024
 
 TEXT_SUFFIXES = {
     ".md",
     ".txt",
     ".json",
     ".jsonl",
-    ".ndjson",
     ".csv",
-    ".tsv",
-    ".yaml",
-    ".yml",
-    ".log",
+}
+
+BINARY_HEAVY_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".pdf",
+    ".zip",
+    ".7z",
+    ".gz",
+    ".db",
+    ".sqlite",
+    ".parquet",
+    ".pptx",
+    ".docx",
+    ".exe",
 }
 
 SKIP_DIR_PARTS = {
     ".git",
     "__pycache__",
+}
+
+HF_CACHE_DIR_PARTS = {
+    ".cache",
+    "huggingface",
+    "hf_cache",
+    "hf_home",
 }
 
 
@@ -49,6 +73,23 @@ class IndexSummary:
     files_indexed: int
     chunks_indexed: int
     manifest_path: str
+    scanned_files: int = 0
+    skipped_binary: int = 0
+    skipped_too_big: int = 0
+    skipped_decode: int = 0
+
+
+@dataclass
+class IndexProgress:
+    scanned_files: int
+    embedded_chunks: int
+    skipped_binary: int
+    skipped_too_big: int
+    skipped_decode: int
+    files_indexed: int
+    chunks_indexed: int
+    last_path: str
+    is_final: bool = False
 
 
 @dataclass
@@ -116,7 +157,10 @@ def _should_skip(path: Path, repo_root: Path) -> bool:
     rel_posix = rel.as_posix()
     if rel_posix.startswith("kb/rag/index/") or rel_posix.startswith("kb/rag/manifests/") or rel_posix.startswith("kb/rag/lexical/"):
         return True
-    if any(part in SKIP_DIR_PARTS for part in rel.parts):
+    lower_parts = {part.lower() for part in rel.parts}
+    if any(part in SKIP_DIR_PARTS for part in lower_parts):
+        return True
+    if any(part in HF_CACHE_DIR_PARTS for part in lower_parts):
         return True
     return False
 
@@ -125,7 +169,7 @@ def _is_text_file(path: Path) -> bool:
     return path.suffix.lower() in TEXT_SUFFIXES
 
 
-def _iter_files(roots: Iterable[Path], repo_root: Path) -> Iterable[Path]:
+def _iter_candidate_files(roots: Iterable[Path], repo_root: Path) -> Iterable[Path]:
     for root in roots:
         if not root.exists():
             continue
@@ -134,9 +178,14 @@ def _iter_files(roots: Iterable[Path], repo_root: Path) -> Iterable[Path]:
                 continue
             if _should_skip(path, repo_root):
                 continue
-            if not _is_text_file(path):
-                continue
             yield path
+
+
+def _iter_files(roots: Iterable[Path], repo_root: Path) -> Iterable[Path]:
+    for path in _iter_candidate_files(roots, repo_root):
+        if not _is_text_file(path):
+            continue
+        yield path
 
 
 def _load_bytes(path: Path) -> bytes:
@@ -144,6 +193,54 @@ def _load_bytes(path: Path) -> bytes:
         return path.read_bytes()
     except Exception:
         return b""
+
+
+def _classify_skip_reason(path: Path, *, max_bytes: int) -> Optional[str]:
+    suffix = path.suffix.lower()
+    if suffix in BINARY_HEAVY_SUFFIXES:
+        return "binary"
+    if suffix not in TEXT_SUFFIXES:
+        return "binary"
+    if max_bytes > 0:
+        try:
+            if path.stat().st_size > max_bytes:
+                return "too_big"
+        except OSError:
+            # Treat unreadable candidates as non-text for safety.
+            return "binary"
+    return None
+
+
+def _safe_rmtree(path: Path) -> None:
+    def _handle_readonly(func, value, _exc_info):
+        try:
+            os.chmod(value, stat.S_IWRITE)
+        except OSError:
+            pass
+        func(value)
+
+    shutil.rmtree(path, onerror=_handle_readonly)
+
+
+def _clear_rebuild_directory(persist_path: Path, repo_root: Path) -> bool:
+    if not persist_path.exists():
+        return True
+    if not persist_path.is_dir():
+        raise ValueError(f"Persist path must be a directory: {persist_path}")
+
+    resolved = persist_path.resolve()
+    if resolved.parent == resolved:
+        raise ValueError(f"Refusing to clear filesystem root: {resolved}")
+    if resolved == repo_root.resolve():
+        raise ValueError(f"Refusing to clear repo root: {resolved}")
+
+    try:
+        _safe_rmtree(resolved)
+        return True
+    except OSError:
+        # Windows can keep Chroma segment files locked by another process.
+        # Fall back to collection-level rebuild if full directory cleanup fails.
+        return False
 
 
 def build_index(
@@ -157,6 +254,10 @@ def build_index(
     rebuild: bool = False,
     manifest_path: Optional[Path] = None,
     lexical_db_path: Optional[Path] = DEFAULT_LEXICAL_DB_PATH,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    progress_every_files: int = 100,
+    progress_every_chunks: int = 100,
+    progress_callback: Optional[Callable[[IndexProgress], None]] = None,
 ) -> IndexSummary:
     try:
         import chromadb
@@ -176,14 +277,18 @@ def build_index(
     persist_path = Path(persist_directory)
     if not persist_path.is_absolute():
         persist_path = (repo_root / persist_path).resolve()
+    cleared_persist_dir = True
+    if rebuild:
+        cleared_persist_dir = _clear_rebuild_directory(persist_path, repo_root)
     persist_path.mkdir(parents=True, exist_ok=True)
 
     client = chromadb.PersistentClient(path=str(persist_path))
     if rebuild:
-        try:
-            client.delete_collection(collection_name)
-        except Exception:
-            pass
+        if not cleared_persist_dir:
+            try:
+                client.delete_collection(collection_name)
+            except Exception:
+                pass
 
     collection = client.get_or_create_collection(
         name=collection_name,
@@ -202,17 +307,68 @@ def build_index(
 
     files_indexed = 0
     chunks_indexed = 0
+    scanned_files = 0
+    skipped_binary = 0
+    skipped_too_big = 0
+    skipped_decode = 0
+    last_progress_scan = 0
+    last_progress_chunks = 0
+    last_path = ""
 
-    for path in _iter_files(resolved_roots, repo_root):
+    def _emit_progress(*, is_final: bool = False) -> None:
+        nonlocal last_progress_scan, last_progress_chunks
+        if progress_callback is None:
+            return
+        emit_for_files = progress_every_files > 0 and (scanned_files - last_progress_scan) >= progress_every_files
+        emit_for_chunks = progress_every_chunks > 0 and (chunks_indexed - last_progress_chunks) >= progress_every_chunks
+        if not is_final and not emit_for_files and not emit_for_chunks:
+            return
+        progress_callback(
+            IndexProgress(
+                scanned_files=scanned_files,
+                embedded_chunks=chunks_indexed,
+                skipped_binary=skipped_binary,
+                skipped_too_big=skipped_too_big,
+                skipped_decode=skipped_decode,
+                files_indexed=files_indexed,
+                chunks_indexed=chunks_indexed,
+                last_path=last_path,
+                is_final=is_final,
+            )
+        )
+        last_progress_scan = scanned_files
+        last_progress_chunks = chunks_indexed
+
+    for path in _iter_candidate_files(resolved_roots, repo_root):
+        scanned_files += 1
+        last_path = canonicalize_rel_path(path.relative_to(repo_root).as_posix())
+
+        skip_reason = _classify_skip_reason(path, max_bytes=max_bytes)
+        if skip_reason == "binary":
+            skipped_binary += 1
+            _emit_progress()
+            continue
+        if skip_reason == "too_big":
+            skipped_too_big += 1
+            _emit_progress()
+            continue
+
         raw_bytes = _load_bytes(path)
-        text = raw_bytes.decode("utf-8", errors="ignore")
+        try:
+            text = raw_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            skipped_decode += 1
+            _emit_progress()
+            continue
         if not text.strip():
+            _emit_progress()
             continue
         chunks: List[TextChunk] = chunk_text(text, chunk_size=chunk_size, overlap=overlap)
         if not chunks:
+            _emit_progress()
             continue
         embeddings = embedder.embed_texts([chunk.text for chunk in chunks])
-        rel_path = canonicalize_rel_path(path.relative_to(repo_root).as_posix())
+        rel_path = last_path
         doc_id = compute_doc_id(rel_path, raw_bytes)
 
         # --- delete-before-insert: remove stale chunks for this file ---
@@ -284,9 +440,12 @@ def build_index(
 
         files_indexed += 1
         chunks_indexed += len(chunks)
+        _emit_progress()
 
     if lex_conn is not None:
         lex_conn.close()
+
+    _emit_progress(is_final=True)
 
     final_manifest_path = manifest_path or DEFAULT_MANIFEST_PATH
     if not final_manifest_path.is_absolute():
@@ -307,6 +466,10 @@ def build_index(
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
         manifest_path=str(final_manifest_path),
+        scanned_files=scanned_files,
+        skipped_binary=skipped_binary,
+        skipped_too_big=skipped_too_big,
+        skipped_decode=skipped_decode,
     )
 
 

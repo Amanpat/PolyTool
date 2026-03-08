@@ -8,7 +8,7 @@
 
 ---
 
-## Implementation status (as of 2026-02-25)
+## Implementation status (as of 2026-03-05)
 
 **Shipped:**
 - Replay-first tape pipeline (record → replay → L2 book)
@@ -26,6 +26,9 @@
 **Next:**
 - Better HTML report header metadata (`created_at`, `exit_reason`, `run_metrics` display)
 - Evidence memo ingestion (RAG) and ClickHouse/Grafana export stage
+- Optional Track A execution layer, gated by:
+  `replay -> scenario sweeps -> shadow -> dry-run live`
+  (no live capital before gates; see `SPEC-0011`)
 
 ---
 
@@ -375,6 +378,8 @@ from `PLAN_OF_RECORD.md` Section 1. A SimTrader run that shows positive simulate
 historical tape does **not** imply that the same strategy will be profitable live. The
 realism constraints (Section 4) are designed to make the simulation conservative, not
 prescriptive.
+Any execution layer that consumes SimTrader outputs may run only
+operator-supplied strategies that passed explicit validation gates.
 
 ---
 
@@ -783,6 +788,11 @@ SimTrader phases are independent of the main PolyTool roadmap (milestones 0–10
 proceed in parallel. The copy-wallet strategy (MVP3) creates a natural integration point with
 the scan/dossier pipeline, but that integration is optional and additive — SimTrader does not
 require ClickHouse and the scan/dossier pipeline does not require SimTrader.
+
+Any optional live execution path is outside this spec and belongs to
+`SPEC-0011-live-execution-layer.md`, with hard gate order
+`replay -> scenario sweeps -> shadow -> dry-run live` and no live capital before
+all gates are complete.
 
 ---
 

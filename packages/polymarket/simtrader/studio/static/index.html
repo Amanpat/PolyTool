@@ -383,6 +383,19 @@
         <div class="muted" style="margin-top:8px;">All actions run through <code>/api/sessions</code>.</div>
       </div>
       <div class="card">
+        <h2>Grafana Dashboards</h2>
+        <div class="muted" style="margin-bottom:8px;">Requires <code>docker compose up -d</code> · Grafana on <code>localhost:3000</code></div>
+        <div class="row" style="flex-wrap:wrap;gap:6px;">
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-user-trades" target="_blank" rel="noopener">User Trades</a>
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-pnl" target="_blank" rel="noopener">PnL</a>
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-strategy-detectors" target="_blank" rel="noopener">Strategy Detectors</a>
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-user-overview" target="_blank" rel="noopener">User Overview</a>
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-arb-feasibility" target="_blank" rel="noopener">Arb Feasibility</a>
+          <a class="btn ghost" href="http://localhost:3000/d/polytool-liquidity-snapshots" target="_blank" rel="noopener">Liquidity Snapshots</a>
+          <a class="btn ghost" href="http://localhost:3000" target="_blank" rel="noopener">All Dashboards ↗</a>
+        </div>
+      </div>
+      <div class="card">
         <h2>Recent Sessions</h2>
         <div id="dashboard-recent" class="empty">Loading...</div>
       </div>

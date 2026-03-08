@@ -540,6 +540,14 @@ class ShadowRunner:
                             ws.close()
                         except Exception:  # noqa: BLE001
                             pass
+                    # Cancel all open sim orders before reconnecting to prevent
+                    # stale fills against the reconnected book snapshot.
+                    _n = broker.cancel_all_immediate(seq=event_seq, ts_recv=time.time())
+                    if _n:
+                        logger.info(
+                            "Disconnect cancel-all: %d sim order(s) cancelled before reconnect.",
+                            _n,
+                        )
                     ws = _connect(reconnect=True)
                     if ws is None:
                         break
@@ -554,6 +562,14 @@ class ShadowRunner:
                             ws.close()
                         except Exception:  # noqa: BLE001
                             pass
+                    # Cancel all open sim orders before reconnecting to prevent
+                    # stale fills against the reconnected book snapshot.
+                    _n = broker.cancel_all_immediate(seq=event_seq, ts_recv=time.time())
+                    if _n:
+                        logger.info(
+                            "Socket-error cancel-all: %d sim order(s) cancelled before reconnect.",
+                            _n,
+                        )
                     ws = _connect(reconnect=True)
                     if ws is None:
                         break

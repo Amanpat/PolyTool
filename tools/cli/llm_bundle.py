@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import logging
 import os
@@ -17,17 +18,19 @@ from typing import Any, Dict, Iterable, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from polymarket.rag.defaults import RAG_DEFAULT_COLLECTION, RAG_DEFAULT_PERSIST_DIR
+
+DEFAULT_COLLECTION = RAG_DEFAULT_COLLECTION
+DEFAULT_PERSIST_DIR = RAG_DEFAULT_PERSIST_DIR
+
 try:
     from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
-    from polymarket.rag.index import DEFAULT_COLLECTION, DEFAULT_PERSIST_DIR
     from polymarket.rag.query import query_index
     from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
     _RAG_AVAILABLE = True
 except ImportError:
     _RAG_AVAILABLE = False
     DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"
-    DEFAULT_COLLECTION = "polytool"
-    DEFAULT_PERSIST_DIR = Path("kb/rag/index")
     DEFAULT_RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 from polytool.user_context import UserContext, resolve_user_context
@@ -189,6 +192,59 @@ def _resolve_repo_relative(path: Path) -> str:
     except ValueError:
         return path.resolve().as_posix()
     return rel.as_posix()
+
+
+def _write_report_stub(
+    *,
+    user_slug: str,
+    bundle_id: str,
+    generated_at: str,
+    bundle_path: Path,
+    memo_filled_path: Path,
+    reports_dir: Path,
+) -> Path:
+    """Create a blank Markdown report file for the user to paste the LLM's output into."""
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    stub_path = reports_dir / f"{bundle_id}_report.md"
+
+    bundle_rel = _resolve_repo_relative(bundle_path)
+    memo_rel = _resolve_repo_relative(memo_filled_path)
+
+    lines = [
+        f"# LLM Report — {user_slug} / {bundle_id}",
+        "",
+        f"**user_slug**: {user_slug}",
+        f"**bundle_id**: {bundle_id}",
+        f"**generated_at**: {generated_at}",
+        f"**bundle**: {bundle_rel}",
+        f"**memo_filled**: {memo_rel}",
+        "",
+        "> Cite evidence anchors (file_path + heading or trade_uid/token_id/condition_id).",
+        "",
+        "---",
+        "",
+        "## Executive Summary",
+        "",
+        "",
+        "## Data Quality / Coverage Gaps",
+        "",
+        "",
+        "## Findings",
+        "",
+        "",
+        "## Hypotheses",
+        "",
+        "",
+        "## Next Experiments",
+        "",
+        "",
+        "## Go/No-Go (research-only)",
+        "",
+        "",
+    ]
+
+    stub_path.write_text("\n".join(lines), encoding="utf-8")
+    return stub_path
 
 
 def _write_devlog(
@@ -366,6 +422,179 @@ def _summarize_coverage_json(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_pct(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 100:.2f}%"
+
+
+def _load_coverage_report_json(run_dir: Optional[Path]) -> Optional[dict]:
+    """Load coverage_reconciliation_report.json if available."""
+    if run_dir is None:
+        return None
+    json_path = run_dir / "coverage_reconciliation_report.json"
+    if not json_path.exists():
+        return None
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _build_memo_fill_replacements(
+    dossier_payload: Optional[dict],
+    coverage_payload: Optional[dict],
+) -> Dict[str, List[str]]:
+    """Build deterministic replacements for memo template TODO placeholders."""
+    dossier = dossier_payload if isinstance(dossier_payload, dict) else {}
+    coverage = coverage_payload if isinstance(coverage_payload, dict) else {}
+
+    outcome_counts = coverage.get("outcome_counts")
+    if not isinstance(outcome_counts, dict):
+        outcome_counts = {}
+    totals = coverage.get("totals")
+    if not isinstance(totals, dict):
+        totals = {}
+    pnl = coverage.get("pnl")
+    if not isinstance(pnl, dict):
+        pnl = {}
+    market_meta = coverage.get("market_metadata_coverage")
+    if not isinstance(market_meta, dict):
+        market_meta = {}
+    category_cov = coverage.get("category_coverage")
+    if not isinstance(category_cov, dict):
+        category_cov = {}
+    dossier_cov = dossier.get("coverage")
+    if not isinstance(dossier_cov, dict):
+        dossier_cov = {}
+
+    positions_total = _safe_int(totals.get("positions_total"))
+    if positions_total <= 0 and outcome_counts:
+        positions_total = sum(_safe_int(v) for v in outcome_counts.values())
+    win_count = _safe_int(outcome_counts.get("WIN"))
+    loss_count = _safe_int(outcome_counts.get("LOSS"))
+    other_count = max(0, positions_total - win_count - loss_count)
+
+    realized_net = _safe_float(pnl.get("realized_pnl_net_estimated_fees_total"))
+    if realized_net is None:
+        realized_net = _safe_float(pnl.get("realized_pnl_net_total"))
+
+    trade_mapping_coverage = _safe_float(dossier_cov.get("mapping_coverage"))
+    market_metadata_coverage = _safe_float(market_meta.get("coverage_rate"))
+    category_coverage = _safe_float(category_cov.get("coverage_rate"))
+
+    if positions_total > 0 or win_count > 0 or loss_count > 0:
+        outcome_line = (
+            "- Outcome distribution from coverage report: "
+            f"WIN {win_count}, LOSS {loss_count}, other {other_count}, positions {positions_total}."
+        )
+    else:
+        outcome_line = "- Outcome distribution from coverage report is unavailable in this run."
+
+    if realized_net is None:
+        pnl_line = "- Realized net PnL after estimated fees is unavailable in this run."
+    else:
+        pnl_line = (
+            "- Realized net PnL after estimated fees (coverage report): "
+            f"{realized_net:.6f}."
+        )
+
+    coverage_scope_line = (
+        "- Coverage scope note: trade-level mapping coverage = "
+        f"{_format_pct(trade_mapping_coverage)}; "
+        "position-level market metadata coverage = "
+        f"{_format_pct(market_metadata_coverage)}; "
+        "position-level category coverage = "
+        f"{_format_pct(category_coverage)}. "
+        "These use different denominators."
+    )
+
+    return {
+        "summary": [outcome_line, pnl_line, coverage_scope_line],
+        "observations": [
+            "- Deterministic memo filler inserted run-scoped outcome and PnL metrics; "
+            "treat these as snapshot evidence, not a longitudinal trend claim."
+        ],
+        "hypothesis_row": [
+            "| Auto-fill baseline only (no strategy inference) | "
+            "Outcome counts + realized net PnL from coverage report | "
+            "low | Compare with a prior/future run before using as an edge claim | "
+            "Prior-run delta metrics |"
+        ],
+        "changed_recently": [
+            "- This memo is run-scoped; deterministic change detection requires "
+            "a prior run comparison that is not computed in llm-bundle."
+        ],
+        "next_features": [
+            "- Add deterministic previous-run deltas for outcome mix and realized net PnL."
+        ],
+    }
+
+
+def _fill_memo_template(
+    memo_text: str,
+    dossier_payload: Optional[dict],
+    coverage_payload: Optional[dict],
+) -> str:
+    """Replace memo TODO placeholders with deterministic, concise content."""
+    replacements = _build_memo_fill_replacements(dossier_payload, coverage_payload)
+    template_replacements: Dict[str, List[str]] = {
+        "- TODO: Summarize the strategy in 2-3 sentences.": replacements["summary"],
+        "- TODO: Bullet observations backed by metrics/trade_uids.": replacements["observations"],
+        "| TODO | TODO | TODO | TODO | TODO |": replacements["hypothesis_row"],
+        "- TODO: Compare to prior exports or recent buckets.": replacements["changed_recently"],
+        "- TODO: Add derived metrics that would raise confidence.": replacements["next_features"],
+    }
+
+    out_lines: List[str] = []
+    fallback_table_row = (
+        "| Auto-fill baseline only (no strategy inference) | "
+        "Outcome counts + realized net PnL from coverage report | "
+        "low | Compare with a prior/future run before using as an edge claim | "
+        "Prior-run delta metrics |"
+    )
+    fallback_note = (
+        "- Auto-filled note: template placeholder removed; "
+        "use deterministic metrics in this memo."
+    )
+
+    for raw_line in memo_text.splitlines():
+        normalized = raw_line.strip()
+        replacement = template_replacements.get(normalized)
+        if replacement is not None:
+            out_lines.extend(replacement)
+            continue
+        if "TODO" in raw_line:
+            out_lines.append(fallback_table_row if normalized.startswith("|") else fallback_note)
+            continue
+        out_lines.append(raw_line)
+
+    return "\n".join(out_lines).rstrip() + "\n"
+
+
 def _build_coverage_section(run_dir: Optional[Path]) -> str:
     """Build the '## Coverage & Reconciliation' section content.
 
@@ -440,6 +669,39 @@ def _load_questions(questions_path: Optional[str]) -> List[Dict[str, str]]:
     return _normalize_questions(data)
 
 
+def _build_query_template_entry(
+    entry: Dict[str, str],
+    settings: RagSettings,
+    user_slug: Optional[str],
+    prefixes: Optional[List[str]],
+    mode: str,
+    execution_status: str,
+    execution_reason: str,
+) -> dict:
+    """Build a single rag_queries.json entry without executing the query."""
+    payload: dict = {
+        "question": entry["question"],
+        "k": settings.k,
+        "mode": mode,
+        "filters": {
+            "user_slug": user_slug,
+            "doc_types": None,
+            "private_only": settings.private_only and not settings.public_only,
+            "public_only": settings.public_only,
+            "date_from": None,
+            "date_to": None,
+            "include_archive": settings.include_archive,
+            "prefix_backstop": prefixes or [],
+        },
+        "results": [],
+        "execution_status": execution_status,
+        "execution_reason": execution_reason,
+    }
+    if entry.get("label"):
+        payload["label"] = entry["label"]
+    return payload
+
+
 def _run_rag_queries(
     questions: List[Dict[str, str]],
     settings: RagSettings,
@@ -449,9 +711,21 @@ def _run_rag_queries(
     if settings.k <= 0:
         raise ValueError("k must be positive.")
 
+    if settings.hybrid:
+        mode = "hybrid+rerank" if settings.rerank else "hybrid"
+    else:
+        mode = "vector+rerank" if settings.rerank else "vector"
+
     if not _RAG_AVAILABLE:
         print("Warning: RAG unavailable; excerpts omitted.", file=sys.stderr)
-        return []
+        return [
+            _build_query_template_entry(
+                entry, settings, user_slug, prefixes, mode,
+                execution_status="not_executed",
+                execution_reason="rag_unavailable",
+            )
+            for entry in questions
+        ]
 
     embedder = SentenceTransformerEmbedder(model_name=settings.model, device=settings.device)
     reranker = None
@@ -490,11 +764,6 @@ def _run_rag_queries(
             rerank_top_n=settings.rerank_top_n,
         )
 
-        if settings.hybrid:
-            mode = "hybrid+rerank" if settings.rerank else "hybrid"
-        else:
-            mode = "vector+rerank" if settings.rerank else "vector"
-
         payload: dict = {
             "question": question,
             "k": settings.k,
@@ -510,6 +779,8 @@ def _run_rag_queries(
                 "prefix_backstop": prefixes or [],
             },
             "results": results,
+            "execution_status": "executed",
+            "execution_reason": None if results else "no_matches_under_filters",
         }
         if entry.get("label"):
             payload["label"] = entry["label"]
@@ -517,13 +788,40 @@ def _run_rag_queries(
     return outputs
 
 
-def _collect_excerpts(payloads: Iterable[dict]) -> List[Dict[str, str]]:
+# Generated bundle artifacts that should never be re-indexed as evidence sources.
+# These paths are produced by llm-bundle itself; retrieving them as excerpts creates
+# a self-referential loop that pollutes the evidence with prior query metadata.
+_BUNDLE_ARTIFACT_PATTERNS: tuple[str, ...] = (
+    "kb/users/*/llm_bundles/*/rag_queries.json",
+    "kb/users/*/llm_bundles/*/prompt.txt",
+    "kb/users/*/llm_bundles/*/bundle.md",
+)
+
+
+def _is_bundle_artifact(file_path: str) -> bool:
+    """Return True if file_path matches a known self-referential bundle artifact pattern."""
+    for pattern in _BUNDLE_ARTIFACT_PATTERNS:
+        if fnmatch.fnmatch(file_path, pattern):
+            return True
+    return False
+
+
+def _collect_excerpts(payloads: Iterable[dict]) -> tuple[List[Dict[str, str]], int]:
+    """Collect unique excerpts from RAG query payloads, excluding bundle artifacts.
+
+    Returns ``(excerpts, filtered_count)`` where ``filtered_count`` is the number
+    of results dropped because they matched :data:`_BUNDLE_ARTIFACT_PATTERNS`.
+    """
     seen: set[str] = set()
     excerpts: List[Dict[str, str]] = []
+    filtered_count = 0
     for payload in payloads:
         results = payload.get("results") or []
         for result in results:
             file_path = result.get("file_path", "")
+            if _is_bundle_artifact(file_path):
+                filtered_count += 1
+                continue
             chunk_id = result.get("chunk_id", "")
             doc_id = result.get("doc_id", "")
             snippet = result.get("snippet", "")
@@ -537,7 +835,7 @@ def _collect_excerpts(payloads: Iterable[dict]) -> List[Dict[str, str]]:
                 "doc_id": doc_id,
                 "snippet": snippet,
             })
-    return excerpts
+    return excerpts, filtered_count
 
 
 def _render_bundle(
@@ -547,6 +845,7 @@ def _render_bundle(
     created_at: str,
     run_id: str,
     dossier_path: str,
+    memo_label: str,
     memo_text: str,
     dossier_text: str,
     manifest_label: str,
@@ -565,7 +864,7 @@ def _render_bundle(
     lines.append(f"Dossier path: {dossier_path}")
     lines.append("")
 
-    lines.append("## memo.md")
+    lines.append(f"## {memo_label}")
     lines.append("")
     _append_block(lines, memo_text)
     lines.append("")
@@ -671,6 +970,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     except (FileNotFoundError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    try:
+        dossier_payload = json.loads(dossier_text)
+    except json.JSONDecodeError:
+        dossier_payload = None
 
     run_id = _short_uuid()
     now = _utcnow()
@@ -686,7 +989,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Find the latest scan run for coverage report
     scan_run_dir = _find_latest_scan_run(user_ctx)
+    coverage_payload = _load_coverage_report_json(scan_run_dir)
     coverage_section = _build_coverage_section(scan_run_dir)
+    memo_filled_text = _fill_memo_template(memo_text, dossier_payload, coverage_payload)
 
     prefixes = _build_user_prefixes(user_slug)
     settings = RagSettings()
@@ -700,7 +1005,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         rag_payloads = []
         rag_ok = False
 
-    excerpts = _collect_excerpts(rag_payloads)
+    excerpts, rag_denoise_filtered = _collect_excerpts(rag_payloads)
 
     dossier_rel = _resolve_repo_relative(dossier_dir)
     created_at = _format_utc(now)
@@ -711,7 +1016,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         created_at=created_at,
         run_id=run_id,
         dossier_path=dossier_rel,
-        memo_text=memo_text,
+        memo_label="memo_filled.md",
+        memo_text=memo_filled_text,
         dossier_text=dossier_text,
         manifest_label=manifest_path.name,
         manifest_text=manifest_text,
@@ -725,16 +1031,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     bundle_path = output_dir / "bundle.md"
     manifest_out_path = output_dir / "bundle_manifest.json"
     rag_queries_path = output_dir / "rag_queries.json"
+    memo_filled_path = output_dir / "memo_filled.md"
 
+    memo_filled_path.write_text(memo_filled_text, encoding="utf-8")
     bundle_path.write_text(bundle_text, encoding="utf-8")
     rag_queries_path.write_text(json.dumps(rag_payloads, indent=2, sort_keys=True), encoding="utf-8")
 
+    memo_template_rel = _resolve_repo_relative(memo_path)
+    memo_filled_rel = _resolve_repo_relative(memo_filled_path)
     manifest_payload = {
         "created_at_utc": created_at,
         "user_slug": user_slug,
         "run_id": run_id,
         "model_hint": DEFAULT_MODEL_HINT,
         "dossier_path": dossier_rel,
+        "memo_fill_mode": "deterministic_v1",
+        "memo_template_path": memo_template_rel,
+        "memo_filled_path": memo_filled_rel,
         "rag_query_settings": settings.to_manifest(),
         "selected_excerpts": [
             {
@@ -745,16 +1058,30 @@ def main(argv: Optional[list[str]] = None) -> int:
             for entry in excerpts
         ],
     }
+    if rag_denoise_filtered > 0:
+        manifest_payload["rag_denoise_filtered_count"] = rag_denoise_filtered
     manifest_out_path.write_text(
         json.dumps(manifest_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
 
+    reports_dir = user_ctx.kb_user_dir / "reports" / date_label
+    report_stub_path = _write_report_stub(
+        user_slug=user_slug,
+        bundle_id=run_id,
+        generated_at=created_at,
+        bundle_path=bundle_path,
+        memo_filled_path=memo_filled_path,
+        reports_dir=reports_dir,
+    )
+
     print("LLM bundle created")
     print(f"Output dir: {output_dir}")
     print(f"Bundle: {bundle_path}")
+    print(f"Memo filled: {memo_filled_path}")
     print(f"Manifest: {manifest_out_path}")
     print(f"RAG queries: {rag_queries_path}")
+    print(f"Report stub: {report_stub_path}")
     if not args.no_devlog:
         devlog_path = _write_devlog(
             date_label=date_label,

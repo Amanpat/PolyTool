@@ -612,6 +612,57 @@ class TestShadowCLI:
         assert abs(float(cfg["buffer"]) - 0.0005) < 1e-12
         assert cfg["max_notional_usdc"] == 25
 
+    def test_shadow_market_maker_v0_does_not_inject_binary_arb_ids(self):
+        """market_maker_v0 shadow runs should use only explicit/user config overrides."""
+        from tools.cli.simtrader import main
+
+        captured: dict = {}
+
+        def fake_build_strategy(strategy_name, strategy_config):
+            captured["strategy_name"] = strategy_name
+            captured["strategy_config"] = dict(strategy_config)
+            return _NoOpStrategy()
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient") as MockGamma,
+            patch("packages.polymarket.clob.ClobClient") as MockClob,
+            patch(
+                "packages.polymarket.simtrader.strategy.facade._build_strategy",
+                side_effect=fake_build_strategy,
+            ),
+            patch(
+                "packages.polymarket.simtrader.shadow.runner.ShadowRunner.run",
+                return_value={"net_profit": "0.00", "run_id": "test"},
+            ),
+        ):
+            gamma_instance = MockGamma.return_value
+            gamma_instance.fetch_markets_filtered.return_value = [self._make_market()]
+            clob_instance = MockClob.return_value
+            clob_instance.fetch_book.return_value = self._make_good_book()
+
+            rc = main(
+                [
+                    "shadow",
+                    "--market",
+                    SLUG,
+                    "--strategy",
+                    "market_maker_v0",
+                    "--duration",
+                    "1",
+                    "--no-record-tape",
+                    "--strategy-config-json",
+                    '{"tick_size":"0.01","order_size":"5"}',
+                ]
+            )
+
+        assert rc == 0
+        assert captured["strategy_name"] == "market_maker_v0"
+        cfg = captured["strategy_config"]
+        assert cfg["tick_size"] == "0.01"
+        assert cfg["order_size"] == "5"
+        assert "yes_asset_id" not in cfg
+        assert "no_asset_id" not in cfg
+
     def test_shadow_subcommand_in_parser(self):
         """'shadow' is a registered subcommand in the argument parser."""
         from tools.cli.simtrader import _build_parser
@@ -862,3 +913,188 @@ class TestShadowStall:
         manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
         # Runner fires at i=4, reason says "simulated after 4 events"
         assert "4 events" in manifest["exit_reason"]
+
+
+# ---------------------------------------------------------------------------
+# Cancel-all-on-disconnect tests (Gate 3)
+# ---------------------------------------------------------------------------
+
+
+class TestCancelAllOnDisconnect:
+    """Verify cancel_all_immediate is called on WS disconnect before reconnect.
+
+    Uses a mock websocket module so no network connection is required.
+    The mock WS raises WebSocketConnectionClosedException on the first recv(),
+    then the deadline expires so the runner exits cleanly.
+    """
+
+    def test_cancel_all_called_on_closed_exc(self, tmp_path):
+        """cancel_all_immediate is invoked when WebSocketConnectionClosedException fires."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from packages.polymarket.simtrader.broker.sim_broker import SimBroker
+        from packages.polymarket.simtrader.shadow.runner import ShadowRunner
+
+        class _FakeDisconnect(OSError):
+            pass
+
+        recv_calls = [0]
+
+        class _FakeWsConn:
+            def connect(self, url): pass
+            def settimeout(self, t): pass
+            def send(self, msg): pass
+            def close(self): pass
+            def recv(self):
+                recv_calls[0] += 1
+                if recv_calls[0] == 1:
+                    raise _FakeDisconnect("simulated disconnect")
+                return "[]"  # unreachable in normal flow
+
+        fake_ws_mod = MagicMock()
+        fake_ws_mod.WebSocketConnectionClosedException = _FakeDisconnect
+        fake_ws_mod.WebSocketTimeoutException = TimeoutError
+        fake_ws_mod.WebSocket.return_value = _FakeWsConn()
+
+        cancel_all_calls = []
+        original_cancel_all = SimBroker.cancel_all_immediate
+
+        def _tracking_cancel_all(self, seq, ts_recv=0.0):
+            result = original_cancel_all(self, seq, ts_recv)
+            cancel_all_calls.append({"seq": seq, "count": result})
+            return result
+
+        run_dir = tmp_path / "run"
+        # Provide enough time values: initial setup returns 0.0, post-disconnect returns 100.0
+        # so the deadline (0.0 + duration) is exceeded on the reconnect attempt.
+        _time_iter = iter([0.0, 0.0, 0.0, 0.0] + [100.0] * 20)
+
+        with (
+            patch.dict(sys.modules, {"websocket": fake_ws_mod}),
+            patch("packages.polymarket.simtrader.shadow.runner.time") as mock_time,
+            patch.object(SimBroker, "cancel_all_immediate", _tracking_cancel_all),
+        ):
+            mock_time.time.side_effect = lambda: next(_time_iter, 100.0)
+            mock_time.sleep = MagicMock()
+
+            ShadowRunner(
+                run_dir=run_dir,
+                asset_ids=[YES_ID, NO_ID],
+                strategy=_NoOpStrategy(),
+                primary_asset_id=YES_ID,
+                duration_seconds=5.0,
+                starting_cash=Decimal("1000"),
+            ).run()
+
+        assert len(cancel_all_calls) >= 1, (
+            "cancel_all_immediate must be called at least once on WS disconnect"
+        )
+
+    def test_cancel_all_called_on_oserror(self, tmp_path):
+        """cancel_all_immediate is invoked when an OSError (socket error) fires."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from packages.polymarket.simtrader.broker.sim_broker import SimBroker
+        from packages.polymarket.simtrader.shadow.runner import ShadowRunner
+
+        recv_calls = [0]
+
+        class _FakeWsConn:
+            def connect(self, url): pass
+            def settimeout(self, t): pass
+            def send(self, msg): pass
+            def close(self): pass
+            def recv(self):
+                recv_calls[0] += 1
+                if recv_calls[0] == 1:
+                    raise OSError("simulated socket error")
+                return "[]"
+
+        fake_ws_mod = MagicMock()
+        fake_ws_mod.WebSocketConnectionClosedException = ConnectionError  # distinct from OSError
+        fake_ws_mod.WebSocketTimeoutException = TimeoutError
+        fake_ws_mod.WebSocket.return_value = _FakeWsConn()
+
+        cancel_all_calls = []
+        original_cancel_all = SimBroker.cancel_all_immediate
+
+        def _tracking_cancel_all(self, seq, ts_recv=0.0):
+            result = original_cancel_all(self, seq, ts_recv)
+            cancel_all_calls.append(result)
+            return result
+
+        run_dir = tmp_path / "run"
+        _time_iter = iter([0.0, 0.0, 0.0, 0.0] + [100.0] * 20)
+
+        with (
+            patch.dict(sys.modules, {"websocket": fake_ws_mod}),
+            patch("packages.polymarket.simtrader.shadow.runner.time") as mock_time,
+            patch.object(SimBroker, "cancel_all_immediate", _tracking_cancel_all),
+        ):
+            mock_time.time.side_effect = lambda: next(_time_iter, 100.0)
+            mock_time.sleep = MagicMock()
+
+            ShadowRunner(
+                run_dir=run_dir,
+                asset_ids=[YES_ID, NO_ID],
+                strategy=_NoOpStrategy(),
+                primary_asset_id=YES_ID,
+                duration_seconds=5.0,
+                starting_cash=Decimal("1000"),
+            ).run()
+
+        assert len(cancel_all_calls) >= 1, (
+            "cancel_all_immediate must be called on socket OSError before reconnect"
+        )
+
+    def test_artifacts_written_after_disconnect(self, tmp_path):
+        """All run artifacts are written even when a WS disconnect occurs."""
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from packages.polymarket.simtrader.shadow.runner import ShadowRunner
+
+        class _FakeDisconnect(OSError):
+            pass
+
+        recv_calls = [0]
+
+        class _FakeWsConn:
+            def connect(self, url): pass
+            def settimeout(self, t): pass
+            def send(self, msg): pass
+            def close(self): pass
+            def recv(self):
+                recv_calls[0] += 1
+                if recv_calls[0] == 1:
+                    raise _FakeDisconnect("disconnect in artifact test")
+                return "[]"
+
+        fake_ws_mod = MagicMock()
+        fake_ws_mod.WebSocketConnectionClosedException = _FakeDisconnect
+        fake_ws_mod.WebSocketTimeoutException = TimeoutError
+        fake_ws_mod.WebSocket.return_value = _FakeWsConn()
+
+        run_dir = tmp_path / "run"
+        _time_iter = iter([0.0, 0.0, 0.0, 0.0] + [100.0] * 20)
+
+        with (
+            patch.dict(sys.modules, {"websocket": fake_ws_mod}),
+            patch("packages.polymarket.simtrader.shadow.runner.time") as mock_time,
+        ):
+            mock_time.time.side_effect = lambda: next(_time_iter, 100.0)
+            mock_time.sleep = MagicMock()
+
+            ShadowRunner(
+                run_dir=run_dir,
+                asset_ids=[YES_ID, NO_ID],
+                strategy=_NoOpStrategy(),
+                primary_asset_id=YES_ID,
+                duration_seconds=5.0,
+                starting_cash=Decimal("1000"),
+            ).run()
+
+        for name in ("run_manifest.json", "meta.json", "summary.json", "orders.jsonl"):
+            assert (run_dir / name).exists(), f"Missing artifact after disconnect: {name}"

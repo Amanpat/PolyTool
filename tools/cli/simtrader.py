@@ -53,6 +53,7 @@ DEFAULT_BATCH_NUM_MARKETS = 5
 DEFAULT_BATCH_DURATION_SECONDS = 300.0
 DEFAULT_BATCH_SMALL_NUM_MARKETS = 3
 DEFAULT_BATCH_SMALL_DURATION_SECONDS = 300.0
+DEFAULT_KILL_SWITCH_PATH = Path("artifacts/kill_switch.txt")
 _BROWSE_TYPE_DIRS: dict[str, str] = {
     "sweep": "sweeps",
     "batch": "batches",
@@ -60,6 +61,17 @@ _BROWSE_TYPE_DIRS: dict[str, str] = {
     "shadow": "shadow_runs",
 }
 _BROWSE_TS_RE = re.compile(r"(20\d{6}T\d{6}Z)")
+_LIVE_GATE_REGISTRY: tuple[tuple[str, Path], ...] = (
+    ("replay_gate", Path("artifacts/gates/replay_gate/gate_passed.json")),
+    ("sweep_gate", Path("artifacts/gates/sweep_gate/gate_passed.json")),
+    ("shadow_gate", Path("artifacts/gates/shadow_gate/gate_passed.json")),
+    ("dry_run_gate", Path("artifacts/gates/dry_run_gate/gate_passed.json")),
+)
+_LIVE_WARNING_BANNER = (
+    "LIVE MODE: real orders will be placed. Ctrl+C or touch "
+    "artifacts/kill_switch.txt to halt."
+)
+_LIVE_CONFIRMATION_TEXT = "CONFIRM"
 
 
 # ---------------------------------------------------------------------------
@@ -1657,12 +1669,16 @@ def _quickrun(args: argparse.Namespace) -> int:
         return 1
 
     # -- Build strategy config (default + preset + explicit overrides) --------
-    strategy_config = build_binary_complement_strategy_config(
-        yes_asset_id=yes_id,
-        no_asset_id=no_id,
-        strategy_preset=strategy_preset,
-        user_overrides=user_overrides,
-    )
+    strategy_name = getattr(args, "strategy", "binary_complement_arb")
+    if strategy_name == "binary_complement_arb":
+        strategy_config = build_binary_complement_strategy_config(
+            yes_asset_id=yes_id,
+            no_asset_id=no_id,
+            strategy_preset=strategy_preset,
+            user_overrides=user_overrides,
+        )
+    else:
+        strategy_config = dict(user_overrides)
 
     # -- Build tape directory --------------------------------------------------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -2106,12 +2122,15 @@ def _shadow(args: argparse.Namespace) -> int:
         return 1
 
     strategy_name = getattr(args, "strategy", "binary_complement_arb")
-    strategy_config = build_binary_complement_strategy_config(
-        yes_asset_id=yes_id,
-        no_asset_id=no_id,
-        strategy_preset=strategy_preset,
-        user_overrides=user_overrides,
-    )
+    if strategy_name == "binary_complement_arb":
+        strategy_config = build_binary_complement_strategy_config(
+            yes_asset_id=yes_id,
+            no_asset_id=no_id,
+            strategy_preset=strategy_preset,
+            user_overrides=user_overrides,
+        )
+    else:
+        strategy_config = dict(user_overrides)
 
     try:
         strategy = _build_strategy(strategy_name, strategy_config)
@@ -3982,6 +4001,153 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Open browser automatically after server starts.",
     )
 
+    # ------------------------------------------------------------------
+    # kill
+    # ------------------------------------------------------------------
+    kill_p = sub.add_parser(
+        "kill",
+        help="Arm the live-trading kill switch.",
+    )
+    kill_p.add_argument(
+        "--kill-switch",
+        default=str(DEFAULT_KILL_SWITCH_PATH),
+        metavar="PATH",
+        help=(
+            "Path to kill-switch sentinel file "
+            f"(default: {DEFAULT_KILL_SWITCH_PATH})."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # live
+    # ------------------------------------------------------------------
+    live_p = sub.add_parser(
+        "live",
+        help=(
+            "Run a single execution tick in live mode (dry-run by default). "
+            "Requires explicit --live to send real orders."
+        ),
+    )
+    live_p.add_argument(
+        "--live",
+        dest="live",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable dry-run mode and submit real orders after gate checks "
+            "and operator confirmation."
+        ),
+    )
+    live_p.add_argument("--no-dry-run", dest="live", action="store_true", help=argparse.SUPPRESS)
+    live_p.add_argument(
+        "--kill-switch",
+        default=str(DEFAULT_KILL_SWITCH_PATH),
+        metavar="PATH",
+        help=(
+            "Path to kill-switch sentinel file "
+            f"(default: {DEFAULT_KILL_SWITCH_PATH})."
+        ),
+    )
+    live_p.add_argument(
+        "--rate-limit",
+        type=int,
+        default=30,
+        metavar="N",
+        help="Maximum API calls per minute (default: 30).",
+    )
+    live_p.add_argument(
+        "--max-order-usd",
+        "--max-order-notional",
+        dest="max_order_usd",
+        type=float,
+        default=200.0,
+        metavar="USD",
+        help="Maximum USD notional for a single order (default: 200).",
+    )
+    live_p.add_argument(
+        "--max-position-usd",
+        "--max-position-notional",
+        dest="max_position_usd",
+        type=float,
+        default=500.0,
+        metavar="USD",
+        help="Maximum USD notional for a single asset position (default: 500).",
+    )
+    live_p.add_argument(
+        "--daily-loss-cap-usd",
+        "--daily-loss-cap",
+        dest="daily_loss_cap_usd",
+        type=float,
+        default=100.0,
+        metavar="USD",
+        help="Daily net loss cap in USD (default: 100).",
+    )
+    live_p.add_argument(
+        "--inventory-skew-limit-usd",
+        dest="inventory_skew_limit_usd",
+        type=float,
+        default=400.0,
+        metavar="USD",
+        help="Maximum absolute net inventory skew in USD (default: 400).",
+    )
+    live_p.add_argument(
+        "--max-inventory-units",
+        type=float,
+        default=1000.0,
+        metavar="UNITS",
+        help="Maximum total inventory units across all assets (default: 1000).",
+    )
+    live_p.add_argument(
+        "--strategy",
+        default="noop",
+        choices=["noop", "market_maker_v0"],
+        help=(
+            "Strategy to run for this tick (default: noop — no orders generated). "
+            "'market_maker_v0' requires --best-bid and --best-ask."
+        ),
+    )
+    live_p.add_argument(
+        "--best-bid",
+        type=float,
+        default=None,
+        metavar="PRICE",
+        help="Current best bid price (required for --strategy market_maker_v0).",
+    )
+    live_p.add_argument(
+        "--best-ask",
+        type=float,
+        default=None,
+        metavar="PRICE",
+        help="Current best ask price (required for --strategy market_maker_v0).",
+    )
+    live_p.add_argument(
+        "--asset-id",
+        default="unknown",
+        metavar="TOKEN_ID",
+        help="Asset token ID for the order (used with market_maker_v0).",
+    )
+    live_p.add_argument(
+        "--inventory-units",
+        type=float,
+        default=0.0,
+        metavar="UNITS",
+        help="Current net inventory units (used for market_maker_v0 skew; default: 0).",
+    )
+    live_p.add_argument(
+        "--mm-tick-size",
+        type=str,
+        default="0.01",
+        metavar="DECIMAL",
+        help="Tick size for market_maker_v0 (default: 0.01).",
+    )
+    live_p.add_argument(
+        "--mm-order-size",
+        type=str,
+        default="10",
+        metavar="DECIMAL",
+        help="Quote size for market_maker_v0 (default: 10).",
+    )
+
     return parser
 
 
@@ -4608,6 +4774,197 @@ def _studio(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Live helpers + sub-command handlers
+# ---------------------------------------------------------------------------
+
+
+def _build_live_risk_config(args: argparse.Namespace) -> Any:
+    from packages.polymarket.simtrader.execution.risk_manager import RiskConfig
+
+    return RiskConfig(
+        max_order_notional_usd=Decimal(str(args.max_order_usd)),
+        max_position_notional_usd=Decimal(str(args.max_position_usd)),
+        daily_loss_cap_usd=Decimal(str(args.daily_loss_cap_usd)),
+        max_inventory_units=Decimal(str(args.max_inventory_units)),
+        inventory_skew_limit_usd=Decimal(str(args.inventory_skew_limit_usd)),
+    )
+
+
+def _find_missing_live_gate() -> Optional[str]:
+    for gate_name, gate_path in _LIVE_GATE_REGISTRY:
+        if not gate_path.is_file():
+            return gate_name
+    return None
+
+
+def _confirm_live_mode() -> bool:
+    try:
+        confirmation = input(f'Type "{_LIVE_CONFIRMATION_TEXT}" to proceed: ')
+    except EOFError:
+        return False
+    return confirmation.strip() == _LIVE_CONFIRMATION_TEXT
+
+
+def _kill(args: argparse.Namespace) -> int:
+    kill_switch_path = Path(args.kill_switch)
+    kill_switch_path.parent.mkdir(parents=True, exist_ok=True)
+    kill_switch_path.write_text("1", encoding="utf-8")
+    print("Kill switch armed. All new orders will be blocked.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Live sub-command handler
+# ---------------------------------------------------------------------------
+
+
+def _live(args: argparse.Namespace) -> int:
+    """Run a single execution tick in live (or dry-run) mode."""
+    from packages.polymarket.simtrader.execution.kill_switch import FileBasedKillSwitch
+    from packages.polymarket.simtrader.execution.live_executor import OrderRequest
+    from packages.polymarket.simtrader.execution.live_runner import LiveRunConfig, LiveRunner
+    from packages.polymarket.simtrader.execution.order_manager import (
+        ActionPlan,
+        DesiredOrder,
+        OrderManager,
+        OrderManagerConfig,
+    )
+    from packages.polymarket.simtrader.execution.risk_manager import RiskManager
+    from packages.polymarket.simtrader.execution import wallet
+
+    dry_run: bool = not args.live
+    strategy_name: str = getattr(args, "strategy", "noop")
+    risk_config = _build_live_risk_config(args)
+    real_client: Any = None
+    ks = FileBasedKillSwitch(args.kill_switch)
+
+    if args.live:
+        missing_gate = _find_missing_live_gate()
+        if missing_gate is not None:
+            print(f"GATE NOT CLOSED: {missing_gate}", file=sys.stderr)
+            return 1
+
+        try:
+            real_client = wallet.build_client()
+        except KeyError as exc:
+            missing_key = str(exc.args[0]) if exc.args else "PK"
+            if missing_key == "PK":
+                print(
+                    "Error: PK is not set. Export PK or load it from .env before using --live.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: missing required environment variable {missing_key}.",
+                    file=sys.stderr,
+                )
+            return 1
+        except ImportError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+    config = LiveRunConfig(
+        dry_run=dry_run,
+        rate_limit_per_min=args.rate_limit,
+        kill_switch_path=Path(args.kill_switch),
+        risk_config=risk_config,
+        clob_client=real_client,
+    )
+    risk_manager = RiskManager(risk_config)
+    runner = LiveRunner(config, risk_manager=risk_manager)
+
+    mode_label = "DRY-RUN" if dry_run else "LIVE"
+    print(f"[simtrader live] mode          : {mode_label}", file=sys.stderr)
+    print(f"[simtrader live] strategy      : {strategy_name}", file=sys.stderr)
+    print(f"[simtrader live] kill-switch   : {args.kill_switch}", file=sys.stderr)
+    print(f"[simtrader live] rate-limit    : {args.rate_limit}/min", file=sys.stderr)
+    print(f"[simtrader live] max-order-usd : {args.max_order_usd}", file=sys.stderr)
+    print(f"[simtrader live] max-position  : {args.max_position_usd}", file=sys.stderr)
+    print(f"[simtrader live] daily-loss-cap: {args.daily_loss_cap_usd}", file=sys.stderr)
+    print(
+        f"[simtrader live] inventory-skew: {args.inventory_skew_limit_usd}",
+        file=sys.stderr,
+    )
+
+    if ks.is_tripped():
+        print(
+            f"Error: kill switch is active ({args.kill_switch}). "
+            "Remove or clear the file to proceed.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.live:
+        print(_LIVE_WARNING_BANNER, file=sys.stderr)
+        if not _confirm_live_mode():
+            print("Live mode aborted.", file=sys.stderr)
+            return 1
+
+    # Build strategy_fn based on --strategy selection.
+    order_plan: Optional[ActionPlan] = None
+    if strategy_name == "market_maker_v0":
+        if args.best_bid is None or args.best_ask is None:
+            print(
+                "Error: --best-bid and --best-ask are required for --strategy market_maker_v0.",
+                file=sys.stderr,
+            )
+            return 1
+        from packages.polymarket.simtrader.strategies.market_maker_v0 import MarketMakerV0
+
+        mm = MarketMakerV0(
+            tick_size=args.mm_tick_size,
+            order_size=args.mm_order_size,
+        )
+        mm._inventory = Decimal(str(args.inventory_units))
+        requests: list[OrderRequest] = mm.compute_order_requests(
+            best_bid=args.best_bid,
+            best_ask=args.best_ask,
+            asset_id=args.asset_id,
+        )
+
+        # Run OrderManager reconcile (no open orders in a standalone tick).
+        om = OrderManager(OrderManagerConfig())
+        desired = [
+            DesiredOrder(
+                asset_id=r.asset_id,
+                side=r.side,
+                price=r.price,
+                size=r.size,
+            )
+            for r in requests
+        ]
+        order_plan = om.reconcile_once(desired, open_orders={})
+
+        for d in order_plan.to_place:
+            verb = "WOULD PLACE" if dry_run else "PLAN PLACE "
+            print(
+                f"[simtrader live] {verb} {d.side:4s} {d.asset_id} "
+                f"limit={d.price} size={d.size}",
+                file=sys.stderr,
+            )
+        if order_plan.skipped_places:
+            print(
+                f"[simtrader live] skipped_places={order_plan.skipped_places} "
+                f"(rate cap or churn limit)",
+                file=sys.stderr,
+            )
+
+        strategy_fn = lambda: requests  # noqa: E731
+    else:
+        # noop: no orders generated (safe Stage-0 default).
+        strategy_fn = lambda: []  # noqa: E731
+
+    try:
+        summary = runner.run_once(strategy_fn)
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -4650,6 +5007,10 @@ def main(argv: list[str]) -> int:
         return _clean(args)
     if args.subcommand == "studio":
         return _studio(args)
+    if args.subcommand == "kill":
+        return _kill(args)
+    if args.subcommand == "live":
+        return _live(args)
 
     parser.print_help()
     return 1

@@ -5,7 +5,36 @@
 > live market-making bot. Roadmaps 0–5 are complete. The execution layer
 > (Track A) is code-complete. Three gates need closing before live capital.
 
-## Quick Status (as of 2026-03-05)
+## Current Status (as of 2026-03-07)
+
+SimTrader can currently:
+
+- record live tapes and replay them deterministically
+- run sweeps, shadow sessions, and dry-run live sessions
+- rank Gate 2 candidates, record candidate tapes, run presweep eligibility
+  checks, watch bounded market lists for dislocations, and ingest a watchlist
+  JSON via `--watchlist-file`
+
+Current gate and operator status:
+
+| Component | Status | What it means |
+|---|---|---|
+| Gate 1 (Replay) | PASSED | Replay determinism artifact exists at `artifacts/gates/replay_gate/gate_passed.json` |
+| Gate 2 (Sweep) | NOT PASSED | Tooling is implemented and working, but no eligible tape has been captured yet |
+| Gate 3 (Shadow) | BLOCKED | Gate 3 remains blocked behind Gate 2 |
+| Gate 4 (Dry-Run Live) | PASSED | Dry-run live artifact exists at `artifacts/gates/dry_run_gate/gate_passed.json` |
+| Current blocker | EDGE SCARCITY | The watcher path produced no trigger/new tapes, and the recent acquisition cycle produced only ineligible tapes |
+| Current next step | BOUNDED LIVE TRIAL | Run bounded live dislocation trials for `binary_complement_arb` across 3-5 markets around a catalyst |
+| Opportunity Radar | DEFERRED | Keep broader monitoring deferred until after the first clean Gate 2 -> Gate 3 progression |
+| Stage 0 Paper Live | BLOCKED | Starts only after all four gates pass |
+| Stage 1 Live ($500) | BLOCKED | Needs all four gates, a clean Stage 0 run, and live infrastructure |
+
+**For an end-to-end operator guide (research loop → RAG → SimTrader → Grafana), see [`docs/OPERATOR_QUICKSTART.md`](docs/OPERATOR_QUICKSTART.md).**
+
+## Historical Quick Status (as of 2026-03-05)
+
+Archive note: this snapshot is retained for milestone history only. Use the
+current status block above for operator decisions.
 
 | Component | Status | What it means |
 |---|---|---|
@@ -17,9 +46,9 @@
 | Gate 4 (Dry-Run Live) | ✅ PASSED | Confirmed zero-submission dry-run works |
 | Gate 1 (Replay) | 🔴 Open | Needs live Polymarket network — run `close_replay_gate.py` |
 | Gate 2 (Sweep) | 🔴 Open | Needs live Polymarket network — run `close_sweep_gate.py` |
-| Gate 3 (Shadow) | 🟡 90% | Shadow run done; needs admin firewall reconnect test |
-| Stage 0 Paper Live | ⏳ Next | Run after all 4 gates pass |
-| Stage 1 Live ($500) | ⏳ Blocked | Needs gates + VPS + Polygon RPC provisioned |
+| Gate 3 (Shadow) | 🟡 90% | Shadow validation still open; complete the manual gate checklist + artifact |
+| Stage 0 Paper Live | ⏳ Next | 72h zero-capital paper-live run after all 4 gates pass |
+| Stage 1 Live ($500) | ⏳ Blocked | Needs all 4 gates + clean Stage 0 + VPS + Polygon RPC provisioned |
 
 ## Part 1 — First-Time Setup
 
@@ -271,15 +300,54 @@ Note the `token_id` of your top pick — you'll need it for the bot commands bel
 
 Before ANY real money goes in, the strategy must pass 4 gates. This is not
 optional. Gates prove the strategy works on real market data in simulation
-before you risk capital.
+before you risk capital. Stage 0 paper-live is separate and starts only after
+all four gates are passed.
 
 **Check current gate status first:**
 ```bash
 python tools/gates/gate_status.py
 ```
 
-If all 4 show PASSED, skip to Part 5. If any show OPEN or MISSING, run the
-corresponding steps below.
+Current status as of 2026-03-07:
+
+1. Gate 1 is PASSED.
+2. Gate 2 is not passed yet. The tooling path is implemented and working:
+   `scan-gate2-candidates`, `prepare-gate2`, presweep eligibility checks,
+   `watch-arb-candidates`, and `--watchlist-file` ingest.
+3. Gate 3 remains blocked behind Gate 2.
+4. Gate 4 is PASSED.
+
+The recent live watcher run produced no trigger and no new tapes, and the
+recent acquisition cycle produced only ineligible tapes. The blocker is
+strategy opportunity / edge scarcity, not SimTrader plumbing.
+
+The step-by-step gate notes below are reference. The current next step is a
+bounded live dislocation trial for `binary_complement_arb`:
+
+```bash
+python -m polytool watch-arb-candidates \
+  --watchlist-file artifacts/watchlists/report_watchlist.json \
+  --poll-interval 30 \
+  --duration 300
+```
+
+If you do not have a watchlist file yet, use `--markets slug1,slug2,slug3`.
+After the watch window, scan the tapes:
+
+```bash
+python -m polytool scan-gate2-candidates --tapes-dir artifacts/simtrader/tapes --all
+python -m polytool prepare-gate2 --tapes-dir artifacts/simtrader/tapes
+```
+
+Only if an eligible tape appears should you rerun Gate 2:
+
+```bash
+python tools/gates/close_sweep_gate.py
+```
+
+After Gate 2 passes, complete Gate 3 with
+`tools/gates/shadow_gate_checklist.md`. Do not proceed to Part 5 until
+`python tools/gates/gate_status.py` shows all four gates as PASSED.
 
 ---
 
@@ -312,6 +380,11 @@ Time: ~10 minutes.
 ---
 
 ### Gate 3 — Shadow Mode (needs internet + admin shell for reconnect test)
+
+This is the full shadow validation gate. It is not a multi-week shadow period.
+The historical "30-day shadow validation" wording is replaced by Gate 3 shadow
+validation, Gate 4 dry-run live, and the separate 72 hour Stage 0 paper-live
+run.
 
 This gate has two parts:
 
@@ -390,7 +463,7 @@ Do NOT proceed to Part 5 until you see all 4 as PASSED.
 
 Before real money, run the bot in "paper live" mode for 72 hours. It connects
 to real markets, makes real decisions, but submits ZERO orders. You see exactly
-what it would have traded.
+what it would have traded. This is Stage 0, not Gate 3.
 ```bash
 # Step 1: Get the best market to trade right now
 python -m polytool market-scan --top 5
@@ -632,7 +705,8 @@ python -m polytool simtrader kill     # arm kill switch — halts all new orders
 
 # Data & RAG
 python -m polytool scan --user "@handle"
-python -m polytool rag-index
+python -m polytool rag-refresh                                                              # one-command rebuild (alias for rag-index --rebuild)
+python -m polytool rag-index                                                                # incremental / advanced rebuild
 python -m polytool rag-query --hybrid --rerank --query "what strategies did this wallet use"
 ```
 
@@ -1071,3 +1145,19 @@ python -m polytool scan --user "@handle" --api-base-url "http://127.0.0.1:8000"
 ---
 
 For CLI-level details, run `python -m polytool <command> --help`.
+
+## Validation Pipeline (Canonical)
+
+Use this validation sequence as the operator source of truth:
+
+1. Replay Validation -> Gate 1
+2. Sweep Validation -> Gate 2
+3. Shadow Validation -> Gate 3
+4. Dry Run -> Gate 4
+5. Stage 0 -> 72 hour paper-live run
+6. Stage 1 -> live trading with capital
+
+Historical note: older planning language may refer to a "30-day shadow
+validation." That wording is obsolete. The replacement is Gate 3 shadow
+validation, Gate 4 dry-run live, and then a separate 72 hour Stage 0
+paper-live run before Stage 1 capital is allowed.

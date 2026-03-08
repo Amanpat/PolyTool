@@ -159,6 +159,33 @@ class SimBroker:
             order_id, cancel_seq, eff_cancel,
         )
 
+    def cancel_all_immediate(self, seq: int, ts_recv: float = 0.0) -> int:
+        """Cancel all non-terminal orders immediately (bypasses latency model).
+
+        Used by the shadow runner on WS disconnect to prevent stale sim orders
+        from filling against a reconnected book snapshot.
+
+        Args:
+            seq:      Tape sequence number to stamp on the cancellation events.
+            ts_recv:  Wall-clock time for the cancellation events.
+
+        Returns:
+            Number of orders cancelled.
+        """
+        count = 0
+        for order in self._orders.values():
+            if not OrderStatus.is_terminal(order.status):
+                order.status = OrderStatus.CANCELLED
+                self._append_event(
+                    "cancelled",
+                    order.order_id,
+                    seq,
+                    ts_recv,
+                    {"remaining": str(order.remaining), "reason": "disconnect"},
+                )
+                count += 1
+        return count
+
     def step(
         self,
         event: dict,

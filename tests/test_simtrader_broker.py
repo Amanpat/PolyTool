@@ -700,3 +700,63 @@ class TestTradeCLI:
             p = Path("artifacts/simtrader/runs") / run_id
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# SimBroker.cancel_all_immediate tests
+# ---------------------------------------------------------------------------
+
+
+class TestSimBrokerCancelAllImmediate:
+    """Verify cancel_all_immediate cancels all non-terminal orders atomically."""
+
+    def test_cancels_all_pending_orders(self):
+        """cancel_all_immediate cancels every non-terminal order."""
+        broker = SimBroker()
+        oid1 = broker.submit_order("tok1", Side.BUY, Decimal("0.45"), Decimal("10"),
+                                   submit_seq=0)
+        oid2 = broker.submit_order("tok1", Side.SELL, Decimal("0.55"), Decimal("20"),
+                                   submit_seq=0)
+        count = broker.cancel_all_immediate(seq=5, ts_recv=1000.0)
+        assert count == 2
+        assert broker.get_order(oid1).status == OrderStatus.CANCELLED
+        assert broker.get_order(oid2).status == OrderStatus.CANCELLED
+
+    def test_does_not_cancel_terminal_orders(self):
+        """cancel_all_immediate skips orders already in a terminal state."""
+        broker = SimBroker()
+        oid = broker.submit_order("tok1", Side.BUY, Decimal("0.45"), Decimal("10"),
+                                  submit_seq=0)
+        broker.get_order(oid).status = OrderStatus.FILLED  # terminal
+        count = broker.cancel_all_immediate(seq=5, ts_recv=1000.0)
+        assert count == 0
+        assert broker.get_order(oid).status == OrderStatus.FILLED  # unchanged
+
+    def test_emits_cancelled_events_with_disconnect_reason(self):
+        """cancel_all_immediate appends 'cancelled' broker events with reason='disconnect'."""
+        broker = SimBroker()
+        broker.submit_order("tok1", Side.BUY, Decimal("0.45"), Decimal("10"), submit_seq=0)
+        broker.cancel_all_immediate(seq=5, ts_recv=1000.0)
+        cancel_events = [e for e in broker.order_events if e["event"] == "cancelled"]
+        assert len(cancel_events) == 1
+        assert cancel_events[0]["reason"] == "disconnect"
+        assert cancel_events[0]["seq"] == 5
+
+    def test_returns_zero_when_no_open_orders(self):
+        """cancel_all_immediate returns 0 and is safe to call with an empty book."""
+        broker = SimBroker()
+        count = broker.cancel_all_immediate(seq=0, ts_recv=0.0)
+        assert count == 0
+
+    def test_mixed_terminal_and_active_orders(self):
+        """cancel_all_immediate cancels only non-terminal orders in a mixed set."""
+        broker = SimBroker()
+        oid_active = broker.submit_order("tok1", Side.BUY, Decimal("0.45"), Decimal("10"),
+                                         submit_seq=0)
+        oid_cancelled = broker.submit_order("tok1", Side.BUY, Decimal("0.40"), Decimal("5"),
+                                            submit_seq=0)
+        broker.get_order(oid_cancelled).status = OrderStatus.CANCELLED  # already terminal
+        count = broker.cancel_all_immediate(seq=10, ts_recv=2000.0)
+        assert count == 1
+        assert broker.get_order(oid_active).status == OrderStatus.CANCELLED
+        assert broker.get_order(oid_cancelled).status == OrderStatus.CANCELLED  # unchanged

@@ -12,6 +12,7 @@ from typing import List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 
 from polymarket.llm_research_packets import _username_to_slug
+from polymarket.rag.defaults import RAG_DEFAULT_COLLECTION, RAG_DEFAULT_PERSIST_DIR
 from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
 from polymarket.rag.query import query_index
 from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
@@ -127,12 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="auto", help="Device: auto, cpu, cuda.")
     parser.add_argument(
         "--persist-dir",
-        default="kb/rag/index",
+        default=RAG_DEFAULT_PERSIST_DIR.as_posix(),
         help="Chroma persistence directory.",
     )
     parser.add_argument(
         "--collection",
-        default="polytool_rag",
+        default=RAG_DEFAULT_COLLECTION,
         help="Chroma collection name.",
     )
     return parser
