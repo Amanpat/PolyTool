@@ -543,6 +543,166 @@ def print_table(
 
 
 # ---------------------------------------------------------------------------
+# Explainable ranking output (Gate2RankScore)
+# ---------------------------------------------------------------------------
+
+_STATUS_ABBREV = {
+    "EXECUTABLE": "EXEC  ",
+    "NEAR":       "NEAR  ",
+    "EDGE_ONLY":  "EDGE  ",
+    "DEPTH_ONLY": "DEPTH ",
+    "NO_SIGNAL":  "NONE  ",
+}
+
+_COL_STATUS = 6
+_COL_SCORE  = 6
+_COL_NEW    = 4
+_COL_REGIME = 10
+
+
+def score_and_rank_candidates(
+    results: list[CandidateResult],
+    *,
+    market_meta: Optional[dict] = None,
+    reward_configs: Optional[dict] = None,
+    orderbooks: Optional[dict] = None,
+    max_size: float = _DEFAULT_MAX_SIZE,
+    buffer: float = _DEFAULT_BUFFER,
+) -> list:
+    """Convert CandidateResult list to Gate2RankScore list and rank.
+
+    Args:
+        results:       List of CandidateResult from scan_live_markets or scan_tapes.
+        market_meta:   Optional {slug: market_dict} with volume_24h, created_at, etc.
+        reward_configs: Optional {slug: reward_config_dict}.
+        orderbooks:    Optional {slug: orderbook_dict} for competition score.
+        max_size:      Depth threshold matching the strategy sane preset.
+        buffer:        Edge buffer matching the strategy sane preset.
+
+    Returns:
+        List of Gate2RankScore sorted by rank_gate2_candidates.
+    """
+    from packages.polymarket.market_selection.scorer import (
+        score_gate2_candidate,
+        rank_gate2_candidates,
+    )
+
+    scored = []
+    for r in results:
+        scored.append(
+            score_gate2_candidate(
+                r.slug,
+                executable_ticks=r.executable_ticks,
+                edge_ok_ticks=r.edge_ok_ticks,
+                depth_ok_ticks=r.depth_ok_ticks,
+                best_edge_raw=r.best_edge,
+                depth_yes=r.max_depth_yes,
+                depth_no=r.max_depth_no,
+                market=(market_meta or {}).get(r.slug),
+                reward_config=(reward_configs or {}).get(r.slug),
+                orderbook=(orderbooks or {}).get(r.slug),
+                source=r.source,
+                max_size=max_size,
+                buffer=buffer,
+            )
+        )
+    return rank_gate2_candidates(scored)
+
+
+def _ranked_header_line() -> str:
+    return (
+        f"{'Market':<{_COL_SLUG}} | "
+        f"{'Status':>{_COL_STATUS}} | "
+        f"{'Score':>{_COL_SCORE}} | "
+        f"{'Exec':>{_COL_EXEC}} | "
+        f"{'BestEdge':>{_COL_BEST_EDGE}} | "
+        f"{'MaxDepth YES/NO':>{_COL_MAX_DEPTH}} | "
+        f"{'New?':>{_COL_NEW}} | "
+        f"{'Regime':<{_COL_REGIME}}"
+    )
+
+
+def print_ranked_table(
+    scores: list,
+    top: int,
+    mode: str,
+    max_size: float = _DEFAULT_MAX_SIZE,
+    buffer: float = _DEFAULT_BUFFER,
+    explain: bool = False,
+) -> None:
+    """Print the ranked Gate2RankScore table to stdout.
+
+    Args:
+        scores:   Sorted list of Gate2RankScore.
+        top:      How many rows to print.
+        mode:     "live" or "tape".
+        max_size: Depth threshold (for footer).
+        buffer:   Edge buffer (for footer).
+        explain:  If True, print the full factor breakdown after each row.
+    """
+    if not scores:
+        print("No candidate signal found.")
+        return
+
+    threshold = 1.0 - buffer
+    header = _ranked_header_line()
+    sep = "-" * len(header)
+    print(header)
+    print(sep)
+
+    for s in scores[:top]:
+        status_abbrev = _STATUS_ABBREV.get(s.gate2_status, s.gate2_status[:6])
+        score_str = f"{s.rank_score:.3f}"
+
+        if s.best_edge is not None:
+            edge_val = f"{s.best_edge:+.4f}"
+        else:
+            edge_val = "   N/A"
+
+        depth_val = f"{s.depth_yes:.0f} / {s.depth_no:.0f}"
+        new_str = "Y" if s.is_new_market is True else ("N" if s.is_new_market is False else "?")
+        regime_str = (s.regime or "?")[:_COL_REGIME]
+        slug_col = s.slug[:_COL_SLUG]
+
+        print(
+            f"{slug_col:<{_COL_SLUG}} | "
+            f"{status_abbrev:>{_COL_STATUS}} | "
+            f"{score_str:>{_COL_SCORE}} | "
+            f"{str(s.executable_ticks):>{_COL_EXEC}} | "
+            f"{edge_val:>{_COL_BEST_EDGE}} | "
+            f"{depth_val:>{_COL_MAX_DEPTH}} | "
+            f"{new_str:>{_COL_NEW}} | "
+            f"{regime_str:<{_COL_REGIME}}"
+        )
+
+        if explain:
+            for line in s.explanation:
+                print(f"    {line}")
+            print()
+
+    print(sep)
+    shown = min(top, len(scores))
+    total = len(scores)
+    note = " (snapshot)" if mode == "live" else ""
+    executable_count = sum(1 for s in scores if s.executable_ticks > 0)
+    print(
+        f"Showed {shown}/{total} candidates. "
+        f"Mode: {mode}{note}. "
+        f"Executable: {executable_count}. "
+        f"Threshold: sum_ask < {threshold:.4f}, depth >= {max_size:.0f} shares."
+    )
+    print(
+        "NOTE: rank_score combines depth+edge proximity (50%) with reward/volume/"
+        "competition/age (50%). A high score is NOT the same as Gate 2 tradable."
+    )
+    if any(s.is_new_market is True for s in scores[:top]):
+        print(
+            "NEW MARKET detected: markets < 48h old have different spread dynamics. "
+            "Label tape with --regime new_market during capture."
+        )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -601,6 +761,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable debug logging.",
     )
+    p.add_argument(
+        "--explain",
+        action="store_true",
+        help="Show full factor breakdown for each candidate (reward, volume, competition, age, regime).",
+    )
     return p
 
 
@@ -651,18 +816,31 @@ def main(argv: Optional[list[str]] = None) -> int:
     ranked = rank_candidates(results)
 
     if not args.all:
-        signal = [r for r in ranked if r.depth_ok_ticks > 0 or r.edge_ok_ticks > 0]
-        if not signal and ranked:
+        signal_raw = [r for r in ranked if r.depth_ok_ticks > 0 or r.edge_ok_ticks > 0]
+        if not signal_raw and ranked:
             print(
                 "[scan-gate2] No markets with depth or edge signal. "
                 "Showing top results anyway (use --all to suppress this filter).",
                 file=sys.stderr,
             )
-            signal = ranked[:top]
+            signal_raw = ranked[:top]
     else:
-        signal = ranked
+        signal_raw = ranked
 
-    print_table(signal, top=top, mode=mode, max_size=max_size, buffer=buffer)
+    ranked_scores = score_and_rank_candidates(
+        signal_raw,
+        max_size=max_size,
+        buffer=buffer,
+    )
+
+    print_ranked_table(
+        ranked_scores,
+        top=top,
+        mode=mode,
+        max_size=max_size,
+        buffer=buffer,
+        explain=args.explain,
+    )
     return 0
 
 

@@ -65,6 +65,7 @@ Quick-reference index of all key docs and what they cover.
 | [Gate 2 Eligible Tape Acquisition](features/FEATURE-gate2-eligible-tape-acquisition.md) | tape-manifest CLI, regime labeling, eligibility invariant, corpus coverage tracking |
 | [Discord Alerting — Track A](features/FEATURE-discord-alerting-tracka.md) | Discord webhook transport, gate hooks, kill-switch and risk-halt alerts |
 | [Regime Integrity for Gate 2 Artifacts](features/FEATURE-regime-integrity-gate2-artifacts.md) | Machine-derived regime classification, provenance fields, mismatch detection, shared coverage helper |
+| [Gate 2 Candidate Ranking](features/FEATURE-phase1-gate2-candidate-ranking.md) | Explainable multi-factor ranking for Gate 2 candidate markets (reward/volume/competition/new-market/regime) |
 
 ## Specs
 
@@ -84,11 +85,13 @@ Quick-reference index of all key docs and what they cover.
 | [SPEC-0014: Gate 2 Eligible Tape Acquisition](specs/SPEC-0014-gate2-eligible-tape-acquisition.md) | Candidate discovery flow, mixed-regime corpus policy, eligibility invariant, manifest schema, operator workflow |
 | [SPEC-0015: Discord Alerting and Operator Notifications](specs/SPEC-0015-discord-alerting-and-operator-notifications.md) | Event taxonomy, transport contract, env config, failure behavior, test strategy |
 | [SPEC-0016: Regime Integrity for Gate 2 Artifacts](specs/SPEC-0016-regime-integrity-for-gate2-artifacts.md) | Regime provenance contract for Gate 2 tape manifest: derived vs operator labels, mismatch detection, shared coverage helper |
+| [SPEC-0017: Phase 1 Gate 2 Candidate Ranking](specs/SPEC-0017-phase1-gate2-candidate-ranking.md) | Ranking factors, weights, missing-data policy, new-market logic, operator guidance |
 
 ## Dev Logs (recent)
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Phase 1 Gate 2 Candidate Ranking](dev_logs/2026-03-08_phase1_gate2_candidate_ranking.md) | 2026-03-08 | Gate2RankScore, score_gate2_candidate, rank_gate2_candidates, 14 new tests |
 | [Regime Integrity for Gate 2 Artifacts](dev_logs/2026-03-08_regime_integrity_gate2_artifacts.md) | 2026-03-08 | derive_tape_regime, coverage_from_classified_regimes, TapeRecord provenance fields, schema v2, 25 new tests |
 | [Discord Alerting — Track A](dev_logs/2026-03-08_discord_alerting_tracka.md) | 2026-03-08 | Discord webhook module, gate hooks, LiveRunner notifier, 29 tests |
 | [Gate 2 Eligible Tape Acquisition](dev_logs/2026-03-08_gate2_eligible_tape_acquisition.md) | 2026-03-08 | tape-manifest CLI, regime labeling on capture tools, eligibility invariant, 34 new tests |
