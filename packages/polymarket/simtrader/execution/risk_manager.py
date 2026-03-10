@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -54,7 +54,12 @@ class RiskManager:
                        fee=Decimal("0.01"))
     """
 
-    def __init__(self, config: Optional[RiskConfig] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[RiskConfig] = None,
+        *,
+        adverse_selection: Optional[Any] = None,
+    ) -> None:
         self.config = config or RiskConfig()
         self._positions: dict[str, _PositionState] = {}
         self._total_inventory_units: Decimal = Decimal("0")
@@ -62,6 +67,25 @@ class RiskManager:
         self._total_fees_paid: Decimal = Decimal("0")
         self._halt_reason: Optional[str] = None
         self._last_fill_price: dict[str, Decimal] = {}
+        # Optional adverse-selection guard (duck-typed; see adverse_selection.py).
+        self._adverse_selection: Optional[Any] = adverse_selection
+
+    # ------------------------------------------------------------------
+    # Adverse-selection book feed
+    # ------------------------------------------------------------------
+
+    def on_book_update(self, book: Any) -> None:
+        """Feed current book state to the adverse-selection guard (if configured).
+
+        Call this once per book event before ``check_order`` to keep
+        adverse-selection signals current.  Safe to call when no guard is
+        configured (no-op).
+
+        Args:
+            book: L2Book instance or duck-type with the same interface.
+        """
+        if self._adverse_selection is not None:
+            self._adverse_selection.on_book_update(book)
 
     # ------------------------------------------------------------------
     # Pre-trade gate
@@ -88,6 +112,12 @@ class RiskManager:
         halted, halt_reason = self.should_halt()
         if halted:
             return False, halt_reason
+
+        # 0. Adverse-selection gate
+        if self._adverse_selection is not None:
+            guard_result = self._adverse_selection.check()
+            if guard_result.blocked:
+                return False, f"risk: adverse_selection — {guard_result.reason}"
 
         if price <= 0:
             return False, f"risk: price must be > 0, got {price}"

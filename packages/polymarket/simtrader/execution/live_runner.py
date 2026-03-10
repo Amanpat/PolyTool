@@ -37,6 +37,11 @@ class LiveRunConfig:
         risk_config:          Risk limits; uses RiskConfig defaults if not provided.
         clob_client:          Optional authenticated py_clob_client instance for
                               live order placement.
+        notifier:             Optional duck-typed notification object.  Must expose
+                              ``notify_kill_switch(path, *, context)`` and
+                              ``notify_risk_halt(reason, *, context)`` callables.
+                              Pass ``packages.polymarket.notifications.discord`` to
+                              route alerts to Discord.  None disables notifications.
     """
 
     dry_run: bool = True
@@ -44,6 +49,7 @@ class LiveRunConfig:
     kill_switch_path: Path = field(default_factory=lambda: Path("artifacts/kill_switch.txt"))
     risk_config: RiskConfig = field(default_factory=RiskConfig)
     clob_client: Any = None
+    notifier: Any = None
 
 
 # A strategy_fn receives no arguments and returns a list of OrderRequests.
@@ -69,6 +75,10 @@ class LiveRunner:
         self.config = config or LiveRunConfig()
 
         self._risk = risk_manager or RiskManager(self.config.risk_config)
+        self._notifier = self.config.notifier
+        # Track whether we have already fired each one-time notification this session.
+        self._kill_switch_notified: bool = False
+        self._risk_halt_notified: bool = False
 
         if executor is not None:
             self._executor = executor
@@ -88,7 +98,7 @@ class LiveRunner:
                 real_client=real_client,
             )
 
-    def run_once(self, strategy_fn: StrategyFn) -> dict[str, Any]:
+    def run_once(self, strategy_fn: StrategyFn, *, book: Any = None) -> dict[str, Any]:
         """Execute one tick of strategy_fn and return a summary dict.
 
         The kill switch is checked once before calling the strategy.  Each
@@ -97,6 +107,9 @@ class LiveRunner:
 
         Args:
             strategy_fn: Zero-argument callable returning list[OrderRequest].
+            book:        Optional current L2Book (or duck-type) to update
+                         adverse-selection signals before the strategy runs.
+                         Pass the strategy's ``._book`` attribute here.
 
         Returns:
             Summary dict with keys:
@@ -106,8 +119,24 @@ class LiveRunner:
                 dry_run    — whether dry_run mode was active
                 reasons    — list of rejection reason strings
         """
+        # Update adverse-selection signals from current book state (if provided).
+        if book is not None:
+            self._risk.on_book_update(book)
+
         # Kill-switch check before strategy is called.
-        self._executor._ks.check_or_raise()
+        try:
+            self._executor._ks.check_or_raise()
+        except RuntimeError:
+            if not self._kill_switch_notified and self._notifier is not None:
+                try:
+                    self._notifier.notify_kill_switch(
+                        str(self.config.kill_switch_path),
+                        context="run_once pre-tick check",
+                    )
+                except Exception:
+                    pass
+                self._kill_switch_notified = True
+            raise
 
         requests: list[OrderRequest] = strategy_fn()
 
@@ -134,6 +163,16 @@ class LiveRunner:
 
             if result.submitted:
                 submitted += 1
+
+        # Fire risk-halt notification once per session when halt becomes active.
+        if not self._risk_halt_notified and self._notifier is not None:
+            halted, halt_reason = self._risk.should_halt()
+            if halted:
+                try:
+                    self._notifier.notify_risk_halt(halt_reason)
+                except Exception:
+                    pass
+                self._risk_halt_notified = True
 
         return {
             "attempted": attempted,
