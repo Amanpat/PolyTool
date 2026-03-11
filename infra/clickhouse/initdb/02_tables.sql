@@ -3,7 +3,7 @@
 
 -- Users table: stores resolved Polymarket profiles
 -- Uses ReplacingMergeTree to handle upserts based on last_updated
-CREATE TABLE IF NOT EXISTS polyttool.users
+CREATE TABLE IF NOT EXISTS polytool.users
 (
     proxy_wallet String,
     username String,
@@ -19,7 +19,7 @@ ORDER BY (proxy_wallet);
 -- Trade UID is computed as:
 --   - The 'id' field from API if present
 --   - Otherwise: sha256(proxy_wallet + ts + token_id + side + size + price + transaction_hash + outcome + condition_id)
-CREATE TABLE IF NOT EXISTS polyttool.user_trades
+CREATE TABLE IF NOT EXISTS polytool.user_trades
 (
     proxy_wallet String,
     trade_uid String,
@@ -38,5 +38,5 @@ ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (proxy_wallet, trade_uid);
 
 -- Grant SELECT access to grafana_ro user
-GRANT SELECT ON polyttool.users TO grafana_ro;
-GRANT SELECT ON polyttool.user_trades TO grafana_ro;
+GRANT SELECT ON polytool.users TO grafana_ro;
+GRANT SELECT ON polytool.user_trades TO grafana_ro;

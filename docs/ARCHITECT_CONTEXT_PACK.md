@@ -1,14 +1,95 @@
 # Architect Context Pack
 
-**Generated:** 2026-02-05
-**Tests:** 131/131 passed
-**Pre-push guard:** PASS
+**Generated:** 2026-03-05
+**Tests:** sprint-end handoff reports 1188 passing total
+**Pre-push guard:** not run for this docs update
 
 ---
 
 ## 1. One-Line Summary
 
 Local-first Polymarket analysis toolchain: data ingestion to ClickHouse, Grafana visualization, private dossier exports, and offline hybrid RAG for evidence retrieval.
+
+---
+
+## Current Sprint Status
+
+TRACK A - CODE STATUS: COMPLETE
+All execution layer code is shipped and tested (1188 tests passing).
+The only remaining work is operational: close 3 gates, then flip `--live` flag.
+
+WHAT TO DO NEXT (in order):
+
+### Step 1 - IMMEDIATE (needs live Polymarket connection, ~30 min)
+
+Close Gate 1 (Replay):
+
+```bash
+python tools/gates/close_replay_gate.py
+```
+
+Close Gate 2 (Sweep):
+
+```bash
+python tools/gates/close_sweep_gate.py
+```
+
+### Step 2 - IMMEDIATE (needs Administrator PowerShell, ~10 min)
+
+Complete Gate 3 (Shadow) - shadow run is already recorded, just needs reconnect test:
+
+```powershell
+# In elevated PowerShell:
+netsh advfirewall firewall add rule name="block_poly" dir=out action=block remoteip=188.0.0.0/8
+Start-Sleep -Seconds 10
+netsh advfirewall firewall delete rule name="block_poly"
+# Then manually write artifacts/gates/shadow_gate/gate_passed.json
+# See tools/gates/shadow_gate_checklist.md for exact artifact format
+```
+
+### Step 3 - VERIFY (after steps 1 and 2)
+
+```bash
+python tools/gates/gate_status.py
+# Expected output: all 4 gates PASSED, exit code 0
+```
+
+### Step 4 - STAGE 0 PAPER LIVE (72 hours, $0 capital)
+
+```bash
+python -m polytool market-scan --top 5
+# Pick top market with mid_price in [0.30, 0.70]
+python -m polytool simtrader live \
+  --strategy market_maker_v0 \
+  --asset-id <TOKEN_ID_FROM_MARKET_SCAN>
+# Monitor Grafana. Watch for errors. Kill switch: python -m polytool simtrader kill
+```
+
+### Step 5 - INFRASTRUCTURE (provision in parallel with Stage 0)
+
+Provision VPS: QuantVPS or Vultr NJ datacenter (~$30-100/month)
+Provision Polygon RPC: Chainstack or Alchemy dedicated node (~$50-100/month)
+These are required BEFORE Stage 1 capital ($500 USDC)
+
+### Step 6 - STAGE 1 LIVE ($500 USDC, after 72h Stage 0 clean + infrastructure ready)
+
+```bash
+python -m polytool simtrader live \
+  --live \
+  --strategy market_maker_v0 \
+  --asset-id <TOKEN_ID> \
+  --max-position-usd 500 \
+  --daily-loss-cap-usd 100 \
+  --max-order-usd 200
+# Will require typing "CONFIRM" to proceed
+# Prerequisites: PK env var set, all 4 gates passed, USDC in wallet
+```
+
+TRACK B - NEXT CODE SPRINT
+After gates close and Stage 0 is stable, the next code work is:
+alpha-distill upgrade: add composite wallet scoring formula + StrategySpec JSON output
+This is PDF Construction Manual Section 5.2 - estimated 5 days of dev work
+Prompt the architect to start Track B with a fresh Codex prompt.
 
 ---
 
@@ -197,7 +278,7 @@ docker compose up -d --build
 docker compose ps  # All healthy
 
 # 3. Verify ClickHouse
-curl "http://localhost:18123/?query=SELECT%201&user=polyttool_admin&password=polyttool_admin"
+curl "http://localhost:18123/?query=SELECT%201&user=polytool_admin&password=polytool_admin"
 
 # 4. Run a scan
 python -m polytool scan  # Uses TARGET_USER from .env

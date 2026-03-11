@@ -236,7 +236,7 @@ Each detector result includes:
 - `evidence`: JSON object with supporting metrics
 
 ### ClickHouse Table
-Results are stored in `polyttool.detector_results`:
+Results are stored in `polytool.detector_results`:
 ```sql
 SELECT detector_name, label, score, evidence_json
 FROM detector_results

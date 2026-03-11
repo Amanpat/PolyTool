@@ -1,7 +1,7 @@
 -- PolyTool Packet 5.2 Tables
 -- Arb feasibility with dynamic fees and slippage
 
-CREATE TABLE IF NOT EXISTS polyttool.arb_feasibility_bucket
+CREATE TABLE IF NOT EXISTS polytool.arb_feasibility_bucket
 (
     proxy_wallet String,
     bucket_type String,                         -- 'day', 'hour', 'week'
@@ -19,4 +19,4 @@ CREATE TABLE IF NOT EXISTS polyttool.arb_feasibility_bucket
 ENGINE = ReplacingMergeTree(computed_at)
 ORDER BY (proxy_wallet, bucket_type, bucket_start, condition_id);
 
-GRANT SELECT ON polyttool.arb_feasibility_bucket TO grafana_ro;
+GRANT SELECT ON polytool.arb_feasibility_bucket TO grafana_ro;

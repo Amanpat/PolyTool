@@ -50,8 +50,8 @@ try:
 except ImportError:
     clickhouse_connect = None  # type: ignore
 
-DEFAULT_CLICKHOUSE_USER = "polyttool_admin"
-DEFAULT_CLICKHOUSE_PASSWORD = "polyttool_admin"
+DEFAULT_CLICKHOUSE_USER = "polytool_admin"
+DEFAULT_CLICKHOUSE_PASSWORD = "polytool_admin"
 DEFAULT_GAMMA_BASE = "https://gamma-api.polymarket.com"
 DEFAULT_HTTP_TIMEOUT = 20.0
 
@@ -76,7 +76,7 @@ def _resolve_clickhouse_port() -> int:
 
 
 def _resolve_clickhouse_database() -> str:
-    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polyttool"
+    return os.environ.get("CLICKHOUSE_DATABASE") or os.environ.get("CLICKHOUSE_DB") or "polytool"
 DEFAULT_API_BASE_URL = "http://localhost:8000"
 DEFAULT_ENRICH_RESOLUTIONS = True
 DEFAULT_RESOLUTION_MAX_CANDIDATES = 300

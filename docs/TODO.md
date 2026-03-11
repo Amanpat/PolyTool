@@ -4,9 +4,41 @@ Items that are out of MVP scope but should be considered for future versions.
 
 ## High Priority (Post-MVP)
 
+### Agent Hygiene
+
+- [ ] Agent hygiene: dirty tree protocol (.claude/*)
+  - [ ] don't stage unrelated changes
+  - [ ] show `git status --short` + `git diff --stat`
+  - [ ] list exact files touched
+
 ## Future Feature
 
 - [] find users who are highly likely to be placing insider trades (new account, hundreds of thousands placed on odd bet)
+
+### Wallet Anomaly Alerts / Flow Discrepancy Alerts [DEFERRED — Track B Research]
+
+**Not part of the arb watcher. Not in current scope.**
+
+Deferred until the current usability + workflow streamlining pass is complete
+(end-to-end usability, UI clarity, command clarity, one-command RAG workflows,
+better documentation, cleaner user-facing experience).
+
+Intended future scope:
+- [ ] Detect unusually large bets relative to a wallet's own history
+  (e.g. wallet normally bets $50-200, suddenly places $50k)
+- [ ] Detect unusually large bets relative to market-level or user-bucket baselines
+  (e.g. position size is a statistical outlier vs. all participants on that market)
+- [ ] Abnormal conviction alerts: extreme YES/NO skew, one-sided position building
+  in a short window before a resolution event
+- [ ] Treat this as **suspicious flow detection**, not proven insider detection —
+  flag anomalies for human review, not automated trading action
+
+Future integration points (when implemented):
+- May feed market selection / watchlists as a signal lane
+- May surface in research alerts or LLM bundle context
+- Should live under a separate Track B signal pipeline, not inside the arb watcher
+
+**Do not implement until current streamlining milestone is complete.**
 
 ### Resolution Enrichment
 
@@ -74,7 +106,7 @@ Items that are out of MVP scope but should be considered for future versions.
 
 - [ ] Rename `RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
 - [ ] Add a short troubleshooting snippet in runbooks for `scan --debug-export` (empty export triage flow)
-- [ ] Add a docs guard/check so new non-deprecation `python -m polyttool` command examples fail CI
+- [ ] Add a docs guard/check so new non-deprecation `python -m polytool` command examples fail CI
 
 ### Grafana Dashboards
 

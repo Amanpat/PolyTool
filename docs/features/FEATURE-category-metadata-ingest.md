@@ -12,7 +12,7 @@ This change ensures category labels stop disappearing at runtime: when Polymarke
 
 ## Offline storage
 
-- Canonical table for dossier lifecycle joins: `polyttool.market_tokens`.
+- Canonical table for dossier lifecycle joins: `polytool.market_tokens`.
 - Stored columns:
   - `category String`
   - `subcategory String`

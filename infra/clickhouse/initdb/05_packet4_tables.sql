@@ -2,7 +2,7 @@
 -- Activity ingestion, position snapshots, and enriched market metadata
 
 -- user_activity: public activity feed for a user
-CREATE TABLE IF NOT EXISTS polyttool.user_activity
+CREATE TABLE IF NOT EXISTS polytool.user_activity
 (
     proxy_wallet String,
     activity_uid String,
@@ -20,7 +20,7 @@ ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (proxy_wallet, activity_uid);
 
 -- user_positions_snapshots: snapshot of current positions per user
-CREATE TABLE IF NOT EXISTS polyttool.user_positions_snapshots
+CREATE TABLE IF NOT EXISTS polytool.user_positions_snapshots
 (
     proxy_wallet String,
     snapshot_ts DateTime,
@@ -36,17 +36,17 @@ ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (proxy_wallet, snapshot_ts, token_id);
 
 -- Add missing market metadata columns for upgrades
-ALTER TABLE polyttool.markets
+ALTER TABLE polytool.markets
     ADD COLUMN IF NOT EXISTS tags Array(String) DEFAULT [];
-ALTER TABLE polyttool.markets
+ALTER TABLE polytool.markets
     ADD COLUMN IF NOT EXISTS event_title String DEFAULT '';
-ALTER TABLE polyttool.markets
+ALTER TABLE polytool.markets
     ADD COLUMN IF NOT EXISTS start_date_iso Nullable(DateTime);
-ALTER TABLE polyttool.markets
+ALTER TABLE polytool.markets
     ADD COLUMN IF NOT EXISTS close_date_iso Nullable(DateTime);
 
 -- Enriched markets view for Grafana
-CREATE OR REPLACE VIEW polyttool.markets_enriched AS
+CREATE OR REPLACE VIEW polytool.markets_enriched AS
 WITH
     lowerUTF8(
         concat(
@@ -80,9 +80,9 @@ SELECT
     ) AS is_crypto,
     interval_minutes_raw AS interval_minutes,
     interval_minutes_raw IS NOT NULL AS is_intraday
-FROM polyttool.markets;
+FROM polytool.markets;
 
 -- Grant SELECT access to grafana_ro user for new tables/views
-GRANT SELECT ON polyttool.user_activity TO grafana_ro;
-GRANT SELECT ON polyttool.user_positions_snapshots TO grafana_ro;
-GRANT SELECT ON polyttool.markets_enriched TO grafana_ro;
+GRANT SELECT ON polytool.user_activity TO grafana_ro;
+GRANT SELECT ON polytool.user_positions_snapshots TO grafana_ro;
+GRANT SELECT ON polytool.markets_enriched TO grafana_ro;

@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-02-20 - Completed quick-009: Roadmap 5 wrap-up PDR + ROADMAP.md marked COMPLETE
+Last activity: 2026-03-04 - Completed quick-017: update README.md with SimTrader Studio user guide — full launch/tab/workflow/troubleshooting section replacing the Studio UI stub
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -30,6 +30,13 @@ Last activity: 2026-02-20 - Completed quick-009: Roadmap 5 wrap-up PDR + ROADMAP
 - Roadmap 5 closed [COMPLETE]: CLV infra shipped but 0% coverage triggered kill condition; batch-run harness shipped fully; ROADMAP.md updated
 - Mark 5.0 category [x] when code ships even if runtime coverage is 0% (upstream data gap, not code defect)
 - Robust stats: sort-based median/trimmed-mean/p25/p75 with MAX_ROBUST_VALUES=500 cap; beat_close is required positional arg in _accumulate_segment_bucket
+- quickrun --list-candidates: exits before normal flow; warning (not error) when combined with --market
+- quickrun --exclude-market: repeatable; exclude_slugs persisted as list in quickrun_context for JSON serializability
+- SimTrader Studio: FastAPI + vanilla HTML+JS, optional dep group [studio], port 8765, subprocess-based command dispatch with allowlist
+- OnDemand engine: PortfolioLedger re-instantiated per get_state() call (snapshot pattern); ZERO_LATENCY broker for interactive sessions; session manager stored as closure in create_app()
+- OnDemand UI: vanilla JS tab in index.html; odRenderState() shows first-asset depth only; escHtml() reused for XSS-safe order table rendering
+- SimTrader Studio --host: default 127.0.0.1, 0.0.0.0 for Docker; --open has no effect inside Docker containers (help text caveat)
+- Studio workspace monitor: /api/sessions/{id}/monitor reads only run_manifest+summary (no JSONL rows); wsMonitorFetching Set guards in-flight; 1s interval re-renders from cache; dual interval (1s monitor, 3s full state); openSimulationArtifact() navigates simulation tab from workspace card
 
 ### Blockers/Concerns
 None currently.
@@ -46,3 +53,11 @@ None currently.
 | 007 | Robust segment stats (median, trimmed mean, IQR) for clv_pct and entry_drift_pct | 2026-02-20 | 10f78c2 | [7-add-robust-segment-stats-median-trimmed-](./quick/7-add-robust-segment-stats-median-trimmed-/) |
 | 008 | batch-run --aggregate-only, --run-roots, --workers N features | 2026-02-20 | d672fc3 | [8-batch-run-aggregate-only-and-workers-n-f](./quick/8-batch-run-aggregate-only-and-workers-n-f/) |
 | 009 | Roadmap 5 wrap-up PDR + mark ROADMAP.md [COMPLETE] | 2026-02-20 | 4e84a36 | [9-roadmap-5-wrap-up-pdr-and-mark-complete-](./quick/9-roadmap-5-wrap-up-pdr-and-mark-complete-/) |
+| 010 | quickrun --list-candidates N + --exclude-market SLUG (9 new tests, 56->65) | 2026-02-25 | b95f20b | [10-quickrun-list-candidates-and-exclude-mar](./quick/10-quickrun-list-candidates-and-exclude-mar/) |
+| 011 | Sync public docs with shipped simtrader features (probe, clean, diff) | 2026-02-25 | 7de79c4 | [11-sync-public-docs-with-current-simtrader-](./quick/11-sync-public-docs-with-current-simtrader-/) |
+| 012 | SimTrader Studio MVP: local FastAPI web UI via `simtrader studio --open` | 2026-02-26 | c614630 | [12-implement-simtrader-studio-mvp-local-fas](./quick/12-implement-simtrader-studio-mvp-local-fas/) |
+| 013 | SimTrader Studio OnDemand tab: manual trading sim, L2Book depth, OnDemandSession, 8 API routes, UI, 9 tests | 2026-02-26 | 9913b18 | [13-add-simtrader-studio-ondemand-tab-manual](./quick/13-add-simtrader-studio-ondemand-tab-manual/) |
+| 014 | --host flag for simtrader studio Docker binding: help text update, 2 parser tests, README Docker note | 2026-02-26 | 92e4f8e | [14-add-host-flag-to-simtrader-studio-for-do](./quick/14-add-host-flag-to-simtrader-studio-for-do/) |
+| 015 | Fix batch time_budget StopIteration: check budget before fetch, wrap next() in try/except StopIteration | 2026-02-26 | d3f2b33 | [15-fix-batch-time-budget-stopiteration-in-d](./quick/15-fix-batch-time-budget-stopiteration-in-d/) |
+| 016 | Studio workspace grid real-time monitor: /api/sessions/{id}/monitor, 1s refresh, enhanced session/artifact/ondemand cards | 2026-03-03 | c3f5e73 | [16-studio-workspace-grid-real-time-monitor-](./quick/16-studio-workspace-grid-real-time-monitor-/) |
+| 017 | Update README.md with SimTrader Studio user guide: launch, 8-tab reference, workflows A/B/C, troubleshooting, doc links | 2026-03-04 | 76b398e | [17-update-readme-md-with-simtrader-studio-u](./quick/17-update-readme-md-with-simtrader-studio-u/) |

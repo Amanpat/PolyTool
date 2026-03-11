@@ -58,10 +58,10 @@ Use `include_body=true` if you want full JSON/memo fields returned.
 ### CLI
 
 ```
-python -m polyttool export-dossier --user "@example" --days 30 --max-trades 200
+python -m polytool export-dossier --user "@example" --days 30 --max-trades 200
 ```
 ```
-python -m polyttool export-dossier --wallet "0x..." --days 30 --max-trades 200
+python -m polytool export-dossier --wallet "0x..." --days 30 --max-trades 200
 ```
 
 Artifacts are written to:
@@ -76,8 +76,8 @@ characters become `_`. Missing/empty usernames are recorded as `unknown`.
 
 ## ClickHouse history
 
-Exports are stored in `polyttool.user_dossier_exports`. The latest export per wallet is in
-`polyttool.user_dossier_exports_latest`.
+Exports are stored in `polytool.user_dossier_exports`. The latest export per wallet is in
+`polytool.user_dossier_exports_latest`.
 
 Note: `proxy_wallet` remains the canonical ID for joins and API params. `username` is stored as a
 human-friendly label and only appears once a handle has been resolved (either from a handle-based
@@ -95,7 +95,7 @@ SELECT
   activity_count,
   positions_count,
   mapping_coverage
-FROM polyttool.user_dossier_exports_latest
+FROM polytool.user_dossier_exports_latest
 WHERE proxy_wallet = '0x...';
 ```
 
@@ -109,7 +109,7 @@ SELECT
   positions_count,
   mapping_coverage,
   usable_liquidity_rate
-FROM polyttool.user_dossier_exports
+FROM polytool.user_dossier_exports
 WHERE export_id IN ('<id_a>', '<id_b>')
 ORDER BY generated_at;
 ```
@@ -117,7 +117,7 @@ ORDER BY generated_at;
 Pull full dossier/memo for a specific export:
 ```
 SELECT export_id, dossier_json, memo_md
-FROM polyttool.user_dossier_exports
+FROM polytool.user_dossier_exports
 WHERE export_id = '<id>';
 ```
 

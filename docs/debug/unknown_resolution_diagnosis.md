@@ -29,10 +29,10 @@ print(latest / "dossier.json")
 docker compose logs api | rg -n "Enriching resolutions|Resolution enrichment complete|POST /api/enrich/resolutions"
 
 # ClickHouse evidence
-docker compose exec -T clickhouse clickhouse-client -d polyttool -q "SHOW TABLES"
-docker compose exec -T clickhouse clickhouse-client -d polyttool -q "SELECT count() AS total, countIf(settlement_price IS NOT NULL OR resolved_at IS NOT NULL) AS with_resolution_fields, countIf(resolution_source != '' AND resolution_source != 'unknown') AS with_named_source, max(fetched_at) AS latest_fetched_at FROM market_resolutions"
-docker compose exec -T clickhouse clickhouse-client -d polyttool -q "SELECT count() AS rows_total, countIf(resolved_token_id!='') AS with_resolved_token_id, countIf(token_id!='') AS with_token_id, countIf(condition_id IS NOT NULL AND condition_id!='') AS with_condition_id FROM user_positions_resolved WHERE proxy_wallet='0xdb27bf2ac5d428a9c63dbc914611036855a6c56e' AND snapshot_ts=(SELECT max(snapshot_ts) FROM user_positions_resolved WHERE proxy_wallet='0xdb27bf2ac5d428a9c63dbc914611036855a6c56e')"
-docker compose exec -T clickhouse clickhouse-client -d polyttool -q "SELECT name, engine FROM system.tables WHERE database='polyttool' AND name IN ('user_trade_lifecycle','user_trade_lifecycle_enriched') ORDER BY name"
+docker compose exec -T clickhouse clickhouse-client -d polytool -q "SHOW TABLES"
+docker compose exec -T clickhouse clickhouse-client -d polytool -q "SELECT count() AS total, countIf(settlement_price IS NOT NULL OR resolved_at IS NOT NULL) AS with_resolution_fields, countIf(resolution_source != '' AND resolution_source != 'unknown') AS with_named_source, max(fetched_at) AS latest_fetched_at FROM market_resolutions"
+docker compose exec -T clickhouse clickhouse-client -d polytool -q "SELECT count() AS rows_total, countIf(resolved_token_id!='') AS with_resolved_token_id, countIf(token_id!='') AS with_token_id, countIf(condition_id IS NOT NULL AND condition_id!='') AS with_condition_id FROM user_positions_resolved WHERE proxy_wallet='0xdb27bf2ac5d428a9c63dbc914611036855a6c56e' AND snapshot_ts=(SELECT max(snapshot_ts) FROM user_positions_resolved WHERE proxy_wallet='0xdb27bf2ac5d428a9c63dbc914611036855a6c56e')"
+docker compose exec -T clickhouse clickhouse-client -d polytool -q "SELECT name, engine FROM system.tables WHERE database='polytool' AND name IN ('user_trade_lifecycle','user_trade_lifecycle_enriched') ORDER BY name"
 
 # Regression tests touched
 pytest -q tests/test_scan_trust_artifacts.py
@@ -70,7 +70,7 @@ Enrichment runtime/API evidence:
 ClickHouse evidence:
 - `market_resolutions`: `total=286`, `with_resolution_fields=286`, `with_named_source=286`
 - Latest snapshot in `user_positions_resolved` has identifiers: `rows_total=100`, `with_token_id=100`, `with_condition_id=100`, `with_resolved_token_id=61`
-- Export lifecycle sources are missing: no `user_trade_lifecycle` / `user_trade_lifecycle_enriched` table in `polyttool`
+- Export lifecycle sources are missing: no `user_trade_lifecycle` / `user_trade_lifecycle_enriched` table in `polytool`
 
 ## Root Cause (one sentence)
 

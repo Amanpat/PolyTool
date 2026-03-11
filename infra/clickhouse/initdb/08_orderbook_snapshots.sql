@@ -1,6 +1,6 @@
 -- Orderbook snapshots for liquidity tracking
 
-CREATE TABLE IF NOT EXISTS polyttool.token_orderbook_snapshots
+CREATE TABLE IF NOT EXISTS polytool.token_orderbook_snapshots
 (
     token_id String,
     snapshot_ts DateTime,
@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS polyttool.token_orderbook_snapshots
 ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (token_id, snapshot_ts);
 
-GRANT SELECT ON polyttool.token_orderbook_snapshots TO grafana_ro;
+GRANT SELECT ON polytool.token_orderbook_snapshots TO grafana_ro;
 
-CREATE OR REPLACE VIEW polyttool.orderbook_snapshots_enriched AS
+CREATE OR REPLACE VIEW polytool.orderbook_snapshots_enriched AS
 SELECT
     s.snapshot_ts AS snapshot_ts,
     s.token_id AS token_id,
@@ -41,7 +41,7 @@ SELECT
     s.depth_ask_usd_50bps AS depth_ask_usd_50bps,
     s.slippage_buy_bps_100 AS slippage_buy_bps_100,
     s.slippage_sell_bps_100 AS slippage_sell_bps_100
-FROM polyttool.token_orderbook_snapshots s
-LEFT JOIN polyttool.market_tokens mt ON s.token_id = mt.token_id;
+FROM polytool.token_orderbook_snapshots s
+LEFT JOIN polytool.market_tokens mt ON s.token_id = mt.token_id;
 
-GRANT SELECT ON polyttool.orderbook_snapshots_enriched TO grafana_ro;
+GRANT SELECT ON polytool.orderbook_snapshots_enriched TO grafana_ro;

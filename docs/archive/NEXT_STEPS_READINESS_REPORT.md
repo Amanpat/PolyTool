@@ -5,7 +5,7 @@ Scope: repo-grounded audit (no network calls)
 
 ## 1. Current System Map
 
-- **Entry points**: CLI (`tools/cli/scan.py`, `polyttool/__main__.py`) orchestrates API calls for resolve, ingest, detectors, optional positions/activity, snapshot/books, PnL, arb. The API is the central coordinator (`services/api/main.py`).
+- **Entry points**: CLI (`tools/cli/scan.py`, `polytool/__main__.py`) orchestrates API calls for resolve, ingest, detectors, optional positions/activity, snapshot/books, PnL, arb. The API is the central coordinator (`services/api/main.py`).
 - **Data sources**:
   - Gamma API for user resolution and market metadata (`packages/polymarket/gamma.py`, `/api/resolve`, `/api/ingest/markets`).
   - Data API for trades, activity, positions (`packages/polymarket/data_api.py`, `/api/ingest/trades`, `/api/ingest/activity`, `/api/ingest/positions`).
@@ -22,24 +22,24 @@ Scope: repo-grounded audit (no network calls)
 
 - **Trades**
   - Source: Data API `/trades` via `DataApiClient.fetch_all_trades`.
-  - Storage: `polyttool.user_trades` (ReplacingMergeTree on `ingested_at`, key `(proxy_wallet, trade_uid)`; `trade_uid` derived from API id or hash). See `infra/clickhouse/initdb/02_tables.sql`, `packages/polymarket/data_api.py`.
-  - Coverage risks: dashboards often query raw `user_trades` without `argMax` or `FINAL`, so duplicates can inflate totals until merges complete (e.g., User Overview "Total Volume" and User Trades panels). See `infra/grafana/dashboards/polyttool_user_overview.json`, `polyttool_user_trades.json`.
+  - Storage: `polytool.user_trades` (ReplacingMergeTree on `ingested_at`, key `(proxy_wallet, trade_uid)`; `trade_uid` derived from API id or hash). See `infra/clickhouse/initdb/02_tables.sql`, `packages/polymarket/data_api.py`.
+  - Coverage risks: dashboards often query raw `user_trades` without `argMax` or `FINAL`, so duplicates can inflate totals until merges complete (e.g., User Overview "Total Volume" and User Trades panels). See `infra/grafana/dashboards/polytool_user_overview.json`, `polytool_user_trades.json`.
 
 - **Activity**
-  - Source: Data API `/activity` (optional, CLI flag). Stored in `polyttool.user_activity` with ReplacingMergeTree; dashboards correctly dedupe via `argMax` in CTEs. See `infra/clickhouse/initdb/05_packet4_tables.sql` and User Trades dashboard queries.
+  - Source: Data API `/activity` (optional, CLI flag). Stored in `polytool.user_activity` with ReplacingMergeTree; dashboards correctly dedupe via `argMax` in CTEs. See `infra/clickhouse/initdb/05_packet4_tables.sql` and User Trades dashboard queries.
   - Coverage risks: optional ingestion; some dashboards silently empty without activity data.
 
 - **Positions**
-  - Source: Data API `/positions`, stored as point-in-time snapshots in `polyttool.user_positions_snapshots` (ReplacingMergeTree). See `infra/clickhouse/initdb/05_packet4_tables.sql`, `/api/ingest/positions` in `services/api/main.py`.
+  - Source: Data API `/positions`, stored as point-in-time snapshots in `polytool.user_positions_snapshots` (ReplacingMergeTree). See `infra/clickhouse/initdb/05_packet4_tables.sql`, `/api/ingest/positions` in `services/api/main.py`.
   - Coverage risks: snapshots are not scheduled by default; staleness is common unless users run the endpoint regularly. PnL uses latest snapshot per bucket when available, else FIFO from trades (`packages/polymarket/pnl.py`).
 
 - **Markets / Metadata**
   - Source: Gamma `/markets` via `/api/ingest/markets` (active markets only by default), plus ad-hoc backfill by condition_id (`packages/polymarket/backfill.py`).
-  - Storage: `polyttool.market_tokens`, `polyttool.markets`, and `markets_enriched` view. See `infra/clickhouse/initdb/03_packet3_tables.sql` and `05_packet4_tables.sql`.
+  - Storage: `polytool.market_tokens`, `polytool.markets`, and `markets_enriched` view. See `infra/clickhouse/initdb/03_packet3_tables.sql` and `05_packet4_tables.sql`.
   - Coverage risks: mapping coverage depends on running market ingestion; unmapped trades inflate "UNMAPPED/Unknown" categories and reduce detector quality.
 
 - **Orderbooks / Liquidity**
-  - Source: CLOB `/book` via `/api/snapshot/books` and live pricing for PnL/arb. Stored in `polyttool.token_orderbook_snapshots` with status flags (`ok`, `empty`, `one_sided`, `no_orderbook`, `error`). See `infra/clickhouse/initdb/08_orderbook_snapshots.sql` and `packages/polymarket/orderbook_snapshots.py`.
+  - Source: CLOB `/book` via `/api/snapshot/books` and live pricing for PnL/arb. Stored in `polytool.token_orderbook_snapshots` with status flags (`ok`, `empty`, `one_sided`, `no_orderbook`, `error`). See `infra/clickhouse/initdb/08_orderbook_snapshots.sql` and `packages/polymarket/orderbook_snapshots.py`.
   - Snapshot selection: positions -> recent trades -> active market filter -> optional historical fallback. Backfills missing market tokens before active filter. Stops early when `BOOK_SNAPSHOT_MIN_OK_TARGET` reached and skips recent `no_orderbook` tokens for 24h (default). See `/api/snapshot/books` in `services/api/main.py` and `docs/packet_5_2_1_4_tradeability.md`.
   - Coverage risks: early stop + TTL skips can bias "no_orderbook rate" downward; snapshots are not scheduled by default; freshness is not surfaced as a first-class metric in dashboards.
 
@@ -56,7 +56,7 @@ Scope: repo-grounded audit (no network calls)
 - **Fees/slippage not part of PnL**. Fees are only modeled in arb feasibility; PnL does not apply fees or slippage at all.
 
 **Confidence layer (partial)**
-- Pricing confidence is computed from snapshot ratio + missing tokens and stored in `user_pnl_bucket` (`pricing_confidence`, `pricing_snapshot_ratio`). It is displayed in User Overview but **not used to filter PnL charts**. (`docs/QUALITY_CONFIDENCE.md`, `infra/grafana/dashboards/polyttool_user_overview.json`.)
+- Pricing confidence is computed from snapshot ratio + missing tokens and stored in `user_pnl_bucket` (`pricing_confidence`, `pricing_snapshot_ratio`). It is displayed in User Overview but **not used to filter PnL charts**. (`docs/QUALITY_CONFIDENCE.md`, `infra/grafana/dashboards/polytool_user_overview.json`.)
 
 **Assessment**
 - Realized PnL is directionally useful (assuming trade ingestion completeness) but FIFO is approximate.
@@ -72,7 +72,7 @@ Scope: repo-grounded audit (no network calls)
 
 **Key realism gaps**
 - **Arb feasibility uses live books, not snapshots**. The function signature includes snapshot args but they are unused; liquidity confidence is derived from live CLOB `/book` at compute time. This makes historical arb analysis potentially misleading. (`packages/polymarket/arb.py`.)
-- **No user-scoped liquidity dashboard**. Liquidity Snapshot dashboard is global and not user-filtered. "Orderbook Quality" in User Overview is also global, not user token-scoped. (`infra/grafana/dashboards/polyttool_liquidity_snapshots.json`, `polyttool_user_overview.json`.)
+- **No user-scoped liquidity dashboard**. Liquidity Snapshot dashboard is global and not user-filtered. "Orderbook Quality" in User Overview is also global, not user token-scoped. (`infra/grafana/dashboards/polytool_liquidity_snapshots.json`, `polytool_user_overview.json`.)
 - **no_orderbook rate may be biased** because snapshotter stops early once OK targets are met and skips recent no_orderbook tokens for 24h. The observed rate is *not* a comprehensive per-user metric.
 - **Freshness is not explicit**. Snapshots have `snapshot_ts` and `book_timestamp`, but dashboards do not surface "latest snapshot age" or "staleness vs max age".
 
@@ -82,43 +82,43 @@ Scope: repo-grounded audit (no network calls)
 ## 5. Dashboard Interpretability Audit (User Overview + others)
 
 **Dashboard inventory (variables, core panels, and time/confidence defaults)**
-- **PolyTool - User Overview** (`polyttool_user_overview.json`)
+- **PolyTool - User Overview** (`polytool_user_overview.json`)
   - Variables: `proxy_wallet`, `bucket_type`.
   - Core panels: Summary stats; PnL/Exposure; Plays tables; Strategy Signals; Market Mix; Liquidity & Arb.
   - Time filter: mixed (Plays + Orderbook Quality use `$__timeFilter`; summary and market mix do not).
   - Trustworthy by default: **No** (no confidence filter on PnL/arb panels).
 
-- **PolyTool - Strategy Detectors** (`polyttool_strategy_detectors.json`)
+- **PolyTool - Strategy Detectors** (`polytool_strategy_detectors.json`)
   - Variables: `proxy_wallet`, `bucket_type`, `detector_name`.
   - Core panels: detector scores over time, latest results, evidence JSON, bucket features.
   - Time filter: **No** (bucketed only).
   - Trustworthy by default: **N/A** (confidence not applicable).
 
-- **PolyTool - PnL** (`polyttool_pnl.json`)
+- **PolyTool - PnL** (`polytool_pnl.json`)
   - Variables: `proxy_wallet`, `bucket_type`.
   - Core panels: realized PnL, MTM estimate, exposure.
   - Time filter: **No** (bucketed only).
   - Trustworthy by default: **No** (no confidence filter).
 
-- **PolyTool - Arb Feasibility** (`polyttool_arb_feasibility.json`)
+- **PolyTool - Arb Feasibility** (`polytool_arb_feasibility.json`)
   - Variables: `proxy_wallet`, `bucket_type`.
   - Core panels: total events/fees/slippage, break-even notional, results table.
   - Time filter: **No** (bucketed only).
   - Trustworthy by default: **No** (no confidence filter).
 
-- **PolyTool - Liquidity Snapshots** (`polyttool_liquidity_snapshots.json`)
+- **PolyTool - Liquidity Snapshots** (`polytool_liquidity_snapshots.json`)
   - Variables: none.
   - Core panels: snapshot counts by status, spread/depth/slippage over time, latest snapshots, error reasons.
   - Time filter: **Yes** (all panels use `$__timeFilter`).
   - Trustworthy by default: **Not user-scoped** (global only).
 
-- **PolyTool - User Trades** (`polyttool_user_trades.json`)
+- **PolyTool - User Trades** (`polytool_user_trades.json`)
   - Variables: `proxy_wallet`, `username`.
   - Core panels: trades over time, buy/sell split, volume, activity charts, exposure snapshot.
   - Time filter: **No** (mostly lifetime).
   - Trustworthy by default: **No** (no dedupe in trade totals; activity panels do dedupe).
 
-- **PolyTool - Infra Smoke** (`polyttool_infra_smoke.json`)
+- **PolyTool - Infra Smoke** (`polytool_infra_smoke.json`)
   - Variables: none.
   - Core panels: ClickHouse heartbeat and server time.
   - Time filter: **N/A**.
@@ -132,8 +132,8 @@ Scope: repo-grounded audit (no network calls)
 6) **Liquidity & Arb row** = global orderbook quality + user-level arb costs and liquidity confidence.
 
 **Dashboard consistency issues**
-- **Time picker inconsistency**: Many panels ignore Grafana time filter (User Overview summary stats, Market Mix, PnL/Detector dashboards). Plays row *does* respect it, which is confusing when totals do not move with the time range. (`polyttool_user_overview.json`, `polyttool_pnl.json`, `polyttool_strategy_detectors.json`.)
-- **Global vs user-scoped liquidity**: "Orderbook Quality" is global. Users may assume it reflects their tokens. (`polyttool_user_overview.json`.)
+- **Time picker inconsistency**: Many panels ignore Grafana time filter (User Overview summary stats, Market Mix, PnL/Detector dashboards). Plays row *does* respect it, which is confusing when totals do not move with the time range. (`polytool_user_overview.json`, `polytool_pnl.json`, `polytool_strategy_detectors.json`.)
+- **Global vs user-scoped liquidity**: "Orderbook Quality" is global. Users may assume it reflects their tokens. (`polytool_user_overview.json`.)
 - **Confidence not enforced**: PnL/arb charts are not filtered by confidence; confidence is shown only as a stat. This weakens "trustworthy by default."
 - **Dedup risk in totals**: Some panels query ReplacingMergeTree tables without `argMax`/`FINAL` (e.g., Total Volume in User Overview, most of User Trades dashboard). Potential double counting is not explained.
 

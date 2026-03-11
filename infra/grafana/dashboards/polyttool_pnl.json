@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -91,12 +91,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(realized_pnl, computed_at) AS realized\nFROM polyttool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(realized_pnl, computed_at) AS realized\nFROM polytool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -106,7 +106,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -186,12 +186,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(mtm_pnl_estimate, computed_at) AS mtm\nFROM polyttool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(mtm_pnl_estimate, computed_at) AS mtm\nFROM polytool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -201,7 +201,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -281,12 +281,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(exposure_notional_estimate, computed_at) AS exposure\nFROM polyttool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  argMax(exposure_notional_estimate, computed_at) AS exposure\nFROM polytool.user_pnl_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -296,7 +296,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -376,12 +376,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  sum(realized_pnl) OVER (ORDER BY bucket_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_realized_pnl\nFROM (\n  SELECT\n    bucket_start,\n    argMax(realized_pnl, computed_at) AS realized_pnl\n  FROM polyttool.user_pnl_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  sum(realized_pnl) OVER (ORDER BY bucket_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_realized_pnl\nFROM (\n  SELECT\n    bucket_start,\n    argMax(realized_pnl, computed_at) AS realized_pnl\n  FROM polytool.user_pnl_bucket\n  WHERE proxy_wallet = '$proxy_wallet'\n    AND bucket_type = '$bucket_type'\n  GROUP BY bucket_start\n)\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -392,7 +392,7 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
-    "polyttool",
+    "polytool",
     "pnl"
   ],
   "templating": {
@@ -401,16 +401,16 @@
         "current": {},
         "datasource": {
           "type": "grafana-clickhouse-datasource",
-          "uid": "clickhouse-polyttool"
+          "uid": "clickhouse-polytool"
         },
-        "definition": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "definition": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "hide": 0,
         "includeAll": false,
         "label": "User",
         "multi": false,
         "name": "proxy_wallet",
         "options": [],
-        "query": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "query": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -459,7 +459,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - PnL",
-  "uid": "polyttool-pnl",
+  "uid": "polytool-pnl",
   "version": 1,
   "weekStart": ""
 }

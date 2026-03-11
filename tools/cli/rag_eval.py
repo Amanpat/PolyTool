@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--collection",
-        default="polyttool_rag",
+        default="polytool_rag",
         help="Chroma collection name.",
     )
     parser.add_argument(

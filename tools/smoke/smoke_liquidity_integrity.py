@@ -30,9 +30,9 @@ def _print_rows(rows: list[list], empty_message: str) -> None:
 def main() -> int:
     host = os.getenv("CLICKHOUSE_HOST", "clickhouse")
     port = _env_int("CLICKHOUSE_PORT", "8123")
-    username = os.getenv("CLICKHOUSE_USER", "polyttool_admin")
-    password = os.getenv("CLICKHOUSE_PASSWORD", "polyttool_admin")
-    database = os.getenv("CLICKHOUSE_DATABASE", "polyttool")
+    username = os.getenv("CLICKHOUSE_USER", "polytool_admin")
+    password = os.getenv("CLICKHOUSE_PASSWORD", "polytool_admin")
+    database = os.getenv("CLICKHOUSE_DATABASE", "polytool")
 
     client = clickhouse_connect.get_client(
         host=host,
@@ -46,7 +46,7 @@ def main() -> int:
     result = client.query(
         """
         SELECT token_id, count() c
-        FROM polyttool.market_tokens
+        FROM polytool.market_tokens
         GROUP BY token_id
         HAVING c > 1
         ORDER BY c DESC
@@ -59,7 +59,7 @@ def main() -> int:
     result = client.query(
         """
         SELECT snapshot_ts, token_id, count() c
-        FROM polyttool.orderbook_snapshots_enriched
+        FROM polytool.orderbook_snapshots_enriched
         WHERE snapshot_ts > now() - INTERVAL 30 DAY
         GROUP BY snapshot_ts, token_id
         HAVING c > 1

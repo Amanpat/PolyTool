@@ -37,7 +37,7 @@ Position-level fields added to dossier/audit/coverage flow:
 
 Scan stage:
 
-1. Read cached rows from ClickHouse table `polyttool.market_price_snapshots`.
+1. Read cached rows from ClickHouse table `polytool.market_price_snapshots`.
 2. If cache misses and CLV online mode is enabled, call CLOB `/prices-history` in a bounded window.
 3. Persist fetched points into the cache table with reproducibility metadata:
    - `query_window_seconds`

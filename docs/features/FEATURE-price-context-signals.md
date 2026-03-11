@@ -25,7 +25,7 @@ For every nullable field above, the run now writes `<field>_missing_reason` when
 
 ## Data Retrieval Rules
 
-1. Use cache-first lookup from `polyttool.market_price_snapshots` with `kind="entry_context"`.
+1. Use cache-first lookup from `polytool.market_price_snapshots` with `kind="entry_context"`.
 2. If cache is missing and online mode is enabled, call `/prices-history` with bounded `startTs/endTs`.
 3. Persist fetched rows back into cache.
 4. Recompute selectors from snapshot rows only.

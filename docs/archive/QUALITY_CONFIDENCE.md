@@ -155,7 +155,7 @@ If orderbook snapshots look duplicated, verify the joins are unique. You can run
 
 ```sql
 SELECT token_id, count() c
-FROM polyttool.market_tokens
+FROM polytool.market_tokens
 GROUP BY token_id
 HAVING c > 1
 ORDER BY c DESC
@@ -164,7 +164,7 @@ LIMIT 20;
 
 ```sql
 SELECT snapshot_ts, token_id, count() c
-FROM polyttool.orderbook_snapshots_enriched
+FROM polytool.orderbook_snapshots_enriched
 WHERE snapshot_ts > now() - INTERVAL 30 DAY
 GROUP BY snapshot_ts, token_id
 HAVING c > 1

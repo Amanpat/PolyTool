@@ -4,7 +4,7 @@
 -- market_tokens: maps token_id to market/outcome metadata
 -- Source: Gamma API /markets endpoint
 -- Used for: joining trades to categories, outcome pairing detection
-CREATE TABLE IF NOT EXISTS polyttool.market_tokens
+CREATE TABLE IF NOT EXISTS polytool.market_tokens
 (
     token_id String,
     condition_id String,
@@ -27,7 +27,7 @@ ORDER BY (token_id);
 
 -- markets: full market metadata for reference
 -- Stores complete market info including all outcomes
-CREATE TABLE IF NOT EXISTS polyttool.markets
+CREATE TABLE IF NOT EXISTS polytool.markets
 (
     condition_id String,
     market_slug String,
@@ -53,7 +53,7 @@ ORDER BY (condition_id);
 
 -- user_daily_features: aggregated trading metrics per user per day
 -- Computed from user_trades with optional market_tokens join
-CREATE TABLE IF NOT EXISTS polyttool.user_daily_features
+CREATE TABLE IF NOT EXISTS polytool.user_daily_features
 (
     proxy_wallet String,
     bucket_day Date,
@@ -75,7 +75,7 @@ ORDER BY (proxy_wallet, bucket_day);
 
 -- detector_results: strategy detection scores with evidence
 -- Each detector produces a score (0-1), label, and evidence JSON
-CREATE TABLE IF NOT EXISTS polyttool.detector_results
+CREATE TABLE IF NOT EXISTS polytool.detector_results
 (
     proxy_wallet String,
     detector_name String,        -- HOLDING_STYLE, DCA_LADDERING, etc.
@@ -90,7 +90,7 @@ ENGINE = ReplacingMergeTree(computed_at)
 ORDER BY (proxy_wallet, detector_name, bucket_type, bucket_start);
 
 -- Grant SELECT access to grafana_ro user for all new tables
-GRANT SELECT ON polyttool.market_tokens TO grafana_ro;
-GRANT SELECT ON polyttool.markets TO grafana_ro;
-GRANT SELECT ON polyttool.user_daily_features TO grafana_ro;
-GRANT SELECT ON polyttool.detector_results TO grafana_ro;
+GRANT SELECT ON polytool.market_tokens TO grafana_ro;
+GRANT SELECT ON polytool.markets TO grafana_ro;
+GRANT SELECT ON polytool.user_daily_features TO grafana_ro;
+GRANT SELECT ON polytool.detector_results TO grafana_ro;

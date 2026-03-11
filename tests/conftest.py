@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
 import pytest
+from tests._safe_cleanup import safe_rmtree
 
 
 _ISOLATED_ENV_VARS = (
@@ -22,15 +22,19 @@ _PREVIOUS_CWD: Path | None = None
 _PREVIOUS_ENV: dict[str, str | None] = {}
 _WORKSPACE_ROOT: Path | None = None
 _ORIGINAL_TEMPORARY_DIRECTORY = None
+_SAFE_CLEANUP_ROOTS: tuple[Path, ...] = ()
 
 
 def pytest_configure(config: pytest.Config) -> None:
     """Guard pytest tmpdir cleanup against Windows ACL edge cases."""
     import _pytest.tmpdir as pytest_tmpdir
 
+    global _SAFE_CLEANUP_ROOTS
+
     repo_root = Path(__file__).resolve().parent.parent
     basetemp_root = repo_root / ".tmp" / "pytest-basetemp"
     basetemp_root.mkdir(parents=True, exist_ok=True)
+    _SAFE_CLEANUP_ROOTS = (basetemp_root.resolve(),)
     if not config.option.basetemp:
         config.option.basetemp = str(basetemp_root / uuid.uuid4().hex)
 
@@ -43,7 +47,7 @@ def pytest_configure(config: pytest.Config) -> None:
         if self._given_basetemp is not None:
             basetemp = self._given_basetemp
             if basetemp.exists():
-                shutil.rmtree(basetemp, ignore_errors=True)
+                safe_rmtree(basetemp, allowed_roots=_SAFE_CLEANUP_ROOTS, ignore_errors=True)
             # Avoid 0o700 ACL issues in restricted Windows environments.
             basetemp.mkdir(mode=0o777, parents=True, exist_ok=True)
             self._basetemp = basetemp.resolve()
@@ -87,6 +91,11 @@ def pytest_configure(config: pytest.Config) -> None:
     cache_root = workspace_root / "cache"
     for path in (workspaces_root, kb_root, artifacts_root, cache_root):
         path.mkdir(parents=True, exist_ok=True)
+    _SAFE_CLEANUP_ROOTS = (
+        basetemp_root.resolve(),
+        workspaces_root.resolve(),
+        workspace_root.resolve(),
+    )
 
     _PREVIOUS_CWD = Path.cwd()
     _PREVIOUS_ENV = {key: os.environ.get(key) for key in _ISOLATED_ENV_VARS}
@@ -130,11 +139,11 @@ def pytest_configure(config: pytest.Config) -> None:
             if self._closed:
                 return
             self._closed = True
-            try:
-                shutil.rmtree(self.name, ignore_errors=False)
-            except Exception:
-                if not self._ignore_cleanup_errors:
-                    raise
+            safe_rmtree(
+                self.name,
+                allowed_roots=_SAFE_CLEANUP_ROOTS,
+                ignore_errors=self._ignore_cleanup_errors or os.name == "nt",
+            )
 
     tempfile.TemporaryDirectory = _SafeTemporaryDirectory  # type: ignore[assignment]
     os.chdir(workspace_root)
@@ -153,4 +162,4 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     if _ORIGINAL_TEMPORARY_DIRECTORY is not None:
         tempfile.TemporaryDirectory = _ORIGINAL_TEMPORARY_DIRECTORY  # type: ignore[assignment]
     if _WORKSPACE_ROOT is not None:
-        shutil.rmtree(_WORKSPACE_ROOT, ignore_errors=True)
+        safe_rmtree(_WORKSPACE_ROOT, allowed_roots=_SAFE_CLEANUP_ROOTS, ignore_errors=True)

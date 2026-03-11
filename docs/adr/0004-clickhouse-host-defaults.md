@@ -27,7 +27,7 @@ requiring extra `.env` configuration before the standard `curl localhost:8123` w
 
 3. **Port fallback chain**: `CLICKHOUSE_PORT` -> `CLICKHOUSE_HTTP_PORT` -> `8123`.
 
-4. **Database fallback chain**: `CLICKHOUSE_DATABASE` -> `CLICKHOUSE_DB` -> `"polyttool"`.
+4. **Database fallback chain**: `CLICKHOUSE_DATABASE` -> `CLICKHOUSE_DB` -> `"polytool"`.
 
 ## Consequences
 

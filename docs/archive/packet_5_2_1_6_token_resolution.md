@@ -26,13 +26,13 @@ and in join logic to prevent casing or prefix mismatches.
 
 ## ClickHouse objects
 
-- **Table**: `polyttool.token_aliases`
+- **Table**: `polytool.token_aliases`
   - Source of truth for alias -> canonical mappings.
 - **Views**:
-  - `polyttool.user_trades_resolved`
-  - `polyttool.user_positions_resolved`
-  - `polyttool.user_activity_resolved`
-  - `polyttool.orderbook_snapshots_enriched` (updated to use aliases)
+  - `polytool.user_trades_resolved`
+  - `polytool.user_positions_resolved`
+  - `polytool.user_activity_resolved`
+  - `polytool.orderbook_snapshots_enriched` (updated to use aliases)
 
 These views expose `resolved_token_id`, `resolved_condition_id`, and enriched metadata
 fields (`market_slug`, `question`, `category`, `resolved_outcome_name`).

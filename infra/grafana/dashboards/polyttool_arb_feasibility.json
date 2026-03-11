@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -60,12 +60,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT count(DISTINCT condition_id) AS arb_events\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
+          "rawSql": "SELECT count(DISTINCT condition_id) AS arb_events\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'",
           "refId": "A"
         }
       ],
@@ -75,7 +75,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -125,12 +125,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(argMax(total_fees_est_usdc, computed_at)) AS total_fees\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY condition_id",
+          "rawSql": "SELECT sum(argMax(total_fees_est_usdc, computed_at)) AS total_fees\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY condition_id",
           "refId": "A"
         }
       ],
@@ -140,7 +140,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -190,12 +190,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT sum(argMax(total_slippage_est_usdc, computed_at)) AS total_slippage\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY condition_id",
+          "rawSql": "SELECT sum(argMax(total_slippage_est_usdc, computed_at)) AS total_slippage\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY condition_id",
           "refId": "A"
         }
       ],
@@ -205,7 +205,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -316,12 +316,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  sum(argMax(total_fees_est_usdc, computed_at)) AS fees,\n  sum(argMax(total_slippage_est_usdc, computed_at)) AS slippage\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  sum(argMax(total_fees_est_usdc, computed_at)) AS fees,\n  sum(argMax(total_slippage_est_usdc, computed_at)) AS slippage\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -331,7 +331,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -412,12 +412,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "timeseries",
-          "rawSql": "SELECT\n  bucket_start AS time,\n  avg(argMax(break_even_notional_usd, computed_at)) AS break_even_avg\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND break_even_notional_usd IS NOT NULL\nGROUP BY bucket_start\nORDER BY time",
+          "rawSql": "SELECT\n  bucket_start AS time,\n  avg(argMax(break_even_notional_usd, computed_at)) AS break_even_avg\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\n  AND break_even_notional_usd IS NOT NULL\nGROUP BY bucket_start\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -427,7 +427,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -570,12 +570,12 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT\n  bucket_start,\n  condition_id,\n  argMax(total_fees_est_usdc, computed_at) AS total_fees_usdc,\n  argMax(total_slippage_est_usdc, computed_at) AS total_slippage_usdc,\n  argMax(break_even_notional_usd, computed_at) AS break_even_usd,\n  argMax(confidence, computed_at) AS confidence\nFROM polyttool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, condition_id\nORDER BY bucket_start DESC\nLIMIT 50",
+          "rawSql": "SELECT\n  bucket_start,\n  condition_id,\n  argMax(total_fees_est_usdc, computed_at) AS total_fees_usdc,\n  argMax(total_slippage_est_usdc, computed_at) AS total_slippage_usdc,\n  argMax(break_even_notional_usd, computed_at) AS break_even_usd,\n  argMax(confidence, computed_at) AS confidence\nFROM polytool.arb_feasibility_bucket\nWHERE proxy_wallet = '$proxy_wallet'\n  AND bucket_type = '$bucket_type'\nGROUP BY bucket_start, condition_id\nORDER BY bucket_start DESC\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -586,7 +586,7 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": [
-    "polyttool",
+    "polytool",
     "arb"
   ],
   "templating": {
@@ -595,16 +595,16 @@
         "current": {},
         "datasource": {
           "type": "grafana-clickhouse-datasource",
-          "uid": "clickhouse-polyttool"
+          "uid": "clickhouse-polytool"
         },
-        "definition": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "definition": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "hide": 0,
         "includeAll": false,
         "label": "User",
         "multi": false,
         "name": "proxy_wallet",
         "options": [],
-        "query": "SELECT __value, __text FROM polyttool.users_grafana_dropdown ORDER BY __text",
+        "query": "SELECT __value, __text FROM polytool.users_grafana_dropdown ORDER BY __text",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
@@ -653,7 +653,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - Arb Feasibility",
-  "uid": "polyttool-arb-feasibility",
+  "uid": "polytool-arb-feasibility",
   "version": 1,
   "weekStart": ""
 }

@@ -865,7 +865,14 @@ def test_scan_trust_artifacts_warns_when_positions_are_declared_but_rows_missing
                 }
             raise AssertionError(f"Unexpected scan API path: {path}")
 
+        def fake_get_json(base_url, path, params, timeout=120.0, retries=3, backoff_seconds=1.0):
+            assert base_url == "http://localhost:8000"
+            assert path == "/api/export/user_dossier/history"
+            assert params["user"] == "@TestUser"
+            return {"rows": []}
+
         monkeypatch.setattr(scan, "post_json", fake_post_json)
+        monkeypatch.setattr(scan, "get_json", fake_get_json)
 
         config = {
             "user": "@TestUser",

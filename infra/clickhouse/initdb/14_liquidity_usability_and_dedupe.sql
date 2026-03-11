@@ -1,6 +1,6 @@
 -- Liquidity usability layer + deduped joins + opportunity storage
 
-CREATE TABLE IF NOT EXISTS polyttool.user_opportunities_bucket
+CREATE TABLE IF NOT EXISTS polytool.user_opportunities_bucket
 (
     proxy_wallet String,
     bucket_start DateTime,
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS polyttool.user_opportunities_bucket
 ENGINE = MergeTree
 ORDER BY (proxy_wallet, bucket_start);
 
-CREATE OR REPLACE VIEW polyttool.orderbook_snapshots_enriched AS
+CREATE OR REPLACE VIEW polytool.orderbook_snapshots_enriched AS
 SELECT
     s.snapshot_ts AS snapshot_ts,
     s.token_id AS token_id,
@@ -110,8 +110,8 @@ FROM (
             'MED',
             'LOW'
         ) AS liquidity_grade
-    FROM polyttool.token_orderbook_snapshots s
-    LEFT JOIN polyttool.token_aliases ta ON s.token_id = ta.alias_token_id
+    FROM polytool.token_orderbook_snapshots s
+    LEFT JOIN polytool.token_aliases ta ON s.token_id = ta.alias_token_id
 ) s
 LEFT JOIN (
     SELECT
@@ -123,7 +123,7 @@ LEFT JOIN (
         argMax(condition_id, ingested_at) AS condition_id,
         max(ifNull(enable_order_book, 0)) AS enable_order_book,
         max(ifNull(accepting_orders, 0)) AS accepting_orders
-    FROM polyttool.market_tokens
+    FROM polytool.market_tokens
     GROUP BY token_id
 ) mt ON mt.token_id = s.resolved_token_id
 LEFT JOIN (
@@ -132,7 +132,7 @@ LEFT JOIN (
         argMax(market_slug, ingested_at) AS market_slug,
         argMax(question, ingested_at) AS question,
         argMax(category, ingested_at) AS category
-    FROM polyttool.markets
+    FROM polytool.markets
     GROUP BY condition_id
 ) me ON if(
     startsWith(lowerUTF8(trimBoth(mt.condition_id)), '0x'),
@@ -144,5 +144,5 @@ LEFT JOIN (
     concat('0x', lowerUTF8(trimBoth(me.condition_id)))
 );
 
-GRANT SELECT ON polyttool.user_opportunities_bucket TO grafana_ro;
-GRANT SELECT ON polyttool.orderbook_snapshots_enriched TO grafana_ro;
+GRANT SELECT ON polytool.user_opportunities_bucket TO grafana_ro;
+GRANT SELECT ON polytool.orderbook_snapshots_enriched TO grafana_ro;

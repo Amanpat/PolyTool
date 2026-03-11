@@ -27,6 +27,6 @@ keeps the raw snapshot table unchanged while enabling consistent enrichment.
 
 ```sql
 SELECT countIf(length(market_slug) > 0) AS with_slug, count() AS total
-FROM polyttool.orderbook_snapshots_enriched
+FROM polytool.orderbook_snapshots_enriched
 WHERE snapshot_ts > now() - INTERVAL 30 DAY;
 ```

@@ -11,6 +11,9 @@ class GuardLibTests(unittest.TestCase):
     def test_normalize_path(self) -> None:
         self.assertEqual(normalize_path("kb\\README.md"), "kb/README.md")
         self.assertEqual(normalize_path("./artifacts/report.txt"), "artifacts/report.txt")
+        self.assertEqual(normalize_path(".\\kb/./notes\\..\\README.md"), "kb/README.md")
+        self.assertEqual(normalize_path("../artifacts/./report.txt"), "artifacts/report.txt")
+        self.assertEqual(normalize_path("..\\..\\kb\\private.txt"), "kb/private.txt")
 
     def test_allowlist_paths(self) -> None:
         blocked, reason = is_forbidden("kb/README.md")

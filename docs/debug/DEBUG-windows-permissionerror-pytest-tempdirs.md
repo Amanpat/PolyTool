@@ -72,3 +72,27 @@ Commands run after fixes:
 1. `pytest -q --maxfail=1` -> pass (`255 passed, 4 skipped`)
 2. `pytest -x -vv` -> pass (`255 passed, 4 skipped`)
 3. `pytest -q` -> pass (`255 passed, 4 skipped`)
+
+## 2026-02-25 Follow-up: teardown exit-code regression
+
+### Symptom
+
+`pytest -q` could report all tests as passing, then still exit with code 1 on Windows during teardown/finalizer cleanup.
+
+### Root cause
+
+`tests/conftest.py` used raw `shutil.rmtree(...)` in session/temp cleanup paths. On Windows this could raise during teardown when:
+
+1. handles were still briefly locked (`PermissionError`);
+2. cleanup encountered mount/junction-like paths.
+
+Those shutdown-time exceptions surfaced as teardown/finalizer errors, flipping pytest to exit code 1.
+
+### Fix
+
+Added `tests/_safe_cleanup.py::safe_rmtree(...)` and routed conftest teardown through it:
+
+1. strict allowlist: cleanup only under test temp roots (`.tmp/pytest-basetemp`, `.tmp/test-workspaces`, active workspace);
+2. Windows-safe retry: on `PermissionError`, `chmod` then retry once;
+3. mount/junction guard: detect and skip mount/junction paths;
+4. never delete non-temp paths (explicit refusal for out-of-scope targets).

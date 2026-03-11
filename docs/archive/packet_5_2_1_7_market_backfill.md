@@ -40,6 +40,6 @@ back to `active` + close_date when those flags are unavailable.
 
 ```sql
 SELECT countIf(length(market_slug) > 0) AS with_slug, count() AS total
-FROM polyttool.user_trades_resolved
+FROM polytool.user_trades_resolved
 WHERE proxy_wallet = '<wallet>';
 ```

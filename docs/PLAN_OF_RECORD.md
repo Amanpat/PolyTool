@@ -69,6 +69,31 @@ Each CLI command is invoked as `python -m polytool <command>`. See
 `examine` remains available as a legacy orchestration wrapper but is not the
 canonical path for trust artifact validation.
 
+### Track alignment (as of 2026-03-05)
+
+- **Track B foundation is complete**: wallet-scan v0, alpha-distill v0, and the
+  RAG/hypothesis scaffolding baseline.
+- **Hypothesis registry v0 is complete**: `hypothesis-register`, `hypothesis-status`,
+  `experiment-init`, and `experiment-run` are all shipped and tested.
+- **Track A Week 1 is complete**: KillSwitch, RateLimiter, RiskManager, LiveExecutor,
+  LiveRunner, and the `simtrader live` CLI surface.
+- **Track A Week 2 is complete**: OrderManager reconciliation loop and MarketMakerV0
+  strategy, usable in replay, shadow, and dry-run live modes.
+- **Track A gates remain open**: `replay -> scenario sweeps -> shadow -> dry-run live`
+  gates must all pass before any live capital is allowed.
+- **Research outputs are not signals**: scan outputs, alpha candidates, and
+  SimTrader results are research evidence only. Any execution layer may run
+  only operator-supplied strategies that have passed the validation gates.
+
+What exists today (primitive inventory):
+
+- Track B: `wallet-scan`, `alpha-distill`, `hypothesis-register`, `hypothesis-status`,
+  `experiment-init`, `experiment-run`, RAG reliability improvements.
+- Track A Week 1: `KillSwitch`, `TokenBucketRateLimiter`, `RiskManager`,
+  `LiveExecutor`, `LiveRunner`, `simtrader live` CLI.
+- Track A Week 2: `OrderManager`, `MarketMakerV0`, `--strategy market_maker_v0`
+  wired into `simtrader run/quickrun/shadow/live`.
+
 ---
 
 ## 3. Critical Data Gaps

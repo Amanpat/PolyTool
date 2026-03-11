@@ -13,7 +13,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-PRICE_SNAPSHOT_TABLE = "polyttool.market_price_snapshots"
+PRICE_SNAPSHOT_TABLE = "polytool.market_price_snapshots"
 PRICE_SNAPSHOT_KIND_CLOSING = "closing"
 PRICE_SNAPSHOT_KIND_ENTRY_CONTEXT = "entry_context"
 PRICE_SNAPSHOT_SOURCE = "clob_prices_history"

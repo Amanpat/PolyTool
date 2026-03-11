@@ -2,6 +2,18 @@
 
 This workflow is fully local/offline. It never uses external LLM APIs.
 
+## One-command rebuild
+
+After any scan, wallet-scan, or llm-save, make new content searchable with:
+
+```bash
+python -m polytool rag-refresh
+```
+
+This rebuilds the index over `kb/` + `artifacts/` from scratch. Run it
+whenever you've added new content. For incremental updates or more control,
+see `rag-index` options below.
+
 ## RAG vs export-dossier (what each does)
 - **export-dossier** creates a single-user evidence package (JSON + memo + manifest)
   from a scan. It is a point-in-time dossier meant for human review and downstream

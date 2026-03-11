@@ -11,7 +11,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -57,7 +57,7 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
@@ -82,7 +82,7 @@
     {
       "datasource": {
         "type": "grafana-clickhouse-datasource",
-        "uid": "clickhouse-polyttool"
+        "uid": "clickhouse-polytool"
       },
       "fieldConfig": {
         "defaults": {
@@ -127,7 +127,7 @@
         {
           "datasource": {
             "type": "grafana-clickhouse-datasource",
-            "uid": "clickhouse-polyttool"
+            "uid": "clickhouse-polytool"
           },
           "editorType": "sql",
           "format": 1,
@@ -152,7 +152,7 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["polyttool", "infrastructure"],
+  "tags": ["polytool", "infrastructure"],
   "templating": {
     "list": []
   },
@@ -163,7 +163,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "PolyTool - Infra Smoke",
-  "uid": "polyttool-infra-smoke",
+  "uid": "polytool-infra-smoke",
   "version": 1,
   "weekStart": ""
 }
