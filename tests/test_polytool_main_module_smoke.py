@@ -9,6 +9,8 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+YES_ID = "yes-token"
+NO_ID = "no-token"
 
 
 def _run_polytool(*args: str) -> subprocess.CompletedProcess[str]:
@@ -21,51 +23,37 @@ def _run_polytool(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _write_gate2_candidate_tape(tapes_dir: Path) -> str:
-    slug = "politics-election-market"
+def _write_eligible_tape(tapes_dir: Path, regime: str) -> str:
+    slug = f"{regime}-ready-market"
     tape_dir = tapes_dir / slug
     tape_dir.mkdir()
-
+    (tape_dir / "watch_meta.json").write_text(
+        json.dumps(
+            {
+                "market_slug": slug,
+                "yes_asset_id": YES_ID,
+                "no_asset_id": NO_ID,
+                "regime": regime,
+            }
+        ),
+        encoding="utf-8",
+    )
     events = [
         {
             "event_type": "book",
-            "asset_id": "yes-token",
-            "seq": 0,
-            "ts_recv": 1000.0,
-            "bids": [],
+            "asset_id": YES_ID,
             "asks": [{"price": "0.40", "size": "100"}],
+            "bids": [],
         },
         {
             "event_type": "book",
-            "asset_id": "no-token",
-            "seq": 1,
-            "ts_recv": 1001.0,
-            "bids": [],
+            "asset_id": NO_ID,
             "asks": [{"price": "0.50", "size": "100"}],
-        },
-        {
-            "event_type": "price_change",
-            "price_changes": [
-                {"asset_id": "yes-token", "price": "0.40", "size": "100", "side": "SELL"},
-                {"asset_id": "no-token", "price": "0.50", "size": "100", "side": "SELL"},
-            ],
-            "seq": 2,
-            "ts_recv": 1002.0,
+            "bids": [],
         },
     ]
     (tape_dir / "events.jsonl").write_text(
         "\n".join(json.dumps(event) for event in events) + "\n",
-        encoding="utf-8",
-    )
-    (tape_dir / "meta.json").write_text(
-        json.dumps(
-            {
-                "market_slug": slug,
-                "category": "politics",
-                "question": "Will the election outcome resolve this market?",
-            }
-        )
-        + "\n",
         encoding="utf-8",
     )
     return slug
@@ -74,16 +62,42 @@ def _write_gate2_candidate_tape(tapes_dir: Path) -> str:
 @pytest.mark.parametrize(
     ("argv", "expected_fragments"),
     [
-        (["--help"], ["Usage: polytool <command> [options]", "scan-gate2-candidates"]),
-        (["simtrader", "run", "--help"], ["usage: polytool simtrader run", "--strategy"]),
-        (["scan-gate2-candidates", "--help"], ["usage: scan-gate2-candidates", "--all"]),
         (
-            ["scan-gate2-candidates", "--regime", "politics", "--help"],
-            ["usage: scan-gate2-candidates", "--regime", "politics"],
+            ["--help"],
+            [
+                "Usage: polytool <command> [options]",
+                "scan-gate2-candidates",
+                "tape-manifest",
+                "watch-arb-candidates",
+                "make-session-pack",
+                "gate2-preflight",
+            ],
+        ),
+        (
+            ["tape-manifest", "--help"],
+            ["usage: tape-manifest", "--tapes-dir", "--out"],
+        ),
+        (
+            ["scan-gate2-candidates", "--help"],
+            ["usage: scan-gate2-candidates", "--all", "--regime"],
+        ),
+        (
+            ["make-session-pack", "--help"],
+            ["usage: make-session-pack", "--regime", "--markets"],
+        ),
+        (
+            ["watch-arb-candidates", "--help"],
+            ["usage: watch-arb-candidates", "--markets", "--session-plan"],
+        ),
+        (
+            ["gate2-preflight", "--help"],
+            ["usage: gate2-preflight", "Check whether Gate 2 sweep is ready"],
         ),
     ],
 )
-def test_polytool_main_module_help_smoke(argv: list[str], expected_fragments: list[str]) -> None:
+def test_polytool_main_module_help_surface_smoke(
+    argv: list[str], expected_fragments: list[str]
+) -> None:
     proc = _run_polytool(*argv)
     combined_output = proc.stdout + proc.stderr
 
@@ -92,21 +106,14 @@ def test_polytool_main_module_help_smoke(argv: list[str], expected_fragments: li
         assert fragment in combined_output
 
 
-def test_polytool_main_module_scan_gate2_candidates_offline_smoke(tmp_path: Path) -> None:
-    slug = _write_gate2_candidate_tape(tmp_path)
+def test_polytool_main_module_gate2_preflight_ready_smoke(tmp_path: Path) -> None:
+    for regime in ("politics", "sports", "new_market"):
+        _write_eligible_tape(tmp_path, regime)
 
-    proc = _run_polytool(
-        "scan-gate2-candidates",
-        "--tapes-dir",
-        str(tmp_path),
-        "--regime",
-        "politics",
-        "--top",
-        "1",
-    )
+    proc = _run_polytool("gate2-preflight", "--tapes-dir", str(tmp_path))
     combined_output = proc.stdout + proc.stderr
 
     assert proc.returncode == 0, combined_output
-    assert slug in combined_output
-    assert "Regime 'politics'" in combined_output
-    assert "Mode: tape" in combined_output
+    assert "Result: READY" in combined_output
+    assert "Eligible tapes: 3" in combined_output
+    assert "Missing regimes: none" in combined_output

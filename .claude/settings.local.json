@@ -58,7 +58,8 @@
       "Bash(do echo \"=== $dir ===\")",
       "Read(//d/Coding Projects/Polymarket/PolyTool/$dir/**)",
       "Bash(done)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cd \"D:/Coding Projects/Polymarket/PolyTool\" && cp /tmp/test_polytool_main_module_smoke_wt.py tests/test_polytool_main_module_smoke.py && echo \"Replaced with newer version\")"
     ]
   }
 }
