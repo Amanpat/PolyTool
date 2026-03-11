@@ -103,6 +103,19 @@ def fetch_active_markets(min_volume: float = 5000, limit: int = 50) -> list[dict
                 "created_at": raw_market.get("created_at") or raw_market.get("createdAt"),
                 "resolved_at": raw_market.get("resolved_at") or raw_market.get("resolvedAt"),
                 "token_id": _extract_token_id(raw_market),
+                # Regime-classification fields (used by regime_policy.enrich_with_regime)
+                "title": raw_market.get("title") or raw_market.get("question") or None,
+                "question": raw_market.get("question") or None,
+                "category": raw_market.get("category") or None,
+                "subcategory": raw_market.get("subcategory") or None,
+                "tags": (
+                    raw_market.get("tags")
+                    or raw_market.get("tag_names")
+                    or raw_market.get("tagNames")
+                    or None
+                ),
+                "event_slug": raw_market.get("event_slug") or raw_market.get("eventSlug") or None,
+                "event_title": raw_market.get("event_title") or raw_market.get("eventTitle") or None,
             }
         )
     return markets

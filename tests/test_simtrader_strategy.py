@@ -1,10 +1,10 @@
-"""Tests for SimTrader strategy interface, StrategyRunner, and CopyWalletReplay.
+﻿"""Tests for SimTrader strategy interface, StrategyRunner, and CopyWalletReplay.
 
 Test categories
 ---------------
-1. Runner determinism — same tape + config => identical summary
-2. CopyWalletReplay delay — signal_delay_ticks shifts submit seq as expected
-3. End-to-end — tiny fixture tape + trade list => known ledger result
+1. Runner determinism Ã¢â‚¬â€ same tape + config => identical summary
+2. CopyWalletReplay delay Ã¢â‚¬â€ signal_delay_ticks shifts submit seq as expected
+3. End-to-end Ã¢â‚¬â€ tiny fixture tape + trade list => known ledger result
 """
 
 from __future__ import annotations
@@ -255,7 +255,7 @@ def test_delay_shifts_submit_seq_relative_to_zero(tmp_path: Path) -> None:
     tape_path = tmp_path / "events.jsonl"
     trades_path = tmp_path / "trades.jsonl"
     _write_tape(tape_path)
-    # Trade at seq=1; with delay=3 → triggers at first seq >= 4
+    # Trade at seq=1; with delay=3 Ã¢â€ â€™ triggers at first seq >= 4
     _write_trades(
         trades_path,
         [{"seq": 1, "side": "BUY", "limit_price": "0.50", "size": "10"}],
@@ -297,7 +297,7 @@ def test_delay_beyond_tape_end_produces_no_decision(tmp_path: Path) -> None:
     )
 
     run_dir = tmp_path / "run_too_late"
-    # delay=10 → trigger_seq = 3 + 10 = 13, beyond seq=5
+    # delay=10 Ã¢â€ â€™ trigger_seq = 3 + 10 = 13, beyond seq=5
     strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=10)
     runner = StrategyRunner(
         events_path=tape_path,
@@ -317,7 +317,7 @@ def test_delay_beyond_tape_end_produces_no_decision(tmp_path: Path) -> None:
 
 
 def test_end_to_end_buy_fills_at_ask(tmp_path: Path) -> None:
-    """BUY 100 shares at limit 0.50 against ask=0.45 → fills fully at 0.45."""
+    """BUY 100 shares at limit 0.50 against ask=0.45 Ã¢â€ â€™ fills fully at 0.45."""
     from packages.polymarket.simtrader.strategy.runner import StrategyRunner
     from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
 
@@ -393,7 +393,7 @@ def test_end_to_end_buy_fills_at_ask(tmp_path: Path) -> None:
     assert Decimal(pnl_summary["total_fees"]) > 0
     assert Decimal(pnl_summary["starting_cash"]) == Decimal("1000")
 
-    # Position held → final_cash < starting_cash (cash was used to buy)
+    # Position held Ã¢â€ â€™ final_cash < starting_cash (cash was used to buy)
     assert Decimal(pnl_summary["final_cash"]) < Decimal("1000")
 
 
@@ -405,7 +405,7 @@ def test_end_to_end_multiple_trades(tmp_path: Path) -> None:
     tape_path = tmp_path / "events.jsonl"
     trades_path = tmp_path / "trades.jsonl"
     _write_tape(tape_path)
-    # Two BUY trades both at limit > best_ask (0.45) → both fill
+    # Two BUY trades both at limit > best_ask (0.45) Ã¢â€ â€™ both fill
     _write_trades(
         trades_path,
         [
@@ -444,7 +444,7 @@ def test_end_to_end_no_fill_when_limit_too_low(tmp_path: Path) -> None:
     tape_path = tmp_path / "events.jsonl"
     trades_path = tmp_path / "trades.jsonl"
     _write_tape(tape_path)
-    # limit 0.30 < best_ask 0.45 → no fill
+    # limit 0.30 < best_ask 0.45 Ã¢â€ â€™ no fill
     _write_trades(
         trades_path,
         [{"seq": 0, "side": "BUY", "limit_price": "0.30", "size": "100"}],
@@ -507,7 +507,7 @@ def test_order_intent_defaults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 5: No-trade run — ledger always has initial + final snapshots
+# Test 5: No-trade run Ã¢â‚¬â€ ledger always has initial + final snapshots
 # ---------------------------------------------------------------------------
 
 
@@ -519,7 +519,7 @@ def test_no_trade_ledger_has_initial_final_snapshots(tmp_path: Path) -> None:
     tape_path = tmp_path / "events.jsonl"
     trades_path = tmp_path / "trades.jsonl"
     _write_tape(tape_path)
-    _write_trades(trades_path, [])  # empty trade list → no orders submitted
+    _write_trades(trades_path, [])  # empty trade list Ã¢â€ â€™ no orders submitted
 
     run_dir = tmp_path / "no_trade_run"
     strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
@@ -540,7 +540,7 @@ def test_no_trade_ledger_has_initial_final_snapshots(tmp_path: Path) -> None:
     first = json.loads(lines[0])
     last = json.loads(lines[-1])
 
-    # First row is "initial" snapshot — cash equals starting_cash, no positions
+    # First row is "initial" snapshot Ã¢â‚¬â€ cash equals starting_cash, no positions
     assert first["event"] == "initial", f"First ledger event should be 'initial', got {first['event']!r}"
     assert first["cash_usdc"] == "500", f"Expected cash_usdc='500', got {first['cash_usdc']!r}"
     assert first["positions"] == {}, "Initial snapshot must have empty positions"
@@ -548,7 +548,7 @@ def test_no_trade_ledger_has_initial_final_snapshots(tmp_path: Path) -> None:
     assert first["realized_pnl"] == "0"
     assert first["total_fees"] == "0"
 
-    # Last row is "final" snapshot — same state for no-trade run
+    # Last row is "final" snapshot Ã¢â‚¬â€ same state for no-trade run
     assert last["event"] == "final", f"Last ledger event should be 'final', got {last['event']!r}"
     assert last["cash_usdc"] == "500"
     assert last["positions"] == {}
@@ -591,7 +591,7 @@ def test_trade_run_ledger_unchanged_by_no_trade_fix(tmp_path: Path) -> None:
     tape_path = tmp_path / "events.jsonl"
     trades_path = tmp_path / "trades.jsonl"
     _write_tape(tape_path)
-    # BUY at limit 0.50 >= ask 0.45 → will fill at seq 2
+    # BUY at limit 0.50 >= ask 0.45 Ã¢â€ â€™ will fill at seq 2
     _write_trades(
         trades_path,
         [{"seq": 2, "side": "BUY", "limit_price": "0.50", "size": "100", "trade_id": "t1"}],
@@ -702,6 +702,40 @@ def test_cli_run_subcommand(tmp_path: Path) -> None:
     run_dir = Path("artifacts/simtrader/runs") / run_id
     assert (run_dir / "summary.json").exists(), "summary.json not written"
     assert (run_dir / "decisions.jsonl").exists(), "decisions.jsonl not written"
+
+
+def test_strategy_runner_manifest_records_adverse_selection_truth_surface(
+    tmp_path: Path,
+) -> None:
+    from packages.polymarket.simtrader.strategy.facade import _build_strategy
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    run_dir = tmp_path / "run_with_adverse_selection_surface"
+    strategy = _build_strategy(
+        "market_maker_v1",
+        {"tick_size": "0.01", "order_size": "5"},
+    )
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+
+    runner.run()
+
+    summary = _read_summary(run_dir)
+    manifest = _read_manifest(run_dir)
+    assert summary["adverse_selection"]["mode"] == "proxy"
+    assert manifest["adverse_selection"]["mode"] == "proxy"
+    assert (
+        manifest["adverse_selection"]["effective_order_flow_signal"]
+        == "ofi_proxy"
+    )
 
 
 def test_cli_run_default_id_includes_market_slug_and_strategy(
@@ -898,6 +932,268 @@ def test_cli_run_unknown_strategy(tmp_path: Path) -> None:
     )
     assert rc == 1
 
+
+
+def test_cli_run_defaults_to_market_maker_v1_when_strategy_omitted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_strategy(params):
+        captured.append(params)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--run-id",
+            "default-mmv1",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    assert captured[0].strategy_name == "market_maker_v1"
+    assert captured[0].strategy_config["adverse_selection"]["enabled"] is True
+    assert (
+        captured[0].strategy_config["adverse_selection"]["order_flow_signal"]
+        == "proxy"
+    )
+    captured_io = capsys.readouterr()
+    assert "adverse-selection: proxy signal active (OFI VPIN proxy)" in captured_io.err
+
+
+def test_cli_run_market_maker_v1_can_disable_default_adverse_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_strategy(params):
+        captured.append(params)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy-config-json",
+            '{"tick_size":"0.01","order_size":"5","adverse_selection":{"enabled":false}}',
+            "--run-id",
+            "disabled-adverse-selection",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    assert captured[0].strategy_name == "market_maker_v1"
+    assert captured[0].strategy_config["adverse_selection"]["enabled"] is False
+    captured_io = capsys.readouterr()
+    assert "adverse-selection: disabled" in captured_io.err
+
+
+def test_cli_run_market_maker_v1_true_vpin_surfaces_unavailable_sentinel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_strategy(params):
+        captured.append(params)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy-config-json",
+            (
+                '{"tick_size":"0.01","order_size":"5",'
+                '"adverse_selection":{"enabled":true,"order_flow_signal":"true_vpin"}}'
+            ),
+            "--run-id",
+            "true-vpin-unavailable",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    assert (
+        captured[0].strategy_config["adverse_selection"]["order_flow_signal"]
+        == "true_vpin"
+    )
+    captured_io = capsys.readouterr()
+    assert "adverse-selection: unavailable sentinel" in captured_io.err
+
+
+def test_cli_run_explicit_market_maker_v0_still_supported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_strategy(params):
+        captured.append(params)
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "market_maker_v0",
+            "--strategy-config-json",
+            '{"tick_size":"0.01","order_size":"5"}',
+            "--run-id",
+            "explicit-v0",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    assert captured[0].strategy_name == "market_maker_v0"
+    assert captured[0].strategy_config["tick_size"] == "0.01"
+    assert captured[0].strategy_config["order_size"] == "5"
+    assert "adverse_selection" not in captured[0].strategy_config
+
+
+def test_cli_sweep_defaults_to_market_maker_v1_when_strategy_omitted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.sweeps.runner as sweeps_runner
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_sweep(params, sweep_config):
+        captured.append((params, sweep_config))
+        return SimpleNamespace(
+            sweep_dir=tmp_path / "artifacts" / "simtrader" / "sweeps" / "default-mmv1-sweep",
+            summary={"aggregate": {}, "scenarios": []},
+        )
+
+    monkeypatch.setattr(sweeps_runner, "run_sweep", _fake_run_sweep)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "sweep",
+            "--tape",
+            str(tape_path),
+            "--sweep-config",
+            '{"scenarios":[{"name":"base","overrides":{}}]}',
+            "--sweep-id",
+            "default-mmv1-sweep",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    params, _ = captured[0]
+    assert params.strategy_name == "market_maker_v1"
+    assert params.strategy_config["adverse_selection"]["enabled"] is True
+
+
+def test_cli_sweep_explicit_market_maker_v0_still_supported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.simtrader.sweeps.runner as sweeps_runner
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    captured: list = []
+
+    def _fake_run_sweep(params, sweep_config):
+        captured.append((params, sweep_config))
+        return SimpleNamespace(
+            sweep_dir=tmp_path / "artifacts" / "simtrader" / "sweeps" / "explicit-v0-sweep",
+            summary={"aggregate": {}, "scenarios": []},
+        )
+
+    monkeypatch.setattr(sweeps_runner, "run_sweep", _fake_run_sweep)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "sweep",
+            "--tape",
+            str(tape_path),
+            "--strategy",
+            "market_maker_v0",
+            "--strategy-config-json",
+            '{"tick_size":"0.01","order_size":"5"}',
+            "--sweep-config",
+            '{"scenarios":[{"name":"base","overrides":{}}]}',
+            "--sweep-id",
+            "explicit-v0-sweep",
+        ]
+    )
+    assert rc == 0
+    assert len(captured) == 1
+    params, _ = captured[0]
+    assert params.strategy_name == "market_maker_v0"
+    assert params.strategy_config["tick_size"] == "0.01"
+    assert params.strategy_config["order_size"] == "5"
+    assert "adverse_selection" not in params.strategy_config
 
 def test_cli_run_binary_arb_manual_yes_no_without_asset_id(
     tmp_path: Path,
@@ -1577,11 +1873,11 @@ def _batched_tape_events() -> list[dict]:
             "bids": [{"price": "0.52", "size": "100"}],
             "asks": [{"price": "0.54", "size": "150"}],
         },
-        # seq 2: batched price_change — updates YES bid + NO ask in one message.
+        # seq 2: batched price_change Ã¢â‚¬â€ updates YES bid + NO ask in one message.
         {
             "parser_version": 1, "seq": 2, "ts_recv": 2.0,
             "event_type": "price_change",
-            # No top-level asset_id — modern format.
+            # No top-level asset_id Ã¢â‚¬â€ modern format.
             "price_changes": [
                 {"asset_id": _YES_ID, "side": "BUY",  "price": "0.45", "size": "80"},
                 {"asset_id": _NO_ID,  "side": "SELL", "price": "0.53", "size": "90"},
@@ -1605,7 +1901,7 @@ def test_batched_price_change_updates_both_books(tmp_path: Path) -> None:
     _write_batched_tape(tape_path)
 
     trades_path = tmp_path / "trades.jsonl"
-    trades_path.write_text("")  # no trades — passive observer
+    trades_path.write_text("")  # no trades Ã¢â‚¬â€ passive observer
 
     run_dir = tmp_path / "run_batched"
     strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
@@ -1697,7 +1993,7 @@ def test_batched_price_change_resolve_asset_id(tmp_path: Path) -> None:
     trades_path.write_text("")
 
     run_dir = tmp_path / "run_solo"
-    # asset_id NOT passed — must be auto-detected from the tape.
+    # asset_id NOT passed Ã¢â‚¬â€ must be auto-detected from the tape.
     strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
     runner = StrategyRunner(
         events_path=tape_path,
@@ -1760,3 +2056,103 @@ def test_blank_run_warning_in_manifest(tmp_path: Path) -> None:
     assert any("timeline_rows" in w for w in manifest.get("warnings", [])), (
         f"Expected blank-run warning in manifest, got: {manifest.get('warnings')}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Observational evidence label
+# ---------------------------------------------------------------------------
+
+
+def test_observational_evidence_absent_when_no_decisions(tmp_path: Path) -> None:
+    """No observational_evidence key when strategy makes no decisions at all."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")  # no trades → no decisions
+
+    run_dir = tmp_path / "run_obs_absent"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    summary = json.loads((run_dir / "summary.json").read_text())
+    # No decisions → no observational_evidence key
+    assert "observational_evidence" not in manifest
+    assert "observational_evidence" not in summary
+
+
+def test_observational_evidence_present_when_decisions_but_no_fills(tmp_path: Path) -> None:
+    """observational_evidence=True when strategy submits orders but tape fills none."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    # Trade at a price that will never fill against the tape (limit far from best ask)
+    TRADES_JSON = json.dumps(
+        {"seq": 1, "side": "BUY", "limit_price": "0.01", "size": "10"}
+    )
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text(TRADES_JSON + "\n")
+
+    run_dir = tmp_path / "run_obs_present"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    summary = json.loads((run_dir / "summary.json").read_text())
+    # Decisions present, no fills → observational_evidence label
+    assert manifest.get("observational_evidence") is True
+    assert summary.get("observational_evidence") is True
+    # Gate 2 eligibility fields are NOT present / NOT changed
+    assert "gate2_eligible" not in manifest
+    assert "gate2_pass" not in manifest
+
+
+def test_observational_evidence_informational_only(tmp_path: Path) -> None:
+    """observational_evidence=True must not appear in runs that do have fills."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    # Trade that WILL fill: BUY at 0.99 is above the best ask (0.45)
+    TRADES_JSON = json.dumps(
+        {"seq": 1, "side": "BUY", "limit_price": "0.99", "size": "10"}
+    )
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text(TRADES_JSON + "\n")
+
+    run_dir = tmp_path / "run_obs_filled"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    # A run with fills must NOT have the observational_evidence label
+    assert "observational_evidence" not in manifest
+
+
