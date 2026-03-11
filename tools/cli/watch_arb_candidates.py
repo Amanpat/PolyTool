@@ -17,6 +17,9 @@ Usage
   # Monitor two markets, trigger at sum_ask < 1.00 with 50-share depth:
   python -m polytool watch-arb-candidates --markets slug1,slug2
 
+  # Seed the watcher from a session pack (sets threshold from regime automatically):
+  python -m polytool watch-arb-candidates --session-plan artifacts/session_packs/pack.json
+
   # Seed the watcher from a report-derived watchlist file:
   python -m polytool watch-arb-candidates --watchlist-file artifacts/watchlist.json
 
@@ -57,6 +60,9 @@ _DEFAULT_DURATION: float = 300.0   # tape recording duration in seconds
 _DEFAULT_TAPES_BASE = Path("artifacts/simtrader/tapes")
 _DEFAULT_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 _DEFAULT_MAX_CONCURRENT: int = 2   # max simultaneously recording markets
+
+# Provenance sentinel — used when threshold comes from a session plan
+_SOURCE_SESSION_PLAN: str = "session-plan"
 
 
 # ---------------------------------------------------------------------------
@@ -206,19 +212,63 @@ def _merge_watch_targets(*sources: list[WatchTarget]) -> list[WatchTarget]:
     return merged
 
 
+def _load_session_plan(path: str | Path) -> dict:
+    """Load and validate a session pack JSON produced by make-session-pack.
+
+    Returns the parsed dict.  Raises ValueError if the file is missing,
+    unparseable, or does not contain the expected ``watch_config`` block.
+    """
+    session_path = Path(path)
+    try:
+        payload = json.loads(session_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"session plan file not found: {session_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"session plan file is not valid JSON: {session_path}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("session plan must be a JSON object.")
+
+    watch_config = payload.get("watch_config")
+    if not isinstance(watch_config, dict):
+        raise ValueError(
+            "session plan missing 'watch_config' block. "
+            "Generate it with: python -m polytool make-session-pack"
+        )
+
+    return payload
+
+
 def _collect_watch_targets(
     *,
     markets: Optional[str],
     watchlist_file: Optional[str],
+    session_plan: Optional[dict] = None,
     now: Optional[datetime] = None,
 ) -> list[WatchTarget]:
-    """Collect watch targets from direct CLI input and/or a watchlist file."""
+    """Collect watch targets from direct CLI input, a watchlist file, and/or a session plan."""
     market_targets = _parse_markets_arg(markets)
     watchlist_targets = _load_watchlist_file(watchlist_file, now=now) if watchlist_file else []
-    combined = _merge_watch_targets(market_targets, watchlist_targets)
+
+    # Session plan: load watchlist entries from the plan's 'watchlist' array
+    plan_targets: list[WatchTarget] = []
+    if session_plan is not None:
+        for item in session_plan.get("watchlist", []):
+            if isinstance(item, dict):
+                slug = str(item.get("market_slug", "")).strip()
+                if slug:
+                    metadata = {k: v for k, v in item.items() if k != "market_slug"}
+                    plan_targets.append(
+                        WatchTarget(slug=slug, metadata=metadata, source="session-plan")
+                    )
+
+    combined = _merge_watch_targets(market_targets, watchlist_targets, plan_targets)
 
     if not combined:
-        raise ValueError("supply at least one non-expired market via --markets or --watchlist-file.")
+        raise ValueError(
+            "supply at least one non-expired market via --markets, --watchlist-file, "
+            "or --session-plan."
+        )
 
     return combined
 
@@ -355,21 +405,28 @@ def _record_tape_for_market(
     *,
     duration_seconds: float,
     ws_url: str,
+    near_edge_threshold: float = _DEFAULT_NEAR_EDGE,
+    threshold_source: str = "cli-default",
+    regime: Optional[str] = None,
 ) -> None:
     """Record a tape for the given resolved market.
 
-    Writes ``watch_meta.json`` with market slug and token IDs, then runs
-    TapeRecorder for the requested duration.
+    Writes ``watch_meta.json`` with market slug, token IDs, and capture
+    threshold provenance, then runs TapeRecorder for the requested duration.
     """
     from packages.polymarket.simtrader.tape.recorder import TapeRecorder
 
     tape_dir.mkdir(parents=True, exist_ok=True)
-    watch_meta = {
+    watch_meta: dict[str, Any] = {
         "market_slug": resolved.slug,
         "yes_asset_id": resolved.yes_token_id,
         "no_asset_id": resolved.no_token_id,
         "triggered_by": "watch-arb-candidates",
+        "near_edge_threshold_used": near_edge_threshold,
+        "threshold_source": threshold_source,
     }
+    if regime is not None:
+        watch_meta["regime"] = regime
     (tape_dir / "watch_meta.json").write_text(
         json.dumps(watch_meta, indent=2), encoding="utf-8"
     )
@@ -401,6 +458,8 @@ class ArbWatcher:
         resolved_markets: list[ResolvedWatch],
         *,
         near_edge_threshold: float,
+        threshold_source: str = "cli-default",
+        regime: Optional[str] = None,
         min_depth: float,
         poll_interval: float,
         duration_seconds: float,
@@ -414,6 +473,8 @@ class ArbWatcher:
     ) -> None:
         self.resolved_markets = resolved_markets
         self.near_edge_threshold = near_edge_threshold
+        self.threshold_source = threshold_source
+        self.regime = regime
         self.min_depth = min_depth
         self.poll_interval = poll_interval
         self.duration_seconds = duration_seconds
@@ -538,6 +599,9 @@ class ArbWatcher:
                     tape_dir,
                     duration_seconds=self.duration_seconds,
                     ws_url=self.ws_url,
+                    near_edge_threshold=self.near_edge_threshold,
+                    threshold_source=self.threshold_source,
+                    regime=self.regime,
                 )
                 print(f"[watch-arb] Recording complete: {resolved.slug}  tape={tape_dir}")
             except Exception as exc:
@@ -593,7 +657,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SLUG[,SLUG...]",
         help=(
             "Comma-separated list of market slugs to watch. "
-            "Can be used alone or alongside --watchlist-file."
+            "Can be used alone or alongside --watchlist-file or --session-plan."
         ),
     )
     p.add_argument(
@@ -605,14 +669,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--session-plan",
+        metavar="PATH",
+        help=(
+            "Path to a session pack JSON produced by make-session-pack. "
+            "Loads watchlist and sets near_edge_threshold from watch_config unless "
+            "--near-edge is also supplied (operator override wins)."
+        ),
+    )
+    p.add_argument(
         "--near-edge",
         type=float,
-        default=_DEFAULT_NEAR_EDGE,
+        default=None,
         metavar="F",
         help=(
             "Trigger threshold: record when yes_ask + no_ask < this value. "
-            "Default %(default)s is looser than the strategy entry threshold (0.99) "
-            "to capture near-miss conditions. Use 0.995 for a tighter trigger."
+            "Overrides the session plan's watch_config.near_edge_threshold. "
+            f"Default (when no session plan): {_DEFAULT_NEAR_EDGE} — looser than the "
+            "strategy entry threshold (0.99) to capture near-miss conditions."
         ),
     )
     p.add_argument(
@@ -635,9 +709,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--duration",
         type=float,
-        default=_DEFAULT_DURATION,
+        default=None,
         metavar="SECS",
-        help="Tape recording duration per triggered market in seconds (default %(default)s).",
+        help=(
+            "Tape recording duration per triggered market in seconds. "
+            f"Default: session plan's watch_config.duration_seconds or {_DEFAULT_DURATION}."
+        ),
     )
     p.add_argument(
         "--tapes-base-dir",
@@ -679,9 +756,43 @@ def main(argv: Optional[list[str]] = None) -> int:
     log_level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(level=log_level, format="%(levelname)s %(name)s: %(message)s")
 
-    # Validate args
-    if not (0.0 < args.near_edge <= 2.0):
-        print("Error: --near-edge must be between 0 and 2.", file=sys.stderr)
+    # --- Load session plan (if provided) ------------------------------------
+    session_plan: Optional[dict] = None
+    if args.session_plan:
+        try:
+            session_plan = _load_session_plan(args.session_plan)
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+    # --- Resolve near_edge_threshold with provenance ------------------------
+    # Priority: explicit --near-edge (operator override) > session plan > global default
+    regime: Optional[str] = None
+    if args.near_edge is not None:
+        near_edge_threshold = args.near_edge
+        threshold_source = "operator-override"
+    elif session_plan is not None:
+        watch_cfg = session_plan.get("watch_config", {})
+        near_edge_threshold = float(watch_cfg.get("near_edge_threshold", _DEFAULT_NEAR_EDGE))
+        threshold_source = str(watch_cfg.get("threshold_source", _SOURCE_SESSION_PLAN))
+        regime = session_plan.get("session", {}).get("regime")
+    else:
+        near_edge_threshold = _DEFAULT_NEAR_EDGE
+        threshold_source = "cli-default"
+
+    # --- Duration: session plan > CLI default --------------------------------
+    duration_seconds: float
+    if args.duration is not None:
+        duration_seconds = args.duration
+    elif session_plan is not None:
+        watch_cfg = session_plan.get("watch_config", {})
+        duration_seconds = float(watch_cfg.get("duration_seconds", _DEFAULT_DURATION))
+    else:
+        duration_seconds = _DEFAULT_DURATION
+
+    # --- Validate args -------------------------------------------------------
+    if not (0.0 < near_edge_threshold <= 2.0):
+        print("Error: near_edge_threshold must be between 0 and 2.", file=sys.stderr)
         return 1
     if args.min_depth <= 0:
         print("Error: --min-depth must be positive.", file=sys.stderr)
@@ -689,17 +800,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.poll_interval <= 0:
         print("Error: --poll-interval must be positive.", file=sys.stderr)
         return 1
-    if args.duration <= 0:
+    if duration_seconds <= 0:
         print("Error: --duration must be positive.", file=sys.stderr)
         return 1
     if args.max_concurrent < 1:
         print("Error: --max-concurrent must be >= 1.", file=sys.stderr)
         return 1
 
+    # --- Collect watch targets -----------------------------------------------
     try:
         watch_targets = _collect_watch_targets(
             markets=args.markets,
             watchlist_file=args.watchlist_file,
+            session_plan=session_plan,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -727,10 +840,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     watcher = ArbWatcher(
         resolved_markets=resolved_markets,
-        near_edge_threshold=args.near_edge,
+        near_edge_threshold=near_edge_threshold,
+        threshold_source=threshold_source,
+        regime=regime,
         min_depth=args.min_depth,
         poll_interval=args.poll_interval,
-        duration_seconds=args.duration,
+        duration_seconds=duration_seconds,
         tapes_base_dir=Path(args.tapes_base_dir),
         ws_url=args.ws_url,
         max_concurrent=args.max_concurrent,

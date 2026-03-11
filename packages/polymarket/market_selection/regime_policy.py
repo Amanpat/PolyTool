@@ -402,6 +402,156 @@ def _tape_metadata_to_market_dict(tape_metadata: Mapping[str, Any]) -> dict:
     return market
 
 
+# ---------------------------------------------------------------------------
+# Inventory-discovery helpers (regime enrichment + factual filtering)
+# ---------------------------------------------------------------------------
+
+
+def enrich_with_regime(
+    market: "Mapping[str, Any]",
+    *,
+    reference_time: Any = None,
+    new_market_max_age_hours: float = 48.0,
+) -> dict:
+    """Classify a market's regime and add factual enrichment fields.
+
+    Returns a new dict containing all original fields plus:
+
+    - ``regime``: "politics" | "sports" | "new_market" | "other"
+    - ``regime_source``: always "derived" (classifier-driven, not operator input)
+    - ``age_hours``: float age in hours, or None when no timestamp is available
+    - ``is_new_market``: True when regime is new_market OR age < threshold;
+                         False when age is known and >= threshold;
+                         None when age is unknown and regime is not new_market.
+
+    Off-target markets (UNKNOWN/other) are never silently promoted to named regimes.
+    """
+    regime = classify_market_regime(
+        market,
+        reference_time=reference_time,
+        new_market_max_age_hours=new_market_max_age_hours,
+    )
+    age_hours = _market_age_hours(market, reference_time=reference_time)
+
+    if age_hours is not None:
+        is_new_market: "bool | None" = (0.0 <= age_hours < new_market_max_age_hours)
+    elif regime == NEW_MARKET:
+        # Keyword-only new_market detection: no timestamp, but keyword matched
+        is_new_market = True
+    else:
+        is_new_market = None  # Cannot determine without timestamp
+
+    return {
+        **market,
+        "regime": regime,
+        "regime_source": "derived",
+        "age_hours": age_hours,
+        "is_new_market": is_new_market,
+    }
+
+
+def filter_by_factual_regime(
+    markets: "Iterable[Mapping[str, Any]]",
+    target_regime: str,
+    *,
+    reference_time: Any = None,
+    new_market_max_age_hours: float = 48.0,
+) -> "list[dict]":
+    """Return only markets where the derived regime exactly matches ``target_regime``.
+
+    ``target_regime`` must be one of ``politics``, ``sports``, or ``new_market``.
+    ``unknown`` and ``other`` are NOT valid targets — this function is intentionally
+    strict to prevent silent promotion of off-target markets.
+
+    Markets that do not match (including those with UNKNOWN / "other" regime) are
+    excluded entirely.  Each returned dict is enriched with the same fields as
+    :func:`enrich_with_regime`.
+
+    Args:
+        markets:               Iterable of market metadata dicts.
+        target_regime:         One of :data:`REQUIRED_REGIMES`
+                               ("politics", "sports", "new_market").
+        reference_time:        Used for age computation (defaults to now).
+        new_market_max_age_hours: Age threshold for new_market classification.
+
+    Returns:
+        List of enriched market dicts whose ``regime`` == ``target_regime``.
+
+    Raises:
+        ValueError: If ``target_regime`` is not in :data:`REQUIRED_REGIMES`.
+    """
+    if target_regime not in REQUIRED_REGIMES:
+        raise ValueError(
+            f"target_regime must be one of {REQUIRED_REGIMES!r}, got {target_regime!r}. "
+            "UNKNOWN/off-target markets are never included by design."
+        )
+    result: list[dict] = []
+    for market in markets:
+        enriched = enrich_with_regime(
+            market,
+            reference_time=reference_time,
+            new_market_max_age_hours=new_market_max_age_hours,
+        )
+        if enriched["regime"] == target_regime:
+            result.append(enriched)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Regime-aware capture threshold defaults
+# ---------------------------------------------------------------------------
+
+#: Per-regime near-edge capture threshold for tape capture / session planning.
+#: The threshold defines when a market is considered "near edge":
+#: a market is capture-eligible when ``yes_ask + no_ask < threshold``.
+#:
+#: Thresholds > 1.0 fire before a fully profitable arb exists (near-miss
+#: detection).  Thresholds < 1.0 require the complement sum to already be in
+#: profitable territory before capture starts.
+#:
+#: Politics and new-market use higher (looser) thresholds because:
+#: - Politics markets: edges appear and vanish quickly; capture earlier.
+#: - New markets: shallow books; a wider net is needed to record near-misses.
+#: Sports uses 0.99 — consistent with the Gate 2 entry level — unchanged.
+#:
+#: These values affect CAPTURE BEHAVIOR ONLY (session planning, watcher
+#: thresholds).  Gate 2 eligibility and pass criteria are NOT changed.
+REGIME_CAPTURE_NEAR_EDGE_DEFAULTS: dict[str, float] = {
+    SPORTS:     0.99,    # threshold: yes_ask + no_ask < 0.99 (current default, unchanged)
+    POLITICS:   1.03,    # looser: captures before arb fully exists; politics edges are fleeting
+    NEW_MARKET: 1.015,   # slightly looser: wider net for shallow-book new markets
+}
+
+_DEFAULT_CAPTURE_THRESHOLD: float = 0.99
+
+
+def get_regime_capture_threshold(regime: str) -> float:
+    """Return the recommended near-edge capture threshold for the given regime.
+
+    The threshold defines when a market is capture-eligible for tape
+    recording: ``yes_ask + no_ask < threshold``.
+
+    Thresholds > 1.0 fire before a profitable arb exists, enabling near-miss
+    detection.  Thresholds < 1.0 require actual arb to be present.
+
+    Politics and new-market use higher (looser) thresholds to ensure these
+    regimes are captured before the complement sum is fully profitable.
+    Sports uses 0.99 (unchanged, consistent with the Gate 2 entry level).
+
+    This function is for CAPTURE BEHAVIOR only; Gate 2 eligibility and
+    pass criteria are NOT affected.
+
+    Args:
+        regime: Regime string.  One of "politics", "sports", "new_market",
+                or any other value.  For unrecognised values (including
+                "other" and "unknown"), returns the global default (0.99).
+
+    Returns:
+        Near-edge capture threshold as a float.
+    """
+    return REGIME_CAPTURE_NEAR_EDGE_DEFAULTS.get(regime, _DEFAULT_CAPTURE_THRESHOLD)
+
+
 def coverage_from_classified_regimes(
     final_regimes: "Iterable[str]",
 ) -> "dict[str, Any]":

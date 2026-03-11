@@ -11,7 +11,10 @@ from packages.polymarket.simtrader.execution.adverse_selection import (
     GuardResult,
     MMWithdrawalSignal,
     OFISignal,
+    ORDER_FLOW_SIGNAL_TRUE_VPIN,
     SignalResult,
+    TRUE_VPIN_UNAVAILABLE_SENTINEL,
+    build_adverse_selection_truth_surface,
 )
 from packages.polymarket.simtrader.execution.risk_manager import RiskConfig, RiskManager
 
@@ -47,6 +50,48 @@ def _push_ofi_ticks(signal: OFISignal, directions: list[str]) -> None:
 # ===========================================================================
 # OFISignal — construction guards
 # ===========================================================================
+
+
+# ===========================================================================
+# Truth surface
+# ===========================================================================
+
+
+def test_truth_surface_reports_proxy_mode_by_default():
+    surface = build_adverse_selection_truth_surface(enabled=True)
+
+    assert surface["mode"] == "proxy"
+    assert surface["effective_order_flow_signal"] == "ofi_proxy"
+    assert surface["sentinel"] is None
+
+
+def test_truth_surface_reports_disabled_mode():
+    surface = build_adverse_selection_truth_surface(enabled=False)
+
+    assert surface["mode"] == "disabled"
+    assert surface["status"] == "disabled"
+    assert surface["effective_order_flow_signal"] == "disabled"
+
+
+def test_truth_surface_can_report_true_vpin_when_available():
+    surface = build_adverse_selection_truth_surface(
+        enabled=True,
+        order_flow_signal=ORDER_FLOW_SIGNAL_TRUE_VPIN,
+        true_vpin_available=True,
+    )
+
+    assert surface["mode"] == "true_vpin"
+    assert surface["sentinel"] is None
+
+
+def test_truth_surface_reports_true_vpin_unavailable_sentinel():
+    surface = build_adverse_selection_truth_surface(
+        enabled=True,
+        order_flow_signal=ORDER_FLOW_SIGNAL_TRUE_VPIN,
+    )
+
+    assert surface["mode"] == "unavailable"
+    assert surface["sentinel"] == TRUE_VPIN_UNAVAILABLE_SENTINEL
 
 
 def test_ofi_invalid_window():
@@ -332,6 +377,132 @@ def test_guard_with_valid_book_mock():
     # After a single update with min_samples=1, mm_withdrawal needs at least
     # 1 sample but check uses prior samples for baseline; result is warming_up.
     assert not result.blocked  # not enough samples yet for either signal to trigger
+
+
+def test_build_strategy_market_maker_v1_enables_guard_by_default():
+    from packages.polymarket.simtrader.strategy.facade import _build_strategy
+
+    strategy = _build_strategy(
+        "market_maker_v1",
+        {"tick_size": "0.01", "order_size": "5"},
+    )
+
+    assert hasattr(strategy, "_adverse_selection_guard")
+    assert strategy._adverse_selection_guard is not None
+    assert strategy.adverse_selection_surface["mode"] == "proxy"
+
+
+def test_build_strategy_market_maker_v1_can_disable_guard_with_boolean_shorthand():
+    from packages.polymarket.simtrader.strategies.market_maker_v1 import MarketMakerV1
+    from packages.polymarket.simtrader.strategy.facade import _build_strategy
+
+    strategy = _build_strategy(
+        "market_maker_v1",
+        {
+            "tick_size": "0.01",
+            "order_size": "5",
+            "adverse_selection": False,
+        },
+    )
+
+    assert isinstance(strategy, MarketMakerV1)
+    assert not hasattr(strategy, "_adverse_selection_guard")
+    assert strategy.adverse_selection_surface["mode"] == "disabled"
+
+
+def test_build_strategy_market_maker_v1_true_vpin_reports_unavailable_sentinel():
+    from packages.polymarket.simtrader.strategy.facade import _build_strategy
+
+    strategy = _build_strategy(
+        "market_maker_v1",
+        {
+            "tick_size": "0.01",
+            "order_size": "5",
+            "adverse_selection": {
+                "enabled": True,
+                "order_flow_signal": "true_vpin",
+            },
+        },
+    )
+
+    assert hasattr(strategy, "_adverse_selection_guard")
+    assert strategy.adverse_selection_surface["mode"] == "unavailable"
+    result = strategy._adverse_selection_guard.check()
+    assert not result.blocked
+    assert result.signals["ofi"].metadata["status"] == "unavailable"
+    assert (
+        result.signals["ofi"].metadata["sentinel"]
+        == TRUE_VPIN_UNAVAILABLE_SENTINEL
+    )
+
+
+def test_build_strategy_rejects_adverse_selection_config_for_non_v1():
+    from packages.polymarket.simtrader.strategy.facade import (
+        StrategyRunConfigError,
+        _build_strategy,
+    )
+
+    with pytest.raises(StrategyRunConfigError, match="supported only"):
+        _build_strategy(
+            "market_maker_v0",
+            {
+                "tick_size": "0.01",
+                "order_size": "5",
+                "adverse_selection": True,
+            },
+        )
+
+
+def test_guarded_market_maker_v1_blocks_submit_intents_when_ofi_triggers():
+    from packages.polymarket.simtrader.strategy.facade import _build_strategy
+
+    def _book_event(seq: int, ts_recv: float, bid: float, ask: float) -> dict:
+        return {
+            "seq": seq,
+            "ts_recv": ts_recv,
+            "asset_id": "tok1",
+            "event_type": "book",
+            "bids": [{"price": bid, "size": 100.0}],
+            "asks": [{"price": ask, "size": 100.0}],
+        }
+
+    strategy = _build_strategy(
+        "market_maker_v1",
+        {
+            "tick_size": "0.01",
+            "order_size": "5",
+            "adverse_selection": {
+                "enabled": True,
+                "ofi": {"window_ticks": 5, "threshold": 0.5, "min_samples": 1},
+                "mm_withdrawal": {"window_ticks": 5, "min_samples": 10},
+            },
+        },
+    )
+    strategy.on_start("tok1", Decimal("1000"))
+
+    intents_first = strategy.on_event(
+        _book_event(1, 1.0, 0.49, 0.51),
+        1,
+        1.0,
+        0.49,
+        0.51,
+        {},
+    )
+    assert [intent.action for intent in intents_first] == ["submit", "submit"]
+
+    intents_second = strategy.on_event(
+        _book_event(2, 2.0, 0.50, 0.52),
+        2,
+        2.0,
+        0.50,
+        0.52,
+        {},
+    )
+    assert intents_second == []
+    assert strategy.rejection_counts["adverse_selection"] == 2
+    assert strategy.last_guard_result is not None
+    assert strategy.last_guard_result.blocked
+    assert "ofi" in strategy.last_guard_result.reason
 
 
 # ===========================================================================

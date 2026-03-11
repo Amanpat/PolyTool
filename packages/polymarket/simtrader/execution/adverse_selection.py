@@ -42,6 +42,91 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+ORDER_FLOW_SIGNAL_PROXY = "proxy"
+ORDER_FLOW_SIGNAL_TRUE_VPIN = "true_vpin"
+
+ADVERSE_SELECTION_MODE_DISABLED = "disabled"
+ADVERSE_SELECTION_MODE_PROXY = "proxy"
+ADVERSE_SELECTION_MODE_TRUE_VPIN = "true_vpin"
+ADVERSE_SELECTION_MODE_UNAVAILABLE = "unavailable"
+
+TRUE_VPIN_UNAVAILABLE_SENTINEL = "true_vpin_unavailable"
+_ORDER_FLOW_SIGNAL_CHOICES = frozenset(
+    {ORDER_FLOW_SIGNAL_PROXY, ORDER_FLOW_SIGNAL_TRUE_VPIN}
+)
+
+
+def build_adverse_selection_truth_surface(
+    *,
+    enabled: bool,
+    order_flow_signal: str = ORDER_FLOW_SIGNAL_PROXY,
+    true_vpin_available: bool = False,
+) -> dict[str, Any]:
+    """Return operator-facing truth metadata for adverse-selection wiring."""
+    signal_name = str(order_flow_signal).strip().lower() or ORDER_FLOW_SIGNAL_PROXY
+    if signal_name not in _ORDER_FLOW_SIGNAL_CHOICES:
+        known = ", ".join(sorted(_ORDER_FLOW_SIGNAL_CHOICES))
+        raise ValueError(
+            f"order_flow_signal must be one of: {known}; got {order_flow_signal!r}"
+        )
+
+    if not enabled:
+        return {
+            "enabled": False,
+            "status": "disabled",
+            "mode": ADVERSE_SELECTION_MODE_DISABLED,
+            "requested_order_flow_signal": signal_name,
+            "effective_order_flow_signal": ADVERSE_SELECTION_MODE_DISABLED,
+            "sentinel": None,
+        }
+
+    if signal_name == ORDER_FLOW_SIGNAL_PROXY:
+        return {
+            "enabled": True,
+            "status": "active",
+            "mode": ADVERSE_SELECTION_MODE_PROXY,
+            "requested_order_flow_signal": signal_name,
+            "effective_order_flow_signal": "ofi_proxy",
+            "sentinel": None,
+        }
+
+    if true_vpin_available:
+        return {
+            "enabled": True,
+            "status": "active",
+            "mode": ADVERSE_SELECTION_MODE_TRUE_VPIN,
+            "requested_order_flow_signal": signal_name,
+            "effective_order_flow_signal": ORDER_FLOW_SIGNAL_TRUE_VPIN,
+            "sentinel": None,
+        }
+
+    return {
+        "enabled": True,
+        "status": "active",
+        "mode": ADVERSE_SELECTION_MODE_UNAVAILABLE,
+        "requested_order_flow_signal": signal_name,
+        "effective_order_flow_signal": TRUE_VPIN_UNAVAILABLE_SENTINEL,
+        "sentinel": TRUE_VPIN_UNAVAILABLE_SENTINEL,
+    }
+
+
+def format_adverse_selection_truth_surface(surface: dict[str, Any]) -> str:
+    """Render a compact operator-facing label for one truth surface."""
+    mode = str(surface.get("mode") or "").strip().lower()
+    if mode == ADVERSE_SELECTION_MODE_DISABLED:
+        return "disabled"
+    if mode == ADVERSE_SELECTION_MODE_PROXY:
+        return "proxy signal active (OFI VPIN proxy)"
+    if mode == ADVERSE_SELECTION_MODE_TRUE_VPIN:
+        return "true VPIN active"
+    if mode == ADVERSE_SELECTION_MODE_UNAVAILABLE:
+        sentinel = str(surface.get("sentinel") or TRUE_VPIN_UNAVAILABLE_SENTINEL)
+        return (
+            f"unavailable sentinel ({sentinel}; true VPIN unavailable, "
+            "MM withdrawal signal still active)"
+        )
+    return mode or "unknown"
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -195,6 +280,24 @@ class OFISignal:
                 "buy_ticks": buy_ticks,
                 "sell_ticks": sell_ticks,
                 "threshold": self.threshold,
+            },
+        )
+
+
+class UnavailableVPINSignal:
+    """Sentinel signal used when true VPIN is requested but unavailable."""
+
+    def on_book_update(self, mid: Optional[float]) -> None:
+        del mid
+
+    def check(self) -> SignalResult:
+        return SignalResult(
+            triggered=False,
+            reason="",
+            metadata={
+                "signal": ORDER_FLOW_SIGNAL_TRUE_VPIN,
+                "status": "unavailable",
+                "sentinel": TRUE_VPIN_UNAVAILABLE_SENTINEL,
             },
         )
 

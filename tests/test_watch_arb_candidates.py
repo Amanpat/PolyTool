@@ -235,7 +235,8 @@ class TestArbWatcherTrigger:
             # Return near-edge snapshot with sufficient depth
             return _asks(0.49, 100), _asks(0.50, 100)
 
-        def fake_record(r: ResolvedWatch, tape_dir: Path, *, duration_seconds, ws_url):
+        def fake_record(r: ResolvedWatch, tape_dir: Path, *, duration_seconds, ws_url,
+                        near_edge_threshold=None, threshold_source=None, regime=None):
             recorded_calls.append({
                 "slug": r.slug,
                 "yes_token_id": r.yes_token_id,

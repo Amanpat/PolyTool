@@ -53,6 +53,9 @@ _DEFAULT_BUFFER: float = 0.01
 _DEFAULT_LIVE_CANDIDATES: int = 50
 _DEFAULT_TOP: int = 20
 
+# Regime filter choices (subset of REQUIRED_REGIMES; "other"/"unknown" not valid targets)
+_REGIME_CHOICES = ("politics", "sports", "new_market")
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -703,6 +706,162 @@ def print_ranked_table(
 
 
 # ---------------------------------------------------------------------------
+# Regime-aware capture threshold resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_effective_threshold(
+    explicit_buffer: Optional[float],
+    regime: Optional[str],
+) -> tuple[float, str]:
+    """Resolve the effective near-edge capture threshold and label its source.
+
+    The threshold defines when a market is capture-eligible for watch/record
+    tools: ``yes_ask + no_ask < threshold``.  Thresholds > 1.0 fire before a
+    profitable arb exists (near-miss detection); thresholds < 1.0 require
+    actual arb.
+
+    Priority: explicit_buffer > regime_default > global_default.
+
+    Args:
+        explicit_buffer: If provided (user passed ``--buffer``), convert to
+                         threshold: ``threshold = 1.0 - explicit_buffer``.
+        regime:          When ``explicit_buffer`` is None and regime is set,
+                         use the per-regime capture threshold from
+                         :data:`REGIME_CAPTURE_NEAR_EDGE_DEFAULTS`.
+
+    Returns:
+        ``(threshold, source_label)`` where ``source_label`` is one of
+        ``"user-set"``, ``"regime-default"``, or ``"global-default"``.
+    """
+    from packages.polymarket.market_selection.regime_policy import (
+        get_regime_capture_threshold,
+        _DEFAULT_CAPTURE_THRESHOLD,
+    )
+
+    if explicit_buffer is not None:
+        return 1.0 - explicit_buffer, "user-set"
+    if regime is not None:
+        return get_regime_capture_threshold(regime), "regime-default"
+    return _DEFAULT_CAPTURE_THRESHOLD, "global-default"
+
+
+# ---------------------------------------------------------------------------
+# Regime-inventory discovery helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_live_regime_meta(max_fetch: int = 200) -> "dict[str, dict]":
+    """Fetch enriched market metadata from Gamma and classify regimes.
+
+    Returns a ``{slug: enriched_market_dict}`` mapping where each dict has the
+    ``regime``, ``regime_source``, ``age_hours``, and ``is_new_market`` fields
+    added by :func:`enrich_with_regime`.
+
+    Uses a broad fetch (``min_volume=0``) so that low-volume politics / new-market
+    candidates are not silently excluded by the default volume gate.
+    """
+    from packages.polymarket.market_selection.api_client import fetch_active_markets
+    from packages.polymarket.market_selection.regime_policy import enrich_with_regime
+
+    try:
+        markets = fetch_active_markets(min_volume=0, limit=max_fetch)
+    except Exception as exc:
+        logger.warning("fetch_active_markets failed during regime enrichment: %s", exc)
+        return {}
+
+    meta: dict[str, dict] = {}
+    for m in markets:
+        slug = str(m.get("slug") or "").strip()
+        if slug:
+            meta[slug] = enrich_with_regime(m)
+    return meta
+
+
+def _read_tape_market_fields(tape_dir: Path) -> "dict | None":
+    """Extract market metadata fields from a tape directory's meta files.
+
+    Searches ``meta.json``, ``watch_meta.json``, and ``prep_meta.json`` in order.
+    Extracts fields useful for regime classification: ``slug``, ``created_at``,
+    ``age_hours``, ``category``, ``tags``, ``question``, ``title``, and any
+    operator-provided ``regime`` label.
+
+    Returns a flat market-like dict, or ``None`` if no readable metadata found.
+    """
+    _REGIME_META_FILES = ("meta.json", "watch_meta.json", "prep_meta.json")
+    _REGIME_FIELDS = (
+        "market_slug", "slug", "market", "regime", "created_at", "age_hours",
+        "category", "tags", "question", "title", "event_slug",
+    )
+
+    for meta_filename in _REGIME_META_FILES:
+        meta_file = tape_dir / meta_filename
+        if not meta_file.exists():
+            continue
+        try:
+            raw = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        # Try context blocks first (shadow_context / quickrun_context carry most metadata)
+        for ctx_key in ("quickrun_context", "shadow_context"):
+            ctx = raw.get(ctx_key)
+            if not isinstance(ctx, dict):
+                continue
+            fields: dict = {}
+            for f in _REGIME_FIELDS:
+                val = ctx.get(f)
+                if val is not None:
+                    fields[f] = val
+            if fields:
+                if "slug" not in fields:
+                    fields["slug"] = fields.get("market_slug") or fields.get("market") or ""
+                return fields
+
+        # Fall back to top-level fields
+        fields = {}
+        for f in _REGIME_FIELDS:
+            val = raw.get(f)
+            if val is not None:
+                fields[f] = val
+        if fields:
+            if "slug" not in fields:
+                fields["slug"] = fields.get("market_slug") or fields.get("market") or ""
+            return fields
+
+    return None
+
+
+def _build_tape_regime_meta(tapes_dir: Path) -> "dict[str, dict]":
+    """Build ``{slug: enriched_market_dict}`` regime metadata from tape directories.
+
+    Each tape directory is inspected for meta files.  Available fields are fed
+    through :func:`enrich_with_regime` so that UNKNOWN/off-target tapes get
+    ``regime='other'`` and are never silently promoted to a named regime.
+    """
+    from packages.polymarket.market_selection.regime_policy import enrich_with_regime
+
+    meta: dict[str, dict] = {}
+    try:
+        tape_dirs = sorted(p for p in tapes_dir.iterdir() if p.is_dir())
+    except Exception:
+        return meta
+
+    for tape_dir in tape_dirs:
+        slug = _slug_from_tape_dir(tape_dir)
+        fields = _read_tape_market_fields(tape_dir)
+        if fields is None:
+            # No meta found: create a minimal dict so the classifier still runs
+            fields = {"slug": slug}
+        elif "slug" not in fields:
+            fields["slug"] = slug
+        enriched = enrich_with_regime(fields)
+        meta[slug] = enriched
+
+    return meta
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -733,9 +892,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--buffer",
         type=float,
-        default=_DEFAULT_BUFFER,
+        default=None,
         metavar="F",
-        help="Entry buffer. Strategy enters when sum_ask < 1 - buffer.",
+        help=(
+            f"Gate 2 scoring buffer. Strategy enters when sum_ask < 1 - buffer. "
+            f"Default: {_DEFAULT_BUFFER}. "
+            "This controls Gate 2 pass criteria only. "
+            "Regime-aware capture thresholds (for near-miss detection) are "
+            "separate and do not affect Gate 2 scoring."
+        ),
     )
     p.add_argument(
         "--candidates",
@@ -766,6 +931,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show full factor breakdown for each candidate (reward, volume, competition, age, regime).",
     )
+    p.add_argument(
+        "--regime",
+        choices=_REGIME_CHOICES,
+        default=None,
+        metavar="REGIME",
+        help=(
+            "Filter output to a specific regime: politics | sports | new_market. "
+            "Bypasses the signal-only filter so ALL matching markets are shown, "
+            "not just those with Gate 2 edge/depth signal. "
+            "UNKNOWN/off-target markets are never included. "
+            "For live mode, fetches enriched Gamma metadata; for tape mode, reads tape meta files."
+        ),
+    )
     return p
 
 
@@ -777,13 +955,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     logging.basicConfig(level=log_level, format="%(levelname)s %(name)s: %(message)s")
 
     max_size: float = args.max_size
-    buffer: float = args.buffer
     top: int = args.top
+
+    # Gate 2 scoring buffer — always uses the user-provided --buffer or the
+    # global default (0.01).  Regime selection does NOT change Gate 2 scoring.
+    gate2_buffer: float = args.buffer if args.buffer is not None else _DEFAULT_BUFFER
+
+    # Regime-aware capture threshold — used for near-miss detection in
+    # watch/capture tools and for provenance reporting only.  May be > 1.0 for
+    # politics / new_market (fires before arb is fully profitable).
+    capture_threshold, threshold_source = resolve_effective_threshold(
+        args.buffer, args.regime
+    )
 
     if max_size <= 0:
         print("Error: --max-size must be positive.", file=sys.stderr)
         return 1
-    if not (0.0 < buffer < 1.0):
+    if not (0.0 < gate2_buffer < 1.0):
         print("Error: --buffer must be between 0 and 1.", file=sys.stderr)
         return 1
 
@@ -792,30 +980,75 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not tapes_dir.is_dir():
             print(f"Error: --tapes-dir '{tapes_dir}' is not a directory.", file=sys.stderr)
             return 1
+        _regime_label = f"  regime={args.regime}" if args.regime else ""
         print(
             f"[scan-gate2] Scanning tapes in: {tapes_dir}"
-            f"  max_size={max_size}  buffer={buffer}  threshold={1-buffer:.4f}",
+            f"  max_size={max_size}  gate2_buffer={gate2_buffer:.4f}"
+            f"  capture_threshold={capture_threshold:.4f} ({threshold_source})"
+            f"{_regime_label}",
             file=sys.stderr,
         )
-        results = scan_tapes(tapes_dir, max_size=max_size, buffer=buffer)
+        results = scan_tapes(tapes_dir, max_size=max_size, buffer=gate2_buffer)
         mode = "tape"
     else:
+        _regime_label = f"  regime={args.regime}" if args.regime else ""
         print(
             f"[scan-gate2] Scanning live markets"
             f"  candidates={args.candidates}  max_size={max_size}"
-            f"  buffer={buffer}  threshold={1-buffer:.4f}",
+            f"  gate2_buffer={gate2_buffer:.4f}"
+            f"  capture_threshold={capture_threshold:.4f} ({threshold_source})"
+            f"{_regime_label}",
             file=sys.stderr,
         )
         results = scan_live_markets(
             max_size=max_size,
-            buffer=buffer,
+            buffer=gate2_buffer,
             max_candidates=args.candidates,
         )
         mode = "live"
 
     ranked = rank_candidates(results)
 
-    if not args.all:
+    # --- Regime-inventory discovery: filter and enrich by target regime ----------
+    regime_meta: "dict[str, dict]" = {}
+    if args.regime:
+        if args.tapes_dir:
+            regime_meta = _build_tape_regime_meta(Path(args.tapes_dir))
+        else:
+            fetch_count = max(args.candidates * 2, 200)
+            print(
+                f"[scan-gate2] Regime filter '{args.regime}': fetching enriched metadata "
+                f"(limit={fetch_count}, min_volume=0) …",
+                file=sys.stderr,
+            )
+            regime_meta = _build_live_regime_meta(max_fetch=fetch_count)
+
+        # Show ALL matching-regime candidates independent of Gate2 signal (bypass signal filter)
+        signal_raw = [
+            r for r in ranked
+            if regime_meta.get(r.slug, {}).get("regime") == args.regime
+        ]
+        regime_count = sum(
+            1 for m in regime_meta.values() if m.get("regime") == args.regime
+        )
+        print(
+            f"[scan-gate2] Regime '{args.regime}': {len(signal_raw)} of {len(ranked)} "
+            f"scanned markets matched ({regime_count} total in metadata pool).",
+            file=sys.stderr,
+        )
+        if not signal_raw:
+            print(
+                f"[scan-gate2] No '{args.regime}' markets found. "
+                "The regime is absent in this scan batch — not just ranked low.",
+                file=sys.stderr,
+            )
+            print(
+                f"regime_used={args.regime}  near_edge_threshold_used={capture_threshold:.4f}"
+                f"  gate2_buffer_used={gate2_buffer:.4f}  threshold_source={threshold_source}"
+            )
+            return 0
+    # --- Normal signal filter (no --regime) ------------------------------------
+    elif not args.all:
         signal_raw = [r for r in ranked if r.depth_ok_ticks > 0 or r.edge_ok_ticks > 0]
         if not signal_raw and ranked:
             print(
@@ -829,8 +1062,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     ranked_scores = score_and_rank_candidates(
         signal_raw,
+        market_meta=regime_meta if regime_meta else None,
         max_size=max_size,
-        buffer=buffer,
+        buffer=gate2_buffer,
     )
 
     print_ranked_table(
@@ -838,9 +1072,23 @@ def main(argv: Optional[list[str]] = None) -> int:
         top=top,
         mode=mode,
         max_size=max_size,
-        buffer=buffer,
+        buffer=gate2_buffer,
         explain=args.explain,
     )
+
+    # Regime + threshold provenance line: always printed so artifacts/logs
+    # unambiguously record which capture threshold was actually used and why.
+    if args.regime:
+        print(
+            f"regime_used={args.regime}  near_edge_threshold_used={capture_threshold:.4f}"
+            f"  gate2_buffer_used={gate2_buffer:.4f}  threshold_source={threshold_source}"
+        )
+    elif threshold_source != "global-default":
+        print(
+            f"near_edge_threshold_used={capture_threshold:.4f}"
+            f"  gate2_buffer_used={gate2_buffer:.4f}  threshold_source={threshold_source}"
+        )
+
     return 0
 
 

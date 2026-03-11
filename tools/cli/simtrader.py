@@ -54,6 +54,18 @@ DEFAULT_BATCH_DURATION_SECONDS = 300.0
 DEFAULT_BATCH_SMALL_NUM_MARKETS = 3
 DEFAULT_BATCH_SMALL_DURATION_SECONDS = 300.0
 DEFAULT_KILL_SWITCH_PATH = Path("artifacts/kill_switch.txt")
+DEFAULT_TRACK_A_STRATEGY = "market_maker_v1"
+_DEFAULT_TRACK_A_ADVERSE_SELECTION_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "order_flow_signal": "proxy",
+}
+_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP = (
+    f"For {DEFAULT_TRACK_A_STRATEGY}, the default order-flow signal is the "
+    "OFI VPIN proxy ('adverse_selection.order_flow_signal=\"proxy\"'). Set "
+    "'adverse_selection.enabled=false' to disable it. Setting "
+    "'adverse_selection.order_flow_signal=\"true_vpin\"' surfaces the "
+    "'true_vpin_unavailable' sentinel until true VPIN inputs exist."
+)
 _BROWSE_TYPE_DIRS: dict[str, str] = {
     "sweep": "sweeps",
     "batch": "batches",
@@ -621,6 +633,87 @@ def _load_strategy_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(str(exc)) from exc
 
 
+def _inject_track_a_adverse_selection_defaults(
+    *,
+    strategy_name: str,
+    strategy_config: dict[str, Any],
+) -> dict[str, Any]:
+    if strategy_name != DEFAULT_TRACK_A_STRATEGY:
+        return strategy_config
+
+    resolved_config = dict(strategy_config)
+    resolved_config.setdefault(
+        "adverse_selection",
+        dict(_DEFAULT_TRACK_A_ADVERSE_SELECTION_CONFIG),
+    )
+    return resolved_config
+
+
+def _resolve_track_a_adverse_selection_surface(
+    *,
+    strategy_name: str,
+    strategy_config: dict[str, Any],
+) -> dict[str, Any] | None:
+    if strategy_name != DEFAULT_TRACK_A_STRATEGY:
+        return None
+
+    from packages.polymarket.simtrader.execution.adverse_selection import (
+        ORDER_FLOW_SIGNAL_PROXY,
+        build_adverse_selection_truth_surface,
+    )
+
+    raw_config = strategy_config.get("adverse_selection")
+    enabled = True
+    order_flow_signal = ORDER_FLOW_SIGNAL_PROXY
+
+    if isinstance(raw_config, bool):
+        enabled = raw_config
+    elif isinstance(raw_config, dict):
+        enabled_value = raw_config.get("enabled", True)
+        order_flow_value = raw_config.get(
+            "order_flow_signal",
+            ORDER_FLOW_SIGNAL_PROXY,
+        )
+        if not isinstance(enabled_value, bool) or not isinstance(order_flow_value, str):
+            return None
+        enabled = enabled_value
+        order_flow_signal = order_flow_value
+    elif raw_config is not None:
+        return None
+
+    try:
+        return build_adverse_selection_truth_surface(
+            enabled=enabled,
+            order_flow_signal=order_flow_signal,
+        )
+    except ValueError:
+        return None
+
+
+def _print_track_a_adverse_selection_status(
+    *,
+    prefix: str,
+    strategy_name: str,
+    strategy_config: dict[str, Any],
+) -> None:
+    surface = _resolve_track_a_adverse_selection_surface(
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
+    if surface is None:
+        return
+
+    from packages.polymarket.simtrader.execution.adverse_selection import (
+        format_adverse_selection_truth_surface,
+    )
+
+    print(
+        f"{prefix} adverse-selection: "
+        f"{format_adverse_selection_truth_surface(surface)}",
+        file=sys.stderr,
+    )
+
+
 def _as_nonempty_str(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -994,6 +1087,10 @@ def _run(args: argparse.Namespace) -> int:
             yes_asset_id_override=getattr(args, "yes_asset_id", None),
             no_asset_id_override=getattr(args, "no_asset_id", None),
         )
+        strategy_config = _inject_track_a_adverse_selection_defaults(
+            strategy_name=strategy_name,
+            strategy_config=strategy_config,
+        )
         resolved_asset_id = _resolve_primary_asset_id(
             strategy_name=strategy_name,
             explicit_asset_id=getattr(args, "asset_id", None),
@@ -1064,6 +1161,11 @@ def _run(args: argparse.Namespace) -> int:
     print(f"[simtrader run] run dir        : {run_dir}", file=sys.stderr)
     print(f"[simtrader run] strategy       : {strategy_name}", file=sys.stderr)
     print(f"[simtrader run] strategy-config: {strategy_config}", file=sys.stderr)
+    _print_track_a_adverse_selection_status(
+        prefix="[simtrader run]",
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
     print(f"[simtrader run] starting-cash  : {starting_cash}", file=sys.stderr)
     print(
         f"[simtrader run] fee-rate-bps   : "
@@ -1176,6 +1278,10 @@ def _sweep(args: argparse.Namespace) -> int:
             yes_asset_id_override=getattr(args, "yes_asset_id", None),
             no_asset_id_override=getattr(args, "no_asset_id", None),
         )
+        strategy_config = _inject_track_a_adverse_selection_defaults(
+            strategy_name=strategy_name,
+            strategy_config=strategy_config,
+        )
         resolved_asset_id = _resolve_primary_asset_id(
             strategy_name=strategy_name,
             explicit_asset_id=getattr(args, "asset_id", None),
@@ -1204,6 +1310,11 @@ def _sweep(args: argparse.Namespace) -> int:
     print(f"[simtrader sweep] tape           : {events_path}", file=sys.stderr)
     print(f"[simtrader sweep] strategy       : {strategy_name}", file=sys.stderr)
     print(f"[simtrader sweep] strategy-config: {strategy_config}", file=sys.stderr)
+    _print_track_a_adverse_selection_status(
+        prefix="[simtrader sweep]",
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
     print(
         f"[simtrader sweep] asset-id       : "
         f"{resolved_asset_id if resolved_asset_id is not None else '(auto)'}",
@@ -1289,7 +1400,7 @@ _QUICK_SMALL_SWEEP_MARK_METHODS = ["bid", "midpoint"]
 def _build_quick_sweep_config() -> dict:
     """Return a sweep config dict for the 'quick' evidence-run preset.
 
-    Matrix: 4 fee_rates × 3 cancel_latency_ticks × 2 mark_methods = 24 scenarios.
+    Matrix: 4 fee_rates Ã— 3 cancel_latency_ticks Ã— 2 mark_methods = 24 scenarios.
     Each scenario overrides fee_rate_bps, cancel_latency_ticks, and mark_method.
     """
     import itertools
@@ -1316,7 +1427,7 @@ def _build_quick_sweep_config() -> dict:
 def _build_quick_small_sweep_config() -> dict:
     """Return a compact sweep config for faster local development loops.
 
-    Matrix: 2 fee_rates × 1 cancel_latency_ticks × 2 mark_methods = 4 scenarios.
+    Matrix: 2 fee_rates Ã— 1 cancel_latency_ticks Ã— 2 mark_methods = 4 scenarios.
     """
     import itertools
 
@@ -1377,7 +1488,7 @@ def _resolve_liquidity_settings(
 
 
 def _quickrun(args: argparse.Namespace) -> int:
-    """Record a binary market tape and immediately run binary_complement_arb."""
+    """Record a binary market tape and immediately run one strategy."""
     from packages.polymarket.clob import ClobClient
     from packages.polymarket.gamma import GammaClient
     from packages.polymarket.simtrader.config_loader import (
@@ -1524,7 +1635,7 @@ def _quickrun(args: argparse.Namespace) -> int:
                         print(
                             f"[candidate {i}] {role} probe : "
                             f"{pr.updates} updates in {pr.probe_seconds:.1f}s"
-                            f" — {status}"
+                            f" â€” {status}"
                         )
 
         print(f"Listed {len(candidates)} candidates.")
@@ -1669,7 +1780,7 @@ def _quickrun(args: argparse.Namespace) -> int:
         return 1
 
     # -- Build strategy config (default + preset + explicit overrides) --------
-    strategy_name = getattr(args, "strategy", "binary_complement_arb")
+    strategy_name = getattr(args, "strategy", DEFAULT_TRACK_A_STRATEGY)
     if strategy_name == "binary_complement_arb":
         strategy_config = build_binary_complement_strategy_config(
             yes_asset_id=yes_id,
@@ -1679,6 +1790,15 @@ def _quickrun(args: argparse.Namespace) -> int:
         )
     else:
         strategy_config = dict(user_overrides)
+    strategy_config = _inject_track_a_adverse_selection_defaults(
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
+    _print_track_a_adverse_selection_status(
+        prefix="[quickrun]",
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
 
     # -- Build tape directory --------------------------------------------------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -1791,7 +1911,7 @@ def _quickrun(args: argparse.Namespace) -> int:
             sweep_result = run_sweep(
                 SweepRunParams(
                     events_path=events_path,
-                    strategy_name="binary_complement_arb",
+                    strategy_name=strategy_name,
                     strategy_config=strategy_config,
                     asset_id=yes_id,
                     starting_cash=starting_cash,
@@ -1803,7 +1923,11 @@ def _quickrun(args: argparse.Namespace) -> int:
                     strict=False,
                     sweep_id=sweep_id,
                     artifacts_root=DEFAULT_ARTIFACTS_DIR,
-                    strategy_preset=strategy_preset,
+                    strategy_preset=(
+                        strategy_preset
+                        if strategy_name == "binary_complement_arb"
+                        else None
+                    ),
                     market_slug=resolved.slug,
                 ),
                 sweep_config=sweep_config,
@@ -1865,11 +1989,13 @@ def _quickrun(args: argparse.Namespace) -> int:
             f"--duration {args.duration} "
             f"--sweep {sweep_preset}"
         )
+        if strategy_name != DEFAULT_TRACK_A_STRATEGY:
+            reproduce += f" --strategy {strategy_name}"
         if args.starting_cash != 1000.0:
             reproduce += f" --starting-cash {args.starting_cash}"
         if args.allow_empty_book:
             reproduce += " --allow-empty-book"
-        if strategy_preset != "sane":
+        if strategy_name == "binary_complement_arb" and strategy_preset != "sane":
             reproduce += f" --strategy-preset {strategy_preset}"
         if cfg_path is not None:
             reproduce += f" --strategy-config-path {cfg_path}"
@@ -1883,8 +2009,12 @@ def _quickrun(args: argparse.Namespace) -> int:
         timestamp=ts,
         kind="run",
         market_slug=resolved.slug,
-        strategy="binary_complement_arb",
-        preset=strategy_preset,
+        strategy=strategy_name,
+        preset=(
+            strategy_preset
+            if strategy_name == "binary_complement_arb"
+            else None
+        ),
     )
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
 
@@ -1894,7 +2024,7 @@ def _quickrun(args: argparse.Namespace) -> int:
             StrategyRunParams(
                 events_path=events_path,
                 run_dir=run_dir,
-                strategy_name="binary_complement_arb",
+                strategy_name=strategy_name,
                 strategy_config=strategy_config,
                 asset_id=yes_id,
                 starting_cash=starting_cash,
@@ -1904,7 +2034,11 @@ def _quickrun(args: argparse.Namespace) -> int:
                 latency_cancel_ticks=args.cancel_latency_ticks,
                 strict=False,
                 allow_degraded=False,
-                strategy_preset=strategy_preset,
+                strategy_preset=(
+                    strategy_preset
+                    if strategy_name == "binary_complement_arb"
+                    else None
+                ),
                 market_slug=resolved.slug,
             )
         )
@@ -1984,6 +2118,8 @@ def _quickrun(args: argparse.Namespace) -> int:
         f"--market {resolved.slug} "
         f"--duration {args.duration}"
     )
+    if strategy_name != DEFAULT_TRACK_A_STRATEGY:
+        reproduce += f" --strategy {strategy_name}"
     if args.starting_cash != 1000.0:
         reproduce += f" --starting-cash {args.starting_cash}"
     if args.fee_rate_bps is not None:
@@ -1994,7 +2130,7 @@ def _quickrun(args: argparse.Namespace) -> int:
         reproduce += f" --cancel-latency-ticks {args.cancel_latency_ticks}"
     if args.allow_empty_book:
         reproduce += " --allow-empty-book"
-    if strategy_preset != "sane":
+    if strategy_name == "binary_complement_arb" and strategy_preset != "sane":
         reproduce += f" --strategy-preset {strategy_preset}"
     if cfg_path is not None:
         reproduce += f" --strategy-config-path {cfg_path}"
@@ -2009,7 +2145,7 @@ def _quickrun(args: argparse.Namespace) -> int:
 
 
 def _shadow(args: argparse.Namespace) -> int:
-    """Run binary_complement_arb live against the Polymarket Market Channel WS feed."""
+    """Run one strategy live against the Polymarket Market Channel WS feed."""
     from packages.polymarket.clob import ClobClient
     from packages.polymarket.gamma import GammaClient
     from packages.polymarket.simtrader.config_loader import (
@@ -2121,7 +2257,7 @@ def _shadow(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    strategy_name = getattr(args, "strategy", "binary_complement_arb")
+    strategy_name = getattr(args, "strategy", DEFAULT_TRACK_A_STRATEGY)
     if strategy_name == "binary_complement_arb":
         strategy_config = build_binary_complement_strategy_config(
             yes_asset_id=yes_id,
@@ -2131,6 +2267,10 @@ def _shadow(args: argparse.Namespace) -> int:
         )
     else:
         strategy_config = dict(user_overrides)
+    strategy_config = _inject_track_a_adverse_selection_defaults(
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
 
     try:
         strategy = _build_strategy(strategy_name, strategy_config)
@@ -2165,6 +2305,11 @@ def _shadow(args: argparse.Namespace) -> int:
     print(f"[shadow] run dir  : {run_dir}", file=sys.stderr)
     print(f"[shadow] duration : {args.duration}s", file=sys.stderr)
     print(f"[shadow] record   : {record_tape}", file=sys.stderr)
+    _print_track_a_adverse_selection_status(
+        prefix="[shadow]",
+        strategy_name=strategy_name,
+        strategy_config=strategy_config,
+    )
 
     # -- Build shadow_context (for manifest) -----------------------------------
     shadow_context: dict[str, Any] = {
@@ -2203,7 +2348,11 @@ def _shadow(args: argparse.Namespace) -> int:
         ),
         max_ws_stall_seconds=getattr(args, "max_ws_stall_seconds", 30.0),
         strategy_name=strategy_name,
-        strategy_preset=strategy_preset,
+        strategy_preset=(
+            strategy_preset
+            if strategy_name == "binary_complement_arb"
+            else None
+        ),
     )
 
     try:
@@ -2254,13 +2403,15 @@ def _shadow(args: argparse.Namespace) -> int:
         f"--market {resolved.slug} "
         f"--duration {args.duration}"
     )
+    if strategy_name != DEFAULT_TRACK_A_STRATEGY:
+        reproduce += f" --strategy {strategy_name}"
     if args.starting_cash != 1000.0:
         reproduce += f" --starting-cash {args.starting_cash}"
     if args.fee_rate_bps is not None:
         reproduce += f" --fee-rate-bps {args.fee_rate_bps}"
     if args.mark_method != "bid":
         reproduce += f" --mark-method {args.mark_method}"
-    if strategy_preset != "sane":
+    if strategy_name == "binary_complement_arb" and strategy_preset != "sane":
         reproduce += f" --strategy-preset {strategy_preset}"
     if not record_tape:
         reproduce += " --no-record-tape"
@@ -2298,7 +2449,7 @@ def _clean(args: argparse.Namespace) -> int:
         return 1
 
     if not root.exists():
-        print(f"Nothing to clean — {root} does not exist.")
+        print(f"Nothing to clean â€” {root} does not exist.")
         return 0
 
     # Determine which categories to clean.
@@ -2308,7 +2459,7 @@ def _clean(args: argparse.Namespace) -> int:
         if getattr(args, cat, False)
     ]
     if not selected:
-        # No targeting flags → clean everything.
+        # No targeting flags â†’ clean everything.
         selected = list(_CLEAN_CATEGORY_DIRS)
 
     dry_run = not args.yes
@@ -2334,7 +2485,7 @@ def _clean(args: argparse.Namespace) -> int:
             resolved.relative_to(root)
         except (ValueError, OSError):
             print(
-                f"Error: {cat_dir} resolves outside the artifacts root — skipping.",
+                f"Error: {cat_dir} resolves outside the artifacts root â€” skipping.",
                 file=sys.stderr,
             )
             skipped.append(subdir_name)
@@ -2480,6 +2631,9 @@ def _extract_config_snapshot(run_manifest: dict[str, Any]) -> dict[str, Any]:
         value = run_manifest.get(key)
         if value is not None:
             snapshot[key] = value
+    adverse_selection = run_manifest.get("adverse_selection")
+    if isinstance(adverse_selection, dict):
+        snapshot["adverse_selection"] = adverse_selection
     return snapshot
 
 
@@ -2939,7 +3093,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="mark_method",
         help=(
             "Mark-price method for unrealized PnL computation: "
-            "'bid' (default, conservative — marks longs at best_bid) or "
+            "'bid' (default, conservative â€” marks longs at best_bid) or "
             "'midpoint' (marks at (best_bid + best_ask) / 2).  "
             "Recorded in summary.json and run_manifest.json."
         ),
@@ -2963,11 +3117,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--strategy",
-        required=True,
+        default=DEFAULT_TRACK_A_STRATEGY,
         metavar="NAME",
         help=(
             "Strategy name to use.  "
-            f"Available: {', '.join(strategy_names)}."
+            f"Available: {', '.join(strategy_names)}.  "
+            f"Default: {DEFAULT_TRACK_A_STRATEGY}."
         ),
     )
     run_p.add_argument(
@@ -2988,7 +3143,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="strategy_config_json",
         help=(
             "JSON object passed as keyword arguments to the strategy constructor.  "
-            "Example: '{\"trades_path\": \"trades.jsonl\", \"signal_delay_ticks\": 2}'."
+            "Example: '{\"trades_path\": \"trades.jsonl\", \"signal_delay_ticks\": 2}'.  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
         ),
     )
     run_p.add_argument(
@@ -2998,7 +3154,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="strategy_config_path",
         help=(
             "Path to a JSON file containing the strategy config object "
-            "(accepts UTF-8 BOM)."
+            "(accepts UTF-8 BOM).  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
         ),
     )
     run_p.add_argument(
@@ -3135,11 +3292,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sweep_p.add_argument(
         "--strategy",
-        required=True,
+        default=DEFAULT_TRACK_A_STRATEGY,
         metavar="NAME",
         help=(
             "Strategy name to use.  "
-            f"Available: {', '.join(strategy_names)}."
+            f"Available: {', '.join(strategy_names)}.  "
+            f"Default: {DEFAULT_TRACK_A_STRATEGY}."
         ),
     )
     sweep_p.add_argument(
@@ -3158,7 +3316,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="strategy_config_json",
         help=(
             "Base strategy config JSON object used by all scenarios "
-            "(scenario overrides are patch-merged onto this)."
+            "(scenario overrides are patch-merged onto this).  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
         ),
     )
     sweep_p.add_argument(
@@ -3168,7 +3327,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="strategy_config_path",
         help=(
             "Path to a JSON file containing the base strategy config object "
-            "(accepts UTF-8 BOM)."
+            "(accepts UTF-8 BOM).  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
         ),
     )
     sweep_p.add_argument(
@@ -3263,7 +3423,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "quickrun",
         help=(
             "Auto-pick a live binary market (or resolve --market SLUG), "
-            "record a tape, and immediately run binary_complement_arb. "
+            f"record a tape, and immediately run {DEFAULT_TRACK_A_STRATEGY}. "
             "Use --dry-run to check market selection without recording."
         ),
     )
@@ -3274,6 +3434,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Polymarket market slug to use.  "
             "If omitted, auto-selects the first valid live binary market."
+        ),
+    )
+    qr.add_argument(
+        "--strategy",
+        default=DEFAULT_TRACK_A_STRATEGY,
+        metavar="NAME",
+        help=(
+            "Strategy name to use.  "
+            f"Available: {', '.join(strategy_names)}.  "
+            f"Default: {DEFAULT_TRACK_A_STRATEGY}."
         ),
     )
     qr.add_argument(
@@ -3379,14 +3549,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         dest="strategy_config_path",
-        help="Path to a JSON file with strategy config overrides (accepts UTF-8 BOM).",
+        help=(
+            "Path to a JSON file with strategy config overrides (accepts UTF-8 BOM).  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
+        ),
     )
     qr.add_argument(
         "--strategy-config-json",
         default=None,
         metavar="JSON",
         dest="strategy_config_json",
-        help="Inline JSON string with strategy config overrides.",
+        help=(
+            "Inline JSON string with strategy config overrides.  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
+        ),
     )
     qr.add_argument(
         "--strategy-preset",
@@ -3475,7 +3651,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Run a parameter sweep instead of a single strategy run.  "
             "Use 'quick' for the built-in evidence-run preset "
-            "(4 fee_rates × 3 cancel_ticks × 2 mark_methods = 24 scenarios).  "
+            "(4 fee_rates Ã— 3 cancel_ticks Ã— 2 mark_methods = 24 scenarios).  "
             "Also accepts 'preset:quick' for future-proof usage."
         ),
     )
@@ -3648,7 +3824,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "shadow",
         help=(
             "Run a strategy live against the Polymarket Market Channel WS feed "
-            "(no real orders — BrokerSim only).  Resolves YES/NO tokens from --market SLUG, "
+            "(no real orders â€” BrokerSim only).  Resolves YES/NO tokens from --market SLUG, "
             "streams events inline, and writes the full run artifact set.  "
             "Use --no-record-tape to skip writing a tape."
         ),
@@ -3668,12 +3844,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     shadow_p.add_argument(
         "--strategy",
-        default="binary_complement_arb",
+        default=DEFAULT_TRACK_A_STRATEGY,
         metavar="NAME",
         help=(
             "Strategy name to use.  "
             f"Available: {', '.join(strategy_names)}.  "
-            "Default: binary_complement_arb."
+            f"Default: {DEFAULT_TRACK_A_STRATEGY}."
         ),
     )
     shadow_p.add_argument(
@@ -3681,14 +3857,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         dest="strategy_config_path",
-        help="Path to a JSON file with strategy config overrides (accepts UTF-8 BOM).",
+        help=(
+            "Path to a JSON file with strategy config overrides (accepts UTF-8 BOM).  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
+        ),
     )
     shadow_p.add_argument(
         "--strategy-config-json",
         default=None,
         metavar="JSON",
         dest="strategy_config_json",
-        help="Inline JSON string with strategy config overrides.",
+        help=(
+            "Inline JSON string with strategy config overrides.  "
+            f"{_TRACK_A_ADVERSE_SELECTION_DISABLE_HELP}"
+        ),
     )
     shadow_p.add_argument(
         "--strategy-preset",
@@ -4102,7 +4284,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="noop",
         choices=["noop", "market_maker_v0"],
         help=(
-            "Strategy to run for this tick (default: noop — no orders generated). "
+            "Strategy to run for this tick (default: noop â€” no orders generated). "
             "'market_maker_v0' requires --best-bid and --best-ask."
         ),
     )
@@ -4790,6 +4972,30 @@ def _build_live_risk_config(args: argparse.Namespace) -> Any:
     )
 
 
+def _load_live_notifier() -> Any:
+    try:
+        from packages.polymarket.notifications import discord as discord_notifier
+    except Exception:
+        logger.debug("Discord notifier unavailable for simtrader live.", exc_info=True)
+        return None
+    return discord_notifier
+
+
+def _safe_notify(notifier: Any, hook_name: str, *args: Any, **kwargs: Any) -> bool:
+    if notifier is None:
+        return False
+
+    hook = getattr(notifier, hook_name, None)
+    if not callable(hook):
+        return False
+
+    try:
+        return bool(hook(*args, **kwargs))
+    except Exception:
+        logger.debug("Discord notifier hook failed: %s", hook_name, exc_info=True)
+        return False
+
+
 def _find_missing_live_gate() -> Optional[str]:
     for gate_name, gate_path in _LIVE_GATE_REGISTRY:
         if not gate_path.is_file():
@@ -4834,8 +5040,10 @@ def _live(args: argparse.Namespace) -> int:
 
     dry_run: bool = not args.live
     strategy_name: str = getattr(args, "strategy", "noop")
+    asset_id: str = str(getattr(args, "asset_id", "unknown") or "unknown")
     risk_config = _build_live_risk_config(args)
     real_client: Any = None
+    notifier = _load_live_notifier()
     ks = FileBasedKillSwitch(args.kill_switch)
 
     if args.live:
@@ -4869,6 +5077,7 @@ def _live(args: argparse.Namespace) -> int:
         kill_switch_path=Path(args.kill_switch),
         risk_config=risk_config,
         clob_client=real_client,
+        notifier=notifier,
     )
     risk_manager = RiskManager(risk_config)
     runner = LiveRunner(config, risk_manager=risk_manager)
@@ -4954,13 +5163,39 @@ def _live(args: argparse.Namespace) -> int:
         # noop: no orders generated (safe Stage-0 default).
         strategy_fn = lambda: []  # noqa: E731
 
+    _safe_notify(
+        notifier,
+        "notify_session_start",
+        "live",
+        strategy_name,
+        asset_id,
+        dry_run=dry_run,
+    )
+
     try:
         summary = runner.run_once(strategy_fn)
     except RuntimeError as exc:
+        _safe_notify(
+            notifier,
+            "notify_session_error",
+            (
+                f"simtrader live run_once "
+                f"strategy={strategy_name} asset_id={asset_id} dry_run={dry_run}"
+            ),
+            exc,
+        )
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     print(json.dumps(summary, indent=2))
+    _safe_notify(
+        notifier,
+        "notify_session_stop",
+        "live",
+        strategy_name,
+        asset_id,
+        summary=summary,
+    )
     return 0
 
 
@@ -5014,3 +5249,19 @@ def main(argv: list[str]) -> int:
 
     parser.print_help()
     return 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
