@@ -82,6 +82,7 @@ class TestConstructor:
         assert mm.max_skew_ticks == 5
         assert mm.mm_config.gamma == pytest.approx(0.10)
         assert mm.mm_config.kappa == pytest.approx(1.50)
+        assert mm.mm_config.spread_multiplier == pytest.approx(1.0)
         assert mm.hours_to_resolution == pytest.approx(24.0)
 
     def test_invalid_tick_size_zero(self) -> None:
@@ -91,6 +92,10 @@ class TestConstructor:
     def test_invalid_gamma_zero(self) -> None:
         with pytest.raises(ValueError, match="gamma"):
             MarketMakerV0(gamma=0.0)
+
+    def test_invalid_spread_multiplier_zero(self) -> None:
+        with pytest.raises(ValueError, match="spread_multiplier"):
+            MarketMakerV0(spread_multiplier=0.0)
 
     def test_invalid_hours_to_resolution_zero(self) -> None:
         with pytest.raises(ValueError, match="hours_to_resolution"):
@@ -174,6 +179,27 @@ class TestASQuoteModel:
         normal_bid, normal_ask = mm._compute_quotes(mid=0.50, t_elapsed_hours=0.0, sigma_sq=0.0002)
         guard_bid, guard_ask = mm._compute_quotes(mid=0.09, t_elapsed_hours=0.0, sigma_sq=0.0002)
         assert (guard_ask - guard_bid) > (normal_ask - normal_bid)
+
+    def test_spread_multiplier_widens_quotes(self) -> None:
+        base = _mm(
+            gamma=100.0,
+            kappa=1000.0,
+            session_hours=1.0,
+            min_spread=0.01,
+            max_spread=0.50,
+            spread_multiplier=1.0,
+        )
+        wider = _mm(
+            gamma=100.0,
+            kappa=1000.0,
+            session_hours=1.0,
+            min_spread=0.01,
+            max_spread=0.50,
+            spread_multiplier=3.0,
+        )
+        base_bid, base_ask = base._compute_quotes(mid=0.50, t_elapsed_hours=0.0, sigma_sq=0.0002)
+        wider_bid, wider_ask = wider._compute_quotes(mid=0.50, t_elapsed_hours=0.0, sigma_sq=0.0002)
+        assert (wider_ask - wider_bid) > (base_ask - base_bid)
 
 
 class TestComputeQuotes:

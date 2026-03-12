@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import subprocess
@@ -71,6 +71,7 @@ def _write_eligible_tape(tapes_dir: Path, regime: str) -> str:
                 "watch-arb-candidates",
                 "make-session-pack",
                 "gate2-preflight",
+                "hypothesis-summary",
             ],
         ),
         (
@@ -92,6 +93,10 @@ def _write_eligible_tape(tapes_dir: Path, regime: str) -> str:
         (
             ["gate2-preflight", "--help"],
             ["usage: gate2-preflight", "Check whether Gate 2 sweep is ready"],
+        ),
+        (
+            ["hypothesis-summary", "--help"],
+            ["hypothesis-summary [-h]", "--hypothesis-path"],
         ),
     ],
 )
@@ -117,3 +122,4 @@ def test_polytool_main_module_gate2_preflight_ready_smoke(tmp_path: Path) -> Non
     assert "Result: READY" in combined_output
     assert "Eligible tapes: 3" in combined_output
     assert "Missing regimes: none" in combined_output
+

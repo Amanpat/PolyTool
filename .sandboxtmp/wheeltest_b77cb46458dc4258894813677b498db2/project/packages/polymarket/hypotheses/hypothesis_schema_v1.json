@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polytool.local/schemas/hypothesis_v1.json",
+  "title": "PolyTool Hypothesis Output",
+  "description": "Standardized format for LLM-generated trading hypotheses",
+  "type": "object",
+  "required": ["schema_version", "metadata", "executive_summary", "hypotheses"],
+  "properties": {
+    "schema_version": {
+      "const": "hypothesis_v1",
+      "description": "Schema version identifier"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["user_slug", "run_id", "created_at_utc", "model"],
+      "properties": {
+        "user_slug": {
+          "type": "string",
+          "description": "User slug (e.g., 'drpufferfish')"
+        },
+        "proxy_wallet": {
+          "type": "string",
+          "pattern": "^0x[a-fA-F0-9]{40}$",
+          "description": "User's proxy wallet address"
+        },
+        "run_id": {
+          "type": "string",
+          "description": "Unique run identifier"
+        },
+        "created_at_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model used to generate hypotheses"
+        },
+        "dossier_export_id": {
+          "type": "string",
+          "description": "Export ID of the source dossier"
+        },
+        "window_days": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Analysis window in days"
+        }
+      }
+    },
+    "executive_summary": {
+      "type": "object",
+      "required": ["bullets"],
+      "properties": {
+        "bullets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "description": "3-6 bullet summary points"
+        },
+        "overall_assessment": {
+          "type": "string",
+          "enum": ["profitable", "unprofitable", "mixed", "insufficient_data"],
+          "description": "High-level assessment of trading performance"
+        }
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hypothesis"
+      },
+      "minItems": 0,
+      "description": "List of trading strategy hypotheses"
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "description": "Evidence-backed observations"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What the evidence does not show"
+    },
+    "missing_data_for_backtest": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Data gaps that would need to be filled for backtesting"
+    },
+    "next_features_needed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Suggested features or metrics to compute next"
+    }
+  },
+  "$defs": {
+    "hypothesis": {
+      "type": "object",
+      "required": ["claim", "evidence", "confidence", "falsification"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^H[0-9]+$",
+          "description": "Hypothesis identifier (e.g., H1, H2)"
+        },
+        "claim": {
+          "type": "string",
+          "description": "The hypothesis statement"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_citation"
+          },
+          "minItems": 1,
+          "description": "Supporting evidence with citations"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Confidence level in the hypothesis"
+        },
+        "falsification": {
+          "type": "string",
+          "description": "How to falsify this hypothesis"
+        },
+        "next_feature_needed": {
+          "type": "string",
+          "description": "Feature that would increase confidence"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Categorization tags (e.g., 'timing', 'position_sizing')"
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "required": ["statement", "evidence"],
+      "properties": {
+        "statement": {
+          "type": "string",
+          "description": "The observation"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_citation"
+          },
+          "minItems": 1,
+          "description": "Supporting evidence"
+        }
+      }
+    },
+    "evidence_citation": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Evidence statement"
+        },
+        "file_path": {
+          "type": "string",
+          "description": "Source file path"
+        },
+        "trade_uids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Referenced trade UIDs"
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Supporting metrics (key-value pairs)"
+        }
+      }
+    }
+  }
+}

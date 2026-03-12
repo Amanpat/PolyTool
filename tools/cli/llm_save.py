@@ -17,6 +17,7 @@ from typing import List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from packages.polymarket.hypotheses.validator import validate_hypothesis_json
 from polytool.user_context import UserContext, resolve_user_context
 
 logger = logging.getLogger(__name__)
@@ -255,6 +256,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Input file path supplied to the LLM (repeatable).",
     )
     parser.add_argument("--rag-query-path", help="Optional rag-query JSON output path.")
+    parser.add_argument(
+        "--hypothesis-path",
+        help=(
+            "Optional path to a hypothesis JSON file conforming to hypothesis_schema_v1. "
+            "If provided, the file is saved as hypothesis.json alongside the report and "
+            "validated; validation_result.json is written regardless of outcome. "
+            "Validation failure does NOT block the save."
+        ),
+    )
     parser.add_argument("--tags", help="Optional comma-separated tags.")
     parser.add_argument(
         "--no-devlog",
@@ -355,6 +365,78 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
+    # ── optional hypothesis JSON: save + validate ──────────────────────────────
+    hypothesis_dest = None
+    validation_result_dest = None
+    if args.hypothesis_path:
+        hyp_src = Path(args.hypothesis_path)
+        validation_result_dest = output_dir / "validation_result.json"
+
+        try:
+            hyp_text = hyp_src.read_text(encoding="utf-8")
+        except (FileNotFoundError, OSError) as exc:
+            print(f"Error: cannot read --hypothesis-path: {exc}", file=sys.stderr)
+            validation_result_dest.write_text(
+                json.dumps(
+                    {
+                        "valid": False,
+                        "errors": [f"Cannot read hypothesis file: {exc}"],
+                        "warnings": [],
+                        "validated_at_utc": _format_utc(now),
+                        "schema": "hypothesis_v1",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return 1
+
+        try:
+            hyp_data = json.loads(hyp_text)
+        except json.JSONDecodeError as exc:
+            print(f"Error: hypothesis JSON is not valid JSON: {exc}", file=sys.stderr)
+            # Do NOT write hypothesis.json — malformed content must not be persisted
+            validation_result_dest.write_text(
+                json.dumps(
+                    {
+                        "valid": False,
+                        "errors": [f"hypothesis.json could not be parsed as JSON: {exc}"],
+                        "warnings": [],
+                        "validated_at_utc": _format_utc(now),
+                        "schema": "hypothesis_v1",
+                    },
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            return 1
+
+        # Parseable JSON: safe to persist as canonical hypothesis.json
+        hypothesis_dest = output_dir / "hypothesis.json"
+        hypothesis_dest.write_text(hyp_text, encoding="utf-8")
+
+        vr = validate_hypothesis_json(hyp_data)
+        if not vr.valid:
+            for err in vr.errors:
+                print(f"Hypothesis validation error: {err}", file=sys.stderr)
+
+        validation_result_dest.write_text(
+            json.dumps(
+                {
+                    "valid": vr.valid,
+                    "errors": vr.errors,
+                    "warnings": vr.warnings,
+                    "validated_at_utc": _format_utc(now),
+                    "schema": "hypothesis_v1",
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+
     rag_query_dest = None
     if args.rag_query_path:
         rag_query_dest = output_dir / "rag_query.json"
@@ -381,6 +463,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"Report: {report_path}")
     print(f"Manifest: {manifest_path}")
     print(f"LLM note: {note_path}")
+    if hypothesis_dest:
+        print(f"Hypothesis: {hypothesis_dest}")
+    if validation_result_dest:
+        print(f"Validation result: {validation_result_dest}")
     if rag_query_dest:
         print(f"RAG query: {rag_query_dest}")
     if not args.no_devlog:

@@ -4,6 +4,20 @@ This is the durable plan-of-record for the PolyTool project. It captures every
 material design decision so future work does not depend on chat history. It
 contains no private data (no wallets, dossier excerpts, or user-specific outputs).
 
+Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+governing roadmap document as of 2026-03-12 and supersedes v3. This file
+remains the implementation-policy companion: use it for shipped constraints,
+kill conditions, and explicit current-state limits until code/spec work changes
+them.
+
+## 0. Roadmap Authority and Open Deltas
+
+| Area | Master Roadmap v4 direction | Current implementation-policy truth |
+|------|------------------------------|-------------------------------------|
+| System scope | Automated discovery, validation, live execution, and a self-improving loop are the target end state. | The shipped canonical workflow is still local-first research plus gated execution primitives. No v4 phase should be treated as complete unless the repo and gates say so. |
+| Automation / hosting | v4 plans thin FastAPI wrappers, n8n orchestration, Discord operations, and eventual AWS deployment. | Current operating policy stays local-first. AWS is not required by any shipped milestone, and the broader automation stack is not current-state truth yet. |
+| LLM / signals | v4 allows future paid API escalation and dedicated signals/news pipelines. | Current toolchain policy remains no external LLM API calls and no trading recommendations from shipped outputs. |
+
 ---
 
 ## 1. Mission and Constraints
@@ -20,10 +34,10 @@ LLM-assisted examination of individual trader behavior.
 |------------|-----------|
 | **Sports-first MVP** | Polymarket prediction markets skew heavily toward sports events. The MVP focuses on sports/event markets where resolution is deterministic and verifiable. |
 | **Explainability** | Every analytic output (detector label, PnL bucket, hypothesis) must include evidence fields that trace back to specific trades or data points. No black-box scores. |
-| **Local-first** | All data stays on the operator's machine. No external LLM API calls from the toolchain. RAG, embedding, and reranking run locally. |
-| **AWS later** | Cloud deployment (AWS) is a future consideration but not in scope for any current roadmap milestone. Architecture should not preclude it but must not require it. |
-| **No multi-account** | Analysis is single-user-at-a-time. Multi-user comparison is deferred to Roadmap 8. No portfolio aggregation until then. |
-| **No trading signals** | PolyTool is a research and reverse-engineering tool. It does NOT provide trading recommendations, claim alpha, or make predictions. |
+| **Local-first** | Current shipped workflows keep data and LLM execution on the operator's machine. RAG, embedding, and reranking run locally. |
+| **AWS later** | AWS appears only as a future roadmap phase. No current shipped milestone requires or assumes cloud deployment. |
+| **No portfolio aggregation yet** | The canonical examine flow remains single-user-at-a-time. Batch research tooling (`wallet-scan`, `alpha-distill`) exists, but side-by-side portfolio aggregation and live capital management remain deferred. |
+| **No trading recommendations** | Current shipped outputs are research evidence only. PolyTool must not emit trading recommendations or claim alpha from current analytics artifacts. |
 
 ---
 
@@ -70,6 +84,10 @@ Each CLI command is invoked as `python -m polytool <command>`. See
 canonical path for trust artifact validation.
 
 ### Track alignment (as of 2026-03-05)
+
+These shipped checkpoints do not imply that the corresponding Master Roadmap v4
+phases are complete. In particular, v4 Phase 1 still includes automation and
+live-ops items that are not yet shipped.
 
 - **Track B foundation is complete**: wallet-scan v0, alpha-distill v0, and the
   RAG/hypothesis scaffolding baseline.
@@ -485,6 +503,7 @@ Do NOT start any backtesting work until:
 
 ## Cross-References
 
+- [Master Roadmap v4](reference/POLYTOOL_MASTER_ROADMAP_v4.md) - Governing roadmap document; supersedes v3
 - [Roadmap](ROADMAP.md) - Milestone checklist and kill conditions
 - [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) - Step-by-step workflow
 - [Hypothesis Standard](HYPOTHESIS_STANDARD.md) - Prompt template and quality rubric

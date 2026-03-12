@@ -1,0 +1,1795 @@
+# This change adds a new export that captures a user's activity snapshot and a ready-to-fill research memo
+# so analysts can review it later and compare how behavior changes over time without rerunning data pulls.
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+DEFAULT_WINDOW_DAYS = 30
+DEFAULT_MAX_TRADES = 200
+DEFAULT_TREND_POINTS = 7
+CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT = 200
+
+NOTIONAL_BUCKETS = [
+    {"label": "0-25", "min": 0, "max": 25},
+    {"label": "25-100", "min": 25, "max": 100},
+    {"label": "100-500", "min": 100, "max": 500},
+    {"label": "500-1000", "min": 500, "max": 1000},
+    {"label": "1000-5000", "min": 1000, "max": 5000},
+    {"label": "5000+", "min": 5000, "max": None},
+]
+
+
+@dataclass
+class UserDossierExport:
+    export_id: str
+    proxy_wallet: str
+    username: Optional[str]
+    username_slug: str
+    generated_at: datetime
+    window_start: datetime
+    window_end: datetime
+    dossier: Dict[str, Any]
+    memo_md: str
+    dossier_json: str
+    detectors_json: str
+    anchor_trade_uids: List[str]
+    stats: Dict[str, Any]
+    artifact_path: str
+    path_json: str
+    path_md: str
+    manifest_path: str
+
+
+_USERNAME_SLUG_RE = re.compile(r"[^a-z0-9_-]")
+
+
+def _username_to_slug(username: Optional[str]) -> str:
+    if username is None:
+        return "unknown"
+    cleaned = username.strip()
+    if not cleaned or cleaned == "@":
+        return "unknown"
+    if cleaned.startswith("@"):
+        cleaned = cleaned[1:]
+    cleaned = cleaned.strip().lower()
+    if not cleaned:
+        return "unknown"
+    cleaned = _USERNAME_SLUG_RE.sub("_", cleaned)
+    return cleaned or "unknown"
+
+
+def build_dossier_dir(
+    proxy_wallet: str,
+    username: Optional[str],
+    date_utc: datetime,
+    run_id: str,
+    username_slug_override: Optional[str] = None,
+) -> Path:
+    date_label = date_utc.strftime("%Y-%m-%d")
+    username_slug = username_slug_override or _username_to_slug(username)
+    return (
+        Path("artifacts")
+        / "dossiers"
+        / "users"
+        / username_slug
+        / proxy_wallet
+        / date_label
+        / run_id
+    )
+
+
+def _apply_artifacts_base_path(artifacts_base_path: str, dossier_dir: Path) -> Path:
+    base_path = artifacts_base_path or "artifacts"
+    if base_path == "artifacts":
+        return dossier_dir
+    parts = dossier_dir.parts
+    if parts and parts[0] == "artifacts":
+        return Path(base_path).joinpath(*parts[1:])
+    return Path(base_path) / dossier_dir
+
+
+def _safe_divide(numerator: float, denominator: float, digits: int = 6) -> float:
+    if denominator == 0:
+        return 0.0
+    return round(numerator / denominator, digits)
+
+
+def _round_value(value: Optional[float], digits: int = 6) -> Optional[float]:
+    if value is None:
+        return None
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return None
+    return round(numeric, digits)
+
+
+_MISSING_TS_SENTINEL = datetime(1970, 1, 1)
+
+
+def _to_naive_utc_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    dt: Optional[datetime]
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _coerce_optional_timestamp(value: Any) -> Optional[datetime]:
+    dt = _to_naive_utc_datetime(value)
+    if dt is None:
+        return None
+    if dt == _MISSING_TS_SENTINEL:
+        return None
+    return dt
+
+
+def _optional_isoformat(value: Any) -> Optional[str]:
+    dt = _coerce_optional_timestamp(value)
+    if dt is None:
+        return None
+    return _isoformat(dt)
+
+
+def _compute_hold_duration_seconds(
+    entry_ts: Any,
+    resolved_at: Any,
+    exit_ts: Any,
+    now_ts: datetime,
+) -> int:
+    entry_dt = _to_naive_utc_datetime(entry_ts)
+    if entry_dt is None:
+        return 0
+
+    resolved_dt = _coerce_optional_timestamp(resolved_at)
+    exit_dt = _coerce_optional_timestamp(exit_ts)
+    now_dt = _to_naive_utc_datetime(now_ts)
+
+    if resolved_dt is not None:
+        end_dt = resolved_dt
+    elif exit_dt is not None:
+        end_dt = exit_dt
+    else:
+        # Open/pending positions use export-time "now" for a stable snapshot duration.
+        end_dt = now_dt or entry_dt
+
+    return max(0, int((end_dt - entry_dt).total_seconds()))
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float_or_default(
+    value: Any,
+    *,
+    default: Optional[float] = None,
+    digits: int = 6,
+) -> Optional[float]:
+    rounded = _round_value(value, digits=digits)
+    if rounded is None:
+        return default
+    return rounded
+
+
+def _table_exists(clickhouse_client: Any, table_name: str) -> bool:
+    """Return whether a table is queryable in the current ClickHouse database."""
+    try:
+        clickhouse_client.query(f"SELECT 1 FROM {table_name} LIMIT 0")
+        return True
+    except Exception:
+        return False
+
+
+def _table_non_empty_category_count(clickhouse_client: Any, table_name: str) -> int:
+    """Return count of rows whose category is non-empty, or zero if unavailable."""
+    try:
+        result = clickhouse_client.query(
+            f"SELECT countIf(category != '') FROM {table_name}"
+        )
+    except Exception:
+        return 0
+
+    rows = getattr(result, "result_rows", None) or []
+    if not rows or not rows[0]:
+        return 0
+
+    value = rows[0][0]
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _table_non_empty_category_count_for_tokens(
+    clickhouse_client: Any,
+    table_name: str,
+    token_ids: List[str],
+) -> int:
+    """Return non-empty category count for the provided token_ids."""
+    if not token_ids:
+        return 0
+    try:
+        result = clickhouse_client.query(
+            f"""
+            SELECT countIf(category != '')
+            FROM {table_name}
+            WHERE token_id IN {{tokens:Array(String)}}
+            """,
+            parameters={"tokens": token_ids},
+        )
+    except Exception:
+        return 0
+
+    rows = getattr(result, "result_rows", None) or []
+    if not rows or not rows[0]:
+        return 0
+
+    value = rows[0][0]
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        try:
+            return max(0, int(float(value)))
+        except (TypeError, ValueError):
+            return 0
+
+
+def _resolve_run_category_probe_token_ids(
+    clickhouse_client: Any,
+    proxy_wallet: str,
+    *,
+    sample_limit: int = CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT,
+) -> List[str]:
+    """Fetch a bounded, run-scoped token sample from lifecycle rows."""
+    limit = max(1, int(sample_limit))
+    query_templates = (
+        f"""
+        SELECT DISTINCT resolved_token_id
+        FROM user_trade_lifecycle_enriched
+        WHERE proxy_wallet = {{wallet:String}}
+          AND resolved_token_id != ''
+        ORDER BY resolved_token_id ASC
+        LIMIT {limit}
+        """,
+        f"""
+        SELECT DISTINCT resolved_token_id
+        FROM user_trade_lifecycle
+        WHERE proxy_wallet = {{wallet:String}}
+          AND resolved_token_id != ''
+        ORDER BY resolved_token_id ASC
+        LIMIT {limit}
+        """,
+    )
+    for query in query_templates:
+        try:
+            result = clickhouse_client.query(query, parameters={"wallet": proxy_wallet})
+        except Exception:
+            continue
+
+        token_ids: List[str] = []
+        seen: set[str] = set()
+        for row in getattr(result, "result_rows", None) or []:
+            if not row:
+                continue
+            token_id = str(row[0] or "").strip()
+            if token_id and token_id not in seen:
+                seen.add(token_id)
+                token_ids.append(token_id)
+        if token_ids:
+            return token_ids
+    return []
+
+
+def _resolve_category_tokens_table(
+    clickhouse_client: Any,
+    run_token_ids: Optional[List[str]] = None,
+) -> tuple[Optional[str], str, Dict[str, int]]:
+    """Pick category source table by run-scoped coverage, then deterministic fallback."""
+    existing_tables = [
+        table_name
+        for table_name in ("polymarket_tokens", "market_tokens")
+        if _table_exists(clickhouse_client, table_name)
+    ]
+    if not existing_tables:
+        return None, "none_available", {}
+
+    normalized_run_token_ids = list(
+        dict.fromkeys(
+            str(token or "").strip()
+            for token in (run_token_ids or [])
+            if str(token or "").strip()
+        )
+    )
+    run_counts: Dict[str, int] = {}
+
+    if normalized_run_token_ids:
+        for table_name in existing_tables:
+            run_counts[table_name] = _table_non_empty_category_count_for_tokens(
+                clickhouse_client,
+                table_name,
+                normalized_run_token_ids,
+            )
+
+        best_count = max(run_counts.values(), default=0)
+        best_tables = [
+            table_name
+            for table_name in existing_tables
+            if run_counts.get(table_name, 0) == best_count
+        ]
+        if best_count > 0 and len(best_tables) == 1:
+            return best_tables[0], "run_scoped_best_coverage", run_counts
+        if best_count > 0 and len(best_tables) > 1:
+            return best_tables[0], "run_scoped_tie_fallback", run_counts
+
+    for table_name in existing_tables:
+        if _table_non_empty_category_count(clickhouse_client, table_name) > 0:
+            if normalized_run_token_ids:
+                return table_name, "none_available", run_counts
+            return table_name, "global_nonempty_fallback", run_counts
+
+    if normalized_run_token_ids:
+        return existing_tables[0], "none_available", run_counts
+    return existing_tables[0], "global_empty_fallback", run_counts
+
+
+def _build_category_join_sql(
+    clickhouse_client: Any,
+    *,
+    proxy_wallet: str,
+) -> tuple[str, str, str, str, Dict[str, int], int]:
+    """Return category join SQL plus selection metadata for explainability."""
+    run_token_ids = _resolve_run_category_probe_token_ids(
+        clickhouse_client,
+        proxy_wallet,
+        sample_limit=CATEGORY_SOURCE_TOKEN_SAMPLE_LIMIT,
+    )
+    category_table, category_source_reason, run_counts = _resolve_category_tokens_table(
+        clickhouse_client,
+        run_token_ids=run_token_ids,
+    )
+    if not category_table:
+        return "'' AS category", "", "", category_source_reason, run_counts, len(run_token_ids)
+    return (
+        "COALESCE(mt.category, '') AS category",
+        f"""
+        LEFT JOIN (
+            SELECT token_id, any(category) AS category
+            FROM {category_table}
+            GROUP BY token_id
+        ) mt ON l.resolved_token_id = mt.token_id
+        """,
+        category_table,
+        category_source_reason,
+        run_counts,
+        len(run_token_ids),
+    )
+
+
+def _build_close_ts_join_sql(
+    clickhouse_client: Any,
+) -> tuple[str, str]:
+    """Return optional JOIN/select SQL that exposes close-ts fallback columns."""
+    has_market_tokens = _table_exists(clickhouse_client, "market_tokens")
+    has_markets_enriched = _table_exists(clickhouse_client, "markets_enriched")
+
+    select_parts = [
+        "NULL AS gamma_close_date_iso",
+        "NULL AS gamma_end_date_iso",
+        "NULL AS gamma_uma_end_date",
+    ]
+    join_parts: list[str] = []
+
+    if has_market_tokens:
+        select_parts[1] = "mt_close.end_date_iso AS gamma_end_date_iso"
+        join_parts.append(
+            """
+        LEFT JOIN (
+            SELECT
+                token_id,
+                any(condition_id) AS condition_id,
+                any(end_date_iso) AS end_date_iso
+            FROM market_tokens
+            GROUP BY token_id
+        ) mt_close ON l.resolved_token_id = mt_close.token_id
+        """
+        )
+
+    if has_market_tokens and has_markets_enriched:
+        select_parts[0] = "me_close.close_date_iso AS gamma_close_date_iso"
+        join_parts.append(
+            """
+        LEFT JOIN (
+            SELECT
+                condition_id,
+                any(close_date_iso) AS close_date_iso
+            FROM markets_enriched
+            GROUP BY condition_id
+        ) me_close ON if(
+            startsWith(lowerUTF8(trimBoth(mt_close.condition_id)), '0x'),
+            concat('0x', substring(lowerUTF8(trimBoth(mt_close.condition_id)), 3)),
+            concat('0x', lowerUTF8(trimBoth(mt_close.condition_id)))
+        ) = if(
+            startsWith(lowerUTF8(trimBoth(me_close.condition_id)), '0x'),
+            concat('0x', substring(lowerUTF8(trimBoth(me_close.condition_id)), 3)),
+            concat('0x', lowerUTF8(trimBoth(me_close.condition_id)))
+        )
+        """
+        )
+
+    return ",\n            ".join(select_parts), "\n".join(join_parts)
+
+
+def normalize_position_for_export(position: Dict[str, Any], now_ts: datetime) -> Dict[str, Any]:
+    normalized = dict(position)
+
+    normalized["entry_ts"] = _optional_isoformat(normalized.get("entry_ts")) or ""
+    normalized["exit_ts"] = _optional_isoformat(normalized.get("exit_ts")) or None
+    normalized["resolved_at"] = _optional_isoformat(normalized.get("resolved_at")) or None
+
+    resolution_source = normalized.get("resolution_source")
+    if isinstance(resolution_source, str) and not resolution_source.strip():
+        normalized["resolution_source"] = None
+
+    for field in (
+        "entry_price",
+        "total_bought",
+        "total_cost",
+        "exit_price",
+        "total_sold",
+        "total_proceeds",
+        "position_remaining",
+        "settlement_price",
+        "gross_pnl",
+        "realized_pnl_net",
+    ):
+        normalized[field] = _coerce_float_or_default(normalized.get(field))
+
+    normalized["fees_actual"] = _coerce_float_or_default(
+        normalized.get("fees_actual"),
+        default=0.0,
+    )
+    normalized["fees_estimated"] = _coerce_float_or_default(
+        normalized.get("fees_estimated"),
+        default=0.0,
+    )
+
+    sell_count_val = _coerce_int(normalized.get("sell_count"), default=0)
+    normalized["sell_count"] = sell_count_val
+    normalized["buy_count"] = _coerce_int(normalized.get("buy_count"), default=0)
+    normalized["trade_count"] = _coerce_int(normalized.get("trade_count"), default=0)
+
+    resolution_outcome = str(normalized.get("resolution_outcome") or "")
+    if resolution_outcome == "PENDING" and sell_count_val == 0:
+        normalized["realized_pnl_net"] = 0.0
+        normalized["gross_pnl"] = 0.0
+        normalized["settlement_price"] = None
+
+    normalized["hold_duration_seconds"] = _compute_hold_duration_seconds(
+        entry_ts=normalized.get("entry_ts"),
+        resolved_at=normalized.get("resolved_at"),
+        exit_ts=normalized.get("exit_ts"),
+        now_ts=now_ts,
+    )
+
+    return normalized
+
+
+def _isoformat(dt: Optional[datetime]) -> str:
+    if dt is None:
+        return ""
+    if isinstance(dt, datetime):
+        return dt.replace(microsecond=0).isoformat() + "Z"
+    if isinstance(dt, date):
+        return datetime(dt.year, dt.month, dt.day).isoformat() + "Z"
+    return str(dt)
+
+
+def _format_number(value: Optional[float], digits: int = 4) -> str:
+    if value is None:
+        return ""
+    return f"{value:.{digits}f}"
+
+
+def _fetch_single_row(client, query: str, parameters: dict) -> List[Any]:
+    result = client.query(query, parameters=parameters)
+    if not result.result_rows:
+        return []
+    return result.result_rows[0]
+
+
+def _anchor_limits(max_trades: int) -> Dict[str, int]:
+    max_trades = max(1, int(max_trades))
+    base = max_trades // 3
+    remainder = max_trades % 3
+    last_limit = base + (1 if remainder > 0 else 0)
+    top_limit = base + (1 if remainder > 1 else 0)
+    outlier_limit = base
+    return {
+        "last_trades": last_limit,
+        "top_notional": top_limit,
+        "outliers": outlier_limit,
+        "max_trades": max_trades,
+    }
+
+
+def _map_anchor_row(row: List[Any]) -> Dict[str, Any]:
+    return {
+        "trade_uid": row[0],
+        "ts": _isoformat(row[1]) if row[1] else "",
+        "token_id": row[2] or "",
+        "resolved_token_id": row[3] or "",
+        "market_slug": row[4] or "",
+        "question": row[5] or "",
+        "outcome_name": row[6] or "",
+        "side": row[7] or "",
+        "price": _round_value(row[8]),
+        "size": _round_value(row[9]),
+        "notional": _round_value(row[10]),
+        "tx_hash": row[11] or "",
+    }
+
+
+def _fetch_anchor_rows(
+    client,
+    proxy_wallet: str,
+    window_start: datetime,
+    window_end: datetime,
+    limit: int,
+    order_by: str,
+    min_notional: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    if limit <= 0:
+        return []
+
+    notional_filter = ""
+    parameters = {
+        "wallet": proxy_wallet,
+        "start": window_start,
+        "end": window_end,
+        "limit": limit,
+    }
+    if min_notional is not None:
+        notional_filter = "AND (size * price) >= {min_notional:Float64}"
+        parameters["min_notional"] = float(min_notional)
+
+    query = f"""
+        SELECT
+            trade_uid,
+            ts,
+            token_id,
+            resolved_token_id,
+            market_slug,
+            question,
+            resolved_outcome_name AS outcome_name,
+            side,
+            price,
+            size,
+            (size * price) AS notional,
+            transaction_hash AS tx_hash
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {{wallet:String}}
+          AND ts >= {{start:DateTime}}
+          AND ts <= {{end:DateTime}}
+          {notional_filter}
+        ORDER BY {order_by}
+        LIMIT {{limit:Int32}}
+    """
+
+    result = client.query(query, parameters=parameters)
+    return [_map_anchor_row(row) for row in result.result_rows]
+
+
+def _dedupe_anchors(
+    rows: List[Dict[str, Any]],
+    seen: set,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    output: List[Dict[str, Any]] = []
+    for row in rows:
+        trade_uid = row.get("trade_uid")
+        if not trade_uid or trade_uid in seen:
+            continue
+        seen.add(trade_uid)
+        output.append(row)
+        if len(output) >= limit:
+            break
+    return output
+
+
+def _build_notional_histogram(row: List[Any], trades_count: int) -> List[Dict[str, Any]]:
+    if not row:
+        row = [0] * len(NOTIONAL_BUCKETS)
+    histogram: List[Dict[str, Any]] = []
+    for idx, bucket in enumerate(NOTIONAL_BUCKETS):
+        count = int(row[idx]) if idx < len(row) and row[idx] is not None else 0
+        histogram.append({
+            "label": bucket["label"],
+            "min": bucket["min"],
+            "max": bucket["max"],
+            "count": count,
+            "pct": _safe_divide(count, trades_count, digits=4) if trades_count else 0.0,
+        })
+    return histogram
+
+
+def _build_detectors_payload(latest_rows: List[List[Any]], trend_rows: List[List[Any]]) -> Dict[str, Any]:
+    latest: List[Dict[str, Any]] = []
+    for row in latest_rows:
+        latest.append({
+            "detector": row[0] or "",
+            "score": _round_value(row[1]),
+            "label": row[2] or "",
+            "bucket_start": _isoformat(row[3]) if row[3] else "",
+        })
+
+    latest_sorted = sorted(
+        latest,
+        key=lambda item: ((item["score"] is None), -(item["score"] or 0.0), item["detector"]),
+    )
+
+    trend: Dict[str, List[Dict[str, Any]]] = {}
+    for row in trend_rows:
+        name = row[0] or ""
+        trend.setdefault(name, []).append({
+            "bucket_start": _isoformat(row[1]) if row[1] else "",
+            "score": _round_value(row[2]),
+            "label": row[3] or "",
+        })
+
+    for name, entries in trend.items():
+        trend[name] = entries
+
+    return {
+        "bucket_type": "day",
+        "latest": latest_sorted,
+        "trend": trend,
+    }
+
+
+def _build_research_memo(
+    dossier: Dict[str, Any],
+    anchor_rows: List[Dict[str, Any]],
+) -> str:
+    header = dossier.get("header", {})
+    coverage = dossier.get("coverage", {})
+    liquidity = dossier.get("liquidity_summary", {})
+    pnl = dossier.get("pnl_summary", {})
+
+    lines: List[str] = []
+    lines.append("# LLM Research Packet v1")
+    lines.append("")
+    lines.append(f"User input: {header.get('user_input', '')}")
+    lines.append(f"Proxy wallet: {header.get('proxy_wallet', '')}")
+    lines.append(
+        "Window: {start} to {end} ({days} days)".format(
+            start=header.get("window_start", ""),
+            end=header.get("window_end", ""),
+            days=header.get("window_days", 0),
+        )
+    )
+    lines.append(f"Generated at: {header.get('generated_at', '')}")
+    if header.get("export_id"):
+        lines.append(f"Export id: {header.get('export_id')}")
+    lines.append("")
+
+    lines.append("## Executive Summary")
+    lines.append("- TODO: Summarize the strategy in 2-3 sentences.")
+    lines.append("")
+
+    lines.append("## Data Coverage & Caveats")
+    lines.append(
+        "- Trades: {trades}, Activity: {activity}, Positions: {positions}".format(
+            trades=coverage.get("trades_count", 0),
+            activity=coverage.get("activity_count", 0),
+            positions=coverage.get("positions_count", 0),
+        )
+    )
+    lines.append(
+        "- Mapping coverage: {coverage_pct}% of trades include market slug/question/category.".format(
+            coverage_pct=_format_number(coverage.get("mapping_coverage", 0.0) * 100, digits=2)
+        )
+    )
+    lines.append(
+        "- Liquidity snapshots: {total} total, usable rate {rate}% (ok={ok}).".format(
+            total=liquidity.get("total_snapshots", 0),
+            rate=_format_number(liquidity.get("usable_liquidity_rate", 0.0) * 100, digits=2),
+            ok=liquidity.get("usable_liquidity_count", 0),
+        )
+    )
+    latest_bucket = pnl.get("latest_bucket") or {}
+    if latest_bucket:
+        lines.append(
+            "- Latest PnL bucket ({bucket_start}): realized={realized}, mtm={mtm}, exposure={exposure}.".format(
+                bucket_start=latest_bucket.get("bucket_start", ""),
+                realized=_format_number(latest_bucket.get("realized_pnl")),
+                mtm=_format_number(latest_bucket.get("mtm_pnl_estimate")),
+                exposure=_format_number(latest_bucket.get("exposure_notional_estimate")),
+            )
+        )
+    lines.append("- Hard rule: any strategy claim must cite dossier metrics or trade_uids.")
+    lines.append("")
+
+    lines.append("## Key Observations")
+    lines.append("- TODO: Bullet observations backed by metrics/trade_uids.")
+    lines.append("")
+
+    lines.append("## Hypotheses")
+    lines.append("| claim | evidence (metrics/trade_uids) | confidence | how to falsify | next feature needed |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    lines.append("| TODO | TODO | TODO | TODO | TODO |")
+    lines.append("")
+
+    lines.append("## What changed recently")
+    lines.append("- TODO: Compare to prior exports or recent buckets.")
+    lines.append("")
+
+    lines.append("## Next features to compute")
+    lines.append("- TODO: Add derived metrics that would raise confidence.")
+    lines.append("")
+
+    lines.append("## Evidence anchors")
+    anchor_uids = [row.get("trade_uid") for row in anchor_rows if row.get("trade_uid")]
+    if anchor_uids:
+        lines.append("Anchor trade_uids:")
+        for trade_uid in anchor_uids:
+            lines.append(f"- `{trade_uid}`")
+    else:
+        lines.append("Anchor trade_uids: none")
+    lines.append("")
+
+    lines.append("| trade_uid | ts | market_slug | outcome_name | side | price | size | notional | tx_hash |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    if anchor_rows:
+        for row in anchor_rows:
+            lines.append(
+                "| {trade_uid} | {ts} | {market_slug} | {outcome_name} | {side} | {price} |"
+                " {size} | {notional} | {tx_hash} |".format(
+                    trade_uid=row.get("trade_uid", ""),
+                    ts=row.get("ts", ""),
+                    market_slug=row.get("market_slug", ""),
+                    outcome_name=row.get("outcome_name", ""),
+                    side=row.get("side", ""),
+                    price=_format_number(row.get("price")),
+                    size=_format_number(row.get("size")),
+                    notional=_format_number(row.get("notional")),
+                    tx_hash=row.get("tx_hash", ""),
+                )
+            )
+    else:
+        lines.append("| | | | | | | | | |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def export_user_dossier(
+    clickhouse_client,
+    proxy_wallet: str,
+    user_input: str,
+    username: Optional[str] = None,
+    window_days: int = DEFAULT_WINDOW_DAYS,
+    max_trades: int = DEFAULT_MAX_TRADES,
+    artifacts_base_path: str = "artifacts",
+    generated_at: Optional[datetime] = None,
+    trend_points: int = DEFAULT_TREND_POINTS,
+    user_slug_override: Optional[str] = None,
+) -> UserDossierExport:
+    """Export a user dossier with trades, positions, and analytics.
+
+    Args:
+        user_slug_override: If provided, use this slug instead of deriving from username.
+            This allows callers to use the canonical identity resolver (polytool.user_context)
+            for consistent path routing.
+    """
+    generated_at = generated_at or datetime.utcnow()
+    window_days = max(1, int(window_days))
+    max_trades = max(1, int(max_trades))
+    window_end = generated_at
+    window_start = generated_at - timedelta(days=window_days)
+
+    export_id = str(uuid.uuid4())
+    username_slug = user_slug_override if user_slug_override else _username_to_slug(username)
+
+    trade_summary_query = """
+        SELECT
+            count() AS trades_count,
+            sumIf(1, lowerUTF8(side) = 'buy') AS buys_count,
+            sumIf(1, lowerUTF8(side) = 'sell') AS sells_count,
+            sumIf(1, market_slug != '' AND question != '' AND category != '') AS mapped_count,
+            countDistinct(toDate(ts)) AS active_days
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND ts >= {start:DateTime}
+          AND ts <= {end:DateTime}
+    """
+    trade_summary_row = _fetch_single_row(
+        clickhouse_client,
+        trade_summary_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    trades_count = int(trade_summary_row[0]) if trade_summary_row else 0
+    buys_count = int(trade_summary_row[1]) if trade_summary_row else 0
+    sells_count = int(trade_summary_row[2]) if trade_summary_row else 0
+    mapped_count = int(trade_summary_row[3]) if trade_summary_row else 0
+    active_days = int(trade_summary_row[4]) if trade_summary_row else 0
+    mapping_coverage = _safe_divide(mapped_count, trades_count)
+
+    activity_query = """
+        SELECT count()
+        FROM user_activity_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND ts >= {start:DateTime}
+          AND ts <= {end:DateTime}
+    """
+    activity_row = _fetch_single_row(
+        clickhouse_client,
+        activity_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    activity_count = int(activity_row[0]) if activity_row else 0
+
+    positions_snapshot_query = """
+        SELECT maxOrNull(snapshot_ts)
+        FROM user_positions_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND snapshot_ts >= {start:DateTime}
+          AND snapshot_ts <= {end:DateTime}
+    """
+    snapshot_row = _fetch_single_row(
+        clickhouse_client,
+        positions_snapshot_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    latest_snapshot_ts = snapshot_row[0] if snapshot_row else None
+    positions_count = 0
+    if latest_snapshot_ts:
+        positions_count_row = _fetch_single_row(
+            clickhouse_client,
+            """
+            SELECT count()
+            FROM user_positions_resolved
+            WHERE proxy_wallet = {wallet:String}
+              AND snapshot_ts = {snapshot:DateTime}
+            """,
+            parameters={
+                "wallet": proxy_wallet,
+                "snapshot": latest_snapshot_ts,
+            },
+        )
+        positions_count = int(positions_count_row[0]) if positions_count_row else 0
+
+    notional_hist_query = """
+        SELECT
+            sumIf(1, notional < 25) AS bucket_0_25,
+            sumIf(1, notional >= 25 AND notional < 100) AS bucket_25_100,
+            sumIf(1, notional >= 100 AND notional < 500) AS bucket_100_500,
+            sumIf(1, notional >= 500 AND notional < 1000) AS bucket_500_1000,
+            sumIf(1, notional >= 1000 AND notional < 5000) AS bucket_1000_5000,
+            sumIf(1, notional >= 5000) AS bucket_5000_plus
+        FROM (
+            SELECT (size * price) AS notional
+            FROM user_trades_resolved
+            WHERE proxy_wallet = {wallet:String}
+              AND ts >= {start:DateTime}
+              AND ts <= {end:DateTime}
+        )
+    """
+    notional_row = _fetch_single_row(
+        clickhouse_client,
+        notional_hist_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+
+    top_categories_query = """
+        SELECT category, count() AS trades_count, sum(size * price) AS notional
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND ts >= {start:DateTime}
+          AND ts <= {end:DateTime}
+          AND category != ''
+        GROUP BY category
+        ORDER BY trades_count DESC, notional DESC, category ASC
+        LIMIT 5
+    """
+    categories_result = clickhouse_client.query(
+        top_categories_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    top_categories = [
+        {
+            "category": row[0],
+            "trades_count": int(row[1]) if row[1] is not None else 0,
+            "notional": _round_value(row[2]),
+        }
+        for row in categories_result.result_rows
+    ]
+
+    top_markets_query = """
+        SELECT market_slug, count() AS trades_count, sum(size * price) AS notional
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND ts >= {start:DateTime}
+          AND ts <= {end:DateTime}
+          AND market_slug != ''
+        GROUP BY market_slug
+        ORDER BY trades_count DESC, notional DESC, market_slug ASC
+        LIMIT 5
+    """
+    markets_result = clickhouse_client.query(
+        top_markets_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    top_markets = [
+        {
+            "market_slug": row[0],
+            "trades_count": int(row[1]) if row[1] is not None else 0,
+            "notional": _round_value(row[2]),
+        }
+        for row in markets_result.result_rows
+    ]
+
+    hold_time_query = """
+        SELECT
+            quantileExactIf(0.5)(dateDiff('second', first_buy, first_sell), first_sell > first_buy) AS median_seconds,
+            quantileExactIf(0.9)(dateDiff('second', first_buy, first_sell), first_sell > first_buy) AS p90_seconds,
+            countIf(first_sell > first_buy) AS samples
+        FROM (
+            SELECT
+                minIf(ts, lowerUTF8(side) = 'buy') AS first_buy,
+                minIf(ts, lowerUTF8(side) = 'sell') AS first_sell
+            FROM user_trades_resolved
+            WHERE proxy_wallet = {wallet:String}
+              AND ts >= {start:DateTime}
+              AND ts <= {end:DateTime}
+            GROUP BY resolved_token_id
+        )
+    """
+    hold_time_row = _fetch_single_row(
+        clickhouse_client,
+        hold_time_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    hold_samples = int(hold_time_row[2]) if hold_time_row else 0
+    hold_time_summary = {
+        "available": hold_samples > 0,
+        "samples": hold_samples,
+        "median_hours": _round_value((hold_time_row[0] or 0) / 3600, digits=4) if hold_samples else None,
+        "p90_hours": _round_value((hold_time_row[1] or 0) / 3600, digits=4) if hold_samples else None,
+    }
+
+    pnl_latest_query = """
+        SELECT
+            bucket_start,
+            realized_pnl,
+            mtm_pnl_estimate,
+            exposure_notional_estimate,
+            pricing_snapshot_ratio,
+            pricing_confidence
+        FROM user_pnl_bucket
+        WHERE proxy_wallet = {wallet:String}
+          AND bucket_type = 'day'
+        ORDER BY bucket_start DESC
+        LIMIT 1
+    """
+    pnl_latest_row = _fetch_single_row(
+        clickhouse_client,
+        pnl_latest_query,
+        parameters={"wallet": proxy_wallet},
+    )
+
+    latest_bucket = None
+    pricing_snapshot_ratio = 0.0
+    pricing_confidence = ""
+    if pnl_latest_row:
+        latest_bucket = {
+            "bucket_start": _isoformat(pnl_latest_row[0]) if pnl_latest_row[0] else "",
+            "realized_pnl": _round_value(pnl_latest_row[1]),
+            "mtm_pnl_estimate": _round_value(pnl_latest_row[2]),
+            "exposure_notional_estimate": _round_value(pnl_latest_row[3]),
+        }
+        if len(pnl_latest_row) > 4 and pnl_latest_row[4] is not None:
+            pricing_snapshot_ratio = float(pnl_latest_row[4])
+        if len(pnl_latest_row) > 5 and pnl_latest_row[5] is not None:
+            pricing_confidence = str(pnl_latest_row[5])
+
+    pnl_trend_start = window_end - timedelta(days=30)
+    pnl_trend_query = """
+        SELECT bucket_start, realized_pnl, mtm_pnl_estimate, exposure_notional_estimate
+        FROM user_pnl_bucket
+        WHERE proxy_wallet = {wallet:String}
+          AND bucket_type = 'day'
+          AND bucket_start >= {start:DateTime}
+        ORDER BY bucket_start ASC
+    """
+    pnl_trend_result = clickhouse_client.query(
+        pnl_trend_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": pnl_trend_start,
+        },
+    )
+    pnl_trend_rows = pnl_trend_result.result_rows
+    pnl_trend_summary = None
+    if pnl_trend_rows:
+        realized_total = sum(float(row[1] or 0) for row in pnl_trend_rows)
+        mtm_total = sum(float(row[2] or 0) for row in pnl_trend_rows)
+        exposure_values = [float(row[3] or 0) for row in pnl_trend_rows]
+        exposure_avg = sum(exposure_values) / len(exposure_values) if exposure_values else 0.0
+        pnl_trend_summary = {
+            "bucket_count": len(pnl_trend_rows),
+            "start": _isoformat(pnl_trend_rows[0][0]) if pnl_trend_rows[0][0] else "",
+            "end": _isoformat(pnl_trend_rows[-1][0]) if pnl_trend_rows[-1][0] else "",
+            "realized_total": _round_value(realized_total),
+            "mtm_total": _round_value(mtm_total),
+            "realized_avg": _round_value(realized_total / len(pnl_trend_rows)),
+            "mtm_avg": _round_value(mtm_total / len(pnl_trend_rows)),
+            "exposure_avg": _round_value(exposure_avg),
+        }
+
+    detectors_latest_query = """
+        SELECT
+            detector_name,
+            argMax(score, bucket_start) AS score,
+            argMax(label, bucket_start) AS label,
+            max(bucket_start) AS latest_bucket_start
+        FROM detector_results
+        WHERE proxy_wallet = {wallet:String}
+          AND bucket_type = 'day'
+        GROUP BY detector_name
+        ORDER BY detector_name ASC
+    """
+    detectors_latest_result = clickhouse_client.query(
+        detectors_latest_query,
+        parameters={"wallet": proxy_wallet},
+    )
+
+    detectors_trend_start = window_start
+    detectors_trend_query = """
+        SELECT detector_name, bucket_start, score, label
+        FROM detector_results
+        WHERE proxy_wallet = {wallet:String}
+          AND bucket_type = 'day'
+          AND bucket_start >= {start:DateTime}
+        ORDER BY detector_name ASC, bucket_start ASC
+    """
+    detectors_trend_result = clickhouse_client.query(
+        detectors_trend_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": detectors_trend_start,
+        },
+    )
+
+    detectors_payload = _build_detectors_payload(
+        detectors_latest_result.result_rows,
+        detectors_trend_result.result_rows,
+    )
+
+    for name, entries in detectors_payload["trend"].items():
+        if len(entries) > trend_points:
+            detectors_payload["trend"][name] = entries[-trend_points:]
+
+    liquidity_summary_query = """
+        SELECT
+            count() AS total_count,
+            sumIf(1, status = 'ok') AS ok_count,
+            sumIf(1, status = 'empty') AS empty_count,
+            sumIf(1, status = 'one_sided') AS one_sided_count,
+            sumIf(1, status = 'no_orderbook') AS no_orderbook_count,
+            sumIf(1, status = 'error') AS error_count,
+            sumIf(1, usable_liquidity = 1) AS usable_count,
+            quantileExactIf(0.5)(execution_cost_bps_100, status = 'ok') AS median_exec_cost,
+            quantileExactIf(0.9)(execution_cost_bps_100, status = 'ok') AS p90_exec_cost
+        FROM orderbook_snapshots_enriched
+        WHERE resolved_token_id IN (
+            SELECT DISTINCT resolved_token_id
+            FROM user_trades_resolved
+            WHERE proxy_wallet = {wallet:String}
+              AND ts >= {start:DateTime}
+              AND ts <= {end:DateTime}
+              AND resolved_token_id != ''
+        )
+          AND snapshot_ts >= {start:DateTime}
+          AND snapshot_ts <= {end:DateTime}
+    """
+    liquidity_row = _fetch_single_row(
+        clickhouse_client,
+        liquidity_summary_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+
+    liquidity_total = int(liquidity_row[0]) if liquidity_row else 0
+    liquidity_ok = int(liquidity_row[1]) if liquidity_row else 0
+    liquidity_empty = int(liquidity_row[2]) if liquidity_row else 0
+    liquidity_one_sided = int(liquidity_row[3]) if liquidity_row else 0
+    liquidity_no_orderbook = int(liquidity_row[4]) if liquidity_row else 0
+    liquidity_error = int(liquidity_row[5]) if liquidity_row else 0
+    usable_liquidity_count = int(liquidity_row[6]) if liquidity_row else 0
+    median_exec_cost = _round_value(liquidity_row[7]) if liquidity_row else None
+    p90_exec_cost = _round_value(liquidity_row[8]) if liquidity_row else None
+
+    liquidity_tokens_query = """
+        SELECT
+            resolved_token_id,
+            any(market_slug) AS market_slug,
+            any(question) AS question,
+            any(outcome_name) AS outcome_name,
+            quantileExact(0.5)(execution_cost_bps_100) AS median_exec_cost,
+            quantileExact(0.9)(execution_cost_bps_100) AS p90_exec_cost,
+            count() AS snapshots
+        FROM orderbook_snapshots_enriched
+        WHERE resolved_token_id IN (
+            SELECT DISTINCT resolved_token_id
+            FROM user_trades_resolved
+            WHERE proxy_wallet = {wallet:String}
+              AND ts >= {start:DateTime}
+              AND ts <= {end:DateTime}
+              AND resolved_token_id != ''
+        )
+          AND snapshot_ts >= {start:DateTime}
+          AND snapshot_ts <= {end:DateTime}
+          AND status = 'ok'
+        GROUP BY resolved_token_id
+    """
+
+    top_tokens_query = liquidity_tokens_query + " ORDER BY median_exec_cost DESC, resolved_token_id ASC LIMIT {limit:Int32}"
+    bottom_tokens_query = liquidity_tokens_query + " ORDER BY median_exec_cost ASC, resolved_token_id ASC LIMIT {limit:Int32}"
+
+    top_tokens_result = clickhouse_client.query(
+        top_tokens_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+            "limit": 5,
+        },
+    )
+    bottom_tokens_result = clickhouse_client.query(
+        bottom_tokens_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+            "limit": 5,
+        },
+    )
+
+    def _map_liquidity_token(row: List[Any]) -> Dict[str, Any]:
+        return {
+            "resolved_token_id": row[0],
+            "market_slug": row[1] or "",
+            "question": row[2] or "",
+            "outcome_name": row[3] or "",
+            "median_exec_cost_bps_100": _round_value(row[4]),
+            "p90_exec_cost_bps_100": _round_value(row[5]),
+            "snapshots": int(row[6]) if row[6] is not None else 0,
+        }
+
+    top_tokens = [_map_liquidity_token(row) for row in top_tokens_result.result_rows]
+    bottom_tokens = [_map_liquidity_token(row) for row in bottom_tokens_result.result_rows]
+
+    outlier_threshold_query = """
+        SELECT quantileExact(0.95)(size * price) AS p95
+        FROM user_trades_resolved
+        WHERE proxy_wallet = {wallet:String}
+          AND ts >= {start:DateTime}
+          AND ts <= {end:DateTime}
+    """
+    outlier_row = _fetch_single_row(
+        clickhouse_client,
+        outlier_threshold_query,
+        parameters={
+            "wallet": proxy_wallet,
+            "start": window_start,
+            "end": window_end,
+        },
+    )
+    outlier_threshold = float(outlier_row[0]) if outlier_row and outlier_row[0] is not None else None
+
+    limits = _anchor_limits(max_trades)
+    seen: set = set()
+
+    last_trades_raw = _fetch_anchor_rows(
+        clickhouse_client,
+        proxy_wallet,
+        window_start,
+        window_end,
+        limit=max(limits["last_trades"], 1) * 2,
+        order_by="ts DESC, trade_uid DESC",
+    )
+    last_trades = _dedupe_anchors(last_trades_raw, seen, limits["last_trades"])
+
+    top_notional_raw = _fetch_anchor_rows(
+        clickhouse_client,
+        proxy_wallet,
+        window_start,
+        window_end,
+        limit=max(limits["top_notional"], 1) * 2,
+        order_by="notional DESC, ts DESC, trade_uid DESC",
+    )
+    top_notional = _dedupe_anchors(top_notional_raw, seen, limits["top_notional"])
+
+    outliers: List[Dict[str, Any]] = []
+    if outlier_threshold is not None and limits["outliers"] > 0:
+        outliers_raw = _fetch_anchor_rows(
+            clickhouse_client,
+            proxy_wallet,
+            window_start,
+            window_end,
+            limit=max(limits["outliers"], 1) * 2,
+            order_by="notional DESC, ts DESC, trade_uid DESC",
+            min_notional=outlier_threshold,
+        )
+        outliers = _dedupe_anchors(outliers_raw, seen, limits["outliers"])
+
+    anchor_rows = last_trades + top_notional + outliers
+    anchor_trade_uids = [row["trade_uid"] for row in anchor_rows if row.get("trade_uid")]
+
+    distributions = {
+        "buys_count": buys_count,
+        "sells_count": sells_count,
+        "buy_sell_ratio": _round_value(buys_count / sells_count, digits=4) if sells_count else None,
+        "active_days": active_days,
+        "trades_per_active_day": _round_value(_safe_divide(trades_count, active_days, digits=4), digits=4)
+        if active_days
+        else None,
+        "trades_per_window_day": _round_value(_safe_divide(trades_count, window_days, digits=4), digits=4),
+        "top_categories": top_categories,
+        "top_markets": top_markets,
+        "notional_histogram": _build_notional_histogram(notional_row, trades_count),
+        "hold_time_approx": hold_time_summary,
+    }
+
+    liquidity_summary = {
+        "total_snapshots": liquidity_total,
+        "status_counts": {
+            "ok": liquidity_ok,
+            "empty": liquidity_empty,
+            "one_sided": liquidity_one_sided,
+            "no_orderbook": liquidity_no_orderbook,
+            "error": liquidity_error,
+        },
+        "usable_liquidity_count": usable_liquidity_count,
+        "usable_liquidity_rate": _safe_divide(usable_liquidity_count, liquidity_total),
+        "execution_cost_bps_100": {
+            "median": median_exec_cost,
+            "p90": p90_exec_cost,
+        },
+        "top_tokens_by_exec_cost": top_tokens,
+        "bottom_tokens_by_exec_cost": bottom_tokens,
+    }
+
+    coverage = {
+        "trades_count": trades_count,
+        "activity_count": activity_count,
+        "positions_count": positions_count,
+        "positions_snapshot_ts": _isoformat(latest_snapshot_ts) if latest_snapshot_ts else "",
+        "mapping_coverage": mapping_coverage,
+        "mapped_trades": mapped_count,
+    }
+
+    pnl_summary = {
+        "latest_bucket": latest_bucket,
+        "trend_30d": pnl_trend_summary,
+        "pricing_snapshot_ratio": _round_value(pricing_snapshot_ratio, digits=4),
+        "pricing_confidence": pricing_confidence,
+    }
+
+    anchors = {
+        "limits": limits,
+        "last_trades": last_trades,
+        "top_notional": top_notional,
+        "outliers": outliers,
+        "total_anchors": len(anchor_rows),
+        "anchor_trade_uids": anchor_trade_uids,
+    }
+
+    # Fetch position lifecycle with resolution data.
+    # Prefer the enriched lifecycle view (Roadmap 3), then fall back to legacy.
+    (
+        category_select_sql,
+        category_join_sql,
+        category_source_table,
+        category_source_reason,
+        category_source_run_counts,
+        category_source_probe_token_count,
+    ) = _build_category_join_sql(
+        clickhouse_client,
+        proxy_wallet=proxy_wallet,
+    )
+    close_ts_select_sql, close_ts_join_sql = _build_close_ts_join_sql(clickhouse_client)
+    coverage["category_source"] = category_source_reason
+    coverage["category_source_table"] = category_source_table
+    coverage["category_source_run_probe_token_count"] = category_source_probe_token_count
+    coverage["category_source_run_non_empty_counts"] = category_source_run_counts
+    positions_lifecycle_enriched_query = f"""
+        SELECT
+            l.resolved_token_id,
+            l.market_slug,
+            l.question,
+            l.outcome_name,
+            l.entry_ts,
+            l.entry_price_avg,
+            l.total_bought,
+            l.total_cost,
+            l.exit_ts,
+            l.exit_price_avg,
+            l.total_sold,
+            l.total_proceeds,
+            l.hold_duration_seconds,
+            l.position_remaining,
+            l.trade_count,
+            l.buy_count,
+            l.sell_count,
+            l.settlement_price,
+            l.resolved_at,
+            l.resolution_source,
+            l.resolution_outcome,
+            l.gross_pnl,
+            l.realized_pnl_net,
+            l.fees_actual,
+            l.fees_estimated,
+            l.fees_source,
+            {category_select_sql},
+            {close_ts_select_sql}
+        FROM user_trade_lifecycle_enriched l
+        {category_join_sql}
+        {close_ts_join_sql}
+        WHERE l.proxy_wallet = {{wallet:String}}
+        ORDER BY l.entry_ts DESC
+        LIMIT 100
+    """
+    positions_lifecycle_fallback_query = f"""
+        SELECT
+            l.resolved_token_id,
+            l.market_slug,
+            l.question,
+            l.outcome_name,
+            l.entry_ts,
+            l.entry_price_avg,
+            l.total_bought,
+            l.total_cost,
+            l.exit_ts,
+            l.exit_price_avg,
+            l.total_sold,
+            l.total_proceeds,
+            l.hold_duration_seconds,
+            l.position_remaining,
+            l.trade_count,
+            l.buy_count,
+            l.sell_count,
+            {category_select_sql},
+            {close_ts_select_sql}
+        FROM user_trade_lifecycle l
+        {category_join_sql}
+        {close_ts_join_sql}
+        WHERE l.proxy_wallet = {{wallet:String}}
+        ORDER BY l.entry_ts DESC
+        LIMIT 100
+    """
+    positions_lifecycle_rows = []
+    try:
+        positions_lifecycle_result = clickhouse_client.query(
+            positions_lifecycle_enriched_query,
+            parameters={"wallet": proxy_wallet},
+        )
+        using_enriched_view = True
+    except Exception:
+        try:
+            positions_lifecycle_result = clickhouse_client.query(
+                positions_lifecycle_fallback_query,
+                parameters={"wallet": proxy_wallet},
+            )
+            using_enriched_view = False
+        except Exception:
+            positions_lifecycle_result = None
+            using_enriched_view = False
+
+    if positions_lifecycle_result is not None:
+        for row in positions_lifecycle_result.result_rows:
+            try:
+                if using_enriched_view:
+                    if len(row) != 30:
+                        continue
+                    (
+                        resolved_token_id,
+                        market_slug,
+                        question,
+                        outcome_name,
+                        entry_ts_raw,
+                        entry_price_avg,
+                        total_bought_raw,
+                        total_cost_raw,
+                        exit_ts_raw,
+                        exit_price_avg,
+                        total_sold_raw,
+                        total_proceeds_raw,
+                        _hold_duration_seconds_raw,
+                        position_remaining_raw,
+                        trade_count_raw,
+                        buy_count_raw,
+                        sell_count_raw,
+                        settlement_price_raw,
+                        resolved_at_raw,
+                        resolution_source_raw,
+                        resolution_outcome_raw,
+                        gross_pnl_raw,
+                        realized_pnl_net_raw,
+                        fees_actual_raw,
+                        fees_estimated_raw,
+                        fees_source_raw,
+                        category_raw,
+                        gamma_close_date_iso_raw,
+                        gamma_end_date_iso_raw,
+                        gamma_uma_end_date_raw,
+                    ) = row
+                else:
+                    if len(row) != 21:
+                        continue
+                    (
+                        resolved_token_id,
+                        market_slug,
+                        question,
+                        outcome_name,
+                        entry_ts_raw,
+                        entry_price_avg,
+                        total_bought_raw,
+                        total_cost_raw,
+                        exit_ts_raw,
+                        exit_price_avg,
+                        total_sold_raw,
+                        total_proceeds_raw,
+                        _hold_duration_seconds_raw,
+                        position_remaining_raw,
+                        trade_count_raw,
+                        buy_count_raw,
+                        sell_count_raw,
+                        category_raw,
+                        gamma_close_date_iso_raw,
+                        gamma_end_date_iso_raw,
+                        gamma_uma_end_date_raw,
+                    ) = row
+                    settlement_price_raw = None
+                    resolved_at_raw = None
+                    resolution_source_raw = ""
+                    resolution_outcome_raw = "UNKNOWN_RESOLUTION"
+                    gross_pnl_raw = None
+                    realized_pnl_net_raw = None
+                    fees_actual_raw = 0.0
+                    fees_estimated_raw = 0.0
+                    fees_source_raw = "unknown"
+
+                entry_ts_iso = _optional_isoformat(entry_ts_raw) or ""
+                exit_ts_iso = _optional_isoformat(exit_ts_raw)
+                sell_count_val = int(sell_count_raw or 0)
+                buy_count_val = int(buy_count_raw or 0)
+
+                if using_enriched_view:
+                    settlement_price = _round_value(settlement_price_raw) if settlement_price_raw is not None else None
+                    resolved_at = _optional_isoformat(resolved_at_raw)
+                    resolution_source = resolution_source_raw or ""
+                    resolution_outcome = resolution_outcome_raw or "UNKNOWN_RESOLUTION"
+                    position_remaining_val = float(position_remaining_raw or 0)
+                    gross_pnl = float(gross_pnl_raw or 0)
+                    realized_pnl_net = float(realized_pnl_net_raw) if realized_pnl_net_raw is not None else gross_pnl
+                    fees_actual_val = float(fees_actual_raw or 0)
+                    fees_estimated_val = float(fees_estimated_raw or 0)
+                    fees_source_val = fees_source_raw or ""
+                    # Guard against ClickHouse non-null defaults when the left-join misses.
+                    # If resolution_source is empty, treat as unresolved and fall back to
+                    # deterministic, non-fabricated classification.
+                    if not resolution_source:
+                        settlement_price = None
+                        resolved_at_raw = None
+                        resolved_at = None
+                        gross_pnl = float(total_proceeds_raw or 0) - float(total_cost_raw or 0)
+                        if position_remaining_val > 0:
+                            resolution_outcome = "PENDING"
+                        elif gross_pnl > 0:
+                            resolution_outcome = "PROFIT_EXIT"
+                        else:
+                            resolution_outcome = "LOSS_EXIT"
+                        realized_pnl_net = gross_pnl
+                else:
+                    settlement_price = None
+                    resolved_at = None
+                    resolution_source = ""
+                    position_remaining_val = float(position_remaining_raw or 0)
+                    gross_pnl = float(total_proceeds_raw or 0) - float(total_cost_raw or 0)
+                    # Legacy fallback classification without settlement data.
+                    if position_remaining_val > 0:
+                        resolution_outcome = "PENDING"
+                    elif gross_pnl > 0:
+                        resolution_outcome = "PROFIT_EXIT"
+                    else:
+                        resolution_outcome = "LOSS_EXIT"
+                    fees_actual_val = 0.0
+                    fees_estimated_val = 0.0
+                    fees_source_val = "unknown"
+                    realized_pnl_net = gross_pnl
+
+                category_val = str(category_raw or "").strip()
+
+                if not fees_source_val:
+                    if fees_actual_val > 0:
+                        fees_source_val = "actual"
+                    elif fees_estimated_val > 0:
+                        fees_source_val = "estimated"
+                    else:
+                        fees_source_val = "unknown"
+
+                if resolution_outcome == "PENDING":
+                    settlement_price = None
+                    resolved_at = None
+                    resolved_at_raw = None
+                    if sell_count_val == 0:
+                        # Pending positions without sells have no realized trading activity.
+                        # Keep both gross and realized PnL at zero to avoid fabricating losses.
+                        gross_pnl = 0.0
+                        realized_pnl_net = 0.0
+
+                position_row = {
+                    "resolved_token_id": resolved_token_id or "",
+                    "market_slug": market_slug or "",
+                    "question": question or "",
+                    "outcome_name": outcome_name or "",
+                    "entry_ts": entry_ts_iso,
+                    "entry_price": _round_value(entry_price_avg),
+                    "total_bought": _round_value(total_bought_raw),
+                    "total_cost": _round_value(total_cost_raw),
+                    "exit_ts": exit_ts_iso,
+                    "exit_price": _round_value(exit_price_avg),
+                    "total_sold": _round_value(total_sold_raw),
+                    "total_proceeds": _round_value(total_proceeds_raw),
+                    "hold_duration_seconds": _compute_hold_duration_seconds(
+                        entry_ts=entry_ts_raw,
+                        resolved_at=resolved_at_raw,
+                        exit_ts=exit_ts_raw,
+                        now_ts=generated_at,
+                    ),
+                    "position_remaining": _round_value(position_remaining_raw),
+                    "trade_count": int(trade_count_raw or 0),
+                    "buy_count": buy_count_val,
+                    "sell_count": sell_count_val,
+                    "settlement_price": settlement_price,
+                    "resolved_at": resolved_at,
+                    "resolution_source": resolution_source,
+                    "gross_pnl": _round_value(gross_pnl),
+                    "resolution_outcome": resolution_outcome,
+                    "fees_actual": fees_actual_val,
+                    "fees_estimated": fees_estimated_val,
+                    "fees_source": fees_source_val,
+                    "realized_pnl_net": _round_value(realized_pnl_net),
+                    "category": category_val,
+                    # Close-ts fallback fields used by CLV ladder when resolved_at is absent.
+                    "gamma_close_date_iso": _optional_isoformat(gamma_close_date_iso_raw),
+                    "close_date_iso": _optional_isoformat(gamma_close_date_iso_raw),
+                    "gamma_end_date_iso": _optional_isoformat(gamma_end_date_iso_raw),
+                    "end_date_iso": _optional_isoformat(gamma_end_date_iso_raw),
+                    "gamma_uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
+                    "uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
+                }
+                positions_lifecycle_rows.append(
+                    normalize_position_for_export(position_row, now_ts=generated_at)
+                )
+            except (TypeError, ValueError, IndexError):
+                # Skip malformed rows without dropping the entire lifecycle export.
+                continue
+
+    positions_summary = {
+        "count": len(positions_lifecycle_rows),
+        "positions": positions_lifecycle_rows[:50],  # Limit to 50 in dossier
+    }
+
+    dossier = {
+        "schema_version": "LLM Research Packet v1",
+        "header": {
+            "export_id": export_id,
+            "user_input": user_input,
+            "proxy_wallet": proxy_wallet,
+            "generated_at": _isoformat(generated_at),
+            "window_days": window_days,
+            "window_start": _isoformat(window_start),
+            "window_end": _isoformat(window_end),
+            "max_trades": max_trades,
+        },
+        "coverage": coverage,
+        "pnl_summary": pnl_summary,
+        "distributions": distributions,
+        "liquidity_summary": liquidity_summary,
+        "detectors": detectors_payload,
+        "anchors": anchors,
+        "positions": positions_summary,
+    }
+
+    dossier_json = json.dumps(dossier, indent=2, sort_keys=True, allow_nan=False)
+    detectors_json = json.dumps(detectors_payload, separators=(",", ":"), sort_keys=True, allow_nan=False)
+
+    memo_md = _build_research_memo(dossier, anchor_rows)
+
+    dossier_dir = build_dossier_dir(
+        proxy_wallet=proxy_wallet,
+        username=username,
+        date_utc=generated_at,
+        run_id=export_id,
+        username_slug_override=username_slug,
+    )
+    output_dir = _apply_artifacts_base_path(artifacts_base_path, dossier_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    path_json = output_dir / "dossier.json"
+    path_md = output_dir / "memo.md"
+    manifest_path = output_dir / "manifest.json"
+
+    with path_json.open("w", encoding="utf-8") as handle:
+        json.dump(dossier, handle, indent=2, sort_keys=True, allow_nan=False)
+    path_md.write_text(memo_md, encoding="utf-8")
+
+    manifest = {
+        "proxy_wallet": proxy_wallet,
+        "username": username or "",
+        "username_slug": username_slug,
+        "run_id": export_id,
+        "created_at_utc": _isoformat(generated_at),
+        "path": str(output_dir),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False), encoding="utf-8")
+
+    stats = {
+        "trades_count": trades_count,
+        "activity_count": activity_count,
+        "positions_count": positions_count,
+        "mapping_coverage": mapping_coverage,
+        "liquidity_ok_count": usable_liquidity_count,
+        "liquidity_total_count": liquidity_total,
+        "usable_liquidity_rate": _safe_divide(usable_liquidity_count, liquidity_total),
+        "pricing_snapshot_ratio": _round_value(pricing_snapshot_ratio, digits=4),
+        "pricing_confidence": pricing_confidence,
+        "anchor_count": len(anchor_trade_uids),
+    }
+
+    clickhouse_client.insert(
+        "user_dossier_exports",
+        [[
+            export_id,
+            proxy_wallet,
+            user_input,
+            username or "",
+            username_slug,
+            str(output_dir),
+            generated_at,
+            window_days,
+            window_start,
+            window_end,
+            max_trades,
+            trades_count,
+            activity_count,
+            positions_count,
+            mapping_coverage,
+            usable_liquidity_count,
+            liquidity_total,
+            _safe_divide(usable_liquidity_count, liquidity_total),
+            float(pricing_snapshot_ratio),
+            pricing_confidence,
+            detectors_json,
+            dossier_json,
+            memo_md,
+            anchor_trade_uids,
+            "",
+        ]],
+        column_names=[
+            "export_id",
+            "proxy_wallet",
+            "user_input",
+            "username",
+            "username_slug",
+            "artifact_path",
+            "generated_at",
+            "window_days",
+            "window_start",
+            "window_end",
+            "max_trades",
+            "trades_count",
+            "activity_count",
+            "positions_count",
+            "mapping_coverage",
+            "liquidity_ok_count",
+            "liquidity_total_count",
+            "usable_liquidity_rate",
+            "pricing_snapshot_ratio",
+            "pricing_confidence",
+            "detectors_json",
+            "dossier_json",
+            "memo_md",
+            "anchor_trade_uids",
+            "notes",
+        ],
+    )
+
+    return UserDossierExport(
+        export_id=export_id,
+        proxy_wallet=proxy_wallet,
+        username=username,
+        username_slug=username_slug,
+        generated_at=generated_at,
+        window_start=window_start,
+        window_end=window_end,
+        dossier=dossier,
+        memo_md=memo_md,
+        dossier_json=dossier_json,
+        detectors_json=detectors_json,
+        anchor_trade_uids=anchor_trade_uids,
+        stats=stats,
+        artifact_path=str(output_dir),
+        path_json=str(path_json),
+        path_md=str(path_md),
+        manifest_path=str(manifest_path),
+    )

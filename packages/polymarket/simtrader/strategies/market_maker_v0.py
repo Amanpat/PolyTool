@@ -74,6 +74,7 @@ class MMConfig:
     max_spread: float = 0.120
     reprice_threshold: float = 0.005
     resolution_guard: float = 0.10
+    spread_multiplier: float = 1.0
 
 
 class MarketMakerV0(Strategy):
@@ -95,6 +96,7 @@ class MarketMakerV0(Strategy):
         max_spread: float = 0.120,
         reprice_threshold: float = 0.005,
         resolution_guard: float = 0.10,
+        spread_multiplier: float = 1.0,
         hours_to_resolution: float = 24.0,
     ) -> None:
         self.tick_size = _to_decimal(tick_size, "tick_size")
@@ -135,6 +137,7 @@ class MarketMakerV0(Strategy):
             max_spread=_to_float(max_spread, "max_spread"),
             reprice_threshold=_to_float(reprice_threshold, "reprice_threshold"),
             resolution_guard=_to_float(resolution_guard, "resolution_guard"),
+            spread_multiplier=_to_float(spread_multiplier, "spread_multiplier"),
         )
         self._validate_mm_config(self.mm_config)
 
@@ -171,6 +174,8 @@ class MarketMakerV0(Strategy):
             raise ValueError("market_maker_v0: reprice_threshold must be >= 0")
         if not 0 <= config.resolution_guard < 0.5:
             raise ValueError("market_maker_v0: resolution_guard must be in [0, 0.5)")
+        if config.spread_multiplier <= 0:
+            raise ValueError("market_maker_v0: spread_multiplier must be > 0")
 
     # ------------------------------------------------------------------
     # Strategy lifecycle
@@ -334,6 +339,7 @@ class MarketMakerV0(Strategy):
         if mid < self.mm_config.resolution_guard or mid > (1.0 - self.mm_config.resolution_guard):
             spread *= 2.5
 
+        spread *= self.mm_config.spread_multiplier
         spread = _clamp(spread, self.mm_config.min_spread, self.mm_config.max_spread)
         bid = _clamp(reservation_price - (spread / 2.0), _MIN_BID_PRICE, _MAX_BID_PRICE)
         ask = _clamp(reservation_price + (spread / 2.0), _MIN_ASK_PRICE, _MAX_ASK_PRICE)

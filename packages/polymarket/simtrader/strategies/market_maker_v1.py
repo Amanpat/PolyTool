@@ -303,6 +303,8 @@ class MarketMakerV1(MarketMakerV0):
         ):
             spread_x *= 2.5
 
+        spread_x *= self.mm_config.spread_multiplier
+
         # --- convert back to probability space ---
         bid = _sigmoid(x_r - spread_x / 2.0)
         ask = _sigmoid(x_r + spread_x / 2.0)

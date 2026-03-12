@@ -335,6 +335,27 @@ class TestQuoteBounds:
             spread_tail = float(ask_t.limit_price - bid_t.limit_price)
             assert spread_tail >= spread_mid
 
+    def test_spread_multiplier_widens_quotes(self) -> None:
+        base = _mm(
+            gamma=100.0,
+            kappa=1000.0,
+            session_hours=1.0,
+            min_spread=0.01,
+            max_spread=0.50,
+            spread_multiplier=1.0,
+        )
+        wider = _mm(
+            gamma=100.0,
+            kappa=1000.0,
+            session_hours=1.0,
+            min_spread=0.01,
+            max_spread=0.50,
+            spread_multiplier=3.0,
+        )
+        base_bid, base_ask = base._compute_quotes(mid=0.50, t_elapsed_hours=0.0, sigma_sq=0.0002)
+        wider_bid, wider_ask = wider._compute_quotes(mid=0.50, t_elapsed_hours=0.0, sigma_sq=0.0002)
+        assert (wider_ask - wider_bid) > (base_ask - base_bid)
+
 
 # ---------------------------------------------------------------------------
 # Regression: V1 inherits V0 guard behaviour

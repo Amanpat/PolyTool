@@ -1384,6 +1384,40 @@ def _sweep(args: argparse.Namespace) -> int:
     return 0
 
 
+def _sweep_mm(args: argparse.Namespace) -> int:
+    """Run the offline market-maker Gate 2 tape sweep."""
+    from tools.gates.mm_sweep import format_mm_sweep_summary, run_mm_sweep
+
+    try:
+        starting_cash = _parse_starting_cash_arg(args.starting_cash)
+        fee_rate_bps = _parse_fee_rate_bps_arg(args.fee_rate_bps)
+        if fee_rate_bps is None:
+            fee_rate_bps = Decimal("200")
+        result = run_mm_sweep(
+            tapes_dir=Path(args.tapes_dir),
+            out_dir=Path(args.out),
+            manifest_path=Path(args.manifest),
+            threshold=float(args.threshold),
+            starting_cash=starting_cash,
+            fee_rate_bps=fee_rate_bps,
+            mark_method=args.mark_method,
+            min_events=int(args.min_events),
+            spread_multipliers=tuple(float(value) for value in args.spread_multipliers),
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error during market-maker sweep: {exc}", file=sys.stderr)
+        return 1
+
+    print(format_mm_sweep_summary(result))
+    if result.gate_payload is None:
+        print(f"Error: {result.not_run_reason}", file=sys.stderr)
+        return 1
+    return 0 if result.gate_payload["passed"] else 1
+
+
 # ---------------------------------------------------------------------------
 # Quick sweep preset
 # ---------------------------------------------------------------------------
@@ -3416,6 +3450,83 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Fail on L2BookError or malformed events instead of warning and skipping.",
     )
 
+    mm_sweep_p = sub.add_parser(
+        "sweep-mm",
+        help=(
+            "Run the market_maker_v1 Gate 2 sweep across discovered sports "
+            "and prepare-gate2 tapes."
+        ),
+    )
+    mm_sweep_p.add_argument(
+        "--tapes-dir",
+        default=str(DEFAULT_ARTIFACTS_DIR / "tapes"),
+        metavar="PATH",
+        dest="tapes_dir",
+        help="Directory containing recorded tape folders (default: artifacts/simtrader/tapes).",
+    )
+    mm_sweep_p.add_argument(
+        "--out",
+        default=str(Path("artifacts") / "gates" / "mm_sweep_gate"),
+        metavar="PATH",
+        help="Output directory for mm_sweep gate artifacts and per-tape sweep runs.",
+    )
+    mm_sweep_p.add_argument(
+        "--manifest",
+        default=str(Path("artifacts") / "gates" / "gate2_tape_manifest.json"),
+        metavar="PATH",
+        help="Optional gate2 tape manifest used as a regime/recorded_by fallback.",
+    )
+    mm_sweep_p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.70,
+        metavar="FLOAT",
+        help="Minimum fraction of tapes that must have a positive best scenario (default: 0.70).",
+    )
+    mm_sweep_p.add_argument(
+        "--starting-cash",
+        type=float,
+        default=1000.0,
+        metavar="USDC",
+        dest="starting_cash",
+        help="Starting USDC cash balance for each sweep run (default: 1000).",
+    )
+    mm_sweep_p.add_argument(
+        "--fee-rate-bps",
+        type=float,
+        default=200.0,
+        metavar="BPS",
+        dest="fee_rate_bps",
+        help="Fee model in basis points for each sweep run (default: 200).",
+    )
+    mm_sweep_p.add_argument(
+        "--min-events",
+        type=int,
+        default=50,
+        metavar="COUNT",
+        dest="min_events",
+        help="Skip tapes with fewer than this many effective events (default: 50).",
+    )
+    mm_sweep_p.add_argument(
+        "--spread-multipliers",
+        type=float,
+        nargs="+",
+        default=[0.5, 1.0, 1.5, 2.0, 3.0],
+        metavar="FLOAT",
+        dest="spread_multipliers",
+        help=(
+            "Spread multipliers to apply to the A-S spread before quoting "
+            "(default: 0.5 1.0 1.5 2.0 3.0)."
+        ),
+    )
+    mm_sweep_p.add_argument(
+        "--mark-method",
+        choices=["bid", "midpoint"],
+        default="bid",
+        dest="mark_method",
+        help="Mark-price method for unrealized PnL (default: bid).",
+    )
+
     # ------------------------------------------------------------------
     # quickrun
     # ------------------------------------------------------------------
@@ -5226,6 +5337,8 @@ def main(argv: list[str]) -> int:
         return _run(args)
     if args.subcommand == "sweep":
         return _sweep(args)
+    if args.subcommand == "sweep-mm":
+        return _sweep_mm(args)
     if args.subcommand == "quickrun":
         return _quickrun(args)
     if args.subcommand == "batch":

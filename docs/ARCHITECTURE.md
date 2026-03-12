@@ -3,7 +3,21 @@
 PolyTool keeps the public documentation and code clean while routing all user/private data into
 local-only storage.
 
-## Components
+Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+governing roadmap document as of 2026-03-12 and supersedes v3. This file
+describes the current implemented architecture; treat the v4 north-star diagram
+as target-state architecture unless the components below say otherwise.
+
+## Roadmap Authority and Open Deltas
+
+| Area | Master Roadmap v4 north star | Current architecture truth |
+|------|-------------------------------|----------------------------|
+| Control plane | n8n orchestrates workflows through a thin FastAPI wrapper layer. | The repo is still CLI-first and local-first. `services/api/` exists, but the broad v4 wrapper surface and n8n control plane are not current architecture truth. |
+| Knowledge inputs | Research scraper and signals/news ingestion feed the RAG brain continuously. | Current RAG flows are driven by local docs, `kb/`, artifacts, and manually triggered source caching. Scraper and signals pipelines are not shipped architecture components here. |
+| Operator UI | PolyTool Studio v2 becomes a unified Next.js operator dashboard. | Current surfaces remain Grafana plus the existing Studio/CLI workflows. Do not read the v4 Studio rebuild as implemented architecture. |
+| RAG layout | One hybrid brain with partitions such as `user_data`, `research`, `signals`, `market_data`, and `external_knowledge`. | Current RAG metadata filters and storage locations are documented below; the full partitioned v4 brain is roadmap intent, not current topology. |
+
+## Components (current implementation)
 - `services/api/`: FastAPI service that ingests and computes analytics.
 - `infra/clickhouse/`: ClickHouse schemas + migrations.
 - `packages/polymarket/`: Shared clients + analytics logic.

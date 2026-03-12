@@ -1,0 +1,2 @@
+[console_scripts]
+polytool = polytool.__main__:main

@@ -1,11 +1,24 @@
 # Roadmap
 
-This is the public roadmap for PolyTool. Each milestone is a self-contained
-deliverable. Check the box when a milestone is fully shipped and verified.
+Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+governing roadmap document as of 2026-03-12 and supersedes v3.
+
+This file is retained as the legacy implementation ledger for the numbered
+Roadmap 0-10 milestones and Track A/Track B checkpoints. Treat `COMPLETE` in
+this file as evidence that a pre-v4 milestone shipped, not as proof that the
+corresponding v4 phase is complete.
+
+## Authority Notes / Material Deltas vs v4
+
+| Area | Master Roadmap v4 | Current ledger meaning |
+|------|-------------------|------------------------|
+| Phase 1 / live bot | Includes FastAPI wrappers, n8n local setup, Discord alerts, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. |
+| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, and hypothesis registry foundation only. |
+| Phase 7 / Studio rebuild | Calls for a new unified React/Next.js Studio. | Current UI-related items in this file describe the existing operator surfaces, not v4 Phase 7 completion. |
 
 ---
 
-## Milestone Checklist
+## Legacy Milestone Checklist (pre-v4 ledger)
 
 ### Roadmap 0 - Foundation [COMPLETE]
 

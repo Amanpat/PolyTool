@@ -4,6 +4,24 @@ This repo is a local-first toolchain for Polymarket analysis: data ingestion,
 ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
 RAG workflow that never calls external LLM APIs.
 
+Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+governing roadmap document as of 2026-03-12 and supersedes v3. This file
+records implemented repo truth; do not infer v4 phase completion from strategic
+roadmap language alone.
+
+## Roadmap v4 Items Not Yet Implemented
+
+- The v4 control plane is not shipped: no n8n orchestration layer, no broad
+  FastAPI wrapper surface, no Discord approval system, and no automated
+  feedback loop.
+- The v4 research expansion is not shipped: `candidate-scan`, research
+  scraper, news/signals ingest, and signal-linked market workflows are not
+  current repo features.
+- The v4 UI rebuild is not shipped: existing Studio/Grafana surfaces remain
+  the current operator UI, not the Phase 7 Next.js rebuild.
+- The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
+  blocked, and Stage 0/Stage 1 live promotion are not complete.
+
 ## Status as of 2026-03-07
 
 Track A / SimTrader plumbing is implemented. The repo's current execution

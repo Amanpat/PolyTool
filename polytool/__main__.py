@@ -70,6 +70,9 @@ _COMMAND_HANDLER_NAMES = {
     "gate2-preflight": "gate2_preflight_main",
     "hypothesis-register": "hypotheses_main",
     "hypothesis-status": "hypotheses_main",
+    "hypothesis-diff": "hypotheses_main",
+    "hypothesis-summary": "hypotheses_main",
+    "hypothesis-validate": "hypotheses_main",
     "experiment-init": "hypotheses_main",
     "experiment-run": "hypotheses_main",
     "llm-bundle": "llm_bundle_main",
@@ -92,6 +95,9 @@ _COMMAND_HANDLER_NAMES = {
 _FULL_ARGV_COMMANDS = {
     "hypothesis-register",
     "hypothesis-status",
+    "hypothesis-diff",
+    "hypothesis-summary",
+    "hypothesis-validate",
     "experiment-init",
     "experiment-run",
 }
@@ -109,8 +115,11 @@ def print_usage() -> None:
     print("  alpha-distill         Distill wallet-scan data -> ranked edge candidates (no LLM)")
     print("  hypothesis-register   Register a candidate in the offline hypothesis registry")
     print("  hypothesis-status     Update lifecycle status for a registered hypothesis")
+    print("  hypothesis-diff       Compare two saved hypothesis.json artifacts")
+    print("  hypothesis-summary    Extract a deterministic summary from hypothesis.json")
     print("  experiment-init       Create an experiment.json skeleton for a hypothesis")
     print("  experiment-run        Create a generated experiment attempt for a hypothesis")
+    print("  hypothesis-validate   Validate a hypothesis JSON file against schema_v1")
     print("")
     print("--- Analysis & Evidence -----------------------------------------------")
     print("  scan                  Run a one-shot scan via the PolyTool API")

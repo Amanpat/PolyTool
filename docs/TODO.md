@@ -2,6 +2,23 @@
 
 Items that are out of MVP scope but should be considered for future versions.
 
+## Track A — Gate 2 Blocker (2026-03-11)
+
+**Status: BLOCKED — edge scarcity, not missing plumbing**
+
+- Gate 2 (Scenario Sweep) remains blocked: 12 tapes in corpus, 0 eligible
+  (`executable_ticks > 0` required; all current candidates are DEPTH_ONLY,
+  best_edge negative).
+- Gate 2 tooling is complete (scan-gate2-candidates, prepare-gate2,
+  watch-arb-candidates, tape-manifest, gate2-preflight, make-session-pack,
+  close_sweep_gate.py). No code work is needed.
+- Gate 3, Stage 0, and Stage 1 are blocked behind Gate 2. Track B research
+  workflows and Roadmap work are NOT blocked.
+- Retry only on a factual trigger: catalyst window, operator-supplied target
+  slugs, or a new scan showing NEAR/EXECUTABLE candidates.
+- See `docs/dev_logs/2026-03-11_gate2_blocker_report.md` for full operator
+  evidence and retry procedure.
+
 ## High Priority (Post-MVP)
 
 ### Agent Hygiene
