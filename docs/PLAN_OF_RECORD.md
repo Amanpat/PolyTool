@@ -4,7 +4,7 @@ This is the durable plan-of-record for the PolyTool project. It captures every
 material design decision so future work does not depend on chat history. It
 contains no private data (no wallets, dossier excerpts, or user-specific outputs).
 
-Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
 governing roadmap document as of 2026-03-12 and supersedes v3. This file
 remains the implementation-policy companion: use it for shipped constraints,
 kill conditions, and explicit current-state limits until code/spec work changes
@@ -12,11 +12,12 @@ them.
 
 ## 0. Roadmap Authority and Open Deltas
 
-| Area | Master Roadmap v4 direction | Current implementation-policy truth |
+| Area | Master Roadmap v4.1 direction | Current implementation-policy truth |
 |------|------------------------------|-------------------------------------|
 | System scope | Automated discovery, validation, live execution, and a self-improving loop are the target end state. | The shipped canonical workflow is still local-first research plus gated execution primitives. No v4 phase should be treated as complete unless the repo and gates say so. |
 | Automation / hosting | v4 plans thin FastAPI wrappers, n8n orchestration, Discord operations, and eventual AWS deployment. | Current operating policy stays local-first. AWS is not required by any shipped milestone, and the broader automation stack is not current-state truth yet. |
 | LLM / signals | v4 allows future paid API escalation and dedicated signals/news pipelines. | Current toolchain policy remains no external LLM API calls and no trading recommendations from shipped outputs. |
+| Gate 2 primary path | v4.1 changes Gate 2 from live-capture-first to bulk-historical-import-first. pmxt archive + Jon-Becker + 2-min price history produce Silver-tier tapes sufficient for Gate 2. | Gate 2 tooling is implemented and working. Bulk historical import foundation v0 is shipped (SPEC-0018). Silver tape reconstruction is not yet shipped. Gate 2 is not passed. |
 
 ---
 
@@ -62,9 +63,9 @@ llm-bundle --user "@handle"
 [manual step] paste prompt + bundle into LLM UI
   -> LLM produces hypothesis.md + hypothesis.json
 
-llm-save --user "@handle" --model "model-name" --report-path hypothesis.md
+llm-save --user "@handle" --model "model-name" --report-path hypothesis.md --hypothesis-path hypothesis.json
   -> kb/users/<slug>/llm_reports/<date>/<model>_<run_id>/
-  -> kb/users/<slug>/notes/LLM_notes/  (auto-generated summary)
+  -> write hypothesis.json + validation_result.json + LLM_note summary
 
 rag-index --roots "kb,artifacts" --rebuild
   -> updates Chroma + FTS5 index
@@ -83,16 +84,16 @@ Each CLI command is invoked as `python -m polytool <command>`. See
 `examine` remains available as a legacy orchestration wrapper but is not the
 canonical path for trust artifact validation.
 
-### Track alignment (as of 2026-03-05)
+### Track alignment (as of 2026-03-12)
 
 These shipped checkpoints do not imply that the corresponding Master Roadmap v4
-phases are complete. In particular, v4 Phase 1 still includes automation and
+These shipped checkpoints do not imply that the corresponding Master Roadmap
+v4.1 phases are complete. In particular, v4.1 Phase 1 still includes automation and
 live-ops items that are not yet shipped.
-
 - **Track B foundation is complete**: wallet-scan v0, alpha-distill v0, and the
   RAG/hypothesis scaffolding baseline.
-- **Hypothesis registry v0 is complete**: `hypothesis-register`, `hypothesis-status`,
-  `experiment-init`, and `experiment-run` are all shipped and tested.
+- **Hypothesis workflow v0 is complete**: `hypothesis-register`, `hypothesis-status`,
+  `experiment-init`, `experiment-run`, `llm-save --hypothesis-path`, `hypothesis-validate`, `hypothesis-diff`, and `hypothesis-summary` are all shipped and tested.
 - **Track A Week 1 is complete**: KillSwitch, RateLimiter, RiskManager, LiveExecutor,
   LiveRunner, and the `simtrader live` CLI surface.
 - **Track A Week 2 is complete**: OrderManager reconciliation loop and MarketMakerV0
@@ -106,7 +107,7 @@ live-ops items that are not yet shipped.
 What exists today (primitive inventory):
 
 - Track B: `wallet-scan`, `alpha-distill`, `hypothesis-register`, `hypothesis-status`,
-  `experiment-init`, `experiment-run`, RAG reliability improvements.
+  `experiment-init`, `experiment-run`, `hypothesis-validate`, `hypothesis-diff`, `hypothesis-summary`, `llm-save --hypothesis-path`, RAG reliability improvements.
 - Track A Week 1: `KillSwitch`, `TokenBucketRateLimiter`, `RiskManager`,
   `LiveExecutor`, `LiveRunner`, `simtrader live` CLI.
 - Track A Week 2: `OrderManager`, `MarketMakerV0`, `--strategy market_maker_v0`
@@ -383,9 +384,9 @@ A hypothesis is `backtest_ready = true` only when:
 - All evidence trade_uids reference trades with resolution outcomes != UNKNOWN_RESOLUTION.
 - The sample size is >= 30 resolved positions.
 
-Until hypothesis validation loop features are shipped (llm-save schema enforcement,
-hypothesis diff, falsification harness), no hypotheses will be backtest_ready.
-This field exists to signal future readiness.
+Track B Hypothesis Validation Loop v0 is now shipped: `llm-save` schema enforcement,
+`hypothesis-validate`, `hypothesis-diff`, and `hypothesis-summary` all exist for saved artifact review.
+That does not make backtesting ready by itself; historical orderbook data, exact fees, pre-trade context, and a future falsification/backtest harness are still required.
 
 See `docs/HYPOTHESIS_STANDARD.md` for the full prompt template and quality rubric.
 
@@ -488,14 +489,14 @@ When backtesting is eventually implemented (post-hypothesis-validation-loop), it
 - Gap H (historical microstructure data) blocks meaningful backtesting.
 - Gap C (exact realized PnL) means backtest results would be approximate.
 - The hypothesis validation loop must exist first to standardize
-  what "validating a hypothesis" means.
-- Premature backtesting encourages overfitting to in-sample data.
+- The completed Hypothesis Validation Loop v0 standardizes saved artifacts, but
+  it does not replace the missing falsification/backtest harness.
 
 ### Kill Condition
 
 Do NOT start any backtesting work until:
-- Hypothesis validation loop features are fully shipped (llm-save schema enforcement,
-  hypothesis diff, falsification harness).
+- A future falsification/backtest harness exists on top of the completed
+  Hypothesis Validation Loop v0.
 - Historical orderbook data is available (either from a provider or on-chain).
 - At least 3 complete examination runs have been saved and indexed.
 
@@ -503,7 +504,7 @@ Do NOT start any backtesting work until:
 
 ## Cross-References
 
-- [Master Roadmap v4](reference/POLYTOOL_MASTER_ROADMAP_v4.md) - Governing roadmap document; supersedes v3
+- [Master Roadmap v4.1](reference/POLYTOOL_MASTER_ROADMAP_v4.1.md) - Governing roadmap document; supersedes v3
 - [Roadmap](ROADMAP.md) - Milestone checklist and kill conditions
 - [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) - Step-by-step workflow
 - [Hypothesis Standard](HYPOTHESIS_STANDARD.md) - Prompt template and quality rubric
@@ -511,3 +512,4 @@ Do NOT start any backtesting work until:
 - [Research Sources](RESEARCH_SOURCES.md) - Curated source domains and caching policy
 - [Project Context (Public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, non-goals, artifact contract
 - [Architecture](ARCHITECTURE.md) - Components, data flow, RAG schema
+

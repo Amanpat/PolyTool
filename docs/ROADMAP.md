@@ -1,6 +1,6 @@
 # Roadmap
 
-Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
 governing roadmap document as of 2026-03-12 and supersedes v3.
 
 This file is retained as the legacy implementation ledger for the numbered
@@ -10,10 +10,10 @@ corresponding v4 phase is complete.
 
 ## Authority Notes / Material Deltas vs v4
 
-| Area | Master Roadmap v4 | Current ledger meaning |
+| Area | Master Roadmap v4.1 | Current ledger meaning |
 |------|-------------------|------------------------|
 | Phase 1 / live bot | Includes FastAPI wrappers, n8n local setup, Discord alerts, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. |
-| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, and hypothesis registry foundation only. |
+| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, hypothesis registry foundation, and Hypothesis Validation Loop v0 only. |
 | Phase 7 / Studio rebuild | Calls for a new unified React/Next.js Studio. | Current UI-related items in this file describe the existing operator surfaces, not v4 Phase 7 completion. |
 
 ---
@@ -250,8 +250,8 @@ validated/rejected/parked.
 - `docs/specs/SPEC-hypothesis-registry-v0.md`, `docs/features/FEATURE-hypothesis-registry-v0.md`
 - `tests/test_hypothesis_registry.py`, `tests/test_experiment_init.py`, `tests/test_hypotheses_cli.py`
 
-**TODO next**: connect `experiment-run` to actual tape/sweep execution once the
-manual validation loop is ready.
+**TODO next**: Hypothesis Validation Loop v0 is complete.
+Start Master Roadmap v4.1 Phase 2 `Candidate Scanner CLI` (`candidate-scan`); Track A Gate 2 remains blocked.
 
 ---
 
@@ -268,8 +268,13 @@ never enabled by default.
 - Gate 4: PASSED
 - Current blocker: edge scarcity / lack of qualifying live dislocations, not
   SimTrader plumbing
-- Current next step: bounded live dislocation capture for
-  `binary_complement_arb`; see
+- Current next step (v4.1 primary path): bulk historical import
+  (pmxt archive + Jon-Becker + 2-minute price history) to produce
+  Silver-tier tapes for the Gate 2 scenario sweep; see
+  `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md` and
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md`
+- Fallback trigger (live path): bounded live dislocation capture remains
+  an option when a catalyst window fires; see
   `docs/dev_logs/2026-03-07_bounded_dislocation_capture_trial.md`
 - Opportunity Radar remains deferred
 
@@ -565,3 +570,4 @@ The `polytool` backward-compatibility shim (double-t typo) will be removed
 after version 0.2.0. Until then, `python -m polytool` still works but prints
 a deprecation warning. All new docs and scripts must use `python -m polytool`.
 See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md) for details.
+

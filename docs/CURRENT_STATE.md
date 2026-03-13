@@ -4,7 +4,7 @@ This repo is a local-first toolchain for Polymarket analysis: data ingestion,
 ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
 RAG workflow that never calls external LLM APIs.
 
-Master Roadmap v4 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.md`) is the
+Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
 governing roadmap document as of 2026-03-12 and supersedes v3. This file
 records implemented repo truth; do not infer v4 phase completion from strategic
 roadmap language alone.
@@ -31,9 +31,15 @@ status is:
 - Gate 2: not passed yet; tooling is implemented and working
 - Gate 3: blocked behind Gate 2
 - Gate 4: PASSED
-- Current blocker: strategy opportunity / edge scarcity, not SimTrader plumbing
-- Current next step: bounded live dislocation trials for
-  `binary_complement_arb`
+- Current blocker (live path): edge scarcity — no tape with `executable_ticks > 0`
+  in the current corpus
+- **Primary Gate 2 path (v4.1)**: bulk historical import from pmxt archive +
+  Jon-Becker dataset + 2-minute price history. Silver-tier reconstructed tapes
+  are sufficient for Gate 2 (strategy-level PnL test, not microstructure). See
+  `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md` and
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md`.
+- Current next step: execute bulk historical import (pmxt + Jon-Becker + 2-min
+  price history) to unblock Gate 2 sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
 
@@ -69,7 +75,7 @@ until the remaining gates are closed and Stage 0 paper-live completes cleanly.
 - Batch wallet scan with deterministic leaderboard (`wallet-scan`).
 - Cross-user segment edge distillation into ranked candidates (`alpha-distill`).
 - Offline hypothesis registry + experiment skeleton (`hypothesis-register`, `hypothesis-status`, `experiment-init`, `experiment-run`).
-- Market selection engine with scorer, filters, Gamma API client, and `market-scan`.
+- Offline hypothesis registry + experiment skeleton plus Hypothesis Validation Loop v0 (`hypothesis-register`, `hypothesis-status`, `experiment-init`, `experiment-run`, `hypothesis-validate`, `hypothesis-diff`, `hypothesis-summary`).
 - Track A gate harness under `tools/gates/`, with Gate 1 and Gate 4 passed,
   Gate 2 tooling shipped, and Gate 3 blocked behind Gate 2.
 - Bounded Gate 2 capture tooling: `scan-gate2-candidates`, `prepare-gate2`,
@@ -99,11 +105,11 @@ paper-live run before Stage 1 capital is allowed.
 
 ---
 
-## Recently completed (Track B foundation + registry)
+## Recently completed (Track B foundation + registry + validation loop)
 
-Status (2026-03-05): Track B foundation plus hypothesis registry v0 are
-complete - wallet-scan v0, alpha-distill v0, RAG reliability fixes, and
-offline hypothesis tracking.
+Status (2026-03-12): Track B foundation, hypothesis registry v0, and
+Hypothesis Validation Loop v0 are complete. This does not mean Master Roadmap
+v4.1 Phase 2 is complete.
 
 ### Wallet-Scan v0
 
@@ -177,7 +183,7 @@ wallets.txt (handles + wallet addresses)
 
   -> manual review / evidence gathering
      python -m polytool hypothesis-status --id <hypothesis_id> --status testing --reason "manual review"
-     python -m polytool llm-bundle -> paste into LLM UI -> python -m polytool llm-save
+     python -m polytool llm-bundle -> paste into LLM UI -> python -m polytool llm-save --hypothesis-path hypothesis.json
 ```
 
 ### Optional execution path (gated, Track A)
@@ -224,9 +230,13 @@ No live capital is allowed before all four gates are complete and Stage 0 is cle
 
 ## Track A execution layer (optional, gated)
 
-Track A code is complete as of 2026-03-05. The remaining work is operational:
-capture a live `binary_complement_arb` dislocation tape, pass Gate 2, complete
-Gate 3, then run Stage 0 paper-live before any Stage 1 capital.
+Track A code is complete as of 2026-03-05. Gate 2 plumbing is implemented and
+working. The remaining operational work for Gate 2 is now the bulk historical
+import path (v4.1 primary path): execute the one-time pmxt archive +
+Jon-Becker + 2-minute price history import to produce Silver-tier reconstructed
+tapes for the scenario sweep. Silver tapes are sufficient for Gate 2; Gate 3
+requires Gold tapes from live recording. See
+`docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md`.
 
 ### Current operator focus (2026-03-07)
 
@@ -239,6 +249,9 @@ Gate 3, then run Stage 0 paper-live before any Stage 1 capital.
 - The current next step is a bounded live dislocation trial on 3-5
   catalyst-linked markets.
 - Opportunity Radar remains deferred.
+- Gate 2 import-first path: `import-historical validate-layout` and
+  `import-historical show-manifest` are now available for dry-run layout
+  validation of pmxt, Jon-Becker, and 2-minute price history datasets
 
 ### Current shipped surfaces
 
