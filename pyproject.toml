@@ -47,8 +47,11 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
+historical-import = [
+    "pyarrow>=12.0.0",
+]
 all = [
-    "polytool[rag,mcp,simtrader,studio,dev]",
+    "polytool[rag,mcp,simtrader,studio,dev,historical-import]",
 ]
 
 [project.scripts]
@@ -64,6 +67,7 @@ packages = [
     "packages", "packages.polymarket", "packages.polymarket.rag",
     "packages.polymarket.hypotheses",
     "packages.polymarket.market_selection",
+    "packages.polymarket.historical_import",
     "packages.research", "packages.research.hypotheses",
     "packages.polymarket.simtrader",
     "packages.polymarket.simtrader.studio",

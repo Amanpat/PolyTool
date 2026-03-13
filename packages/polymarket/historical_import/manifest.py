@@ -126,3 +126,98 @@ def make_import_manifest(sources: List[ProvenanceRecord]) -> ImportManifest:
         generated_at=_utcnow(),
         sources=sources,
     )
+
+
+# ---------------------------------------------------------------------------
+# ImportRunRecord — post-import run record (Packet 2)
+# ---------------------------------------------------------------------------
+
+_RUN_RECORD_SCHEMA_VERSION = "import_run_v0"
+
+
+@dataclass
+class ImportRunRecord:
+    schema_version: str = _RUN_RECORD_SCHEMA_VERSION
+    run_id: str = ""
+    source_kind: str = ""
+    import_mode: str = ""
+    resolved_source_path: str = ""
+    snapshot_version: str = ""
+    destination_tables: List[str] = field(default_factory=list)
+    files_processed: int = 0
+    files_skipped: int = 0
+    rows_loaded: int = 0
+    rows_skipped: int = 0
+    rows_rejected: int = 0
+    import_completeness: str = ""  # dry-run / complete / partial / failed
+    started_at: str = ""
+    completed_at: str = ""
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    notes: str = ""
+    provenance_hash: str = ""  # from provenance.py build_deterministic_import_manifest_id
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
+
+
+def make_import_run_record(
+    result: Any,
+    *,
+    snapshot_version: str = "",
+    notes: str = "",
+) -> ImportRunRecord:
+    """Build a deterministic post-import run record from an ImportResult.
+
+    Args:
+        result: An ImportResult instance (from importer.py).
+        snapshot_version: Optional version label (e.g. "2026-03").
+        notes: Optional free-form notes.
+
+    Returns:
+        ImportRunRecord with all fields populated and a provenance_hash.
+    """
+    from packages.polymarket.historical_import.provenance import (
+        build_deterministic_import_manifest_id,
+    )
+
+    provenance_payload: Dict[str, Any] = {
+        "source_kind": result.source_kind,
+        "source_path": result.resolved_source_path,
+        "dataset_version_or_snapshot": snapshot_version or result.source_kind,
+        "import_mode": result.import_mode,
+        "destination_reference": result.destination_tables,
+        "source_state": (
+            "complete"
+            if result.import_completeness in ("complete", "dry-run")
+            else "partial"
+        ),
+    }
+    try:
+        provenance_hash = build_deterministic_import_manifest_id(provenance_payload)
+    except Exception:
+        provenance_hash = ""
+
+    return ImportRunRecord(
+        run_id=result.run_id,
+        source_kind=result.source_kind,
+        import_mode=result.import_mode,
+        resolved_source_path=result.resolved_source_path,
+        snapshot_version=snapshot_version,
+        destination_tables=list(result.destination_tables),
+        files_processed=result.files_processed,
+        files_skipped=result.files_skipped,
+        rows_loaded=result.rows_loaded,
+        rows_skipped=result.rows_skipped,
+        rows_rejected=result.rows_rejected,
+        import_completeness=result.import_completeness,
+        started_at=result.started_at,
+        completed_at=result.completed_at,
+        errors=list(result.errors),
+        warnings=list(result.warnings),
+        notes=notes or result.notes,
+        provenance_hash=provenance_hash,
+    )

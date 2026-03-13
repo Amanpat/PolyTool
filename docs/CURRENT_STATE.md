@@ -252,6 +252,11 @@ requires Gold tapes from live recording. See
 - Gate 2 import-first path: `import-historical validate-layout` and
   `import-historical show-manifest` are now available for dry-run layout
   validation of pmxt, Jon-Becker, and 2-minute price history datasets
+- `import-historical import --import-mode dry-run` is now available (Packet 2)
+- `import-historical import --import-mode sample` and `--import-mode full`
+  are implemented; CH client is injectable for testing; pyarrow optional
+- Run records with `provenance_hash` (import-mode-sensitive) are output to
+  `artifacts/imports/` via the `--out` flag
 
 ### Current shipped surfaces
 

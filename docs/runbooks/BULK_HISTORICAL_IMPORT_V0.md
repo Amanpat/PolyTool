@@ -1,7 +1,7 @@
 # Bulk Historical Import v0 — Operator Runbook
 
-**Status**: Foundation shipped (2026-03-13). Steps 1-5 are operational.
-Step 6 (ClickHouse import) is deferred to Packet 2.
+**Status**: Packet 2 shipped (2026-03-13). Steps 1-6 are operational.
+Import execution (dry-run, sample, full) is now available.
 
 **Spec**: `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md`
 
@@ -211,18 +211,62 @@ git commit -m "chore: add bulk historical import provenance manifests v0"
 
 ---
 
-## Step 6: ClickHouse Import (DEFERRED — Packet 2)
+## Step 6: ClickHouse Import (now available in Packet 2)
 
-ClickHouse import is NOT yet implemented. The destination tables exist
-(created by migrations `21_pmxt_archive.sql`, `22_jon_becker_trades.sql`,
-`23_price_history_2min.sql`) but the import runner is not shipped.
+The destination tables are created by migrations `21_pmxt_archive.sql`,
+`22_jon_becker_trades.sql`, and `23_price_history_2min.sql`. Ensure
+ClickHouse is running before any non-dry-run import:
 
-Do NOT attempt to load data manually; wait for Packet 2 to provide:
-- A validated import script with row-count verification
-- Idempotent re-import support (via `ReplacingMergeTree`)
-- Post-import provenance update (sets `validated_at` in the manifest)
+```bash
+docker compose up -d
+```
 
-To verify the tables exist after `docker compose up -d`:
+After running Steps 1-5, execute the actual import:
+
+```bash
+mkdir -p artifacts/imports
+
+# Dry-run first (validates layout, counts files, no CH writes)
+python -m polytool import-historical import \
+    --source-kind pmxt_archive \
+    --local-path /data/pmxt \
+    --import-mode dry-run \
+    --snapshot-version "2026-03" \
+    --out artifacts/imports/pmxt_run_record.json
+
+# Sample import (first 1000 rows from first file, for validation)
+python -m polytool import-historical import \
+    --source-kind pmxt_archive \
+    --local-path /data/pmxt \
+    --import-mode sample \
+    --sample-rows 1000 \
+    --snapshot-version "2026-03" \
+    --out artifacts/imports/pmxt_sample_run.json
+
+# Full import (all rows, all files)
+python -m polytool import-historical import \
+    --source-kind pmxt_archive \
+    --local-path /data/pmxt \
+    --import-mode full \
+    --snapshot-version "2026-03" \
+    --out artifacts/imports/pmxt_full_run.json
+```
+
+Repeat with `--source-kind jon_becker` and `--source-kind price_history_2min`
+for the other two datasets.
+
+**Note**: Parquet files require `pyarrow`. Install it with:
+```bash
+pip install polytool[historical-import]
+# or: pip install pyarrow>=12.0.0
+```
+
+CSV and JSONL files import without any additional dependencies.
+
+Each import writes a JSON run record with a `provenance_hash` field for
+audit traceability. Commit run records to `artifacts/imports/` as evidence.
+
+To verify the tables exist:
 
 ```bash
 curl "http://localhost:8123/?query=SELECT+name+FROM+system.tables+WHERE+database='polytool'+AND+name+LIKE+'pmxt%25'+OR+name+LIKE+'jb_%25'+OR+name+LIKE+'price_%25'"
@@ -284,7 +328,7 @@ was empty during `show-manifest`, the status will be `staged`.
 
 ## Artifact Inventory
 
-After completing Steps 1-5, you should have:
+After completing Steps 1-6, you should have:
 
 ```
 /data/pmxt/                      # pmxt archive (large, not committed)
@@ -294,16 +338,18 @@ artifacts/imports/
   pmxt_manifest.json             # provenance manifest (committed)
   jbecker_manifest.json          # provenance manifest (committed)
   price_history_manifest.json    # provenance manifest (committed)
+  pmxt_run_record.json           # import run record with provenance_hash (committed)
+  jbecker_run_record.json        # import run record (committed)
+  price_history_run_record.json  # import run record (committed)
 ```
 
 Data directories should be added to `.gitignore` to avoid committing large files.
-Manifest JSON files should be committed as provenance records.
+Manifest and run record JSON files should be committed as provenance records.
 
 ---
 
-## Next Steps (Packet 2)
+## Next Steps (Packet 3)
 
 1. Implement Silver tape reconstruction from pmxt + jb_trades + price_history_2min
-2. Implement ClickHouse import runner with row-count verification
-3. Run Gate 2 scenario sweep on Silver-tier tapes
-4. If sweep passes (>=70% score), close Gate 2 via `tools/gates/close_sweep_gate.py`
+2. Run Gate 2 scenario sweep on Silver-tier tapes
+3. If sweep passes (>=70% score), close Gate 2 via `tools/gates/close_sweep_gate.py`
