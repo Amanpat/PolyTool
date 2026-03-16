@@ -52,6 +52,8 @@ watch_arb_candidates_main = _command_entrypoint("tools.cli.watch_arb_candidates"
 tape_manifest_main = _command_entrypoint("tools.cli.tape_manifest")
 gate2_preflight_main = _command_entrypoint("tools.cli.gate2_preflight")
 historical_import_main = _command_entrypoint("tools.cli.historical_import")
+smoke_historical_main = _command_entrypoint("tools.cli.smoke_historical")
+fetch_price_2min_main = _command_entrypoint("tools.cli.fetch_price_2min")
 make_session_pack_main = _command_entrypoint("tools.cli.make_session_pack")
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
@@ -92,6 +94,8 @@ _COMMAND_HANDLER_NAMES = {
     "watch-arb-candidates": "watch_arb_candidates_main",
     "wallet-scan": "wallet_scan_main",
     "import-historical": "historical_import_main",
+    "smoke-historical": "smoke_historical_main",
+    "fetch-price-2min": "fetch_price_2min_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -152,6 +156,8 @@ def print_usage() -> None:
     print("")
     print("--- Data Import (Phase 1 / Bulk Historical Foundation) ----------------")
     print("  import-historical     Validate and document local historical dataset layout")
+    print("  smoke-historical      DuckDB smoke — validate pmxt/Jon raw files directly (no ClickHouse)")
+    print("  fetch-price-2min      Fetch 2-min price history from CLOB API → polytool.price_2min (ClickHouse)")
     print("")
     print("--- Integrations & Utilities ------------------------------------------")
     print("  mcp                   Start the MCP server for Claude Desktop integration")

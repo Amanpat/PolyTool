@@ -4,9 +4,9 @@ This repo is a local-first toolchain for Polymarket analysis: data ingestion,
 ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
 RAG workflow that never calls external LLM APIs.
 
-Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
-governing roadmap document as of 2026-03-12 and supersedes v3. This file
-records implemented repo truth; do not infer v4 phase completion from strategic
+Master Roadmap v4.2 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`) is the
+governing roadmap document as of 2026-03-16 and supersedes v4.1. This file
+records implemented repo truth; do not infer v4.2 phase completion from strategic
 roadmap language alone.
 
 ## Roadmap v4 Items Not Yet Implemented
@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-07
+## Status as of 2026-03-16
 
 Track A / SimTrader plumbing is implemented. The repo's current execution
 status is:
@@ -31,15 +31,28 @@ status is:
 - Gate 2: not passed yet; tooling is implemented and working
 - Gate 3: blocked behind Gate 2
 - Gate 4: PASSED
-- Current blocker (live path): edge scarcity — no tape with `executable_ticks > 0`
-  in the current corpus
-- **Primary Gate 2 path (v4.1)**: bulk historical import from pmxt archive +
-  Jon-Becker dataset + 2-minute price history. Silver-tier reconstructed tapes
-  are sufficient for Gate 2 (strategy-level PnL test, not microstructure). See
-  `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md` and
-  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md`.
-- Current next step: execute bulk historical import (pmxt + Jon-Becker + 2-min
-  price history) to unblock Gate 2 sweep
+- **Primary Gate 2 path (v4.2)**: DuckDB reads pmxt and Jon-Becker Parquet
+  files directly — no ClickHouse import step required. Silver tape reconstruction
+  from those files + 2-min price history → Gate 2 scenario sweep. ClickHouse
+  bulk import (SPEC-0018) is off the critical path; see
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md` (now legacy/optional).
+- **pmxt raw files**: exist locally. Full ClickHouse import (78,264,878 rows,
+  2026-03-15) is complete but is legacy under v4.2. DuckDB reads the Parquet
+  files directly. Artifact: `artifacts/imports/pmxt_full_batch1.json`
+- **Jon-Becker raw files**: exist locally. Sample ClickHouse import confirmed
+  (1,000 rows, 2026-03-16); full ClickHouse import is not required under v4.2.
+  DuckDB reads the Parquet files directly.
+  Artifacts: `artifacts/imports/jon_dry_run.json`, `artifacts/imports/jon_sample_run.json`
+- **price_2min** (canonical live-updating ClickHouse series): table created
+  (`infra/clickhouse/initdb/24_price_2min.sql`), `fetch-price-2min` CLI
+  shipped. Naming conflict resolved: `price_2min` = live CH series (this path);
+  `price_history_2min` = legacy local-file bulk import (SPEC-0018, off critical
+  path). See dev log `docs/dev_logs/2026-03-16_price_2min_clickhouse_v0.md`.
+  CLI: `python -m polytool fetch-price-2min --token-id <ID> [--dry-run]`.
+- **Silver tape reconstruction**: not yet started. Blocked on DuckDB setup and
+  integration, not on further ClickHouse bulk import work.
+- Gate 2 is not closed. Current next step: DuckDB setup and integration →
+  price_history_2min fetch → Silver tape reconstruction → Gate 2 scenario sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
 
@@ -231,32 +244,36 @@ No live capital is allowed before all four gates are complete and Stage 0 is cle
 ## Track A execution layer (optional, gated)
 
 Track A code is complete as of 2026-03-05. Gate 2 plumbing is implemented and
-working. The remaining operational work for Gate 2 is now the bulk historical
-import path (v4.1 primary path): execute the one-time pmxt archive +
-Jon-Becker + 2-minute price history import to produce Silver-tier reconstructed
-tapes for the scenario sweep. Silver tapes are sufficient for Gate 2; Gate 3
-requires Gold tapes from live recording. See
-`docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md`.
+working. Under v4.2, the Gate 2 path no longer requires ClickHouse bulk import.
+DuckDB reads pmxt and Jon-Becker Parquet files directly from `/data/raw/`,
+producing Silver-tier reconstructed tapes for the scenario sweep. Silver tapes
+are sufficient for Gate 2; Gate 3 requires Gold tapes from live recording.
+See `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md` (Database Architecture).
 
-### Current operator focus (2026-03-07)
+### Current operator focus (2026-03-16)
 
-- Gate 1 and Gate 4 are already passed.
-- Gate 2 tooling is implemented and working.
-- The most recent live watcher run validated the tooling path but produced no
-  trigger and no new tapes.
-- The current blocker is opportunity scarcity: qualifying complement edge has
-  not appeared in the observed markets.
-- The current next step is a bounded live dislocation trial on 3-5
-  catalyst-linked markets.
-- Opportunity Radar remains deferred.
-- Gate 2 import-first path: `import-historical validate-layout` and
-  `import-historical show-manifest` are now available for dry-run layout
-  validation of pmxt, Jon-Becker, and 2-minute price history datasets
-- `import-historical import --import-mode dry-run` is now available (Packet 2)
-- `import-historical import --import-mode sample` and `--import-mode full`
-  are implemented; CH client is injectable for testing; pyarrow optional
-- Run records with `provenance_hash` (import-mode-sensitive) are output to
-  `artifacts/imports/` via the `--out` flag
+Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
+
+**Completed (ClickHouse import — now legacy under v4.2)**:
+- `import-historical` subcommands (validate-layout, show-manifest, import) are
+  shipped and operational (Packet 1 + Packet 2); these are off the critical
+  path under v4.2.
+- pmxt archive: full batch 1 (78,264,878 rows, 2026-03-15) imported to CH.
+  Raw Parquet files exist locally and are the primary v4.2 source via DuckDB.
+- Jon-Becker dataset: dry-run (68,646 files discovered, 2026-03-15) and sample
+  (1,000 rows, 40,454 files, 2026-03-16) complete. Full ClickHouse import is
+  not required under v4.2; DuckDB reads the Parquet files directly.
+
+**Pending (v4.2 primary path)**:
+- DuckDB setup and integration (next immediate step)
+- price_2min population: run `fetch-price-2min` for target token IDs before Silver reconstruction
+- Silver tape reconstruction (DuckDB-based; blocked on DuckDB setup)
+- Gate 2 scenario sweep (blocked on Silver tapes existing)
+
+**Not in scope for current work**:
+- Opportunity Radar: deferred until after first clean Gate 2 → Gate 3 progression
+- Live dislocation capture remains a fallback path only; no qualifying tapes
+  produced from prior live watcher runs
 
 ### Current shipped surfaces
 
@@ -270,25 +287,25 @@ requires Gold tapes from live recording. See
   capture, and bounded watch loop.
 - `tools/cli/simtrader.py` now exposes `simtrader live --live`, loads wallet credentials, enforces all gate artifacts, requires `CONFIRM`, and includes `simtrader kill`.
 
-### Gate status (2026-03-07)
+### Gate status (2026-03-16)
 
 - Gate 1 (Replay Determinism): **PASSED** - artifact at
   `artifacts/gates/replay_gate/gate_passed.json`.
-- Gate 2 (Scenario Sweep >=70%): Not passed yet.
+- Gate 2 (Scenario Sweep >=70%): **NOT PASSED**.
   - Tooling is implemented and working: `scan-gate2-candidates`,
     `prepare-gate2`, presweep eligibility checks, `watch-arb-candidates`, and
     `--watchlist-file` ingest.
-  - The current artifact remains failed because no eligible tape with
-    `executable_ticks > 0` has been captured yet.
-  - The recent live watcher run produced no trigger and no new tapes, and the
-    recent acquisition cycle produced only ineligible tapes.
+  - Under v4.2: pmxt and Jon-Becker raw Parquet files exist locally; DuckDB
+    reads them directly (no further ClickHouse import required).
+  - price_history_2min not yet fetched. Silver tape reconstruction not yet
+    started (blocked on DuckDB setup). No Silver-tier tape exists.
 - Gate 3 (Shadow Mode): Blocked behind Gate 2.
 - Gate 4 (Dry-Run Live): **PASSED** - artifact at
   `artifacts/gates/dry_run_gate/gate_passed.json`.
 
 ### Historical gate status snapshot (2026-03-06)
 
-Archive note: this snapshot is retained for history only. Use the 2026-03-07
+Archive note: this snapshot is retained for history only. Use the 2026-03-16
 gate status block above for current operator guidance.
 
 - Gate 1 (Replay Determinism): **PASSED** - artifact at `artifacts/gates/replay_gate/gate_passed.json`.
