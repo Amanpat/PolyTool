@@ -149,3 +149,74 @@ def fetch_orderbook(token_id: str) -> dict:
         "asks": _normalize_levels(payload.get("asks") or []),
     }
 
+
+def fetch_recent_markets(limit: int = 300) -> list[dict]:
+    """Fetch recently listed active markets from Gamma, including condition_id and market_id.
+
+    Returns a superset of the fields from :func:`fetch_active_markets` plus:
+      - ``condition_id``: hex condition ID (empty string if not present)
+      - ``market_id``:    Gamma integer market ID as string (empty string if not present)
+
+    No volume filter is applied — all active markets are returned so the caller
+    can decide how to filter by age.  The Gamma API may support ordering by
+    ``createdAt`` descending, reducing the need to fetch many pages.
+
+    Args:
+        limit: Maximum number of markets to fetch in a single request.
+
+    Returns:
+        List of normalised market dicts sorted by Gamma API response order
+        (typically newest first when the API honours order params).
+    """
+    payload = _GAMMA_CLIENT.get_json(
+        "/markets",
+        params={
+            "active": "true",
+            "closed": "false",
+            "limit": int(limit),
+            "order": "createdAt",
+            "ascending": "false",
+        },
+    )
+    markets: list[dict] = []
+    for raw_market in _markets_from_response(payload):
+        volume_24h = (
+            _coerce_float(raw_market.get("volume_24h"))
+            or _coerce_float(raw_market.get("volume24h"))
+            or _coerce_float(raw_market.get("volume24hr"))
+            or _coerce_float(raw_market.get("volume"))
+            or _coerce_float(raw_market.get("volumeNum"))
+            or 0.0
+        )
+        markets.append(
+            {
+                "slug": str(raw_market.get("slug") or "").strip(),
+                "market_id": str(raw_market.get("id") or "").strip(),
+                "condition_id": str(
+                    raw_market.get("conditionId")
+                    or raw_market.get("condition_id")
+                    or ""
+                ).strip(),
+                "best_bid": _coerce_float(raw_market.get("best_bid") or raw_market.get("bestBid")),
+                "best_ask": _coerce_float(raw_market.get("best_ask") or raw_market.get("bestAsk")),
+                "volume_24h": volume_24h,
+                "end_date_iso": raw_market.get("end_date_iso") or raw_market.get("endDate"),
+                "created_at": raw_market.get("created_at") or raw_market.get("createdAt"),
+                "resolved_at": raw_market.get("resolved_at") or raw_market.get("resolvedAt"),
+                "token_id": _extract_token_id(raw_market),
+                "title": raw_market.get("title") or raw_market.get("question") or None,
+                "question": raw_market.get("question") or None,
+                "category": raw_market.get("category") or None,
+                "subcategory": raw_market.get("subcategory") or None,
+                "tags": (
+                    raw_market.get("tags")
+                    or raw_market.get("tag_names")
+                    or raw_market.get("tagNames")
+                    or None
+                ),
+                "event_slug": raw_market.get("event_slug") or raw_market.get("eventSlug") or None,
+                "event_title": raw_market.get("event_title") or raw_market.get("eventTitle") or None,
+            }
+        )
+    return markets
+

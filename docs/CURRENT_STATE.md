@@ -78,7 +78,29 @@ status is:
   See spec `docs/specs/SPEC-benchmark-gap-fill-planner-v1.md` and dev log
   `docs/dev_logs/2026-03-17_benchmark_gap_fill_planner.md`.
   Next step: run `fetch-price-2min` for priority-1 token IDs, then
-  `batch-reconstruct-silver` with the targets manifest.
+  `batch-reconstruct-silver --targets-manifest config/benchmark_v1_gap_fill.targets.json --pmxt-root ... --jon-root ... --benchmark-refresh`.
+- **Benchmark v1 gap-fill execution**: `batch-reconstruct-silver` extended with
+  `--targets-manifest` mode (Mode 2) 2026-03-17. Accepts `benchmark_gap_fill_v1`
+  targets manifest; each target provides its own window. Per-target skip/failure
+  without aborting the batch. `--benchmark-refresh` re-runs benchmark curation after
+  the batch. Emits `benchmark_gap_fill_run_v1` result artifact. 40 new tests; dry-run
+  smoke with 120-target real manifest: all parsed and dispatched correctly.
+  Real generation (Mode 2 live) not yet run; requires `fetch-price-2min` first.
+  See spec `docs/specs/SPEC-benchmark-gap-fill-execution-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_gap_fill_execution.md`.
+- **New-market capture planner**: `packages/polymarket/new_market_capture_planner.py`
+  shipped 2026-03-17. Discovers newly listed Polymarket candidates (<48h old) via
+  the live Gamma API, ranks them conservatively (age ascending, volume desc, slug
+  asc), deduplicates by token_id, and writes
+  `config/benchmark_v1_new_market_capture.targets.json` (if candidates exist) and/or
+  `config/benchmark_v1_new_market_capture.insufficiency.json` (if < 5 candidates).
+  CLI: `python -m polytool new-market-capture [--dry-run] [--limit 300]`.
+  `fetch_recent_markets()` added to `market_selection/api_client.py` (returns
+  `condition_id` + `market_id` in addition to standard fields). 42 offline tests;
+  no live network calls in tests. This planner produces a recording plan only — Gold
+  tape capture is a separate operator step via `simtrader shadow`.
+  See spec `docs/specs/SPEC-new-market-capture-planner-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_new_market_capture_planner.md`.
 - Gate 2 is not closed. Current next step: DuckDB + real dataset validation →
   price_2min population → Silver tape quality check → Gate 2 scenario sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
