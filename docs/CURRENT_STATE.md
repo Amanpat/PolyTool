@@ -97,10 +97,22 @@ status is:
   CLI: `python -m polytool new-market-capture [--dry-run] [--limit 300]`.
   `fetch_recent_markets()` added to `market_selection/api_client.py` (returns
   `condition_id` + `market_id` in addition to standard fields). 42 offline tests;
-  no live network calls in tests. This planner produces a recording plan only — Gold
-  tape capture is a separate operator step via `simtrader shadow`.
+  no live network calls in tests.
   See spec `docs/specs/SPEC-new-market-capture-planner-v1.md` and dev log
   `docs/dev_logs/2026-03-17_new_market_capture_planner.md`.
+- **New-market capture execution**: `tools/cli/capture_new_market_tapes.py` shipped
+  2026-03-17. Consumes `config/benchmark_v1_new_market_capture.targets.json`
+  (schema `benchmark_new_market_capture_v1`), resolves YES/NO token IDs via
+  `MarketPicker.resolve_slug()`, records Gold tapes via `TapeRecorder` for each
+  target's `record_duration_seconds`, writes `watch_meta.json` with
+  `regime="new_market"`, persists `tape_metadata` row (tier="gold") to ClickHouse
+  with JSONL fallback. `--benchmark-refresh` re-runs benchmark curation after the
+  batch. Emits `benchmark_new_market_capture_run_v1` result artifact. Per-target
+  failures do not abort the batch. 45 offline tests; no live network calls in tests.
+  CLI: `python -m polytool capture-new-market-tapes [--dry-run] [--benchmark-refresh]`.
+  Real Gold tape recording not yet run; requires live Gamma API + WS connectivity.
+  See spec `docs/specs/SPEC-new-market-capture-execution-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_new_market_capture_execution.md`.
 - Gate 2 is not closed. Current next step: DuckDB + real dataset validation →
   price_2min population → Silver tape quality check → Gate 2 scenario sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3

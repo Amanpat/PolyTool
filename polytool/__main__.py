@@ -58,6 +58,7 @@ reconstruct_silver_main = _command_entrypoint("tools.cli.reconstruct_silver")
 batch_reconstruct_silver_main = _command_entrypoint("tools.cli.batch_reconstruct_silver")
 benchmark_manifest_main = _command_entrypoint("tools.cli.benchmark_manifest")
 new_market_capture_main = _command_entrypoint("tools.cli.new_market_capture")
+capture_new_market_tapes_main = _command_entrypoint("tools.cli.capture_new_market_tapes")
 make_session_pack_main = _command_entrypoint("tools.cli.make_session_pack")
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
@@ -104,6 +105,7 @@ _COMMAND_HANDLER_NAMES = {
     "batch-reconstruct-silver": "batch_reconstruct_silver_main",
     "benchmark-manifest": "benchmark_manifest_main",
     "new-market-capture": "new_market_capture_main",
+    "capture-new-market-tapes": "capture_new_market_tapes_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -170,6 +172,7 @@ def print_usage() -> None:
     print("  batch-reconstruct-silver Batch-reconstruct Silver tapes for multiple tokens over one window")
     print("  benchmark-manifest    Build or validate the frozen benchmark_v1 tape manifest contract")
     print("  new-market-capture    Discover newly listed markets (<48h) and plan Gold tape capture")
+    print("  capture-new-market-tapes  Record Gold tapes for benchmark_v1 new_market targets (batch)")
     print("")
     print("--- Integrations & Utilities ------------------------------------------")
     print("  mcp                   Start the MCP server for Claude Desktop integration")
