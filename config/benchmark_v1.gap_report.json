@@ -1,0 +1,594 @@
+{
+  "schema_version": "benchmark_tape_gap_report_v1",
+  "benchmark_version": "benchmark_v1",
+  "manifest_schema_version": "benchmark_tape_manifest_v1",
+  "generated_at": "2026-03-16T22:48:46+00:00",
+  "manifest_path": "config/benchmark_v1.tape_manifest",
+  "manifest_exists": false,
+  "inventory_roots": [
+    "artifacts/simtrader/tapes",
+    "artifacts/silver"
+  ],
+  "required_total": 50,
+  "selected_total": 6,
+  "shortages_by_bucket": {
+    "politics": 9,
+    "sports": 11,
+    "crypto": 10,
+    "near_resolution": 9,
+    "new_market": 5
+  },
+  "inventory_by_tier": {
+    "gold": 12,
+    "silver": 0
+  },
+  "selected_by_tier": {
+    "gold": 6,
+    "silver": 0
+  },
+  "bucket_summary": {
+    "politics": {
+      "quota": 10,
+      "candidate_count": 1,
+      "selected_count": 1,
+      "shortage": 9,
+      "candidate_by_tier": {
+        "gold": 1,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 1,
+        "silver": 0
+      }
+    },
+    "sports": {
+      "quota": 15,
+      "candidate_count": 4,
+      "selected_count": 4,
+      "shortage": 11,
+      "candidate_by_tier": {
+        "gold": 4,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 4,
+        "silver": 0
+      }
+    },
+    "crypto": {
+      "quota": 10,
+      "candidate_count": 0,
+      "selected_count": 0,
+      "shortage": 10,
+      "candidate_by_tier": {
+        "gold": 0,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 0,
+        "silver": 0
+      }
+    },
+    "near_resolution": {
+      "quota": 10,
+      "candidate_count": 5,
+      "selected_count": 1,
+      "shortage": 9,
+      "candidate_by_tier": {
+        "gold": 5,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 1,
+        "silver": 0
+      }
+    },
+    "new_market": {
+      "quota": 5,
+      "candidate_count": 0,
+      "selected_count": 0,
+      "shortage": 5,
+      "candidate_by_tier": {
+        "gold": 0,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 0,
+        "silver": 0
+      }
+    }
+  },
+  "selected_assignments": {
+    "politics": [
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699",
+        "tier": "gold",
+        "slug": "will-trump-deport-less-than-250000",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 141,
+        "primary_asset_id": "101676997363687199724245607342877036148401850938023978421879460310389391082353",
+        "price_sample_count": 140,
+        "price_low": 0.0305,
+        "price_high": 0.967,
+        "price_span": 0.9365,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via fallback keywords",
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "sports": [
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map",
+        "tier": "gold",
+        "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 80,
+        "primary_asset_id": "32761305560497515266298907010603238583784271883422104419001315861857080693737",
+        "price_sample_count": 75,
+        "price_low": 0.0015,
+        "price_high": 0.002,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c",
+        "tier": "gold",
+        "slug": "will-the-vancouver-canucks-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 66,
+        "primary_asset_id": "57745051474175280715827307490433711376781914565134185656043688787803746924931",
+        "price_sample_count": 65,
+        "price_low": 0.001,
+        "price_high": 0.0015,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla",
+        "tier": "gold",
+        "slug": "will-the-calgary-flames-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "54811975275387163364864047298373893386525828579003336506827163723659384966681",
+        "price_sample_count": 29,
+        "price_low": 0.001,
+        "price_high": 0.0015,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+        "tier": "gold",
+        "slug": "will-the-oklahoma-city-thunder-win-the-2026-nba-finals",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 19,
+        "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+        "price_sample_count": 16,
+        "price_low": 0.36,
+        "price_high": 0.365,
+        "price_span": 0.005,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      }
+    ],
+    "crypto": [],
+    "near_resolution": [
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340",
+        "tier": "gold",
+        "slug": "20260225T234032Z_shadow_97449340",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 14,
+        "primary_asset_id": "59259495934562596318644973716893809974860301509869285036503555129962149752635",
+        "price_sample_count": 13,
+        "price_low": 0.99,
+        "price_high": 0.9904999999999999,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "new_market": []
+  },
+  "discovered_tapes": [
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340",
+      "tier": "gold",
+      "slug": "20260225T234032Z_shadow_97449340",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 14,
+      "primary_asset_id": "59259495934562596318644973716893809974860301509869285036503555129962149752635",
+      "price_sample_count": 13,
+      "price_low": 0.99,
+      "price_high": 0.9904999999999999,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699",
+      "tier": "gold",
+      "slug": "will-trump-deport-less-than-250000",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 141,
+      "primary_asset_id": "101676997363687199724245607342877036148401850938023978421879460310389391082353",
+      "price_sample_count": 140,
+      "price_low": 0.0305,
+      "price_high": 0.967,
+      "price_span": 0.9365,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via fallback keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "tier": "gold",
+      "slug": "will-the-oklahoma-city-thunder-win-the-2026-nba-finals",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 19,
+      "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+      "price_sample_count": 16,
+      "price_low": 0.36,
+      "price_high": 0.365,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "tier": "gold",
+      "slug": "20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "metadata_sources": [],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 22,
+      "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+      "price_sample_count": 21,
+      "price_low": 0.36,
+      "price_high": 0.365,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T003541Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T003541Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 5,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 4,
+      "price_low": 0.16749999999999998,
+      "price_high": 0.825,
+      "price_span": 0.6575,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T003627Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T003627Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 6,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 5,
+      "price_low": 0.16749999999999998,
+      "price_high": 0.825,
+      "price_span": 0.6575,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044247Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044247Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "20260306T044247Z_tape_bitboy-convicted_64fd7c95",
+      "metadata_sources": [],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 39,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 38,
+      "price_low": 0.162,
+      "price_high": 0.1625,
+      "price_span": 0.0005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044313Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044313Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 66,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 65,
+      "price_low": 0.1615,
+      "price_high": 0.1625,
+      "price_span": 0.001,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044438Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044438Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 77,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 75,
+      "price_low": 0.161,
+      "price_high": 0.162,
+      "price_span": 0.001,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map",
+      "tier": "gold",
+      "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 80,
+      "primary_asset_id": "32761305560497515266298907010603238583784271883422104419001315861857080693737",
+      "price_sample_count": 75,
+      "price_low": 0.0015,
+      "price_high": 0.002,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c",
+      "tier": "gold",
+      "slug": "will-the-vancouver-canucks-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 66,
+      "primary_asset_id": "57745051474175280715827307490433711376781914565134185656043688787803746924931",
+      "price_sample_count": 65,
+      "price_low": 0.001,
+      "price_high": 0.0015,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla",
+      "tier": "gold",
+      "slug": "will-the-calgary-flames-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "54811975275387163364864047298373893386525828579003336506827163723659384966681",
+      "price_sample_count": 29,
+      "price_low": 0.001,
+      "price_high": 0.0015,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    }
+  ],
+  "skipped_tapes": []
+}

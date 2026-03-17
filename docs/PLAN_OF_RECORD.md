@@ -4,8 +4,8 @@ This is the durable plan-of-record for the PolyTool project. It captures every
 material design decision so future work does not depend on chat history. It
 contains no private data (no wallets, dossier excerpts, or user-specific outputs).
 
-Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
-governing roadmap document as of 2026-03-12 and supersedes v3. This file
+Master Roadmap v4.2 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`) is the
+governing roadmap document as of 2026-03-16 and supersedes v4.1. This file
 remains the implementation-policy companion: use it for shipped constraints,
 kill conditions, and explicit current-state limits until code/spec work changes
 them.
@@ -17,7 +17,7 @@ them.
 | System scope | Automated discovery, validation, live execution, and a self-improving loop are the target end state. | The shipped canonical workflow is still local-first research plus gated execution primitives. No v4 phase should be treated as complete unless the repo and gates say so. |
 | Automation / hosting | v4 plans thin FastAPI wrappers, n8n orchestration, Discord operations, and eventual AWS deployment. | Current operating policy stays local-first. AWS is not required by any shipped milestone, and the broader automation stack is not current-state truth yet. |
 | LLM / signals | v4 allows future paid API escalation and dedicated signals/news pipelines. | Current toolchain policy remains no external LLM API calls and no trading recommendations from shipped outputs. |
-| Gate 2 primary path | v4.1 changes Gate 2 from live-capture-first to bulk-historical-import-first. pmxt archive + Jon-Becker + 2-min price history produce Silver-tier tapes sufficient for Gate 2. | Gate 2 tooling is implemented and working. Bulk historical import foundation v0 is shipped (SPEC-0018). Silver tape reconstruction is not yet shipped. Gate 2 is not passed. |
+| Gate 2 primary path | v4.2 uses DuckDB to query pmxt and Jon-Becker Parquet files directly — no ClickHouse import step required. Silver tape reconstruction from those files + 2-min price history → Gate 2 scenario sweep. | Gate 2 tooling is implemented. pmxt and Jon-Becker raw Parquet files exist locally. DuckDB setup and integration is the next step. Silver reconstruction and Gate 2 sweep remain pending. ClickHouse bulk import (SPEC-0018) is off the critical path under v4.2. |
 
 ---
 
@@ -84,12 +84,11 @@ Each CLI command is invoked as `python -m polytool <command>`. See
 `examine` remains available as a legacy orchestration wrapper but is not the
 canonical path for trust artifact validation.
 
-### Track alignment (as of 2026-03-12)
+### Track alignment (as of 2026-03-16)
 
-These shipped checkpoints do not imply that the corresponding Master Roadmap v4
-These shipped checkpoints do not imply that the corresponding Master Roadmap
-v4.1 phases are complete. In particular, v4.1 Phase 1 still includes automation and
-live-ops items that are not yet shipped.
+These shipped checkpoints do not imply that the corresponding Master Roadmap v4.2
+phases are complete. In particular, v4.2 Phase 1 still includes DuckDB integration,
+Silver reconstruction, and live-ops items that are not yet shipped.
 - **Track B foundation is complete**: wallet-scan v0, alpha-distill v0, and the
   RAG/hypothesis scaffolding baseline.
 - **Hypothesis workflow v0 is complete**: `hypothesis-register`, `hypothesis-status`,
@@ -504,7 +503,7 @@ Do NOT start any backtesting work until:
 
 ## Cross-References
 
-- [Master Roadmap v4.1](reference/POLYTOOL_MASTER_ROADMAP_v4.1.md) - Governing roadmap document; supersedes v3
+- [Master Roadmap v4.2](reference/POLYTOOL_MASTER_ROADMAP_v4.2.md) - Governing roadmap document; supersedes v4.1
 - [Roadmap](ROADMAP.md) - Milestone checklist and kill conditions
 - [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) - Step-by-step workflow
 - [Hypothesis Standard](HYPOTHESIS_STANDARD.md) - Prompt template and quality rubric

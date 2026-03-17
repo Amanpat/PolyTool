@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from packages.polymarket.historical_import.importer import ImportResult
 from tools.cli.historical_import import main
 
 
@@ -206,3 +208,63 @@ class TestImportCLI:
         ])
         payload = json.loads(out_file.read_text(encoding="utf-8"))
         assert payload.get("provenance_hash", "").startswith("import_manifest_")
+
+    def test_import_sample_reads_clickhouse_credentials_from_dotenv(self, tmp_path, monkeypatch):
+        _make_file(tmp_path / "Polymarket" / "snap.parquet", "")
+        _make_file(
+            tmp_path / ".env",
+            "\n".join(
+                [
+                    "CLICKHOUSE_USER=env_user",
+                    "CLICKHOUSE_PASSWORD=env_pass",
+                    "CLICKHOUSE_HTTP_PORT=18123",
+                ]
+            ),
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("CLICKHOUSE_USER", raising=False)
+        monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+        monkeypatch.delenv("CLICKHOUSE_PORT", raising=False)
+        monkeypatch.delenv("CLICKHOUSE_HTTP_PORT", raising=False)
+
+        result = ImportResult(
+            source_kind="pmxt_archive",
+            import_mode="sample",
+            run_id="run-123",
+            resolved_source_path=str(tmp_path),
+            destination_tables=["polytool.pmxt_l2_snapshots"],
+            import_completeness="complete",
+            files_processed=1,
+            rows_attempted=1,
+        )
+
+        with patch("packages.polymarket.historical_import.importer.ClickHouseClient") as mock_client, \
+             patch("packages.polymarket.historical_import.importer.run_import", return_value=result):
+            rc = main([
+                "import", "--source-kind", "pmxt_archive",
+                "--local-path", str(tmp_path),
+                "--import-mode", "sample",
+            ])
+
+        assert rc == 0
+        mock_client.assert_called_once_with(
+            host="localhost",
+            port=18123,
+            user="env_user",
+            password="env_pass",
+        )
+
+    def test_import_sample_requires_clickhouse_password(self, tmp_path, monkeypatch, capsys):
+        _make_file(tmp_path / "Polymarket" / "snap.parquet", "")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+
+        rc = main([
+            "import", "--source-kind", "pmxt_archive",
+            "--local-path", str(tmp_path),
+            "--import-mode", "sample",
+        ])
+
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "CLICKHOUSE_PASSWORD is required" in captured.err

@@ -146,7 +146,7 @@ class ImportRunRecord:
     destination_tables: List[str] = field(default_factory=list)
     files_processed: int = 0
     files_skipped: int = 0
-    rows_loaded: int = 0
+    rows_attempted: int = 0  # rows sent to CH insert(); may exceed CH count due to ReplacingMergeTree dedup
     rows_skipped: int = 0
     rows_rejected: int = 0
     import_completeness: str = ""  # dry-run / complete / partial / failed
@@ -210,7 +210,7 @@ def make_import_run_record(
         destination_tables=list(result.destination_tables),
         files_processed=result.files_processed,
         files_skipped=result.files_skipped,
-        rows_loaded=result.rows_loaded,
+        rows_attempted=result.rows_attempted,
         rows_skipped=result.rows_skipped,
         rows_rejected=result.rows_rejected,
         import_completeness=result.import_completeness,

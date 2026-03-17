@@ -70,11 +70,11 @@ Future integration points (when implemented):
 - [ ] Store fee_rate_bps per trade in ClickHouse
 - [ ] Calculate fees_actual from stored rate instead of estimating
 
-### Hypothesis Validation
+### Hypothesis Validation Loop v0 [CLOSED 2026-03-12]
 
-- [ ] Automatic schema validation on llm-save
-- [ ] Extract summary bullets from report for LLM_notes
-- [ ] Hypothesis diff comparison across runs
+- [x] Schema-backed validation on `llm-save --hypothesis-path` with `validation_result.json`
+- [x] `hypothesis-validate`, `hypothesis-diff`, and `hypothesis-summary` are shipped
+- Next chat: start Master Roadmap v4.1 Phase 2 `Candidate Scanner CLI` (`candidate-scan`); Gate 2 remains blocked.
 
 ## Medium Priority
 

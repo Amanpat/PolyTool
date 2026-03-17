@@ -41,7 +41,7 @@ docker compose down
 
 ## Database Access
 
-- **Admin**: `polytool_admin` / `polytool_admin` (full access)
+- **Admin**: `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` from `.env` (full access; default user `polytool_admin`)
 - **Grafana**: `grafana_ro` / `grafana_readonly_local` (SELECT only)
 
 ## When Adding Features

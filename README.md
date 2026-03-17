@@ -524,7 +524,7 @@ Recommended: Chainstack (https://chainstack.com) or Alchemy (https://alchemy.com
 - Create a Polygon mainnet node
 - Copy the WSS endpoint URL
 - Cost: ~$50–100/month
-- Set in your .env: `POLYGON_RPC=wss://your-node-url`
+- Set in your `.env`: `POLYGON_RPC_URL=wss://your-node-url`
 
 ### 6.3 — Set Up Credentials
 
@@ -539,7 +539,7 @@ CLOB_API_KEY=paste_output_here
 CLOB_API_SECRET=paste_output_here
 CLOB_API_PASSPHRASE=paste_output_here
 
-POLYGON_RPC=wss://your-chainstack-or-alchemy-endpoint
+POLYGON_RPC_URL=wss://your-chainstack-or-alchemy-endpoint
 ```
 
 **SECURITY RULES — NON-NEGOTIABLE:**

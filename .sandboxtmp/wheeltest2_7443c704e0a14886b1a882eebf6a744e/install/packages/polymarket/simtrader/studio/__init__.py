@@ -1,1 +1,0 @@
-# SimTrader Studio package marker.

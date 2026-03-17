@@ -1,5 +1,3 @@
-"""Deterministic summary extraction for saved hypothesis JSON artifacts."""
-
 from __future__ import annotations
 
 import json
@@ -7,6 +5,8 @@ import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+from packages.polymarket.hypotheses.validator import validate_hypothesis_entry
 
 
 SUMMARY_SCHEMA_VERSION = "hypothesis_summary_v0"
@@ -31,24 +31,43 @@ def extract_hypothesis_summary(
     if not isinstance(document, dict):
         raise ValueError("Hypothesis document root must be a JSON object")
 
+    structure_issues: list[dict[str, Any]] = []
+
     metadata = _extract_metadata(document.get("metadata"))
-    executive_summary = _extract_executive_summary(document.get("executive_summary"))
-    hypotheses = _build_hypothesis_entries(document.get("hypotheses"))
+    executive_summary = _extract_executive_summary(
+        document.get("executive_summary"),
+        structure_issues=structure_issues,
+    )
+    hypotheses = _build_hypothesis_entries(
+        document.get("hypotheses"),
+        structure_issues=structure_issues,
+    )
     primary_hypothesis = hypotheses[0] if hypotheses else None
 
-    limitations = _extract_text_entries(document.get("limitations"), "limitations")
+    limitations = _extract_text_entries(
+        document.get("limitations"),
+        "limitations",
+        structure_issues=structure_issues,
+    )
     missing_data = _extract_text_entries(
         document.get("missing_data_for_backtest"),
         "missing_data_for_backtest",
+        structure_issues=structure_issues,
     )
     next_features = _extract_text_entries(
         document.get("next_features_needed"),
         "next_features_needed",
+        structure_issues=structure_issues,
     )
-    risks = _extract_text_entries(document.get("risks"), "risks")
+    risks = _extract_text_entries(
+        document.get("risks"),
+        "risks",
+        structure_issues=structure_issues,
+    )
     execution_recommendations = _extract_text_entries(
         document.get("execution_recommendations"),
         "execution_recommendations",
+        structure_issues=structure_issues,
     )
 
     summary_bullets: list[dict[str, Any]] = []
@@ -153,6 +172,7 @@ def extract_hypothesis_summary(
         "source": {
             "hypothesis_path": hypothesis_path,
         },
+        "structure_issues": structure_issues,
         "summary": {
             "available_sections": _available_sections(document),
             "bullet_count": len(summary_bullets),
@@ -219,6 +239,44 @@ def _append_bullet(
     summary_bullets.append(bullet)
 
 
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_value(inner)
+            for key, inner in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+    if isinstance(value, list):
+        return [_normalize_value(item) for item in value]
+    return value
+
+
+def _value_descriptor(value: Any) -> dict[str, Any]:
+    return {
+        "type": type(value).__name__,
+        "value": _normalize_value(value),
+    }
+
+
+def _append_structure_issue(
+    structure_issues: list[dict[str, Any]],
+    *,
+    code: str,
+    message: str,
+    path: str,
+    value: Any,
+    reasons: list[str] | None = None,
+) -> None:
+    issue = {
+        "code": code,
+        "message": message,
+        "path": path,
+        "value": _value_descriptor(value),
+    }
+    if reasons:
+        issue["reasons"] = reasons
+    structure_issues.append(issue)
+
+
 def _extract_metadata(value: Any) -> dict[str, Any]:
     metadata = value if isinstance(value, dict) else {}
     return {
@@ -234,41 +292,70 @@ def _extract_metadata(value: Any) -> dict[str, Any]:
     }
 
 
-def _extract_executive_summary(value: Any) -> dict[str, Any]:
+def _extract_executive_summary(
+    value: Any,
+    *,
+    structure_issues: list[dict[str, Any]],
+) -> dict[str, Any]:
     summary = value if isinstance(value, dict) else {}
-    bullets = []
-    for index, item in enumerate(_as_list(summary.get("bullets"))):
-        text = _nonempty_string(item)
-        if text is None:
-            continue
-        bullets.append(
-            {
-                "path": f"executive_summary.bullets[{index}]",
-                "text": text,
-            }
-        )
+    bullets = _extract_text_entries(
+        summary.get("bullets"),
+        "executive_summary.bullets",
+        structure_issues=structure_issues,
+    )
     return {
         "bullets": bullets,
         "overall_assessment": _nonempty_string(summary.get("overall_assessment")),
     }
 
 
-def _extract_text_entries(value: Any, base_path: str) -> list[dict[str, str]]:
+def _extract_text_entries(
+    value: Any,
+    base_path: str,
+    *,
+    structure_issues: list[dict[str, Any]],
+) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     if isinstance(value, list):
-        iterable = enumerate(value)
+        iterable: list[tuple[str, Any]] = [
+            (f"{base_path}[{index}]", item) for index, item in enumerate(value)
+        ]
     elif isinstance(value, str):
-        iterable = [(0, value)]
+        iterable = [(base_path, value)]
+        _append_structure_issue(
+            structure_issues,
+            code="scalar_string_fallback",
+            message="Expected a list of strings; using the raw string directly.",
+            path=base_path,
+            value=value,
+        )
+    elif value is None:
+        iterable = []
     else:
         iterable = []
+        _append_structure_issue(
+            structure_issues,
+            code="invalid_text_collection",
+            message="Expected a list of strings; ignored malformed value.",
+            path=base_path,
+            value=value,
+        )
 
-    for index, item in iterable:
+    for path, item in iterable:
         text = _nonempty_string(item)
         if text is None:
+            if item is not None and not isinstance(item, str):
+                _append_structure_issue(
+                    structure_issues,
+                    code="invalid_text_entry",
+                    message="Ignored non-string text entry.",
+                    path=path,
+                    value=item,
+                )
             continue
         entries.append(
             {
-                "path": f"{base_path}[{index}]",
+                "path": path,
                 "text": text,
             }
         )
@@ -279,28 +366,126 @@ def _canonical_signature(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
-def _build_hypothesis_entries(value: Any) -> list[dict[str, Any]]:
+def _normalize_citation(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return _normalize_value(value)
+
+    normalized: dict[str, Any] = {}
+    for key in sorted(value):
+        item = value[key]
+        if key == "trade_uids" and isinstance(item, list):
+            normalized[key] = sorted(
+                (_normalize_value(entry) for entry in item),
+                key=_canonical_signature,
+            )
+        else:
+            normalized[key] = _normalize_value(item)
+    return normalized
+
+
+def _normalize_hypothesis_entry(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return _normalize_value(value)
+
+    normalized: dict[str, Any] = {}
+    for key in sorted(value):
+        item = value[key]
+        if key == "evidence" and isinstance(item, list):
+            normalized[key] = sorted(
+                (_normalize_citation(entry) for entry in item),
+                key=_canonical_signature,
+            )
+        elif key == "tags" and isinstance(item, list):
+            normalized[key] = sorted(
+                (_normalize_value(entry) for entry in item),
+                key=_canonical_signature,
+            )
+        else:
+            normalized[key] = _normalize_value(item)
+    return normalized
+
+
+def _hypothesis_summary_eligibility_errors(
+    entry: dict[str, Any],
+    *,
+    source_path: str,
+) -> list[str]:
+    result = validate_hypothesis_entry(entry, path_prefix=source_path)
+    return result.errors
+
+
+def _build_hypothesis_entries(
+    value: Any,
+    *,
+    structure_issues: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
+    if value is not None and not isinstance(value, list):
+        _append_structure_issue(
+            structure_issues,
+            code="invalid_hypotheses_collection",
+            message="Expected hypotheses to be a list; ignored malformed value.",
+            path="hypotheses",
+            value=value,
+        )
+        return entries
+
     for index, raw_entry in enumerate(_as_list(value)):
-        hypothesis = raw_entry if isinstance(raw_entry, dict) else {}
-        evidence = _build_evidence_entries(hypothesis.get("evidence"))
-        entry = {
-            "claim": _nonempty_string(hypothesis.get("claim")),
-            "confidence": _nonempty_string(hypothesis.get("confidence")),
-            "evidence_count": len(evidence),
-            "execution_recommendation": _nonempty_string(
-                hypothesis.get("execution_recommendation")
-            ),
-            "id": _nonempty_string(hypothesis.get("id")),
-            "index": index,
-            "next_feature_needed": _nonempty_string(
-                hypothesis.get("next_feature_needed")
-            ),
-            "primary_evidence": _select_primary_evidence(evidence),
-            "raw": raw_entry,
-            "signature": _canonical_signature(raw_entry),
-        }
-        entries.append(entry)
+        source_path = f"hypotheses[{index}]"
+        if not isinstance(raw_entry, dict):
+            _append_structure_issue(
+                structure_issues,
+                code="skipped_non_object_hypothesis",
+                message=(
+                    "Hypothesis entry is not an object; skipped from hypothesis_count "
+                    "and primary_hypothesis."
+                ),
+                path=source_path,
+                value=raw_entry,
+            )
+            continue
+
+        evidence = _build_evidence_entries(
+            raw_entry.get("evidence"),
+            relative_base_path="evidence",
+            issue_base_path=f"{source_path}.evidence",
+            structure_issues=structure_issues,
+        )
+        eligibility_errors = _hypothesis_summary_eligibility_errors(
+            raw_entry,
+            source_path=source_path,
+        )
+        if eligibility_errors:
+            _append_structure_issue(
+                structure_issues,
+                code="skipped_ineligible_hypothesis",
+                message=(
+                    "Hypothesis entry failed schema validation for summary "
+                    "eligibility; skipped from hypothesis_count and "
+                    "primary_hypothesis."
+                ),
+                path=source_path,
+                value=raw_entry,
+                reasons=eligibility_errors,
+            )
+            continue
+
+        entries.append(
+            {
+                "claim": _nonempty_string(raw_entry.get("claim")),
+                "confidence": _nonempty_string(raw_entry.get("confidence")),
+                "evidence_count": len(evidence),
+                "execution_recommendation": _nonempty_string(
+                    raw_entry.get("execution_recommendation")
+                ),
+                "id": _nonempty_string(raw_entry.get("id")),
+                "next_feature_needed": _nonempty_string(
+                    raw_entry.get("next_feature_needed")
+                ),
+                "primary_evidence": _select_primary_evidence(evidence),
+                "signature": _canonical_signature(_normalize_hypothesis_entry(raw_entry)),
+            }
+        )
 
     entries.sort(key=_hypothesis_sort_key)
 
@@ -319,14 +504,15 @@ def _build_hypothesis_entries(value: Any) -> list[dict[str, Any]]:
 def _hypothesis_sort_key(entry: dict[str, Any]) -> tuple[Any, ...]:
     hypothesis_id = entry["id"]
     claim = entry["claim"] or ""
+    signature = entry["signature"]
     match = _HYPOTHESIS_ID_RE.match(hypothesis_id or "")
     if match is not None:
-        return (0, int(match.group("number")), hypothesis_id, claim.lower(), entry["index"])
+        return (0, int(match.group("number")), hypothesis_id.lower(), claim.lower(), signature)
     if hypothesis_id is not None:
-        return (1, hypothesis_id.lower(), claim.lower(), entry["index"])
+        return (1, hypothesis_id.lower(), claim.lower(), signature)
     if claim:
-        return (2, claim.lower(), entry["index"])
-    return (3, entry["signature"], entry["index"])
+        return (2, claim.lower(), signature)
+    return (3, signature)
 
 
 def _hypothesis_base_key(entry: dict[str, Any]) -> str:
@@ -337,38 +523,125 @@ def _hypothesis_base_key(entry: dict[str, Any]) -> str:
     return "anonymous"
 
 
-def _build_evidence_entries(value: Any) -> list[dict[str, Any]]:
+def _build_evidence_entries(
+    value: Any,
+    *,
+    relative_base_path: str,
+    issue_base_path: str,
+    structure_issues: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for index, raw_entry in enumerate(_as_list(value)):
-        evidence = raw_entry if isinstance(raw_entry, dict) else {}
-        trade_uids = sorted(
-            item
-            for item in _as_list(evidence.get("trade_uids"))
-            if isinstance(item, str) and item.strip()
+    if isinstance(value, list):
+        iterable: list[tuple[str, str, Any]] = [
+            (
+                f"{relative_base_path}[{index}]",
+                f"{issue_base_path}[{index}]",
+                raw_entry,
+            )
+            for index, raw_entry in enumerate(value)
+        ]
+    elif isinstance(value, str):
+        iterable = [(relative_base_path, issue_base_path, value)]
+        _append_structure_issue(
+            structure_issues,
+            code="scalar_string_evidence_fallback",
+            message="Evidence should be a list; using the raw string as a single entry.",
+            path=issue_base_path,
+            value=value,
         )
-        metrics = evidence.get("metrics") if isinstance(evidence.get("metrics"), dict) else {}
-        text = _nonempty_string(evidence.get("text"))
-        file_path = _nonempty_string(evidence.get("file_path"))
-        if text is None and isinstance(raw_entry, str):
+    elif value is None:
+        iterable = []
+    else:
+        iterable = []
+        _append_structure_issue(
+            structure_issues,
+            code="invalid_evidence_collection",
+            message="Evidence should be a list; ignored malformed value.",
+            path=issue_base_path,
+            value=value,
+        )
+
+    for relative_path, issue_path, raw_entry in iterable:
+        if isinstance(raw_entry, dict):
+            trade_uids = sorted(
+                item
+                for item in _as_list(raw_entry.get("trade_uids"))
+                if isinstance(item, str) and item.strip()
+            )
+            metrics = (
+                raw_entry.get("metrics")
+                if isinstance(raw_entry.get("metrics"), dict)
+                else {}
+            )
+            entries.append(
+                {
+                    "entry_is_object": True,
+                    "file_path": _nonempty_string(raw_entry.get("file_path")),
+                    "metrics": metrics,
+                    "signature": _canonical_signature(_normalize_citation(raw_entry)),
+                    "text": _nonempty_string(raw_entry.get("text")),
+                    "trade_uid_count": len(trade_uids),
+                    "trade_uids": trade_uids,
+                }
+            )
+            continue
+
+        if isinstance(raw_entry, str):
+            _append_structure_issue(
+                structure_issues,
+                code="raw_string_evidence_fallback",
+                message=(
+                    "Evidence entry is a raw string; using it as text without "
+                    "inventing object fields."
+                ),
+                path=issue_path,
+                value=raw_entry,
+            )
             text = _nonempty_string(raw_entry)
-        entries.append(
-            {
-                "file_path": file_path,
-                "metrics": metrics,
-                "path": f"evidence[{index}].text",
-                "text": text,
-                "trade_uid_count": len(trade_uids),
-                "trade_uids": trade_uids,
-            }
+            if text is None:
+                continue
+            entries.append(
+                {
+                    "entry_is_object": False,
+                    "file_path": None,
+                    "metrics": {},
+                    "signature": _canonical_signature(_normalize_value(raw_entry)),
+                    "text": text,
+                    "trade_uid_count": 0,
+                    "trade_uids": [],
+                }
+            )
+            continue
+
+        _append_structure_issue(
+            structure_issues,
+            code="invalid_evidence_entry",
+            message="Ignored evidence entry that is neither an object nor a string.",
+            path=issue_path,
+            value=raw_entry,
         )
+
+    entries.sort(key=_evidence_sort_key)
+    for index, entry in enumerate(entries):
+        suffix = ".text" if entry["entry_is_object"] else ""
+        entry["path"] = f"{relative_base_path}[{index}]{suffix}"
     return entries
 
 
 def _select_primary_evidence(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
-    for entry in entries:
+    ordered_entries = sorted(entries, key=_evidence_sort_key)
+    for entry in ordered_entries:
         if entry["text"] is not None:
             return entry
-    return entries[0] if entries else None
+    return ordered_entries[0] if ordered_entries else None
+
+
+def _evidence_sort_key(entry: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        0 if entry["text"] is not None else 1,
+        0 if entry["entry_is_object"] else 1,
+        entry["signature"],
+    )
 
 
 def _build_identity_text(

@@ -14,6 +14,8 @@ import csv
 import gzip
 import io
 import json
+import math
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -56,7 +58,7 @@ class ImportResult:
     destination_tables: List[str]
     files_processed: int = 0
     files_skipped: int = 0
-    rows_loaded: int = 0
+    rows_attempted: int = 0  # rows sent to CH insert(); may exceed CH count due to ReplacingMergeTree dedup
     rows_skipped: int = 0
     rows_rejected: int = 0
     import_completeness: str = "dry-run"  # dry-run / complete / partial / failed
@@ -76,7 +78,7 @@ class ImportResult:
             "destination_tables": list(self.destination_tables),
             "files_processed": self.files_processed,
             "files_skipped": self.files_skipped,
-            "rows_loaded": self.rows_loaded,
+            "rows_attempted": self.rows_attempted,
             "rows_skipped": self.rows_skipped,
             "rows_rejected": self.rows_rejected,
             "import_completeness": self.import_completeness,
@@ -235,6 +237,70 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+_NULL_LIKE_TIMESTAMP_VALUES = {"", "nan", "nat", "none", "null"}
+_NUMERIC_TIMESTAMP_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
+
+
+class InvalidSnapshotTimestamp(ValueError):
+    """Raised when a pmxt row has no trustworthy snapshot timestamp."""
+
+
+class InvalidTradeTimestamp(ValueError):
+    """Raised when a Jon row has no trustworthy trade timestamp."""
+
+
+def _normalize_timestamp_value(value: Any) -> Optional[datetime]:
+    """Normalize a timestamp value to UTC for ClickHouse DateTime64 inserts."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lower() in _NULL_LIKE_TIMESTAMP_VALUES:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(f"invalid timestamp value {value!r}") from exc
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    raise ValueError(f"unsupported timestamp type {type(value).__name__}")
+
+
+def _normalize_unix_timestamp_value(value: float, original_value: Any) -> datetime:
+    if not math.isfinite(value):
+        raise ValueError(f"invalid timestamp value {original_value!r}")
+    try:
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError(f"invalid timestamp value {original_value!r}") from exc
+
+
+def _normalize_jon_timestamp_value(value: Any) -> Optional[datetime]:
+    """Normalize Jon trade timestamps, including epoch-style CSV values."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("unsupported timestamp type bool")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and math.isnan(value):
+            return None
+        return _normalize_unix_timestamp_value(float(value), value)
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lower() in _NULL_LIKE_TIMESTAMP_VALUES:
+            return None
+        if _NUMERIC_TIMESTAMP_RE.fullmatch(text):
+            return _normalize_unix_timestamp_value(float(text), value)
+    return _normalize_timestamp_value(value)
+
+
 # ---------------------------------------------------------------------------
 # PmxtImporter
 # ---------------------------------------------------------------------------
@@ -261,6 +327,14 @@ class PmxtImporter:
         "snapshot_ts", "platform", "market_id", "token_id",
         "side", "price", "size", "source_file", "import_run_id",
     ]
+    _TIMESTAMP_FIELDS = (
+        "snapshot_ts",
+        "timestamp_received",
+        "timestamp_created_at",
+        "ts",
+        "timestamp",
+        "datetime",
+    )
 
     def __init__(self, local_path: str) -> None:
         self._local_path = Path(local_path).resolve()
@@ -282,12 +356,27 @@ class PmxtImporter:
         except ValueError:
             return "unknown"
 
+    def _snapshot_ts_from_record(self, record: Dict[str, Any]) -> datetime:
+        invalid_fields: List[str] = []
+        for field_name in self._TIMESTAMP_FIELDS:
+            if field_name not in record:
+                continue
+            try:
+                normalized = _normalize_timestamp_value(record[field_name])
+            except ValueError as exc:
+                invalid_fields.append(f"{field_name}: {exc}")
+                continue
+            if normalized is not None:
+                return normalized
+        if invalid_fields:
+            details = "; ".join(invalid_fields)
+            raise InvalidSnapshotTimestamp(f"invalid snapshot_ts ({details})")
+        raise InvalidSnapshotTimestamp("missing snapshot_ts")
+
     def _row_from_record(
         self, record: Dict[str, Any], platform: str, source_file: str, run_id: str
     ) -> list:
-        snapshot_ts = str(
-            _first_col(record, ["ts", "timestamp", "datetime"], "")
-        )
+        snapshot_ts = self._snapshot_ts_from_record(record)
         market_id = str(_first_col(record, ["market_id", "condition_id", "market"], ""))
         token_id = str(_first_col(record, ["token_id", "outcome_token_id", "token"], ""))
         side = str(_first_col(record, ["side", "bid_ask"], ""))
@@ -335,16 +424,30 @@ class PmxtImporter:
             platform = self._platform_from_path(file_path)
             try:
                 rows_batch: List[list] = []
-                for record in _read_parquet_rows(file_path):
-                    rows_batch.append(
-                        self._row_from_record(record, platform, source_file, run_id)
-                    )
+                rejected_rows = 0
+                rejection_examples: List[str] = []
+                for row_number, record in enumerate(_read_parquet_rows(file_path), start=1):
+                    try:
+                        rows_batch.append(
+                            self._row_from_record(record, platform, source_file, run_id)
+                        )
+                    except InvalidSnapshotTimestamp as exc:
+                        rejected_rows += 1
+                        result.rows_rejected += 1
+                        if len(rejection_examples) < 3:
+                            rejection_examples.append(f"row {row_number}: {exc}")
+                        continue
                     if mode == ImportMode.SAMPLE and len(rows_batch) >= sample_rows:
                         break
 
                 if rows_batch:
                     loaded = ch_client.insert_rows(self._TABLE, self._COLUMNS, rows_batch)
-                    result.rows_loaded += loaded
+                    result.rows_attempted += loaded
+                if rejected_rows:
+                    summary = f"{source_file}: rejected {rejected_rows} row(s) with invalid snapshot_ts"
+                    if rejection_examples:
+                        summary = f"{summary} ({'; '.join(rejection_examples)})"
+                    result.errors.append(summary)
 
             except ImportError:
                 raise  # re-raise pyarrow missing so caller can report properly
@@ -374,6 +477,7 @@ class JonBeckerImporter:
         "taker_side", "resolution", "category", "source_file", "import_run_id",
     ]
     _EXTENSIONS = {".parquet", ".csv", ".csv.gz", ".parquet.gz"}
+    _TIMESTAMP_FIELDS = ("timestamp", "ts", "time", "t", "_fetched_at")
 
     def __init__(self, local_path: str) -> None:
         self._local_path = Path(local_path).resolve()
@@ -387,10 +491,27 @@ class JonBeckerImporter:
             if f.is_file() and any(str(f.name).endswith(ext) for ext in self._EXTENSIONS)
         ]
 
+    def _trade_ts_from_record(self, record: Dict[str, Any]) -> datetime:
+        invalid_fields: List[str] = []
+        for field_name in self._TIMESTAMP_FIELDS:
+            if field_name not in record:
+                continue
+            try:
+                normalized = _normalize_jon_timestamp_value(record[field_name])
+            except ValueError as exc:
+                invalid_fields.append(f"{field_name}: {exc}")
+                continue
+            if normalized is not None:
+                return normalized
+        if invalid_fields:
+            details = "; ".join(invalid_fields)
+            raise InvalidTradeTimestamp(f"invalid ts ({details})")
+        raise InvalidTradeTimestamp("missing ts")
+
     def _row_from_record(
         self, record: Dict[str, Any], source_file: str, run_id: str
     ) -> list:
-        ts = str(_first_col(record, ["timestamp", "ts", "time", "t"], ""))
+        ts = self._trade_ts_from_record(record)
         market_id = str(_first_col(record, ["market_id", "condition_id"], ""))
         token_id = str(_first_col(record, ["token_id", "outcome_token_id"], ""))
         price = float(_first_col(record, ["price", "p"], 0.0))
@@ -455,14 +576,28 @@ class JonBeckerImporter:
             source_file = str(file_path)
             try:
                 rows_batch: List[list] = []
-                for record in self._iter_file(file_path):
-                    rows_batch.append(self._row_from_record(record, source_file, run_id))
+                rejected_rows = 0
+                rejection_examples: List[str] = []
+                for row_number, record in enumerate(self._iter_file(file_path), start=1):
+                    try:
+                        rows_batch.append(self._row_from_record(record, source_file, run_id))
+                    except InvalidTradeTimestamp as exc:
+                        rejected_rows += 1
+                        result.rows_rejected += 1
+                        if len(rejection_examples) < 3:
+                            rejection_examples.append(f"row {row_number}: {exc}")
+                        continue
                     if mode == ImportMode.SAMPLE and len(rows_batch) >= sample_rows:
                         break
 
                 if rows_batch:
                     loaded = ch_client.insert_rows(self._TABLE, self._COLUMNS, rows_batch)
-                    result.rows_loaded += loaded
+                    result.rows_attempted += loaded
+                if rejected_rows:
+                    summary = f"{source_file}: rejected {rejected_rows} row(s) with invalid ts"
+                    if rejection_examples:
+                        summary = f"{summary} ({'; '.join(rejection_examples)})"
+                    result.errors.append(summary)
 
             except ImportError:
                 raise
@@ -577,7 +712,7 @@ class PriceHistoryImporter:
 
                 if rows_batch:
                     loaded = ch_client.insert_rows(self._TABLE, self._COLUMNS, rows_batch)
-                    result.rows_loaded += loaded
+                    result.rows_attempted += loaded
 
             except Exception as exc:
                 result.errors.append(f"{source_file}: {exc}")

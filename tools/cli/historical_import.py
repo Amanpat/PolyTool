@@ -32,7 +32,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from packages.polymarket.historical_import.manifest import (
     ImportRunRecord,
@@ -54,6 +54,37 @@ _VALIDATOR_MAP = {
 }
 
 _SOURCE_KIND_CHOICES = sorted(_VALIDATOR_MAP.keys())
+DEFAULT_CLICKHOUSE_USER = "polytool_admin"
+
+
+def load_env_file(path: str) -> Dict[str, str]:
+    """Load key/value pairs from a .env-style file."""
+    if not os.path.exists(path):
+        return {}
+
+    env: Dict[str, str] = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip("'").strip('"')
+            if key:
+                env[key] = value
+    return env
+
+
+def apply_env_defaults(env: Dict[str, str]) -> None:
+    """Populate os.environ with defaults from .env without overriding existing vars."""
+    for key, value in env.items():
+        os.environ.setdefault(key, value)
+
+
+def _resolve_clickhouse_port() -> int:
+    port = os.environ.get("CLICKHOUSE_PORT") or os.environ.get("CLICKHOUSE_HTTP_PORT")
+    return int(port) if port else 8123
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -128,19 +159,19 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Write JSON run record here (optional).")
     imp.add_argument(
         "--ch-host", default=None, metavar="HOST",
-        help="ClickHouse host (default: CLICKHOUSE_HOST env or localhost).",
+        help="ClickHouse host (default: .env/CLICKHOUSE_HOST or localhost).",
     )
     imp.add_argument(
         "--ch-port", type=int, default=None, metavar="PORT",
-        help="ClickHouse port (default: CLICKHOUSE_PORT env or 8123).",
+        help="ClickHouse port (default: .env/CLICKHOUSE_PORT or CLICKHOUSE_HTTP_PORT, or 8123).",
     )
     imp.add_argument(
         "--ch-user", default=None, metavar="USER",
-        help="ClickHouse user (default: CLICKHOUSE_USER env or polytool_admin).",
+        help="ClickHouse user (default: .env/CLICKHOUSE_USER or polytool_admin).",
     )
     imp.add_argument(
         "--ch-password", default=None, metavar="PASS",
-        help="ClickHouse password (default: CLICKHOUSE_PASSWORD env or polytool_admin).",
+        help="ClickHouse password (default: .env/CLICKHOUSE_PASSWORD; required for non-dry-run unless passed explicitly).",
     )
 
     return p
@@ -233,10 +264,17 @@ def _cmd_import(args: argparse.Namespace) -> int:
     # Build CH client for non-dry-run modes
     ch_client = None
     if mode != ImportMode.DRY_RUN:
-        ch_host = args.ch_host or os.environ.get("CLICKHOUSE_HOST", "localhost")
-        ch_port = args.ch_port or int(os.environ.get("CLICKHOUSE_PORT", "8123"))
-        ch_user = args.ch_user or os.environ.get("CLICKHOUSE_USER", "polytool_admin")
-        ch_password = args.ch_password or os.environ.get("CLICKHOUSE_PASSWORD", "polytool_admin")
+        ch_host = args.ch_host or os.environ.get("CLICKHOUSE_HOST") or "localhost"
+        ch_port = args.ch_port or _resolve_clickhouse_port()
+        ch_user = args.ch_user or os.environ.get("CLICKHOUSE_USER") or DEFAULT_CLICKHOUSE_USER
+        ch_password = args.ch_password or os.environ.get("CLICKHOUSE_PASSWORD")
+        if not ch_password:
+            print(
+                "[import-historical import] CLICKHOUSE_PASSWORD is required for non-dry-run imports. "
+                "Set it in .env or pass --ch-password.",
+                file=sys.stderr,
+            )
+            return 1
         ch_client = ClickHouseClient(
             host=ch_host, port=ch_port, user=ch_user, password=ch_password
         )
@@ -264,7 +302,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
     print(f"  import_mode:          {run_record.import_mode}")
     print(f"  run_id:               {run_record.run_id}")
     print(f"  files_processed:      {run_record.files_processed}")
-    print(f"  rows_loaded:          {run_record.rows_loaded}")
+    print(f"  rows_attempted:       {run_record.rows_attempted}")
     print(f"  rows_skipped:         {run_record.rows_skipped}")
     print(f"  rows_rejected:        {run_record.rows_rejected}")
     print(f"  import_completeness:  {run_record.import_completeness}")
@@ -279,10 +317,15 @@ def _cmd_import(args: argparse.Namespace) -> int:
     if run_record.import_completeness == "dry-run":
         print("\nImport complete (dry-run — no data written to ClickHouse).")
     elif run_record.import_completeness == "complete":
-        print(f"\nImport complete ({run_record.rows_loaded} rows loaded).")
+        print(f"\nImport complete ({run_record.rows_attempted} rows attempted).")
+        print(
+            "  Note: rows_attempted = rows sent to ClickHouse insert(). "
+            "Actual CH row count may be lower if ReplacingMergeTree background "
+            "merges have deduplicated rows with the same ORDER BY key."
+        )
     elif run_record.import_completeness == "partial":
         print(
-            f"\nImport partial — {run_record.rows_loaded} rows loaded; "
+            f"\nImport partial — {run_record.rows_attempted} rows attempted; "
             f"{len(run_record.errors)} error(s).",
             file=sys.stderr,
         )
@@ -300,6 +343,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    env_values = load_env_file(os.path.join(os.getcwd(), ".env"))
+    apply_env_defaults(env_values)
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.subcommand is None:

@@ -1,15 +1,27 @@
 # Bulk Historical Import v0 — Operator Runbook
 
-**Status**: Packet 2 shipped (2026-03-13). Steps 1-6 are operational.
-Import execution (dry-run, sample, full) is now available.
+> **v4.2 NOTE — LEGACY / OPTIONAL TOOLING**: Under Master Roadmap v4.2, this
+> runbook is **off the critical path**. DuckDB reads pmxt and Jon-Becker Parquet
+> files directly from `/data/raw/` without any ClickHouse import step. The
+> ClickHouse bulk import implemented here is useful as an optional cache/index
+> layer but is **not required** for Silver tape reconstruction or Gate 2 passage.
+> See `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md` (Database Architecture).
+> The v4.2 primary path is: DuckDB setup → Silver reconstruction → Gate 2 sweep.
+
+**Status**: Packet 2 shipped (2026-03-13). Steps 1-6 are operational but
+off the critical path under v4.2. Use this runbook if you want a ClickHouse
+cache/index of historical data; skip it if you are following the v4.2 DuckDB path.
 
 **Spec**: `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md`
 
-**Purpose**: Import pmxt archive + Jon-Becker dataset + 2-minute price history
-to produce Silver-tier reconstructed tapes for the Gate 2 scenario sweep.
+**Purpose (legacy/optional)**: Import pmxt archive + Jon-Becker dataset +
+2-minute price history into ClickHouse tables as a cache/index layer. Under
+v4.2, Silver tape reconstruction uses DuckDB on the raw Parquet files directly
+instead. pmxt full import (78,264,878 rows) and Jon-Becker sample import are
+complete; their artifacts are in `artifacts/imports/`.
 
-Gate 2 is NOT passed by this runbook. Silver tape reconstruction (Packet 2) is
-required before the sweep can run.
+Gate 2 is NOT passed by this runbook. Silver tape reconstruction (blocked on
+DuckDB setup under v4.2) is required before the sweep can run.
 
 ---
 
@@ -218,6 +230,7 @@ The destination tables are created by migrations `21_pmxt_archive.sql`,
 ClickHouse is running before any non-dry-run import:
 
 ```bash
+# Copy .env.example to .env and set CLICKHOUSE_PASSWORD before first boot.
 docker compose up -d
 ```
 
@@ -266,10 +279,31 @@ CSV and JSONL files import without any additional dependencies.
 Each import writes a JSON run record with a `provenance_hash` field for
 audit traceability. Commit run records to `artifacts/imports/` as evidence.
 
-To verify the tables exist:
+**Metric note**: `rows_attempted` in the run record is the number of rows sent
+to the ClickHouse `insert()` call, not the number of rows CH persists. Because
+`pmxt_l2_snapshots` uses `ReplacingMergeTree`, background merges deduplicate
+rows that share the same `(platform, market_id, token_id, side, price, snapshot_ts)`
+key. A `SELECT count(*) FROM polytool.pmxt_l2_snapshots` after a full import
+will typically return fewer rows than `rows_attempted`. This is expected. To
+verify the actual CH count after import:
 
 ```bash
-curl "http://localhost:8123/?query=SELECT+name+FROM+system.tables+WHERE+database='polytool'+AND+name+LIKE+'pmxt%25'+OR+name+LIKE+'jb_%25'+OR+name+LIKE+'price_%25'"
+curl "http://localhost:${CLICKHOUSE_HTTP_PORT:-8123}/?user=${CLICKHOUSE_USER:-polytool_admin}&password=${CLICKHOUSE_PASSWORD}&query=SELECT+count(*)+FROM+polytool.pmxt_l2_snapshots"
+```
+
+To verify ClickHouse auth and then confirm the tables exist:
+
+```bash
+curl "http://localhost:${CLICKHOUSE_HTTP_PORT:-8123}/?user=${CLICKHOUSE_USER:-polytool_admin}&password=${CLICKHOUSE_PASSWORD}&query=SELECT+1"
+curl "http://localhost:${CLICKHOUSE_HTTP_PORT:-8123}/?user=${CLICKHOUSE_USER:-polytool_admin}&password=${CLICKHOUSE_PASSWORD}&query=SELECT+name+FROM+system.tables+WHERE+database='polytool'+AND+(name+LIKE+'pmxt%25'+OR+name+LIKE+'jb_%25'+OR+name+LIKE+'price_%25')"
+```
+
+If you previously started ClickHouse with different `CLICKHOUSE_USER` /
+`CLICKHOUSE_PASSWORD` values, recreate the ClickHouse volume before retrying:
+
+```bash
+docker compose down -v
+docker compose up -d
 ```
 
 ---
@@ -348,8 +382,14 @@ Manifest and run record JSON files should be committed as provenance records.
 
 ---
 
-## Next Steps (Packet 3)
+## Next Steps (v4.2 primary path — supersedes Packet 3)
 
-1. Implement Silver tape reconstruction from pmxt + jb_trades + price_history_2min
-2. Run Gate 2 scenario sweep on Silver-tier tapes
-3. If sweep passes (>=70% score), close Gate 2 via `tools/gates/close_sweep_gate.py`
+Under v4.2, Silver tape reconstruction is DuckDB-based, not ClickHouse-based.
+The ClickHouse import steps above are complete (pmxt full batch + Jon-Becker
+sample) but are no longer required for the reconstruction step.
+
+1. DuckDB setup and integration (reads pmxt + Jon-Becker Parquet files directly)
+2. Fetch price_history_2min from polymarket-apis (still required as mid-price constraint)
+3. Implement Silver tape reconstruction via DuckDB queries on raw Parquet files
+4. Run Gate 2 scenario sweep on Silver-tier tapes
+5. If sweep passes (>=70% score), close Gate 2 via `tools/gates/close_sweep_gate.py`

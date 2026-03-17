@@ -49,10 +49,24 @@ status is:
   `price_history_2min` = legacy local-file bulk import (SPEC-0018, off critical
   path). See dev log `docs/dev_logs/2026-03-16_price_2min_clickhouse_v0.md`.
   CLI: `python -m polytool fetch-price-2min --token-id <ID> [--dry-run]`.
-- **Silver tape reconstruction**: not yet started. Blocked on DuckDB setup and
-  integration, not on further ClickHouse bulk import work.
-- Gate 2 is not closed. Current next step: DuckDB setup and integration →
-  price_history_2min fetch → Silver tape reconstruction → Gate 2 scenario sweep
+- **Silver tape reconstruction**: foundation v0 shipped 2026-03-16; operational
+  v1 shipped 2026-03-16. Single-market CLI (`reconstruct-silver`) and batch CLI
+  (`batch-reconstruct-silver`) are operational. `tape_metadata` ClickHouse table
+  defined (`infra/clickhouse/initdb/25_tape_metadata.sql`). Batch manifest
+  (`silver_batch_manifest_v1`) written after each run. Metadata persists to
+  ClickHouse with JSONL fallback. DuckDB + real dataset integration pending.
+  See dev logs `2026-03-16_silver_reconstructor_foundation_v0.md` and
+  `2026-03-16_silver_reconstructor_operational_v1.md`.
+- **Benchmark v1 manifest curation**: `benchmark-manifest` CLI shipped
+  2026-03-16. It audits canonical local tape roots and either writes
+  `config/benchmark_v1.tape_manifest` + `config/benchmark_v1.audit.json`, or
+  writes `config/benchmark_v1.gap_report.json` and exits non-zero when quotas
+  are not satisfiable. Current real local audit is BLOCKED: 12 Gold / 0 Silver
+  tapes discovered, 6 bucket slots fillable, shortages = politics 9, sports 11,
+  crypto 10, near_resolution 9, new_market 5. No
+  `config/benchmark_v1.tape_manifest` exists yet.
+- Gate 2 is not closed. Current next step: DuckDB + real dataset validation →
+  price_2min population → Silver tape quality check → Gate 2 scenario sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
 
@@ -267,8 +281,12 @@ Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
 **Pending (v4.2 primary path)**:
 - DuckDB setup and integration (next immediate step)
 - price_2min population: run `fetch-price-2min` for target token IDs before Silver reconstruction
-- Silver tape reconstruction (DuckDB-based; blocked on DuckDB setup)
-- Gate 2 scenario sweep (blocked on Silver tapes existing)
+- Silver tape validation with real DuckDB data (infrastructure complete: `reconstruct-silver`,
+  `batch-reconstruct-silver`, `tape_metadata` CH table)
+- Benchmark_v1 inventory still blocked on real tapes: need 9 more politics,
+  11 more sports, 10 crypto, 9 near-resolution, and 5 new-market tapes before
+  `config/benchmark_v1.tape_manifest` can be written
+- Gate 2 scenario sweep (blocked on qualifying Silver tapes with real data)
 
 **Not in scope for current work**:
 - Opportunity Radar: deferred until after first clean Gate 2 → Gate 3 progression
@@ -297,8 +315,10 @@ Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
     `--watchlist-file` ingest.
   - Under v4.2: pmxt and Jon-Becker raw Parquet files exist locally; DuckDB
     reads them directly (no further ClickHouse import required).
-  - price_history_2min not yet fetched. Silver tape reconstruction not yet
-    started (blocked on DuckDB setup). No Silver-tier tape exists.
+  - price_2min not yet fetched for target tokens. Silver tape reconstruction
+    infrastructure shipped (v0 + v1); DuckDB integration with real datasets
+    pending. No qualifying Silver-tier tape exists yet (requires real pmxt/Jon
+    data via DuckDB). CLIs: `reconstruct-silver`, `batch-reconstruct-silver`.
 - Gate 3 (Shadow Mode): Blocked behind Gate 2.
 - Gate 4 (Dry-Run Live): **PASSED** - artifact at
   `artifacts/gates/dry_run_gate/gate_passed.json`.

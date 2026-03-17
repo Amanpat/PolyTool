@@ -272,13 +272,14 @@ python tools/guard/pre_push_guard.py  # Should exit 0
 git clone <repo>
 cd PolyTool
 cp .env.example .env
+# Edit .env and set CLICKHOUSE_PASSWORD before the first docker compose up.
 
 # 2. Start infrastructure
 docker compose up -d --build
 docker compose ps  # All healthy
 
 # 3. Verify ClickHouse
-curl "http://localhost:18123/?query=SELECT%201&user=polytool_admin&password=polytool_admin"
+curl "http://localhost:${CLICKHOUSE_HTTP_PORT:-8123}/?query=SELECT%201&user=${CLICKHOUSE_USER:-polytool_admin}&password=${CLICKHOUSE_PASSWORD}"
 
 # 4. Run a scan
 python -m polytool scan  # Uses TARGET_USER from .env

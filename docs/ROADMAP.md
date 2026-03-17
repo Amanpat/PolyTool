@@ -1,20 +1,21 @@
 # Roadmap
 
-Master Roadmap v4.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.1.md`) is the
-governing roadmap document as of 2026-03-12 and supersedes v3.
+Master Roadmap v4.2 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`) is the
+governing roadmap document as of 2026-03-16 and supersedes v4.1.
 
 This file is retained as the legacy implementation ledger for the numbered
 Roadmap 0-10 milestones and Track A/Track B checkpoints. Treat `COMPLETE` in
 this file as evidence that a pre-v4 milestone shipped, not as proof that the
-corresponding v4 phase is complete.
+corresponding v4.2 phase is complete.
 
-## Authority Notes / Material Deltas vs v4
+## Authority Notes / Material Deltas vs v4.2
 
-| Area | Master Roadmap v4.1 | Current ledger meaning |
+| Area | Master Roadmap v4.2 | Current ledger meaning |
 |------|-------------------|------------------------|
-| Phase 1 / live bot | Includes FastAPI wrappers, n8n local setup, Discord alerts, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. |
+| Phase 1 / live bot | Includes DuckDB integration, Silver reconstruction, FastAPI wrappers, n8n local setup, Discord alerts, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. DuckDB setup is the next milestone. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. |
+| Database split | DuckDB = historical Parquet reads. ClickHouse = live streaming writes. | v4.2 rule adopted. ClickHouse bulk import (SPEC-0018) is off the critical path; pmxt and Jon-Becker raw files exist locally for DuckDB. |
 | Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, hypothesis registry foundation, and Hypothesis Validation Loop v0 only. |
-| Phase 7 / Studio rebuild | Calls for a new unified React/Next.js Studio. | Current UI-related items in this file describe the existing operator surfaces, not v4 Phase 7 completion. |
+| Phase 7 / Studio rebuild | Calls for a new unified React/Next.js Studio. | Current UI-related items in this file describe the existing operator surfaces, not v4.2 Phase 7 completion. |
 
 ---
 
@@ -266,13 +267,14 @@ never enabled by default.
 - Gate 2: not passed yet, but tooling is implemented and working
 - Gate 3: blocked behind Gate 2
 - Gate 4: PASSED
-- Current blocker: edge scarcity / lack of qualifying live dislocations, not
-  SimTrader plumbing
-- Current next step (v4.1 primary path): bulk historical import
-  (pmxt archive + Jon-Becker + 2-minute price history) to produce
-  Silver-tier tapes for the Gate 2 scenario sweep; see
-  `docs/specs/SPEC-0018-bulk-historical-import-foundation-v0.md` and
-  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md`
+- Current next step (v4.2 primary path): DuckDB setup and integration.
+  pmxt and Jon-Becker raw Parquet files exist locally; DuckDB queries them
+  directly without a ClickHouse import step. Silver tape reconstruction
+  follows. See `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`
+  (Database Architecture section).
+- ClickHouse bulk import (SPEC-0018): off the critical path under v4.2.
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md` is retained as
+  legacy/optional cache-index tooling.
 - Fallback trigger (live path): bounded live dislocation capture remains
   an option when a catalyst window fires; see
   `docs/dev_logs/2026-03-07_bounded_dislocation_capture_trial.md`

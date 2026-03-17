@@ -1397,6 +1397,9 @@ def _sweep_mm(args: argparse.Namespace) -> int:
             tapes_dir=Path(args.tapes_dir),
             out_dir=Path(args.out),
             manifest_path=Path(args.manifest),
+            benchmark_manifest_path=(
+                Path(args.benchmark_manifest) if args.benchmark_manifest else None
+            ),
             threshold=float(args.threshold),
             starting_cash=starting_cash,
             fee_rate_bps=fee_rate_bps,
@@ -3475,6 +3478,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(Path("artifacts") / "gates" / "gate2_tape_manifest.json"),
         metavar="PATH",
         help="Optional gate2 tape manifest used as a regime/recorded_by fallback.",
+    )
+    mm_sweep_p.add_argument(
+        "--benchmark-manifest",
+        default=None,
+        metavar="PATH",
+        dest="benchmark_manifest",
+        help=(
+            "Optional benchmark_v1 tape manifest. When provided, the sweep uses "
+            "that explicit tape list instead of ad hoc tape discovery."
+        ),
     )
     mm_sweep_p.add_argument(
         "--threshold",

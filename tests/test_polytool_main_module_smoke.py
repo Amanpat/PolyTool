@@ -98,6 +98,10 @@ def _write_eligible_tape(tapes_dir: Path, regime: str) -> str:
             ["hypothesis-summary", "--help"],
             ["hypothesis-summary [-h]", "--hypothesis-path"],
         ),
+        (
+            ["benchmark-manifest", "validate", "--help"],
+            ["usage: benchmark-manifest validate", "--manifest", "--write-lock"],
+        ),
     ],
 )
 def test_polytool_main_module_help_surface_smoke(

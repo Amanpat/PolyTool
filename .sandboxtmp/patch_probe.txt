@@ -1,4 +1,0 @@
-*** Begin Patch
-*** Add File: tmp_patch_tool_probe.txt
-+probe
-*** End Patch

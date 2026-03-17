@@ -1,1 +1,0 @@
-"""Concrete SimTrader strategy implementations."""

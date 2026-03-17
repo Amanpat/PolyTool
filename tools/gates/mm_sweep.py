@@ -94,6 +94,7 @@ def run_mm_sweep(
     out_dir: Path = DEFAULT_MM_SWEEP_OUT_DIR,
     threshold: float = DEFAULT_MM_SWEEP_THRESHOLD,
     manifest_path: Path = DEFAULT_GATE2_MANIFEST_PATH,
+    benchmark_manifest_path: Path | None = None,
     starting_cash: Decimal = DEFAULT_MM_SWEEP_STARTING_CASH,
     fee_rate_bps: Decimal = DEFAULT_MM_SWEEP_FEE_RATE_BPS,
     mark_method: str = DEFAULT_MM_SWEEP_MARK_METHOD,
@@ -108,7 +109,11 @@ def run_mm_sweep(
     if any(float(multiplier) <= 0 for multiplier in spread_multipliers):
         raise ValueError("--spread-multipliers values must be > 0")
 
-    tapes = discover_mm_sweep_tapes(tapes_dir=tapes_dir, manifest_path=manifest_path)
+    tapes = discover_mm_sweep_tapes(
+        tapes_dir=tapes_dir,
+        manifest_path=manifest_path,
+        benchmark_manifest_path=benchmark_manifest_path,
+    )
     if not tapes:
         _clear_gate_artifacts(out_dir)
         return MMSweepResult(
@@ -223,8 +228,12 @@ def discover_mm_sweep_tapes(
     *,
     tapes_dir: Path = DEFAULT_MM_SWEEP_TAPES_DIR,
     manifest_path: Path = DEFAULT_GATE2_MANIFEST_PATH,
+    benchmark_manifest_path: Path | None = None,
 ) -> list[TapeCandidate]:
     """Discover tapes for the market maker Gate 2 sweep."""
+    if benchmark_manifest_path is not None:
+        return _load_benchmark_manifest_tapes(benchmark_manifest_path)
+
     manifest_index = _load_gate2_manifest_index(manifest_path)
     candidates: list[TapeCandidate] = []
 
@@ -240,58 +249,112 @@ def discover_mm_sweep_tapes(
         prep_meta = _read_json_object(tape_dir / "prep_meta.json")
         manifest_entry = manifest_index.get(tape_dir.name, {})
 
-        recorded_by = _first_text(
-            meta.get("recorded_by"),
-            prep_meta.get("recorded_by"),
-            manifest_entry.get("recorded_by"),
+        candidate = _build_tape_candidate(
+            tape_dir=tape_dir,
+            events_path=events_path,
+            meta=meta,
+            prep_meta=prep_meta,
+            manifest_entry=manifest_entry,
+            require_selected=True,
         )
-        regime = _first_text(
-            meta.get("final_regime"),
-            meta.get("regime"),
-            prep_meta.get("final_regime"),
-            prep_meta.get("regime"),
-            manifest_entry.get("final_regime"),
-            manifest_entry.get("regime"),
-        )
-        market_slug = _first_text(
-            prep_meta.get("market_slug"),
-            _extract_market_slug(meta),
-            manifest_entry.get("slug"),
-            tape_dir.name,
-        )
-        yes_asset_id = _first_text(
-            prep_meta.get("yes_asset_id"),
-            prep_meta.get("yes_token_id"),
-            _extract_yes_asset_id(meta),
-        )
-
-        if yes_asset_id is None:
-            continue
-
-        if not _is_selected_market_maker_tape(
-            recorded_by=recorded_by,
-            regime=regime,
-            market_slug=market_slug,
-            tape_name=tape_dir.name,
-        ):
-            continue
-
-        parsed_events, tracked_asset_count, effective_events = _count_effective_events(events_path)
-        candidates.append(
-            TapeCandidate(
-                tape_dir=tape_dir,
-                events_path=events_path,
-                market_slug=market_slug,
-                yes_asset_id=yes_asset_id,
-                recorded_by=recorded_by,
-                regime=regime,
-                parsed_events=parsed_events,
-                tracked_asset_count=tracked_asset_count,
-                effective_events=effective_events,
-            )
-        )
+        if candidate is not None:
+            candidates.append(candidate)
 
     return candidates
+
+
+def _load_benchmark_manifest_tapes(benchmark_manifest_path: Path) -> list[TapeCandidate]:
+    from packages.polymarket.benchmark_manifest_contract import (
+        default_lock_path_for_manifest,
+        validate_benchmark_manifest,
+    )
+
+    lock_path = default_lock_path_for_manifest(benchmark_manifest_path)
+    validation = validate_benchmark_manifest(
+        benchmark_manifest_path,
+        lock_path=lock_path if lock_path.exists() else None,
+    )
+
+    candidates: list[TapeCandidate] = []
+    for events_path in validation.resolved_tape_paths:
+        tape_dir = events_path.parent
+        candidate = _build_tape_candidate(
+            tape_dir=tape_dir,
+            events_path=events_path,
+            meta=_read_json_object(tape_dir / "meta.json"),
+            prep_meta=_read_json_object(tape_dir / "prep_meta.json"),
+            manifest_entry={},
+            require_selected=False,
+            explicit_source=str(benchmark_manifest_path),
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _build_tape_candidate(
+    *,
+    tape_dir: Path,
+    events_path: Path,
+    meta: dict[str, Any],
+    prep_meta: dict[str, Any],
+    manifest_entry: dict[str, Any],
+    require_selected: bool,
+    explicit_source: str | None = None,
+) -> TapeCandidate | None:
+    recorded_by = _first_text(
+        meta.get("recorded_by"),
+        prep_meta.get("recorded_by"),
+        manifest_entry.get("recorded_by"),
+    )
+    regime = _first_text(
+        meta.get("final_regime"),
+        meta.get("regime"),
+        prep_meta.get("final_regime"),
+        prep_meta.get("regime"),
+        manifest_entry.get("final_regime"),
+        manifest_entry.get("regime"),
+    )
+    market_slug = _first_text(
+        prep_meta.get("market_slug"),
+        _extract_market_slug(meta),
+        manifest_entry.get("slug"),
+        tape_dir.name,
+    )
+    yes_asset_id = _first_text(
+        prep_meta.get("yes_asset_id"),
+        prep_meta.get("yes_token_id"),
+        _extract_yes_asset_id(meta),
+    )
+
+    if yes_asset_id is None:
+        if explicit_source is not None:
+            raise ValueError(
+                "benchmark manifest tape is missing YES asset metadata: "
+                f"{_display_path(events_path)} (source {explicit_source})"
+            )
+        return None
+
+    if require_selected and not _is_selected_market_maker_tape(
+        recorded_by=recorded_by,
+        regime=regime,
+        market_slug=market_slug,
+        tape_name=tape_dir.name,
+    ):
+        return None
+
+    parsed_events, tracked_asset_count, effective_events = _count_effective_events(events_path)
+    return TapeCandidate(
+        tape_dir=tape_dir,
+        events_path=events_path,
+        market_slug=market_slug,
+        yes_asset_id=yes_asset_id,
+        recorded_by=recorded_by,
+        regime=regime,
+        parsed_events=parsed_events,
+        tracked_asset_count=tracked_asset_count,
+        effective_events=effective_events,
+    )
 
 
 def build_mm_sweep_config(

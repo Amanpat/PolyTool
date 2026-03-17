@@ -91,6 +91,58 @@ def _write_manifest(path: Path, tape_dirs: list[Path]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def test_discover_mm_sweep_tapes_accepts_explicit_benchmark_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import packages.polymarket.benchmark_manifest_contract as benchmark_contract
+
+    tapes_dir = tmp_path / "tapes"
+    explicit_a = _write_tape_dir(
+        tapes_dir,
+        "explicit-a",
+        market_slug="explicit-a",
+        yes_id="YES_A",
+        no_id="NO_A",
+        event_count=12,
+    )
+    explicit_b = _write_tape_dir(
+        tapes_dir,
+        "explicit-b",
+        market_slug="explicit-b",
+        yes_id="YES_B",
+        no_id="NO_B",
+        event_count=14,
+    )
+    benchmark_manifest = tmp_path / "benchmark_v1.tape_manifest"
+    benchmark_manifest.write_text("[]\n", encoding="utf-8")
+
+    fake_validation = SimpleNamespace(
+        resolved_tape_paths=[
+            explicit_a / "events.jsonl",
+            explicit_b / "events.jsonl",
+        ]
+    )
+    monkeypatch.setattr(
+        benchmark_contract,
+        "validate_benchmark_manifest",
+        lambda manifest_path, lock_path=None: fake_validation,
+    )
+    monkeypatch.setattr(
+        benchmark_contract,
+        "default_lock_path_for_manifest",
+        lambda manifest_path: tmp_path / "benchmark_v1.lock.json",
+    )
+
+    discovered = discover_mm_sweep_tapes(
+        benchmark_manifest_path=benchmark_manifest,
+    )
+
+    assert [candidate.tape_dir.name for candidate in discovered] == ["explicit-a", "explicit-b"]
+    assert [candidate.market_slug for candidate in discovered] == ["explicit-a", "explicit-b"]
+    assert [candidate.yes_asset_id for candidate in discovered] == ["YES_A", "YES_B"]
+
+
 def test_discover_mm_sweep_tapes_uses_manifest_fallback_and_tracks_effective_events(
     tmp_path: Path,
 ) -> None:
@@ -392,6 +444,7 @@ def test_cli_sweep_mm_passes_min_events_and_spread_multipliers(
     assert rc == 1
     assert captured["tapes_dir"] == tmp_path / "tapes"
     assert captured["out_dir"] == tmp_path / "out"
+    assert captured["benchmark_manifest_path"] is None
     assert captured["threshold"] == 0.70
     assert captured["min_events"] == 75
     assert captured["spread_multipliers"] == (0.5, 1.0, 1.5, 2.0, 3.0)

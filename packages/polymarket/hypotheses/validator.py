@@ -46,6 +46,16 @@ def _load_schema() -> dict[str, Any]:
     return json.loads(schema_text)
 
 
+@lru_cache(maxsize=1)
+def _load_hypothesis_entry_schema() -> dict[str, Any]:
+    schema = _load_schema()
+    return {
+        "$schema": schema.get("$schema"),
+        "$defs": schema.get("$defs", {}),
+        **schema["$defs"]["hypothesis"],
+    }
+
+
 # Requires T separator, full HH:MM:SS, and timezone (Z or +/-HH:MM).
 _RFC3339_DT_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
@@ -73,7 +83,21 @@ def _format_path(path) -> str:
     return result
 
 
-def _format_jsonschema_error(error: jsonschema.ValidationError) -> str:
+def _join_error_path(path_prefix: str | None, path_str: str) -> str:
+    if not path_prefix:
+        return path_str
+    if not path_str:
+        return path_prefix
+    if path_str.startswith("["):
+        return f"{path_prefix}{path_str}"
+    return f"{path_prefix}.{path_str}"
+
+
+def _format_jsonschema_error(
+    error: jsonschema.ValidationError,
+    *,
+    path_prefix: str | None = None,
+) -> str:
     """Turn a jsonschema ValidationError into a human-readable string."""
     path_str = _format_path(error.absolute_path)
 
@@ -82,10 +106,12 @@ def _format_jsonschema_error(error: jsonschema.ValidationError) -> str:
         if match:
             missing = match.group(1)
             full = f"{path_str}.{missing}" if path_str else missing
+            full = _join_error_path(path_prefix, full)
             return f"Missing required field: '{full}'"
 
-    if path_str:
-        return f"'{path_str}': {error.message}"
+    full_path = _join_error_path(path_prefix, path_str)
+    if full_path:
+        return f"'{full_path}': {error.message}"
     return error.message
 
 
@@ -134,3 +160,20 @@ def validate_hypothesis_json(data: Any) -> ValidationResult:
             )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+
+
+def validate_hypothesis_entry(
+    data: Any,
+    *,
+    path_prefix: str | None = None,
+) -> ValidationResult:
+    """Validate one hypothesis object against the packaged hypothesis schema."""
+    errors: list[str] = []
+
+    validator = jsonschema.Draft202012Validator(_load_hypothesis_entry_schema())
+    for error in sorted(
+        validator.iter_errors(data), key=lambda item: list(item.absolute_path)
+    ):
+        errors.append(_format_jsonschema_error(error, path_prefix=path_prefix))
+
+    return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=[])

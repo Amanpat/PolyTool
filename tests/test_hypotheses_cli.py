@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 
@@ -236,6 +237,8 @@ def test_hypothesis_diff_missing_file_exits_1(tmp_path: Path, capsys) -> None:
 
     assert rc == 1
     assert "file not found" in captured.err.lower()
+
+
 def test_hypothesis_diff_invalid_json_exits_1(tmp_path: Path, capsys) -> None:
     old_path = tmp_path / "old.json"
     new_path = tmp_path / "new.json"
@@ -262,8 +265,6 @@ def test_hypothesis_diff_non_object_root_exits_1(tmp_path: Path, capsys) -> None
     assert "root must be a json object" in captured.err.lower()
 
 
-
-
 def test_hypothesis_diff_reports_top_level_hypotheses_type_mismatch(tmp_path: Path, capsys) -> None:
     old_doc = _minimal_valid_hypothesis()
     old_doc["hypotheses"] = "not-a-list"
@@ -288,6 +289,7 @@ def test_hypothesis_diff_reports_top_level_hypotheses_type_mismatch(tmp_path: Pa
         "new_type": "list",
         "old_type": "str",
     }
+
 
 def _summary_document() -> dict:
     return {
@@ -335,6 +337,7 @@ def test_hypothesis_summary_outputs_structured_json(tmp_path: Path, capsys) -> N
     payload = json.loads(captured.out)
     assert payload["schema_version"] == "hypothesis_summary_v0"
     assert payload["primary_hypothesis"]["key"] == "id:H1"
+    assert payload["primary_hypothesis"]["primary_evidence"]["path"] == "evidence[0].text"
     assert [bullet["key"] for bullet in payload["summary_bullets"]] == [
         "identity",
         "overall_assessment",
@@ -346,6 +349,281 @@ def test_hypothesis_summary_outputs_structured_json(tmp_path: Path, capsys) -> N
         "next_step",
     ]
     assert payload["summary_bullets"][5]["text"] == "Primary evidence: Late entries exited green."
+    assert payload["summary_bullets"][5]["source_fields"] == [
+        "hypotheses[id:H1].evidence[0].text"
+    ]
+
+
+def test_hypothesis_summary_primary_evidence_provenance_is_stable_under_reorder(
+    tmp_path: Path, capsys
+) -> None:
+    left_path = tmp_path / "left.json"
+    right_path = tmp_path / "right.json"
+
+    left_payload = _summary_document()
+    left_payload["hypotheses"][0]["evidence"] = [
+        {"text": "Zulu evidence.", "trade_uids": ["t4", "t3"]},
+        {"text": "Alpha evidence.", "trade_uids": ["t2", "t1"]},
+    ]
+    right_payload = copy.deepcopy(left_payload)
+    right_payload["hypotheses"][0]["evidence"] = [
+        right_payload["hypotheses"][0]["evidence"][1],
+        right_payload["hypotheses"][0]["evidence"][0],
+    ]
+    right_payload["hypotheses"][0]["evidence"][0]["trade_uids"] = ["t1", "t2"]
+    right_payload["hypotheses"][0]["evidence"][1]["trade_uids"] = ["t3", "t4"]
+
+    left_path.write_text(json.dumps(left_payload, indent=2), encoding="utf-8")
+    right_path.write_text(json.dumps(right_payload, indent=2), encoding="utf-8")
+
+    rc_left = polytool_main(["hypothesis-summary", "--hypothesis-path", str(left_path)])
+    captured_left = capsys.readouterr()
+    rc_right = polytool_main(["hypothesis-summary", "--hypothesis-path", str(right_path)])
+    captured_right = capsys.readouterr()
+
+    assert rc_left == 0
+    assert rc_right == 0
+
+    left_summary = json.loads(captured_left.out)
+    right_summary = json.loads(captured_right.out)
+    assert left_summary["source"]["hypothesis_path"].endswith("left.json")
+    assert right_summary["source"]["hypothesis_path"].endswith("right.json")
+    left_summary["source"]["hypothesis_path"] = "PATH"
+    right_summary["source"]["hypothesis_path"] = "PATH"
+    assert left_summary == right_summary
+
+
+def test_hypothesis_summary_reports_structure_issues_and_skips_malformed_hypotheses(
+    tmp_path: Path, capsys
+) -> None:
+    hypothesis_path = tmp_path / "hypothesis.json"
+    payload = {
+        "schema_version": "hypothesis_v1",
+        "metadata": {
+            "user_slug": "testuser",
+            "run_id": "sum-issues",
+            "created_at_utc": "2026-03-12T00:00:00Z",
+            "model": "claude-sonnet-4-6",
+        },
+        "hypotheses": [
+            "not-an-object",
+            {
+                "id": "H0",
+                "claim": "Malformed hypothesis should not be counted.",
+                "evidence": ["Late entries exited green."],
+            },
+            {
+                "id": "H1",
+                "claim": "Trader shows late-entry edge.",
+                "confidence": "medium",
+                "falsification": "Check a fresh export.",
+                "evidence": [{"text": "Canonical evidence survives."}],
+            },
+        ],
+        "limitations": "No pre-trade context is available.",
+    }
+    hypothesis_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    rc = polytool_main(["hypothesis-summary", "--hypothesis-path", str(hypothesis_path)])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    summary_payload = json.loads(captured.out)
+    assert summary_payload["summary"]["hypothesis_count"] == 1
+    assert summary_payload["summary"]["primary_hypothesis_key"] == "id:H1"
+    assert summary_payload["primary_hypothesis"]["primary_evidence"]["path"] == "evidence[0].text"
+    primary_evidence_bullet = next(
+        bullet for bullet in summary_payload["summary_bullets"] if bullet["key"] == "primary_evidence"
+    )
+    assert primary_evidence_bullet["source_fields"] == ["hypotheses[id:H1].evidence[0].text"]
+    assert summary_payload["structure_issues"] == [
+        {
+            "code": "skipped_non_object_hypothesis",
+            "message": (
+                "Hypothesis entry is not an object; skipped from hypothesis_count "
+                "and primary_hypothesis."
+            ),
+            "path": "hypotheses[0]",
+            "value": {"type": "str", "value": "not-an-object"},
+        },
+        {
+            "code": "raw_string_evidence_fallback",
+            "message": (
+                "Evidence entry is a raw string; using it as text without inventing object fields."
+            ),
+            "path": "hypotheses[1].evidence[0]",
+            "value": {"type": "str", "value": "Late entries exited green."},
+        },
+        {
+            "code": "skipped_ineligible_hypothesis",
+            "message": (
+                "Hypothesis entry failed schema validation for summary eligibility; "
+                "skipped from hypothesis_count and primary_hypothesis."
+            ),
+            "path": "hypotheses[1]",
+            "reasons": [
+                "Missing required field: 'hypotheses[1].confidence'",
+                "Missing required field: 'hypotheses[1].falsification'",
+                "'hypotheses[1].evidence[0]': 'Late entries exited green.' is not of type 'object'",
+            ],
+            "value": {
+                "type": "dict",
+                "value": {
+                    "claim": "Malformed hypothesis should not be counted.",
+                    "evidence": ["Late entries exited green."],
+                    "id": "H0",
+                },
+            },
+        },
+        {
+            "code": "scalar_string_fallback",
+            "message": "Expected a list of strings; using the raw string directly.",
+            "path": "limitations",
+            "value": {"type": "str", "value": "No pre-trade context is available."},
+        },
+    ]
+
+
+def test_hypothesis_summary_skips_schema_invalid_hypotheses_from_primary_selection(
+    tmp_path: Path, capsys
+) -> None:
+    hypothesis_path = tmp_path / "hypothesis-schema-invalid.json"
+    valid_duplicate = _summary_document()["hypotheses"][0]
+    invalid_duplicate = copy.deepcopy(valid_duplicate)
+    invalid_duplicate["tags"] = [1]
+    payload = {
+        "schema_version": "hypothesis_v1",
+        "metadata": {
+            "user_slug": "testuser",
+            "run_id": "sum-schema-invalid",
+            "created_at_utc": "2026-03-12T00:00:00Z",
+            "model": "claude-sonnet-4-6",
+        },
+        "hypotheses": [
+            {
+                "id": "HX",
+                "claim": "Invalid ids must not become summary-eligible.",
+                "confidence": "medium",
+                "falsification": "Check the next export.",
+                "evidence": [{"text": "The id pattern is wrong."}],
+            },
+            invalid_duplicate,
+            {
+                "id": "H2",
+                "claim": "Bad metrics must not become summary-eligible.",
+                "confidence": "medium",
+                "falsification": "Check the next export.",
+                "evidence": [{"text": "Metrics are malformed.", "metrics": "oops"}],
+            },
+            {
+                "id": "H3",
+                "claim": "Bad file paths must not become summary-eligible.",
+                "confidence": "medium",
+                "falsification": "Check the next export.",
+                "evidence": [{"text": "file_path is malformed.", "file_path": 123}],
+            },
+            valid_duplicate,
+        ],
+    }
+    hypothesis_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    rc = polytool_main(["hypothesis-summary", "--hypothesis-path", str(hypothesis_path)])
+    captured = capsys.readouterr()
+
+    assert rc == 0
+    summary_payload = json.loads(captured.out)
+    assert summary_payload["summary"]["hypothesis_count"] == 1
+    assert summary_payload["summary"]["primary_hypothesis_key"] == "id:H1"
+    assert summary_payload["primary_hypothesis"]["key"] == "id:H1"
+    assert summary_payload["primary_hypothesis"]["claim"] == valid_duplicate["claim"]
+    assert summary_payload["structure_issues"] == [
+        {
+            "code": "skipped_ineligible_hypothesis",
+            "message": (
+                "Hypothesis entry failed schema validation for summary eligibility; "
+                "skipped from hypothesis_count and primary_hypothesis."
+            ),
+            "path": "hypotheses[0]",
+            "reasons": [
+                "'hypotheses[0].id': 'HX' does not match '^H[0-9]+$'",
+            ],
+            "value": {
+                "type": "dict",
+                "value": {
+                    "claim": "Invalid ids must not become summary-eligible.",
+                    "confidence": "medium",
+                    "evidence": [{"text": "The id pattern is wrong."}],
+                    "falsification": "Check the next export.",
+                    "id": "HX",
+                },
+            },
+        },
+        {
+            "code": "skipped_ineligible_hypothesis",
+            "message": (
+                "Hypothesis entry failed schema validation for summary eligibility; "
+                "skipped from hypothesis_count and primary_hypothesis."
+            ),
+            "path": "hypotheses[1]",
+            "reasons": [
+                "'hypotheses[1].tags[0]': 1 is not of type 'string'",
+            ],
+            "value": {
+                "type": "dict",
+                "value": {
+                    "claim": valid_duplicate["claim"],
+                    "confidence": valid_duplicate["confidence"],
+                    "evidence": valid_duplicate["evidence"],
+                    "falsification": valid_duplicate["falsification"],
+                    "id": valid_duplicate["id"],
+                    "next_feature_needed": valid_duplicate["next_feature_needed"],
+                    "tags": [1],
+                },
+            },
+        },
+        {
+            "code": "skipped_ineligible_hypothesis",
+            "message": (
+                "Hypothesis entry failed schema validation for summary eligibility; "
+                "skipped from hypothesis_count and primary_hypothesis."
+            ),
+            "path": "hypotheses[2]",
+            "reasons": [
+                "'hypotheses[2].evidence[0].metrics': 'oops' is not of type 'object'",
+            ],
+            "value": {
+                "type": "dict",
+                "value": {
+                    "claim": "Bad metrics must not become summary-eligible.",
+                    "confidence": "medium",
+                    "evidence": [{"metrics": "oops", "text": "Metrics are malformed."}],
+                    "falsification": "Check the next export.",
+                    "id": "H2",
+                },
+            },
+        },
+        {
+            "code": "skipped_ineligible_hypothesis",
+            "message": (
+                "Hypothesis entry failed schema validation for summary eligibility; "
+                "skipped from hypothesis_count and primary_hypothesis."
+            ),
+            "path": "hypotheses[3]",
+            "reasons": [
+                "'hypotheses[3].evidence[0].file_path': 123 is not of type 'string'",
+            ],
+            "value": {
+                "type": "dict",
+                "value": {
+                    "claim": "Bad file paths must not become summary-eligible.",
+                    "confidence": "medium",
+                    "evidence": [{"file_path": 123, "text": "file_path is malformed."}],
+                    "falsification": "Check the next export.",
+                    "id": "H3",
+                },
+            },
+        },
+    ]
 
 
 def test_hypothesis_summary_missing_file_exits_1(tmp_path: Path, capsys) -> None:
@@ -367,7 +645,4 @@ def test_hypothesis_summary_invalid_json_exits_1(tmp_path: Path, capsys) -> None
 
     assert rc == 1
     assert "invalid json" in captured.err.lower()
-
-
-
 
