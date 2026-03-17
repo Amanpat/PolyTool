@@ -1,0 +1,16 @@
+{
+  "schema_version": "benchmark_gap_fill_insufficient_v1",
+  "generated_at": "2026-03-17T22:39:29+00:00",
+  "source_roots": {
+    "pmxt_root": "D:\\Coding Projects\\Polymarket\\PolyToolData\\raw\\pmxt_archive",
+    "jon_root": "D:\\Coding Projects\\Polymarket\\PolyToolData\\raw\\jon_becker"
+  },
+  "insufficient_buckets": {
+    "new_market": {
+      "shortage": 5,
+      "candidates_found": 0,
+      "reason": "Only 0 candidates found; need 5. JB dataset snapshot likely predates the required creation window."
+    }
+  },
+  "error": null
+}

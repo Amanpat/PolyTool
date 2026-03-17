@@ -65,6 +65,20 @@ status is:
   tapes discovered, 6 bucket slots fillable, shortages = politics 9, sports 11,
   crypto 10, near_resolution 9, new_market 5. No
   `config/benchmark_v1.tape_manifest` exists yet.
+- **Benchmark v1 gap-fill planner**: `packages/polymarket/benchmark_gap_fill_planner.py`
+  shipped 2026-03-17. Queries pmxt_archive + Jon-Becker Parquet via DuckDB to
+  discover Silver reconstruction targets for the shortage buckets. Real-data
+  probe (2026-03-17): 9,249 markets matched; 2,052 politics / 2,049 sports /
+  279 crypto / 272 near_resolution candidates found — all four buckets coverable
+  via Silver reconstruction. new_market bucket remains INSUFFICIENT (0
+  candidates; JB snapshot ~2026-02-03, 40 days stale). Target manifest written
+  to `config/benchmark_v1_gap_fill.targets.json` (120 targets; 9+11+10+9
+  priority-1 + overflow); insufficiency report at
+  `config/benchmark_v1_gap_fill.insufficiency.json`.
+  See spec `docs/specs/SPEC-benchmark-gap-fill-planner-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_gap_fill_planner.md`.
+  Next step: run `fetch-price-2min` for priority-1 token IDs, then
+  `batch-reconstruct-silver` with the targets manifest.
 - Gate 2 is not closed. Current next step: DuckDB + real dataset validation →
   price_2min population → Silver tape quality check → Gate 2 scenario sweep
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
