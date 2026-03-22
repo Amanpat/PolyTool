@@ -2,22 +2,25 @@
 
 Items that are out of MVP scope but should be considered for future versions.
 
-## Track A — Gate 2 Blocker (2026-03-11)
+## Track A — Gate 2 Blocker (updated 2026-03-21)
 
-**Status: BLOCKED — edge scarcity, not missing plumbing**
+**Status: BLOCKED — edge scarcity, not missing plumbing or tapes**
 
-- Gate 2 (Scenario Sweep) remains blocked: 12 tapes in corpus, 0 eligible
-  (`executable_ticks > 0` required; all current candidates are DEPTH_ONLY,
-  best_edge negative).
+- **`benchmark_v1.tape_manifest` now exists (Phase 1 closed 2026-03-21).**
+  50 tapes across 5 buckets (`politics=10, sports=15, crypto=10,
+  near_resolution=10, new_market=5`). The Gate 2 scenario sweep tooling can
+  now be run against this manifest. Missing tapes are no longer the blocker.
+- Gate 2 (Scenario Sweep) is blocked on edge scarcity: 0 eligible tapes
+  with `executable_ticks > 0`; all pre-manifest candidates were DEPTH_ONLY
+  with negative best_edge. The benchmark manifest may contain tapes with
+  better edge — sweep first, then assess.
 - Gate 2 tooling is complete (scan-gate2-candidates, prepare-gate2,
-  watch-arb-candidates, tape-manifest, gate2-preflight, make-session-pack,
-  close_sweep_gate.py). No code work is needed.
-- Gate 3, Stage 0, and Stage 1 are blocked behind Gate 2. Track B research
-  workflows and Roadmap work are NOT blocked.
-- Retry only on a factual trigger: catalyst window, operator-supplied target
-  slugs, or a new scan showing NEAR/EXECUTABLE candidates.
-- See `docs/dev_logs/2026-03-11_gate2_blocker_report.md` for full operator
-  evidence and retry procedure.
+  watch-arb-candidates, tape-manifest, gate2-preflight, close_sweep_gate.py).
+  No code work is needed to attempt the sweep.
+- Gate 3, Stage 0, and Stage 1 remain blocked behind Gate 2.
+- See `docs/dev_logs/2026-03-11_gate2_blocker_report.md` for original
+  operator evidence and `docs/dev_logs/2026-03-21_phase1_docs_closeout.md`
+  for Phase 1 completion record.
 
 ## High Priority (Post-MVP)
 
@@ -74,7 +77,7 @@ Future integration points (when implemented):
 
 - [x] Schema-backed validation on `llm-save --hypothesis-path` with `validation_result.json`
 - [x] `hypothesis-validate`, `hypothesis-diff`, and `hypothesis-summary` are shipped
-- Next chat: start Master Roadmap v4.1 Phase 2 `Candidate Scanner CLI` (`candidate-scan`); Gate 2 remains blocked.
+- Next focus: Gate 2 scenario sweep against `config/benchmark_v1.tape_manifest` (Phase 2 / Phase 1B); `candidate-scan` is not the immediate priority.
 
 ## Medium Priority
 

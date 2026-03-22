@@ -4,12 +4,12 @@ This repo is a local-first toolchain for Polymarket analysis: data ingestion,
 ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
 RAG workflow that never calls external LLM APIs.
 
-Master Roadmap v4.2 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`) is the
-governing roadmap document as of 2026-03-16 and supersedes v4.1. This file
-records implemented repo truth; do not infer v4.2 phase completion from strategic
+Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
+governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
+records implemented repo truth; do not infer v5 phase completion from strategic
 roadmap language alone.
 
-## Roadmap v4 Items Not Yet Implemented
+## Roadmap Items Not Yet Implemented (v5 framing)
 
 - The v4 control plane is not shipped: no n8n orchestration layer, no broad
   FastAPI wrapper surface, no Discord approval system, and no automated
@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-16
+## Status as of 2026-03-21
 
 Track A / SimTrader plumbing is implemented. The repo's current execution
 status is:
@@ -31,7 +31,7 @@ status is:
 - Gate 2: not passed yet; tooling is implemented and working
 - Gate 3: blocked behind Gate 2
 - Gate 4: PASSED
-- **Primary Gate 2 path (v4.2)**: DuckDB reads pmxt and Jon-Becker Parquet
+- **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
   files directly — no ClickHouse import step required. Silver tape reconstruction
   from those files + 2-min price history → Gate 2 scenario sweep. ClickHouse
   bulk import (SPEC-0018) is off the critical path; see
@@ -61,10 +61,61 @@ status is:
   2026-03-16. It audits canonical local tape roots and either writes
   `config/benchmark_v1.tape_manifest` + `config/benchmark_v1.audit.json`, or
   writes `config/benchmark_v1.gap_report.json` and exits non-zero when quotas
-  are not satisfiable. Current real local audit is BLOCKED: 12 Gold / 0 Silver
-  tapes discovered, 6 bucket slots fillable, shortages = politics 9, sports 11,
-  crypto 10, near_resolution 9, new_market 5. No
-  `config/benchmark_v1.tape_manifest` exists yet.
+  are not satisfiable.
+  **Bucket classification fix (2026-03-21)**: `silver_meta.json` contains no
+  market text, so `_classify_candidate()` could not assign politics/sports/crypto
+  labels to Silver tapes — all three keyword-driven buckets showed 0 candidates
+  despite 120 tapes on disk. Fix: `market_meta.json` (schema
+  `silver_market_meta_v1`) now written alongside Silver tapes containing `slug`,
+  `category` (= bucket), `market_id`, `platform`, `token_id`, and
+  `benchmark_bucket`. `_load_metadata()` reads `market_meta.json` first.
+  `write_market_meta()` and `backfill_market_meta_from_targets()` added to
+  `batch_reconstruct_silver.py`. `--backfill-market-meta` CLI flag triggers
+  backfill-only mode (no reconstruction, no credential check). Backfill run:
+  120 tape dirs updated, 0 errors. Latest gap report
+  (`config/benchmark_v1.gap_report.json`, `2026-03-21T19:42:42+00:00`):
+  `inventory_by_tier gold=13, silver=118`, `selected_total=45`,
+  shortages `politics=0, sports=0, crypto=0, near_resolution=0, new_market=5`.
+  Only `new_market=5` remains. No `config/benchmark_v1.tape_manifest` exists
+  yet (blocked by new_market shortage only). A resumed real-shell Phase 1
+  closure attempt earlier on 2026-03-21 set `CLICKHOUSE_PASSWORD`, brought
+  Docker up, and ran `python -m polytool new-market-capture`, which wrote 300
+  live targets (`generated_at 2026-03-21T20:05:03Z`). The follow-up
+  `capture-new-market-tapes --benchmark-refresh` run then created 0 tapes and
+  skipped all 300 targets because every `resolve_slug` call failed with
+  `MarketPicker.__init__() missing 2 required positional arguments:
+  'gamma_client' and 'clob_client'`. Refreshed gap report
+  (`config/benchmark_v1.gap_report.json`, `2026-03-21T20:05:05+00:00`) still
+  shows `new_market.candidate_count=0` and shortage `new_market=5`. That
+  constructor bug is now fixed. A later final Phase 1 retry on 2026-03-21 used
+  the corrected CLI flags and passed dry-run
+  (`targets_attempted=300`, `tapes_created=231`, `failure_count=0`,
+  `skip_count=69`). The follow-up live command
+  `python -m polytool capture-new-market-tapes --targets-manifest config/benchmark_v1_new_market_capture.targets.json --out-root artifacts/tapes/new_market --benchmark-refresh`
+  recorded new Gold tapes under `artifacts/tapes/new_market/` but appeared to
+  hang past the five-tape quota. Finalization check on 2026-03-21 then stopped
+  PID `9660`, confirmed the relevant tape dirs on disk (`sol`, `xrp`, `bnb`,
+  `hype`, `eth`, `doge`) all had `raw_ws.jsonl`, `events.jsonl`, `meta.json`,
+  and `watch_meta.json`, and also found a previously unlisted
+  `btc-updown-5m-1774209300/` dir with `raw_ws.jsonl`, `events.jsonl`, and
+  `watch_meta.json` but no `meta.json`. Running plain
+  `python -m polytool benchmark-manifest` still wrote a gap report because the
+  default `inventory_roots` were only `artifacts/simtrader/tapes` and
+  `artifacts/silver`, so none of the `artifacts/tapes/new_market/*` tapes were
+  discovered. Re-running with explicit roots
+  `--root artifacts/simtrader/tapes --root artifacts/silver --root artifacts/tapes/new_market`
+  immediately wrote `config/benchmark_v1.tape_manifest`,
+  `config/benchmark_v1.audit.json`, and `config/benchmark_v1.lock.json`.
+  Validation passed with bucket counts
+  `politics=10, sports=15, crypto=10, near_resolution=10, new_market=5`.
+  Audit selected five `new_market` tapes:
+  `xrp-updown-5m-1774209300`, `sol-updown-5m-1774209300`,
+  `btc-updown-5m-1774209300`, `bnb-updown-5m-1774209300`, and
+  `hype-updown-5m-1774209300`. `benchmark_v1` is now closed. See dev logs
+  `docs/dev_logs/2026-03-21_benchmark_curation_bucket_fix.md`,
+  `docs/dev_logs/2026-03-21_phase1_new_market_closure_attempt.md`,
+  `docs/dev_logs/2026-03-21_phase1_final_new_market_execution_retry.md`, and
+  `docs/dev_logs/2026-03-21_phase1_finalization_check.md`.
 - **Benchmark v1 gap-fill planner**: `packages/polymarket/benchmark_gap_fill_planner.py`
   shipped 2026-03-17. Queries pmxt_archive + Jon-Becker Parquet via DuckDB to
   discover Silver reconstruction targets for the shortage buckets. Real-data
@@ -77,15 +128,52 @@ status is:
   `config/benchmark_v1_gap_fill.insufficiency.json`.
   See spec `docs/specs/SPEC-benchmark-gap-fill-planner-v1.md` and dev log
   `docs/dev_logs/2026-03-17_benchmark_gap_fill_planner.md`.
-  Next step: run `fetch-price-2min` for priority-1 token IDs, then
-  `batch-reconstruct-silver --targets-manifest config/benchmark_v1_gap_fill.targets.json --pmxt-root ... --jon-root ... --benchmark-refresh`.
+  A constrained live probe on 2026-03-19 confirmed that three priority-1
+  targets (politics / sports / crypto) reconstruct successfully without hard
+  failures, but all three degrade to low-confidence, price_2min-only Silver
+  tapes because pmxt anchors and Jon-Becker fills are absent in-window. A full
+  direct live run completed on 2026-03-20 under
+  `artifacts/silver/manual_gap_fill_full_20260319_213841/`: all 120 manifest
+  targets wrote a `benchmark_gap_fill_run_v1` artifact, but benchmark refresh
+  still blocked with shortages `politics=9`, `sports=11`, `crypto=10`,
+  `near_resolution=0`, `new_market=5`. The benchmark is therefore not reduced
+  to `new_market` only.
 - **Benchmark v1 gap-fill execution**: `batch-reconstruct-silver` extended with
   `--targets-manifest` mode (Mode 2) 2026-03-17. Accepts `benchmark_gap_fill_v1`
   targets manifest; each target provides its own window. Per-target skip/failure
   without aborting the batch. `--benchmark-refresh` re-runs benchmark curation after
   the batch. Emits `benchmark_gap_fill_run_v1` result artifact. 40 new tests; dry-run
   smoke with 120-target real manifest: all parsed and dispatched correctly.
-  Real generation (Mode 2 live) not yet run; requires `fetch-price-2min` first.
+  A real-shell probe run on 2026-03-19 wrote
+  `artifacts/silver/manual_gap_fill_probe3_20260319_190329/gap_fill_run.json`
+  for three priority-1 targets (politics / sports / crypto):
+  `targets_attempted=3`, `tapes_created=3`, `failure_count=0`, `skip_count=0`,
+  metadata writes `clickhouse=3`. All three outcomes are `status=success` with
+  `reconstruction_confidence=low`, `fill_count=0`, and
+  `price_2min_count=event_count`, with shared warnings
+  `pmxt_anchor_missing` and `jon_fills_missing`. A full-manifest direct live
+  execution then completed on 2026-03-20 at
+  `artifacts/silver/manual_gap_fill_full_20260319_213841/gap_fill_run.json`:
+  `targets_attempted=120`, `tapes_created=120`, `failure_count=0`,
+  `skip_count=0`, metadata writes `clickhouse=120`. Success classes were 40
+  `confidence=low, price_2min_only` outcomes and 80 `confidence=none,
+  empty_tape` outcomes; warnings were `pmxt_anchor_missing=120`,
+  `jon_fills_missing=120`, `price_2min_missing=80`. Benchmark refresh updated
+  `config/benchmark_v1.gap_report.json` but still blocked with shortages
+  `politics=9`, `sports=11`, `crypto=10`, `near_resolution=0`,
+  `new_market=5`. See dev logs
+  `docs/dev_logs/2026-03-19_silver_probe3_diagnosis.md` and
+  `docs/dev_logs/2026-03-20_silver_gap_fill_full_run.md`.
+  A resumed orchestrated live closure run on 2026-03-20 after the full-target
+  prefetch fix wrote
+  `artifacts/benchmark_closure/2026-03-20/bf64af3f-17bc-429f-ac09-8fbf05ad66ad/benchmark_closure_run_v1.json`:
+  Stage 2 prefetched 118 unique token IDs across all 120 targets, fetched and
+  inserted 450,327 `price_2min` rows, and `batch_reconstruct` again created 120
+  tapes with `failure_count=0` and `skip_count=0`. The refreshed gap report did
+  raise `inventory_by_tier.silver` from 38 to 118 and `near_resolution`
+  `candidate_count` from 21 to 81, but shortages remained `politics=9`,
+  `sports=11`, `crypto=10`, `near_resolution=0`, `new_market=5`, so
+  `benchmark_v1` is still not reduced to `new_market` only.
   See spec `docs/specs/SPEC-benchmark-gap-fill-execution-v1.md` and dev log
   `docs/dev_logs/2026-03-17_benchmark_gap_fill_execution.md`.
 - **New-market capture planner**: `packages/polymarket/new_market_capture_planner.py`
@@ -110,11 +198,207 @@ status is:
   batch. Emits `benchmark_new_market_capture_run_v1` result artifact. Per-target
   failures do not abort the batch. 45 offline tests; no live network calls in tests.
   CLI: `python -m polytool capture-new-market-tapes [--dry-run] [--benchmark-refresh]`.
-  Real Gold tape recording not yet run; requires live Gamma API + WS connectivity.
+  A real live attempt ran on 2026-03-21 after `CLICKHOUSE_PASSWORD` and Docker
+  were confirmed. Planner output contained 300 viable new-market targets, but
+  capture artifact `artifacts/simtrader/tapes/new_market_capture/capture_run_558b6d88.json`
+  shows `targets_attempted=300`, `tapes_created=0`, `failure_count=0`,
+  `skip_count=300`. Every target was skipped at slug resolution because
+  `MarketPicker.__init__()` was called without required `gamma_client` and
+  `clob_client` arguments, so no Gold tapes were recorded and benchmark refresh
+  remained blocked with `new_market=5`.
+  **MarketPicker constructor fix (2026-03-21)**: `resolve_both_token_ids()` in
+  `capture_new_market_tapes.py` was calling `MarketPicker()` with no arguments.
+  Fixed to `MarketPicker(GammaClient(), ClobClient())` matching every other CLI
+  entrypoint (`simtrader.py`, `prepare_gate2.py`, `watch_arb_candidates.py`).
+  Regression test `test_default_path_constructs_picker_with_clients` added.
+  46 tests pass in `test_capture_new_market_tapes.py`. Constructor bug no longer
+  skips all 300 targets. A corrected dry-run on 2026-03-21 passed
+  (`targets_attempted=300`, `tapes_created=231`, `skip_count=69`). The
+  corrected live capture with `--benchmark-refresh` then recorded at least six
+  Gold tapes under `artifacts/tapes/new_market/`, but never emitted a new
+  `capture_run_*.json` or benchmark refresh. As of
+  `2026-03-21T19:36:26-04:00`, PID `9660` was still writing
+  `doge-updown-5m-1774209300/raw_ws.jsonl`, proving the live path continues
+  past the required five-tape quota instead of terminating cleanly.
   See spec `docs/specs/SPEC-new-market-capture-execution-v1.md` and dev log
-  `docs/dev_logs/2026-03-17_new_market_capture_execution.md`.
-- Gate 2 is not closed. Current next step: DuckDB + real dataset validation →
-  price_2min population → Silver tape quality check → Gate 2 scenario sweep
+  `docs/dev_logs/2026-03-17_new_market_capture_execution.md`, plus run logs
+  `docs/dev_logs/2026-03-21_phase1_new_market_closure_attempt.md` and
+  `docs/dev_logs/2026-03-21_new_market_capture_marketpicker_fix.md`.
+- **Benchmark closure orchestrator v0**: `tools/cli/close_benchmark_v1.py`
+  shipped 2026-03-17. Orchestrates preflight + Silver gap-fill + new-market
+  capture + benchmark curation in sequence. CLI:
+  `python -m polytool close-benchmark-v1 [--dry-run] [--skip-silver]
+  [--skip-new-market] [--out PATH] [--pmxt-root PATH] [--jon-root PATH]`.
+  Writes canonical run artifact `benchmark_closure_run_v1` to
+  `artifacts/benchmark_closure/<YYYY-MM-DD>/<run_id>/`.  Exit 0 =
+  manifest_created, exit 1 = blocked, exit 2 = preflight blocked.  23 offline
+  tests (all passing). Real dry-run confirmed: preflight passes, 39 priority-1
+  tokens identified, 5-bucket shortage correctly surfaced from real gap report.
+  **Prefetch scope fix (2026-03-20)**: `run_silver_gap_fill_stage()` previously
+  called `_priority1_token_ids()` for the `fetch-price-2min` argv, covering only
+  39 of 120 targets. The remaining 81 overflow (priority≥2) targets had no
+  `price_2min` rows in ClickHouse, causing the Silver reconstructor to degrade
+  them to `confidence=none` (root cause of `price_2min_missing=80` in the
+  2026-03-20 full run). Fixed by adding `_all_unique_token_ids()` (order-
+  preserving dedup via `dict.fromkeys`) and switching the fetch argv to use all
+  unique token IDs across all priorities. `fetch_outcome` now records both
+  `token_count` (all) and `priority1_count` for traceability. 10 new regression
+  tests added (5 in `TestHelpers`, 5 in `TestFullTargetPricePrefetch`); 40 tests
+  pass in `test_close_benchmark_v1.py` (57 across both closure test files).
+  See spec `docs/specs/SPEC-benchmark-closure-orchestrator-v1.md` and dev logs
+  `docs/dev_logs/2026-03-17_benchmark_closure_orchestrator_v0.md` and
+  `docs/dev_logs/2026-03-20_full_target_price2min_prefetch_fix.md`.
+  Real-shell validation followed immediately on 2026-03-20: the fixed closure
+  path prefetched all 118 unique target token IDs (39 priority-1 entries across
+  120 manifest targets), refreshed the gap report, and wrote run artifact
+  `artifacts/benchmark_closure/2026-03-20/bf64af3f-17bc-429f-ac09-8fbf05ad66ad/benchmark_closure_run_v1.json`.
+  The closure still ended `final_status=blocked`, proving the prefetch scope bug
+  is fixed but is no longer the limiting factor; the remaining shortages are
+  still `politics=9`, `sports=11`, `crypto=10`, and `new_market=5`.
+- **Benchmark closure operator readiness v0**: Shipped 2026-03-17.
+  Added `--status` and `--export-tokens` operator helpers to `close_benchmark_v1.py`.
+  `--status` prints a human-readable closure progress table (manifest, gap-fill
+  targets, token export, latest run, residual blockers, suggested next step).
+  `--export-tokens` materialises the 39 priority-1 token IDs from the gap-fill
+  targets manifest to `config/benchmark_v1_priority1_tokens.txt` (one per line)
+  and `config/benchmark_v1_priority1_tokens.json`. Both flags are read-only,
+  idempotent, and safe without Docker/ClickHouse. Token export confirmed: 39
+  tokens written. Canonical operator runbook:
+  `docs/runbooks/BENCHMARK_CLOSURE_RUNBOOK.md` (7 resumable steps).
+  17 new offline tests (all passing). See spec
+  `docs/specs/SPEC-benchmark-closure-operator-readiness-v0.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_closure_operator_readiness_v0.md`.
+  Real operator attempt executed on 2026-03-17 from branch `phase-1`.
+  Docker came up successfully enough for `polytool-clickhouse` to report
+  healthy, and `--status` confirmed `config/benchmark_v1_new_market_capture.targets.json`
+  already exists locally. The first live attempt stopped at
+  `python -m polytool fetch-price-2min --token-file config/benchmark_v1_priority1_tokens.txt`
+  with Windows stdout `UnicodeEncodeError` on `\\u2192`; that console bug is
+  fixed and regression-tested (`test_stdout_encodable_as_cp1252`). Resumed live
+  attempt artifact root:
+  `artifacts/benchmark_closure/live_attempt_resume_2026-03-17_210038`.
+  The resumed live fetch succeeded for the priority-1 export, processing 38
+  unique token IDs from the 39-line file (one duplicated token) and inserting
+  `149626` rows into `polytool.price_2min`. The next real blocker is
+  downstream in the Silver closure / refresh path:
+  `python -m polytool close-benchmark-v1 --skip-new-market ...` ended blocked,
+  `config/benchmark_v1.tape_manifest` was not created, and stderr recorded
+  repeated `price_2min: ClickHouse query failed: 400 ...` plus
+  `jon: missing required columns. token_col=None ts_col=timestamp ...` while
+  refresh fell back to `config/benchmark_v1.gap_report.json`.
+  See `docs/dev_logs/2026-03-17_benchmark_closure_live_attempt.md`,
+  `docs/dev_logs/2026-03-17_benchmark_closure_live_attempt_resume.md`, and
+  `docs/dev_logs/2026-03-17_fetch_price_2min_windows_stdout_fix.md`.
+- **Silver input compatibility fix** (2026-03-18): Two root-cause bugs in
+  `packages/polymarket/silver_reconstructor.py` that blocked the Silver closure
+  path are now fixed: (1) `_real_fetch_price_2min()` was calling
+  `toDateTime('{ISO string}')` which ClickHouse rejects with HTTP 400 —
+  replaced with `toDateTime({int(epoch)})`. (2) `_real_fetch_jon_fills()` used
+  `_JON_TOKEN_CANDIDATES = ["asset_id", ...]` which does not match the real
+  Jon-Becker maker/taker dataset schema (`maker_asset_id` + `taker_asset_id`);
+  now detects the maker/taker pair and issues an OR query. 13 new regression
+  tests added in `tests/test_silver_input_compatibility.py`. 145 existing Silver
+  tests still pass. Two resumed live closure attempts were then tried on
+  2026-03-18, followed by a Docker Desktop recovery/verification pass on
+  2026-03-18/2026-03-19. The in-sandbox Codex account
+  (`desktop-6l73imi\\codexsandboxoffline`) saw `docker version`,
+  `docker info`, `docker compose ps`, `wsl --status`, and `wsl -l -v` fail
+  with access denied, which initially looked like a local Docker Desktop
+  outage. A second verification outside the sandbox as the real Windows user
+  (`desktop-6l73imi\\patel`) showed Docker Desktop healthy: `docker version`
+  returned both client and server, `docker info` reported Docker Desktop
+  4.52.0 / Engine 29.0.1, `wsl --status` reported default distro
+  `docker-desktop`, and `wsl -l -v` showed `docker-desktop` running under
+  WSL2. `docker compose ps` succeeded but showed no running compose services,
+  and read-only `python -m polytool close-benchmark-v1 --status` still reports
+  residual shortages in `politics` (9), `sports` (11), `crypto` (10),
+  `near_resolution` (9), and `new_market` (5), with
+  `config/benchmark_v1.tape_manifest` still missing. This establishes that the
+  earlier Docker failure was a Codex sandbox permissions boundary, not a broken
+  Docker Desktop installation or WSL backend. See
+  `docs/dev_logs/2026-03-18_silver_input_compatibility_fix.md`,
+  `docs/dev_logs/2026-03-18_benchmark_closure_resume_after_silver_fix.md`,
+  `docs/dev_logs/2026-03-18_benchmark_closure_after_docker_recovery.md`, and
+  `docs/dev_logs/2026-03-18_docker_desktop_engine_recovery_attempt.md`.
+- **ClickHouse auth propagation fix — Stage 2 complete** (2026-03-18 +
+  2026-03-19): The `AUTHENTICATION_FAILED` (HTTP 516) bug that blocked Stage 2
+  Silver gap-fill has been fully resolved across all Stage 2 CLI entrypoints.
+  The 2026-03-18 patch fixed `close_benchmark_v1.main()` and
+  `batch_reconstruct_silver.main()` but missed `fetch_price_2min.main()`,
+  which still silently fell back to `"polytool_admin"` as the ClickHouse
+  password when neither `--clickhouse-password` nor `CLICKHOUSE_PASSWORD` env
+  was set (via `os.environ.get("CLICKHOUSE_PASSWORD", "polytool_admin")`).
+  The 2026-03-19 follow-up: (1) removed the `"polytool_admin"` fallback from
+  `fetch_price_2min.main()` — now fail-fast with `if not ch_password`; (2)
+  strengthened the existing fail-fast guards in `close_benchmark_v1.main()`
+  and `batch_reconstruct_silver.main()` from `if ch_password is None` to
+  `if not ch_password` to catch empty-string exports (`CLICKHOUSE_PASSWORD=""`).
+  Four new regression tests in `test_fetch_price_2min.py`
+  (`TestFetchPrice2MinAuthFailFast`) and one each in `test_close_benchmark_v1.py`
+  and `test_batch_silver.py` (`test_empty_string_password_returns_1`). All
+  six new tests pass; 113 tests across the three affected files pass with no
+  regressions. See dev logs
+  `docs/dev_logs/2026-03-18_clickhouse_auth_propagation_fix.md` and
+  `docs/dev_logs/2026-03-19_clickhouse_auth_stage2_fix.md`.
+- **Silver stage read-auth fix** (2026-03-19): Two remaining structural gaps in the
+  benchmark closure orchestrator are now fixed. (1) `_check_clickhouse` now sends
+  `Authorization: Basic <base64(user:password)>` with every probe request, so
+  preflight no longer reports CH unavailable on a healthy credential-protected instance.
+  (2) `run_preflight` now accepts and forwards `clickhouse_user`/`clickhouse_password`
+  to `_check_clickhouse`, making the preflight CH probe structurally consistent with
+  Stage 2's authenticated access. (3) `run_silver_gap_fill_stage` now bubbles per-target
+  failure details (`token_id`, `bucket`, `slug`, `error`) from `run_batch_from_targets`
+  outcomes into `batch_reconstruct["failed_targets"]` in the orchestrator artifact for
+  direct triage without digging into the full batch artifact. Three new regression tests
+  added (`TestPreflightCredentialConsistency`): auth header sent, credentials forwarded,
+  failed targets surfaced. 116 tests across the three affected files pass.
+  See dev log `docs/dev_logs/2026-03-19_silver_stage_read_auth_fix.md`.
+- **Direct Silver gap-fill diagnosis, resumed with a 3-target probe**
+  (2026-03-19): The first same-day real-shell attempt was blocked before Docker
+  startup because `CLICKHOUSE_PASSWORD` was empty in the shell environment; see
+  `docs/dev_logs/2026-03-19_silver_gap_fill_direct_diagnosis.md`. After
+  re-supplying the password, a constrained 3-target follow-up probe ran under
+  `artifacts/silver/manual_gap_fill_probe3_20260319_190329/` and wrote a real
+  `gap_fill_run.json`. Politics
+  (`100-tariff-on-canada-in-effect-by-june-30`), sports
+  (`2025-2026-epl-winner-more-than-90-points`), and crypto
+  (`another-crypto-hack-over-100m-before-2027`) all finished with
+  `status=success`, but all three share the same degraded success class:
+  `reconstruction_confidence=low`, `fill_count=0`, and event tapes comprised
+  only `price_2min_guide` entries because no pmxt anchor snapshot and no
+  Jon-Becker fills were found for their windows. This clears the "hard failure"
+  hypothesis for the sampled politics / sports / crypto buckets, but it does
+  not yet prove that `benchmark_v1` is blocked only by `new_market`; the full
+  gap-fill manifest and the `near_resolution` bucket still need live
+  confirmation. See dev log
+  `docs/dev_logs/2026-03-19_silver_probe3_diagnosis.md`.
+- **Gap-fill summarizer** (2026-03-20): Read-only diagnostic CLI
+  `summarize-gap-fill` shipped. Loads any `benchmark_gap_fill_run_v1` artifact
+  and prints totals, per-bucket breakdown (success/failure/skip + confidence
+  distribution), normalized warning and error classes, success class
+  classification (price_2min_only vs. has_fills, etc.), metadata write summary,
+  benchmark refresh outcome, and artifact paths. `--json` flag emits
+  machine-readable output. No network, no ClickHouse, no writes.
+  Smoke-tested against both the probe-3 (3-target) and full (120-target) real
+  artifacts. Key findings from full-manifest run:
+  all 4 non-new-market buckets produced tapes with 0 hard failures;
+  80/120 tapes are `confidence=none` (empty, `price_2min_missing` +
+  `pmxt_anchor_missing` + `jon_fills_missing`); 40/120 are `confidence=low`
+  (price_2min_only). CLI: `python -m polytool summarize-gap-fill --path <path>`.
+  35 offline tests passing.
+  See spec `docs/specs/SPEC-summarize-gap-fill-v0.md` and dev log
+  `docs/dev_logs/2026-03-20_gap_fill_summarizer_v0.md`.
+- Gate 2 is not closed, but benchmark_v1 is now closed as of 2026-03-21.
+  After the same-day new-market capture retries, a finalization check stopped
+  the hanging live process, confirmed the recorded `artifacts/tapes/new_market`
+  tapes on disk, and showed why plain `benchmark-manifest` still blocked:
+  default `inventory_roots` excluded `artifacts/tapes/new_market`. Re-running
+  `benchmark-manifest` with explicit roots for `artifacts/simtrader/tapes`,
+  `artifacts/silver`, and `artifacts/tapes/new_market` wrote
+  `config/benchmark_v1.tape_manifest` and `config/benchmark_v1.lock.json`.
+  Validation passed with bucket counts
+  `politics=10, sports=15, crypto=10, near_resolution=10, new_market=5`, so
+  the benchmark is closed and the next work can move to Gate 2 scenario sweep.
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
 
@@ -306,17 +590,17 @@ No live capital is allowed before all four gates are complete and Stage 0 is cle
 ## Track A execution layer (optional, gated)
 
 Track A code is complete as of 2026-03-05. Gate 2 plumbing is implemented and
-working. Under v4.2, the Gate 2 path no longer requires ClickHouse bulk import.
+working. The Gate 2 path no longer requires ClickHouse bulk import.
 DuckDB reads pmxt and Jon-Becker Parquet files directly from `/data/raw/`,
 producing Silver-tier reconstructed tapes for the scenario sweep. Silver tapes
 are sufficient for Gate 2; Gate 3 requires Gold tapes from live recording.
-See `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md` (Database Architecture).
+See `docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md` (Database Architecture).
 
-### Current operator focus (2026-03-16)
+### Current operator focus (2026-03-21 — Phase 1 benchmark complete)
 
-Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
+Gate 2 path uses DuckDB-first approach (v4.2 rule, carried into v5). Gate 1 and Gate 4 remain passed.
 
-**Completed (ClickHouse import — now legacy under v4.2)**:
+**Completed (ClickHouse import — now legacy)**:
 - `import-historical` subcommands (validate-layout, show-manifest, import) are
   shipped and operational (Packet 1 + Packet 2); these are off the critical
   path under v4.2.
@@ -324,22 +608,63 @@ Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
   Raw Parquet files exist locally and are the primary v4.2 source via DuckDB.
 - Jon-Becker dataset: dry-run (68,646 files discovered, 2026-03-15) and sample
   (1,000 rows, 40,454 files, 2026-03-16) complete. Full ClickHouse import is
-  not required under v4.2; DuckDB reads the Parquet files directly.
+  not required; DuckDB reads the Parquet files directly.
 
-**Pending (v4.2 primary path)**:
-- DuckDB setup and integration (next immediate step)
-- price_2min population: run `fetch-price-2min` for target token IDs before Silver reconstruction
+**Pending (v5 primary path)**:
+- Docker / ClickHouse availability for the next live closure rerun: Docker
+  Desktop itself was verified healthy on 2026-03-18/2026-03-19 when checked
+  outside the Codex sandbox as `desktop-6l73imi\\patel` (`docker version`,
+  `docker info`, `wsl --status`, and `wsl -l -v` all succeeded, with
+  `docker-desktop` running under WSL2). The earlier access-denied failures were
+  limited to the Codex sandbox account
+  (`desktop-6l73imi\\codexsandboxoffline`), which cannot access Docker named
+  pipes or WSL enumeration. `docker compose ps` now succeeds but shows no
+  running compose services, so the operator still needs `docker compose up -d`
+  before the next Silver rerun.
+- price_2min population: the priority-1 export succeeded on 2026-03-17
+  (`149626` rows inserted for `38` unique tokens). This was only 38 of ~118
+  unique tokens across all 120 gap-fill targets. The prefetch scope bug
+  (2026-03-20 fix) means the next orchestrator run will fetch `price_2min`
+  for all ~118 unique token IDs, eliminating the `price_2min_missing=80`
+  outcome seen in the 2026-03-20 full run. The original Silver input blockers
+  were fixed on 2026-03-18; the next live verification is pending compose
+  startup and rerun from a real-user shell.
 - Silver tape validation with real DuckDB data (infrastructure complete: `reconstruct-silver`,
   `batch-reconstruct-silver`, `tape_metadata` CH table)
-- Benchmark_v1 inventory still blocked on real tapes: need 9 more politics,
-  11 more sports, 10 crypto, 9 near-resolution, and 5 new-market tapes before
-  `config/benchmark_v1.tape_manifest` can be written
-- Gate 2 scenario sweep (blocked on qualifying Silver tapes with real data)
+- **Benchmark_v1 inventory: CLOSED as of 2026-03-21.** All five bucket
+  quotas satisfied (`politics=10, sports=15, crypto=10, near_resolution=10,
+  new_market=5`). `config/benchmark_v1.tape_manifest`,
+  `config/benchmark_v1.lock.json`, and `config/benchmark_v1.audit.json`
+  exist and are validated. Phase 1 is complete.
+  **Inventory-root nuance**: closure required explicit `--root` flags —
+  default `benchmark-manifest` roots do not include
+  `artifacts/tapes/new_market`. The finalization command was:
+  `python -m polytool benchmark-manifest --root artifacts/simtrader/tapes --root artifacts/silver --root artifacts/tapes/new_market`.
+  Future benchmark refreshes must include all three roots.
+- Gate 2 scenario sweep: `benchmark_v1.tape_manifest` now exists (50 tapes,
+  5 buckets). Running the scenario sweep against this manifest is the Phase 2
+  starting point.
 
 **Not in scope for current work**:
 - Opportunity Radar: deferred until after first clean Gate 2 → Gate 3 progression
 - Live dislocation capture remains a fallback path only; no qualifying tapes
   produced from prior live watcher runs
+
+### Phase 2 starting point
+
+Phase 1 benchmark closure is complete. The next chat should start Phase 2
+with Gate 2 scenario sweep:
+
+1. Run `python tools/gates/close_sweep_gate.py` (or equivalent sweep CLI)
+   against `config/benchmark_v1.tape_manifest`.
+2. Gate 2 passes when ≥ 70% of tapes show positive net PnL under realistic
+   fill and fee assumptions.
+3. Gate 3 (shadow) unlocks after Gate 2 passes.
+
+Do not reopen Phase 1 tasks. The manifest, lock, and audit artifacts are
+finalized. If the benchmark ever needs refreshing, use all three
+`--root` flags: `artifacts/simtrader/tapes`, `artifacts/silver`, and
+`artifacts/tapes/new_market`.
 
 ### Current shipped surfaces
 
@@ -363,10 +688,27 @@ Gate 2 path reframed under v4.2 (DuckDB-first). Gate 1 and Gate 4 remain passed.
     `--watchlist-file` ingest.
   - Under v4.2: pmxt and Jon-Becker raw Parquet files exist locally; DuckDB
     reads them directly (no further ClickHouse import required).
-  - price_2min not yet fetched for target tokens. Silver tape reconstruction
-    infrastructure shipped (v0 + v1); DuckDB integration with real datasets
-    pending. No qualifying Silver-tier tape exists yet (requires real pmxt/Jon
-    data via DuckDB). CLIs: `reconstruct-silver`, `batch-reconstruct-silver`.
+  - price_2min for the priority-1 benchmark tokens was fetched successfully on
+    2026-03-17 (`149626` rows inserted for `38` unique token IDs from the
+    39-line export; one token is duplicated). The Windows stdout encoding bug
+    is fixed, and the Silver input compatibility bugs in
+    `silver_reconstructor.py` were fixed on 2026-03-18.
+  - Latest Docker diagnostic (2026-03-18/2026-03-19) established that the
+    apparent Docker failure was account-scoped. Inside the Codex sandbox
+    account, `docker version`, `docker info`, `docker compose ps`,
+    `wsl --status`, and `wsl -l -v` fail with access denied. Outside the
+    sandbox as `desktop-6l73imi\\patel`, those same checks succeed, with
+    Docker Desktop healthy and `docker-desktop` running under WSL2.
+    `docker compose ps` currently shows no services running. 
+  `config/benchmark_v1.tape_manifest` now exists. The earlier 2026-03-21
+  new-market blockers were all execution-path issues, not lack of usable tape
+  inventory: (1) `MarketPicker` constructor wiring was fixed, (2) dry-run flag
+  mismatch was corrected, and (3) the hanging live process was stopped during
+  finalization check. The decisive issue was manifest discovery scope:
+  default `benchmark-manifest` roots excluded `artifacts/tapes/new_market`, so
+  the newly recorded Gold tapes were invisible until the finalization check
+  reran `benchmark-manifest` with `--root artifacts/tapes/new_market` added.
+  That explicit-root run created and validated `benchmark_v1`.
 - Gate 3 (Shadow Mode): Blocked behind Gate 2.
 - Gate 4 (Dry-Run Live): **PASSED** - artifact at
   `artifacts/gates/dry_run_gate/gate_passed.json`.

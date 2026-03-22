@@ -3,14 +3,14 @@
 PolyTool keeps the public documentation and code clean while routing all user/private data into
 local-only storage.
 
-Master Roadmap v4.2 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`) is the
-governing roadmap document as of 2026-03-16 and supersedes v4.1. This file
-describes the current implemented architecture; treat the v4.2 north-star diagram
+Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
+governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
+describes the current implemented architecture; treat the v5 north-star diagram
 as target-state architecture unless the components below say otherwise.
 
 ## Roadmap Authority and Open Deltas
 
-| Area | Master Roadmap v4.2 north star | Current architecture truth |
+| Area | Master Roadmap v5 north star | Current architecture truth |
 |------|-------------------------------|----------------------------|
 | Control plane | n8n orchestrates workflows through a thin FastAPI wrapper layer. | The repo is still CLI-first and local-first. `services/api/` exists, but the broad v4 wrapper surface and n8n control plane are not current architecture truth. |
 | Knowledge inputs | Research scraper and signals/news ingestion feed the RAG brain continuously. | Current RAG flows are driven by local docs, `kb/`, artifacts, and manually triggered source caching. Scraper and signals pipelines are not shipped architecture components here. |
@@ -35,7 +35,7 @@ as target-state architecture unless the components below say otherwise.
 
 **DuckDB = historical Parquet reads. ClickHouse = live streaming writes.**
 
-This is the ONE-SENTENCE rule from Master Roadmap v4.2 (Database Architecture section).
+This is the ONE-SENTENCE rule from Master Roadmap v5 (Database Architecture section).
 The two databases never share data and never communicate.
 
 | What | Database | Notes |
