@@ -63,6 +63,8 @@ close_benchmark_v1_main = _command_entrypoint("tools.cli.close_benchmark_v1")
 summarize_gap_fill_main = _command_entrypoint("tools.cli.summarize_gap_fill")
 make_session_pack_main = _command_entrypoint("tools.cli.make_session_pack")
 crypto_pair_scan_main = _command_entrypoint("tools.cli.crypto_pair_scan")
+crypto_pair_run_main = _command_entrypoint("tools.cli.crypto_pair_run")
+crypto_pair_backtest_main = _command_entrypoint("tools.cli.crypto_pair_backtest")
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
 rag_query_main = _command_entrypoint("tools.cli.rag_query")
@@ -112,6 +114,8 @@ _COMMAND_HANDLER_NAMES = {
     "close-benchmark-v1": "close_benchmark_v1_main",
     "summarize-gap-fill": "summarize_gap_fill_main",
     "crypto-pair-scan": "crypto_pair_scan_main",
+    "crypto-pair-run": "crypto_pair_run_main",
+    "crypto-pair-backtest": "crypto_pair_backtest_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -162,6 +166,8 @@ def print_usage() -> None:
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
+    print("  crypto-pair-run       Paper by default; live scaffold behind --live with explicit safety gates")
+    print("  crypto-pair-backtest  Replay historical/synthetic pair observations, emit eval artifacts")
     print("")
     print("--- SimTrader / Execution (Track A, gated) ----------------------------")
     print("  simtrader             Record/replay/shadow/live trading - run 'simtrader --help'")
