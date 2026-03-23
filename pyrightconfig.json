@@ -1,0 +1,22 @@
+{
+  "include": [
+    "polytool",
+    "packages",
+    "tools",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "build",
+    "*.egg-info"
+  ],
+  "extraPaths": [
+    ".",
+    "packages",
+    "tools"
+  ],
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none"
+}

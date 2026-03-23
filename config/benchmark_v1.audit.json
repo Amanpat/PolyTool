@@ -1,0 +1,5569 @@
+{
+  "schema_version": "benchmark_tape_inventory_audit_v1",
+  "benchmark_version": "benchmark_v1",
+  "manifest_schema_version": "benchmark_tape_manifest_v1",
+  "generated_at": "2026-03-21T23:57:14+00:00",
+  "inventory_roots": [
+    "artifacts/simtrader/tapes",
+    "artifacts/silver",
+    "artifacts/tapes/new_market"
+  ],
+  "discovered_count": 137,
+  "skipped_count": 0,
+  "selected_count": 50,
+  "inventory_by_tier": {
+    "gold": 19,
+    "silver": 118
+  },
+  "selected_by_tier": {
+    "gold": 13,
+    "silver": 37
+  },
+  "bucket_summary": {
+    "politics": {
+      "quota": 10,
+      "candidate_count": 33,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 1,
+        "silver": 32
+      },
+      "selected_by_tier": {
+        "gold": 0,
+        "silver": 10
+      }
+    },
+    "sports": {
+      "quota": 15,
+      "candidate_count": 38,
+      "selected_count": 15,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 4,
+        "silver": 34
+      },
+      "selected_by_tier": {
+        "gold": 4,
+        "silver": 11
+      }
+    },
+    "crypto": {
+      "quota": 10,
+      "candidate_count": 65,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 5,
+        "silver": 60
+      },
+      "selected_by_tier": {
+        "gold": 2,
+        "silver": 8
+      }
+    },
+    "near_resolution": {
+      "quota": 10,
+      "candidate_count": 81,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 5,
+        "silver": 76
+      },
+      "selected_by_tier": {
+        "gold": 2,
+        "silver": 8
+      }
+    },
+    "new_market": {
+      "quota": 5,
+      "candidate_count": 7,
+      "selected_count": 5,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 7,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 5,
+        "silver": 0
+      }
+    }
+  },
+  "selected_assignments": {
+    "politics": [
+      {
+        "tape_path": "artifacts/silver/5500958648222024/2026-03-15T10-00-00Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5500958648222024/2026-03-15T10-00-00Z",
+        "tier": "silver",
+        "slug": "israeli-parliament-dissolved-by-june-30",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "5500958648222024490080262026563017618333773328581609432182941377205770769101",
+        "price_sample_count": 30,
+        "price_low": 0.45,
+        "price_high": 0.5,
+        "price_span": 0.05,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "crypto"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/7264108116796609/2026-03-15T10-00-46Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/7264108116796609/2026-03-15T10-00-46Z",
+        "tier": "silver",
+        "slug": "col1-dep-alf-2026-02-11-draw",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "72641081167966096071989126730108102869488815019837213072547665100837485982952",
+        "price_sample_count": 29,
+        "price_low": 0.5,
+        "price_high": 0.53,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/2527805882341194/2026-03-15T10-00-37Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/2527805882341194/2026-03-15T10-00-37Z",
+        "tier": "silver",
+        "slug": "israeli-parliament-dissolved-by-march-31-932",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "25278058823411945213885362924698925171228888903068881375579611765998048393364",
+        "price_sample_count": 30,
+        "price_low": 0.033,
+        "price_high": 0.062,
+        "price_span": 0.029,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/2998339873466601/2026-03-15T10-00-01Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/2998339873466601/2026-03-15T10-00-01Z",
+        "tier": "silver",
+        "slug": "dutch-house-of-representatives-dissolved-in-2026",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "29983398734666016812286750567939946408052024167814170736793692754576540623567",
+        "price_sample_count": 30,
+        "price_low": 0.17,
+        "price_high": 0.195,
+        "price_span": 0.025,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "crypto"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/4857745127108367/2026-03-15T10-00-09Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/4857745127108367/2026-03-15T10-00-09Z",
+        "tier": "silver",
+        "slug": "any-us-state-legislature-votes-on-secession-by-june-30-2026",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "48577451271083670981595797636824300354923632195069165655560061059665286147100",
+        "price_sample_count": 29,
+        "price_low": 0.0525,
+        "price_high": 0.069,
+        "price_span": 0.0165,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/5237775167597774/2026-03-15T10-00-33Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5237775167597774/2026-03-15T10-00-33Z",
+        "tier": "silver",
+        "slug": "cwbb-ausp-sill-2025-11-23",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "523777516759777472751813433029065722746246021198458551552611981678513314909",
+        "price_sample_count": 29,
+        "price_low": 0.4845,
+        "price_high": 0.5005,
+        "price_span": 0.016,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1974446487101534/2026-03-15T10-00-45Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1974446487101534/2026-03-15T10-00-45Z",
+        "tier": "silver",
+        "slug": "aleksandar-vui-out-as-serbian-president-by-june-30-2026-398",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "19744464871015345686393695494963732803955362618545213010171428495197665140325",
+        "price_sample_count": 29,
+        "price_low": 0.17,
+        "price_high": 0.18,
+        "price_span": 0.01,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/4271491996993336/2026-03-15T10-00-27Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/4271491996993336/2026-03-15T10-00-27Z",
+        "tier": "silver",
+        "slug": "french-election-called-by-june-30-2026-532",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "42714919969933366092853780460994007110779633356080906344513267969458105781543",
+        "price_sample_count": 29,
+        "price_low": 0.06,
+        "price_high": 0.07,
+        "price_span": 0.01,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/6049928673355434/2026-03-15T10-00-02Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/6049928673355434/2026-03-15T10-00-02Z",
+        "tier": "silver",
+        "slug": "2026-us-senate-election-republican-odds-over-80-by-march-31",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "6049928673355434720113164721866330754070245336757278752814734016380817547183",
+        "price_sample_count": 30,
+        "price_low": 0.012,
+        "price_high": 0.0215,
+        "price_span": 0.0095,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/4991353569135740/2026-03-15T10-00-24Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/4991353569135740/2026-03-15T10-00-24Z",
+        "tier": "silver",
+        "slug": "aziz-akhannouch-out-as-morocco-prime-minister-by-december-31-2026",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "49913535691357405888189005795777119729203074497784553050607906527813175648482",
+        "price_sample_count": 29,
+        "price_low": 0.8965,
+        "price_high": 0.902,
+        "price_span": 0.0055,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "sports": [
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map",
+        "tier": "gold",
+        "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 80,
+        "primary_asset_id": "32761305560497515266298907010603238583784271883422104419001315861857080693737",
+        "price_sample_count": 75,
+        "price_low": 0.0015,
+        "price_high": 0.002,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c",
+        "tier": "gold",
+        "slug": "will-the-vancouver-canucks-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 66,
+        "primary_asset_id": "57745051474175280715827307490433711376781914565134185656043688787803746924931",
+        "price_sample_count": 65,
+        "price_low": 0.001,
+        "price_high": 0.0015,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla",
+        "tier": "gold",
+        "slug": "will-the-calgary-flames-win-the-2026-nhl-stanley-cup",
+        "metadata_sources": [
+          "prep_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "54811975275387163364864047298373893386525828579003336506827163723659384966681",
+        "price_sample_count": 29,
+        "price_low": 0.001,
+        "price_high": 0.0015,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+        "tier": "gold",
+        "slug": "will-the-oklahoma-city-thunder-win-the-2026-nba-finals",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 19,
+        "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+        "price_sample_count": 16,
+        "price_low": 0.36,
+        "price_high": 0.365,
+        "price_span": 0.005,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/3912826062982768/2026-03-15T10-00-28Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/3912826062982768/2026-03-15T10-00-28Z",
+        "tier": "silver",
+        "slug": "will-arkansas-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 60,
+        "primary_asset_id": "39128260629827688006295887184497769346717633780459105579951588605728948301806",
+        "price_sample_count": 60,
+        "price_low": 0.014,
+        "price_high": 0.0155,
+        "price_span": 0.0015,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/6423837128216218/2026-03-15T10-00-28Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/6423837128216218/2026-03-15T10-00-28Z",
+        "tier": "silver",
+        "slug": "will-alabama-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 60,
+        "primary_asset_id": "64238371282162180889786576727728132267398016308787457550573659142626503365218",
+        "price_sample_count": 60,
+        "price_low": 0.005,
+        "price_high": 0.0055,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/2090391531341838/2026-03-15T10-00-02Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/2090391531341838/2026-03-15T10-00-02Z",
+        "tier": "silver",
+        "slug": "will-arizona-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 58,
+        "primary_asset_id": "20903915313418382848403196445395632365584623244229237381783782313688552263914",
+        "price_sample_count": 58,
+        "price_low": 0.992,
+        "price_high": 0.995,
+        "price_span": 0.003,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/5195773331513813/2026-03-15T10-00-22Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5195773331513813/2026-03-15T10-00-22Z",
+        "tier": "silver",
+        "slug": "mar1-fus-wac-2026-02-02-total-3pt5",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "51957733315138137751544750281681849658383184634669283169840289189942395407032",
+        "price_sample_count": 30,
+        "price_low": 0.5,
+        "price_high": 0.52,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/5264139780476969/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5264139780476969/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-donte-divincenzo",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "52641397804769692603508405062327342095207580125549269593144495926978199261831",
+        "price_sample_count": 30,
+        "price_low": 0.007,
+        "price_high": 0.019,
+        "price_span": 0.012,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/7934105390831689/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/7934105390831689/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-austin-reaves",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "79341053908316897123108028692720094539073041828136599634191212259095527929735",
+        "price_sample_count": 30,
+        "price_low": 0.0025,
+        "price_high": 0.0095,
+        "price_span": 0.007,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/9836354983878384/2026-03-15T10-00-06Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/9836354983878384/2026-03-15T10-00-06Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-cj-mccollum",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "98363549838783848352853403892630712079481765743558739683813382386881831215714",
+        "price_sample_count": 30,
+        "price_low": 0.0145,
+        "price_high": 0.018,
+        "price_span": 0.0035,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/9930983743247421/2026-03-15T10-00-24Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/9930983743247421/2026-03-15T10-00-24Z",
+        "tier": "silver",
+        "slug": "claudia-sheinbaum-out-as-president-of-mexico-by-june-30-791",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "99309837432474218579509000241868648485226597214018334052948341435179812240487",
+        "price_sample_count": 30,
+        "price_low": 0.0505,
+        "price_high": 0.053,
+        "price_span": 0.0025,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/2666471978072671/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/2666471978072671/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-cam-thomas",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "26664719780726719306039049321190618444940004543458581861221428283388823819731",
+        "price_sample_count": 30,
+        "price_low": 0.0005,
+        "price_high": 0.0015,
+        "price_span": 0.001,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/6443923275242122/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/6443923275242122/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-coby-white",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "64439232752421228122564761524786270613915827068047243002479724375188804924582",
+        "price_sample_count": 30,
+        "price_low": 0.0075,
+        "price_high": 0.0085,
+        "price_span": 0.001,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/8833235360133154/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/8833235360133154/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-anfernee-simons",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "88332353601331542558421890686233263142784033646212650199182442923575484444983",
+        "price_sample_count": 30,
+        "price_low": 0.0045,
+        "price_high": 0.0055,
+        "price_span": 0.001,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "crypto": [
+      {
+        "tape_path": "artifacts/tapes/new_market/doge-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/doge-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "doge-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 2,
+        "primary_asset_id": "94093621017194142016089689998471999649872898131309934810269761269305659224070",
+        "price_sample_count": 1,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "new_market"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/tapes/new_market/eth-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/eth-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "eth-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 2,
+        "primary_asset_id": "66561189670399828647062407060508330493899824502440592773583593566569034238098",
+        "price_sample_count": 1,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "new_market"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/8658106095322851/2026-03-15T10-00-35Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/8658106095322851/2026-03-15T10-00-35Z",
+        "tier": "silver",
+        "slug": "bitcoin-more-valuable-than-any-company-before-2027",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "86581060953228516881655146344341039341094964812672641643377113087872781363989",
+        "price_sample_count": 30,
+        "price_low": 0.27,
+        "price_high": 0.35,
+        "price_span": 0.08,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1149063166299969/2026-03-15T10-00-24Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1149063166299969/2026-03-15T10-00-24Z",
+        "tier": "silver",
+        "slug": "grok-memecoin-wallet-hits-1m-before-april",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "114906316629996966543078420679797713367658662151520631918521174990820291971161",
+        "price_sample_count": 29,
+        "price_low": 0.055,
+        "price_high": 0.1,
+        "price_span": 0.045,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1630984922783900/2026-03-15T10-00-01Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1630984922783900/2026-03-15T10-00-01Z",
+        "tier": "silver",
+        "slug": "will-a-friend-of-dorothy-win-best-live-action-short-film-at-the-98th-academy-awards",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 60,
+        "primary_asset_id": "16309849227839004264975118747976959817418505128911927142389170217137152348527",
+        "price_sample_count": 60,
+        "price_low": 0.21,
+        "price_high": 0.24,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/9819820479786057/2026-03-15T10-00-04Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/9819820479786057/2026-03-15T10-00-04Z",
+        "tier": "silver",
+        "slug": "will-armed-only-with-a-camera-the-life-and-death-of-brent-renaud-win-best-documentary-short-film-at-the-98th-academy-awards-841",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 60,
+        "primary_asset_id": "98198204797860571196441607485240450721801443877657810837006677701905151435879",
+        "price_sample_count": 60,
+        "price_low": 0.16,
+        "price_high": 0.18,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1147427554882468/2026-03-15T10-00-08Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1147427554882468/2026-03-15T10-00-08Z",
+        "tier": "silver",
+        "slug": "will-butterfly-win-best-animated-short-film-at-the-98th-academy-awards",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "114742755488246838778216247277024522491843106098149107609415764949680537572872",
+        "price_sample_count": 29,
+        "price_low": 0.605,
+        "price_high": 0.625,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/3579436527663349/2026-03-15T10-00-07Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/3579436527663349/2026-03-15T10-00-07Z",
+        "tier": "silver",
+        "slug": "will-amy-madigan-win-best-supporting-actress-at-the-98th-academy-awards",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 58,
+        "primary_asset_id": "35794365276633497585739245052126033211226767785372805090190071105864704284323",
+        "price_sample_count": 58,
+        "price_low": 0.5215,
+        "price_high": 0.539,
+        "price_span": 0.0175,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/5696256002830425/2026-03-15T10-00-09Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5696256002830425/2026-03-15T10-00-09Z",
+        "tier": "silver",
+        "slug": "eth-flipped-in-2026",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "crypto",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "5696256002830425095773350415970497521807751621606677935878961079946544685641",
+        "price_sample_count": 30,
+        "price_low": 0.51,
+        "price_high": 0.525,
+        "price_span": 0.015,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/8318352116592976/2026-03-15T10-00-00Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/8318352116592976/2026-03-15T10-00-00Z",
+        "tier": "silver",
+        "slug": "will-come-see-me-in-the-good-light-win-best-documentary-feature-film-at-the-98th-academy-awards",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 29,
+        "primary_asset_id": "83183521165929765401911814536490006926928675752281515462095269389180922163963",
+        "price_sample_count": 29,
+        "price_low": 0.07,
+        "price_high": 0.085,
+        "price_span": 0.015,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "near_resolution": [
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699",
+        "tier": "gold",
+        "slug": "will-trump-deport-less-than-250000",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 141,
+        "primary_asset_id": "101676997363687199724245607342877036148401850938023978421879460310389391082353",
+        "price_sample_count": 140,
+        "price_low": 0.0305,
+        "price_high": 0.967,
+        "price_span": 0.9365,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via fallback keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340/events.jsonl",
+        "tape_dir": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340",
+        "tier": "gold",
+        "slug": "20260225T234032Z_shadow_97449340",
+        "metadata_sources": [
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 14,
+        "primary_asset_id": "59259495934562596318644973716893809974860301509869285036503555129962149752635",
+        "price_sample_count": 13,
+        "price_low": 0.99,
+        "price_high": 0.9904999999999999,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1087420583993938/2026-03-15T10-00-24Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1087420583993938/2026-03-15T10-00-24Z",
+        "tier": "silver",
+        "slug": "will-arco-win-best-animated-feature-film-at-the-98th-academy-awards",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 58,
+        "primary_asset_id": "108742058399393812666768125336494730295204303286810621576476744896074397908723",
+        "price_sample_count": 58,
+        "price_low": 0.0105,
+        "price_high": 0.011,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/3734545609023866/2026-03-15T10-00-56Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/3734545609023866/2026-03-15T10-00-56Z",
+        "tier": "silver",
+        "slug": "will-a-minecraft-movie-be-the-2025-film-with-the-highest-domestic-gross-on-march-15",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 58,
+        "primary_asset_id": "37345456090238660292108878804259620110527609958401913312354659218374109811871",
+        "price_sample_count": 58,
+        "price_low": 0.0005,
+        "price_high": 0.0005,
+        "price_span": 0.0,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1060726020743158/2026-03-15T10-00-05Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1060726020743158/2026-03-15T10-00-05Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-derrick-white",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "106072602074315884799990195167770552952665946873762031568508532473255399483010",
+        "price_sample_count": 30,
+        "price_low": 0.004,
+        "price_high": 0.005,
+        "price_span": 0.001,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1126859629471579/2026-03-15T10-00-06Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1126859629471579/2026-03-15T10-00-06Z",
+        "tier": "silver",
+        "slug": "nba-2025-26-3pm-leader-de-andre-hunter",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "sports",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "112685962947157970206518935575702847994693313139355762940155856958598699819004",
+        "price_sample_count": 30,
+        "price_low": 0.0005,
+        "price_high": 0.001,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "sports via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/1150301694545362/2026-03-15T10-00-04Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/1150301694545362/2026-03-15T10-00-04Z",
+        "tier": "silver",
+        "slug": "will-blue-moon-win-best-original-screenplay-at-the-98th-academy-awards-476",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "115030169454536256713442065842439036912088366913360307218979600047139494783538",
+        "price_sample_count": 30,
+        "price_low": 0.0035,
+        "price_high": 0.0035,
+        "price_span": 0.0,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/4179986064466524/2026-03-15T10-00-06Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/4179986064466524/2026-03-15T10-00-06Z",
+        "tier": "silver",
+        "slug": "2026-us-house-election-republican-odds-over-40-by-march-31",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "4179986064466524329029894531264429372631556172425171930014197939292627991188",
+        "price_sample_count": 30,
+        "price_low": 0.0135,
+        "price_high": 0.0145,
+        "price_span": 0.001,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/4464831471171745/2026-03-15T10-00-03Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/4464831471171745/2026-03-15T10-00-03Z",
+        "tier": "silver",
+        "slug": "will-avatar-fire-and-ash-win-best-costume-design-at-the-98th-academy-awards-482",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "near_resolution",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "44648314711717458063074998921644285938870392557850689878450818223237354241500",
+        "price_sample_count": 30,
+        "price_low": 0.0055,
+        "price_high": 0.006,
+        "price_span": 0.0005,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via price-tail inference"
+        ]
+      },
+      {
+        "tape_path": "artifacts/silver/5481363618134514/2026-03-15T10-00-09Z/silver_events.jsonl",
+        "tape_dir": "artifacts/silver/5481363618134514/2026-03-15T10-00-09Z",
+        "tier": "silver",
+        "slug": "2026-us-house-election-republican-odds-over-50-by-march-31",
+        "metadata_sources": [
+          "market_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "politics",
+        "question": "",
+        "title": "",
+        "event_count": 30,
+        "primary_asset_id": "54813636181345144600761947136579572489579950253793950848134425921671351475088",
+        "price_sample_count": 30,
+        "price_low": 0.0115,
+        "price_high": 0.013,
+        "price_span": 0.0015,
+        "near_tail_observed": true,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "politics via regime classifier",
+          "near_resolution via price-tail inference"
+        ]
+      }
+    ],
+    "new_market": [
+      {
+        "tape_path": "artifacts/tapes/new_market/xrp-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/xrp-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "xrp-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 7,
+        "primary_asset_id": "93473077060060000956298690113083129707980282173986080688687474221459538187633",
+        "price_sample_count": 6,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "new_market"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/tapes/new_market/sol-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/sol-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "sol-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 4,
+        "primary_asset_id": "76688617949976706708604515355579990267723784102477888795722411653371717708701",
+        "price_sample_count": 3,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "new_market"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/tapes/new_market/btc-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/btc-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "btc-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 3,
+        "primary_asset_id": "112743211105732682824065853522599256301175382192545822114934232230980207992039",
+        "price_sample_count": 2,
+        "price_low": 0.505,
+        "price_high": 0.505,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto",
+          "new_market"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/tapes/new_market/bnb-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/bnb-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "bnb-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 2,
+        "primary_asset_id": "100097834916688000210118007318067919514863955181827771771555316490129394529270",
+        "price_sample_count": 1,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=0.05"
+        ]
+      },
+      {
+        "tape_path": "artifacts/tapes/new_market/hype-updown-5m-1774209300/events.jsonl",
+        "tape_dir": "artifacts/tapes/new_market/hype-updown-5m-1774209300",
+        "tier": "gold",
+        "slug": "hype-updown-5m-1774209300",
+        "metadata_sources": [
+          "watch_meta.json",
+          "meta.json"
+        ],
+        "category": "",
+        "question": "",
+        "title": "",
+        "event_count": 2,
+        "primary_asset_id": "68698188580360185018026515510121104262147953371705280220914090689533422886891",
+        "price_sample_count": 1,
+        "price_low": 0.5,
+        "price_high": 0.5,
+        "price_span": 0.0,
+        "near_tail_observed": false,
+        "age_hours": 0.05,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=0.05"
+        ]
+      }
+    ]
+  },
+  "discovered_tapes": [
+    {
+      "tape_path": "artifacts/silver/1029598904689285/2026-03-15T10-01-14Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1029598904689285/2026-03-15T10-01-14Z",
+      "tier": "silver",
+      "slug": "bitcoin-all-time-high-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "102959890468928530190954086704155483076852880798676895426376704430618826404382",
+      "price_sample_count": 29,
+      "price_low": 0.185,
+      "price_high": 0.185,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1036373044471358/2026-03-15T10-00-27Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1036373044471358/2026-03-15T10-00-27Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-btts",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "10363730444713587565971211957354242174257263386403677991918667086051030709658",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.515,
+      "price_span": 0.015,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1037041417739476/2026-03-15T10-00-11Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1037041417739476/2026-03-15T10-00-11Z",
+      "tier": "silver",
+      "slug": "2026-balance-of-power-r-senate-r-house-537",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "103704141773947678931823410030956181918562062788486034785782641603149828893320",
+      "price_sample_count": 30,
+      "price_low": 0.165,
+      "price_high": 0.165,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1058331672296404/2026-03-15T10-00-20Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1058331672296404/2026-03-15T10-00-20Z",
+      "tier": "silver",
+      "slug": "ethereum-all-time-high-by-september-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "105833167229640460935727334096345488492393727784088890802944984984125353780635",
+      "price_sample_count": 30,
+      "price_low": 0.125,
+      "price_high": 0.125,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1060726020743158/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1060726020743158/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-derrick-white",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "106072602074315884799990195167770552952665946873762031568508532473255399483010",
+      "price_sample_count": 30,
+      "price_low": 0.004,
+      "price_high": 0.005,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1062094709051401/2026-03-15T10-00-53Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1062094709051401/2026-03-15T10-00-53Z",
+      "tier": "silver",
+      "slug": "bitcoin-bip-360-implemented-in-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "106209470905140133419252056944399671970425852277950125119183011062762795065913",
+      "price_sample_count": 29,
+      "price_low": 0.14,
+      "price_high": 0.14,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1067531264355705/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1067531264355705/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-brice-sensabaugh",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "106753126435570543164719164307903035478556647492276837947459100346619274172025",
+      "price_sample_count": 29,
+      "price_low": 0.003,
+      "price_high": 0.0395,
+      "price_span": 0.0365,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1073675523191826/2026-03-15T10-01-11Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1073675523191826/2026-03-15T10-01-11Z",
+      "tier": "silver",
+      "slug": "anthony-albanese-out-as-prime-minister-of-australia-by-june-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "107367552319182667076918123529835512301963822028781657102322664093024927372582",
+      "price_sample_count": 29,
+      "price_low": 0.07,
+      "price_high": 0.07,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1085479783279584/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1085479783279584/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "microstrategy-sells-any-bitcoin-by-march-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "108547978327958467449318042977006580876058560639743186491243488736783119648127",
+      "price_sample_count": 28,
+      "price_low": 0.0065,
+      "price_high": 0.0075,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1087420583993938/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1087420583993938/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "will-arco-win-best-animated-feature-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 58,
+      "primary_asset_id": "108742058399393812666768125336494730295204303286810621576476744896074397908723",
+      "price_sample_count": 58,
+      "price_low": 0.0105,
+      "price_high": 0.011,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1102518281615431/2026-03-15T10-01-16Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1102518281615431/2026-03-15T10-01-16Z",
+      "tier": "silver",
+      "slug": "microstrategy-sells-any-bitcoin-by-june-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 27,
+      "primary_asset_id": "110251828161543119357013227499774714771527179764174739487025581227481937033858",
+      "price_sample_count": 27,
+      "price_low": 0.0305,
+      "price_high": 0.033,
+      "price_span": 0.0025,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1102925335356933/2026-03-15T10-00-29Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1102925335356933/2026-03-15T10-00-29Z",
+      "tier": "silver",
+      "slug": "bitcoin-all-time-high-by-june-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "110292533535693399659565556058999029770323124971784271457706580213101684204758",
+      "price_sample_count": 29,
+      "price_low": 0.05,
+      "price_high": 0.055,
+      "price_span": 0.005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1111281915815054/2026-03-15T10-02-17Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1111281915815054/2026-03-15T10-02-17Z",
+      "tier": "silver",
+      "slug": "microstrategy-sells-any-bitcoin-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "111128191581505463501777127559667396812474366956707382672202929745167742497287",
+      "price_sample_count": 29,
+      "price_low": 0.125,
+      "price_high": 0.125,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1126859629471579/2026-03-15T10-00-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1126859629471579/2026-03-15T10-00-06Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-de-andre-hunter",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "112685962947157970206518935575702847994693313139355762940155856958598699819004",
+      "price_sample_count": 30,
+      "price_low": 0.0005,
+      "price_high": 0.001,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1130052343087492/2026-03-15T10-00-48Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1130052343087492/2026-03-15T10-00-48Z",
+      "tier": "silver",
+      "slug": "another-crypto-hack-over-100m-before-2027",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "113005234308749261641273809104525222871932092818248517014310727082878210014694",
+      "price_sample_count": 28,
+      "price_low": 0.76,
+      "price_high": 0.765,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1147427554882468/2026-03-15T10-00-08Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1147427554882468/2026-03-15T10-00-08Z",
+      "tier": "silver",
+      "slug": "will-butterfly-win-best-animated-short-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "114742755488246838778216247277024522491843106098149107609415764949680537572872",
+      "price_sample_count": 29,
+      "price_low": 0.605,
+      "price_high": 0.625,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1149063166299969/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1149063166299969/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "grok-memecoin-wallet-hits-1m-before-april",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "114906316629996966543078420679797713367658662151520631918521174990820291971161",
+      "price_sample_count": 29,
+      "price_low": 0.055,
+      "price_high": 0.1,
+      "price_span": 0.045,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1149626713138189/2026-03-15T10-00-08Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1149626713138189/2026-03-15T10-00-08Z",
+      "tier": "silver",
+      "slug": "will-children-no-more-were-and-are-gone-win-best-documentary-short-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "114962671313818959920080358744711635449121381846767682233128497155347393211649",
+      "price_sample_count": 28,
+      "price_low": 0.0225,
+      "price_high": 0.0235,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1150301694545362/2026-03-15T10-00-04Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1150301694545362/2026-03-15T10-00-04Z",
+      "tier": "silver",
+      "slug": "will-blue-moon-win-best-original-screenplay-at-the-98th-academy-awards-476",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "115030169454536256713442065842439036912088366913360307218979600047139494783538",
+      "price_sample_count": 30,
+      "price_low": 0.0035,
+      "price_high": 0.0035,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1367290952473846/2026-03-15T10-02-31Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1367290952473846/2026-03-15T10-02-31Z",
+      "tier": "silver",
+      "slug": "ethereum-all-time-high-by-march-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "13672909524738463047194485253993469755270149698964235984703055596484122584274",
+      "price_sample_count": 28,
+      "price_low": 0.004,
+      "price_high": 0.0045,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1630585580435587/2026-03-15T10-01-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1630585580435587/2026-03-15T10-01-05Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-total-4pt5",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "16305855804355872993518507480565226379808679217440374640516250399904744873631",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.515,
+      "price_span": 0.015,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1630984922783900/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1630984922783900/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-a-friend-of-dorothy-win-best-live-action-short-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 60,
+      "primary_asset_id": "16309849227839004264975118747976959817418505128911927142389170217137152348527",
+      "price_sample_count": 60,
+      "price_low": 0.21,
+      "price_high": 0.24,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1821056921378005/2026-03-15T10-01-33Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1821056921378005/2026-03-15T10-01-33Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-4b-one-day-after-launch-484-688-448",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "18210569213780052033306952138558054016080325272524745338190244466404715123630",
+      "price_sample_count": 28,
+      "price_low": 0.028,
+      "price_high": 0.0295,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1961028804451244/2026-03-15T10-01-34Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1961028804451244/2026-03-15T10-01-34Z",
+      "tier": "silver",
+      "slug": "will-bugonia-win-best-picture-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "19610288044512445018970900383394598704429716248417831382102395080716996421422",
+      "price_sample_count": 29,
+      "price_low": 0.0005,
+      "price_high": 0.001,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/1974446487101534/2026-03-15T10-00-45Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/1974446487101534/2026-03-15T10-00-45Z",
+      "tier": "silver",
+      "slug": "aleksandar-vui-out-as-serbian-president-by-june-30-2026-398",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "19744464871015345686393695494963732803955362618545213010171428495197665140325",
+      "price_sample_count": 29,
+      "price_low": 0.17,
+      "price_high": 0.18,
+      "price_span": 0.01,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2090391531341838/2026-03-15T10-00-02Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2090391531341838/2026-03-15T10-00-02Z",
+      "tier": "silver",
+      "slug": "will-arizona-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 58,
+      "primary_asset_id": "20903915313418382848403196445395632365584623244229237381783782313688552263914",
+      "price_sample_count": 58,
+      "price_low": 0.992,
+      "price_high": 0.995,
+      "price_span": 0.003,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2505616395696556/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2505616395696556/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-delroy-lindo-win-best-supporting-actor-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "25056163956965564455957738971346869740799169769422815261763807235324372823907",
+      "price_sample_count": 29,
+      "price_low": 0.066,
+      "price_high": 0.078,
+      "price_span": 0.012,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2527805882341194/2026-03-15T10-00-37Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2527805882341194/2026-03-15T10-00-37Z",
+      "tier": "silver",
+      "slug": "israeli-parliament-dissolved-by-march-31-932",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "25278058823411945213885362924698925171228888903068881375579611765998048393364",
+      "price_sample_count": 30,
+      "price_low": 0.033,
+      "price_high": 0.062,
+      "price_span": 0.029,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2611134615566553/2026-03-15T10-00-21Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2611134615566553/2026-03-15T10-00-21Z",
+      "tier": "silver",
+      "slug": "anyone-charged-for-doxing-delta-force-commander-heading-maduro-grab-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "26111346155665538822903434232913514543465686537304907055583320755437723384152",
+      "price_sample_count": 29,
+      "price_low": 0.042,
+      "price_high": 0.061,
+      "price_span": 0.019,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2621273921797578/2026-03-15T10-00-41Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2621273921797578/2026-03-15T10-00-41Z",
+      "tier": "silver",
+      "slug": "2026-us-senate-election-republican-odds-over-70-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "26212739217975787998493124025530296738122035658503102801688395774045292702846",
+      "price_sample_count": 29,
+      "price_low": 0.026,
+      "price_high": 0.0265,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2666471978072671/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2666471978072671/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-cam-thomas",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "26664719780726719306039049321190618444940004543458581861221428283388823819731",
+      "price_sample_count": 30,
+      "price_low": 0.0005,
+      "price_high": 0.0015,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2680549153972151/2026-03-15T10-00-29Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2680549153972151/2026-03-15T10-00-29Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-fus",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "26805491539721511732401216171670711592551991930223005015903470680440557657894",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.52,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2906410866522059/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2906410866522059/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "2026-us-senate-election-republican-odds-over-75-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "29064108665220590056264207162732731760421779932095803985411080324504405068793",
+      "price_sample_count": 29,
+      "price_low": 0.011,
+      "price_high": 0.0115,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2994382143796648/2026-03-15T10-02-16Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2994382143796648/2026-03-15T10-02-16Z",
+      "tier": "silver",
+      "slug": "nato-dissolves-before-2027",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "29943821437966485977846344328177860951731778212624510535678193169997826918513",
+      "price_sample_count": 29,
+      "price_low": 0.05,
+      "price_high": 0.06,
+      "price_span": 0.01,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/2998339873466601/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/2998339873466601/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "dutch-house-of-representatives-dissolved-in-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "29983398734666016812286750567939946408052024167814170736793692754576540623567",
+      "price_sample_count": 30,
+      "price_low": 0.17,
+      "price_high": 0.195,
+      "price_span": 0.025,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "crypto"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3052503615709520/2026-03-15T10-00-29Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3052503615709520/2026-03-15T10-00-29Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-draw",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "30525036157095205936001648347965389975465281734079862806200177036222567538562",
+      "price_sample_count": 29,
+      "price_low": 0.495,
+      "price_high": 0.52,
+      "price_span": 0.025,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3056182873566198/2026-03-15T10-00-02Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3056182873566198/2026-03-15T10-00-02Z",
+      "tier": "silver",
+      "slug": "will-all-the-empty-rooms-win-best-documentary-short-film-at-the-98th-academy-awards-268",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 56,
+      "primary_asset_id": "30561828735661989861551529096374556758738521976741498429966080810239962719248",
+      "price_sample_count": 56,
+      "price_low": 0.69,
+      "price_high": 0.69,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3117884655942181/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3117884655942181/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-cutting-through-rocks-win-best-documentary-feature-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "31178846559421819756924974289897331370926252773432034932551121712983196701772",
+      "price_sample_count": 28,
+      "price_low": 0.017,
+      "price_high": 0.0245,
+      "price_span": 0.0075,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3472241060806285/2026-03-15T10-00-04Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3472241060806285/2026-03-15T10-00-04Z",
+      "tier": "silver",
+      "slug": "2026-balance-of-power-d-senate-d-house-949",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "34722410608062854697106861099776685947172185964394483545370684749662285977831",
+      "price_sample_count": 30,
+      "price_low": 0.475,
+      "price_high": 0.475,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3556910515457183/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3556910515457183/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "anthony-albanese-out-as-prime-minister-of-australia-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "35569105154571839878457160309335062684487338233502720603067822798153680371504",
+      "price_sample_count": 29,
+      "price_low": 0.175,
+      "price_high": 0.175,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3579436527663349/2026-03-15T10-00-07Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3579436527663349/2026-03-15T10-00-07Z",
+      "tier": "silver",
+      "slug": "will-amy-madigan-win-best-supporting-actress-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 58,
+      "primary_asset_id": "35794365276633497585739245052126033211226767785372805090190071105864704284323",
+      "price_sample_count": 58,
+      "price_low": 0.5215,
+      "price_high": 0.539,
+      "price_span": 0.0175,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3709380386754124/2026-03-15T10-00-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3709380386754124/2026-03-15T10-00-06Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-devin-booker",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "37093803867541241735188973982180538941367291152033924866452728539290563904681",
+      "price_sample_count": 28,
+      "price_low": 0.002,
+      "price_high": 0.004,
+      "price_span": 0.002,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3734545609023866/2026-03-15T10-00-56Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3734545609023866/2026-03-15T10-00-56Z",
+      "tier": "silver",
+      "slug": "will-a-minecraft-movie-be-the-2025-film-with-the-highest-domestic-gross-on-march-15",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 58,
+      "primary_asset_id": "37345456090238660292108878804259620110527609958401913312354659218374109811871",
+      "price_sample_count": 58,
+      "price_low": 0.0005,
+      "price_high": 0.0005,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3848715502604153/2026-03-15T10-00-00Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3848715502604153/2026-03-15T10-00-00Z",
+      "tier": "silver",
+      "slug": "billionaire-one-time-wealth-tax-passes-in-california-election-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "38487155026041533062980821872238023790862908049855818921747904019478875496931",
+      "price_sample_count": 29,
+      "price_low": 0.305,
+      "price_high": 0.305,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3912826062982768/2026-03-15T10-00-28Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3912826062982768/2026-03-15T10-00-28Z",
+      "tier": "silver",
+      "slug": "will-arkansas-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 60,
+      "primary_asset_id": "39128260629827688006295887184497769346717633780459105579951588605728948301806",
+      "price_sample_count": 60,
+      "price_low": 0.014,
+      "price_high": 0.0155,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/3989273821096974/2026-03-15T10-00-28Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/3989273821096974/2026-03-15T10-00-28Z",
+      "tier": "silver",
+      "slug": "will-duke-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "39892738210969745640436008668779577634355951035638509814901472210791627965599",
+      "price_sample_count": 29,
+      "price_low": 0.997,
+      "price_high": 0.9985,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4179986064466524/2026-03-15T10-00-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4179986064466524/2026-03-15T10-00-06Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republican-odds-over-40-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "4179986064466524329029894531264429372631556172425171930014197939292627991188",
+      "price_sample_count": 30,
+      "price_low": 0.0135,
+      "price_high": 0.0145,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4231596428596163/2026-03-15T10-35-19Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4231596428596163/2026-03-15T10-35-19Z",
+      "tier": "silver",
+      "slug": "another-sp-500-company-buys-bitcoin-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 23,
+      "primary_asset_id": "423159642859616304693748948006533503426876027949474243126283164948112081583",
+      "price_sample_count": 23,
+      "price_low": 0.49,
+      "price_high": 0.4955,
+      "price_span": 0.0055,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4271491996993336/2026-03-15T10-00-27Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4271491996993336/2026-03-15T10-00-27Z",
+      "tier": "silver",
+      "slug": "french-election-called-by-june-30-2026-532",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "42714919969933366092853780460994007110779633356080906344513267969458105781543",
+      "price_sample_count": 29,
+      "price_low": 0.06,
+      "price_high": 0.07,
+      "price_span": 0.01,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4464831471171745/2026-03-15T10-00-03Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4464831471171745/2026-03-15T10-00-03Z",
+      "tier": "silver",
+      "slug": "will-avatar-fire-and-ash-win-best-costume-design-at-the-98th-academy-awards-482",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "44648314711717458063074998921644285938870392557850689878450818223237354241500",
+      "price_sample_count": 30,
+      "price_low": 0.0055,
+      "price_high": 0.006,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4493111721382648/2026-03-15T10-02-23Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4493111721382648/2026-03-15T10-02-23Z",
+      "tier": "silver",
+      "slug": "hyperliquid-listed-on-binance-in-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "44931117213826484340324793454860559725706732151015486682279890174474031877488",
+      "price_sample_count": 28,
+      "price_low": 0.395,
+      "price_high": 0.4,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4515392889203243/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4515392889203243/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "fifa-world-cup-2026-qualification-longshots-parlay",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "45153928892032433221711467767140498355497341719444967754475250147850018710366",
+      "price_sample_count": 29,
+      "price_low": 0.17,
+      "price_high": 0.17,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4516158259228418/2026-03-15T10-00-02Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4516158259228418/2026-03-15T10-00-02Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republicans-flip-the-democrats-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "45161582592284183481914541885906127734498488668279199793935401156844439704099",
+      "price_sample_count": 29,
+      "price_low": 0.012,
+      "price_high": 0.014,
+      "price_span": 0.002,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4581770467163795/2026-03-15T10-00-25Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4581770467163795/2026-03-15T10-00-25Z",
+      "tier": "silver",
+      "slug": "eu-dissolves-before-2027",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "45817704671637959606552137852344358128000594240121222873542547068229803850441",
+      "price_sample_count": 29,
+      "price_low": 0.04,
+      "price_high": 0.0415,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4677150592216271/2026-03-15T10-00-28Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4677150592216271/2026-03-15T10-00-28Z",
+      "tier": "silver",
+      "slug": "will-avatar-fire-and-ash-be-the-2025-film-with-the-highest-domestic-gross-on-march-15",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "46771505922162712792275569984604184987923736112262888319721719757221041640393",
+      "price_sample_count": 29,
+      "price_low": 0.0005,
+      "price_high": 0.0005,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4857745127108367/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4857745127108367/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "any-us-state-legislature-votes-on-secession-by-june-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "48577451271083670981595797636824300354923632195069165655560061059665286147100",
+      "price_sample_count": 29,
+      "price_low": 0.0525,
+      "price_high": 0.069,
+      "price_span": 0.0165,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/4991353569135740/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/4991353569135740/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "aziz-akhannouch-out-as-morocco-prime-minister-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "49913535691357405888189005795777119729203074497784553050607906527813175648482",
+      "price_sample_count": 29,
+      "price_low": 0.8965,
+      "price_high": 0.902,
+      "price_span": 0.0055,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5038890066318974/2026-03-15T10-07-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5038890066318974/2026-03-15T10-07-24Z",
+      "tier": "silver",
+      "slug": "bitcoin-all-time-high-by-september-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "50388900663189748675936681554126016850520413670342348778716337126803310768728",
+      "price_sample_count": 28,
+      "price_low": 0.115,
+      "price_high": 0.115,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5195773331513813/2026-03-15T10-00-22Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5195773331513813/2026-03-15T10-00-22Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-total-3pt5",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "51957733315138137751544750281681849658383184634669283169840289189942395407032",
+      "price_sample_count": 30,
+      "price_low": 0.5,
+      "price_high": 0.52,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5237775167597774/2026-03-15T10-00-33Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5237775167597774/2026-03-15T10-00-33Z",
+      "tier": "silver",
+      "slug": "cwbb-ausp-sill-2025-11-23",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "523777516759777472751813433029065722746246021198458551552611981678513314909",
+      "price_sample_count": 29,
+      "price_low": 0.4845,
+      "price_high": 0.5005,
+      "price_span": 0.016,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5264139780476969/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5264139780476969/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-donte-divincenzo",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "52641397804769692603508405062327342095207580125549269593144495926978199261831",
+      "price_sample_count": 30,
+      "price_low": 0.007,
+      "price_high": 0.019,
+      "price_span": 0.012,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5328660314721921/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5328660314721921/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-buddy-hield",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "53286603147219210415422258263503682039026773000436824992990121643233242952703",
+      "price_sample_count": 29,
+      "price_low": 0.0005,
+      "price_high": 0.0055,
+      "price_span": 0.005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5417951493639691/2026-03-15T10-00-56Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5417951493639691/2026-03-15T10-00-56Z",
+      "tier": "silver",
+      "slug": "will-bugonia-win-best-adapted-screenplay-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "54179514936396916960991324273075042131526370304771106715572608026086292680394",
+      "price_sample_count": 29,
+      "price_low": 0.0025,
+      "price_high": 0.0025,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5481363618134514/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5481363618134514/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republican-odds-over-50-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "54813636181345144600761947136579572489579950253793950848134425921671351475088",
+      "price_sample_count": 30,
+      "price_low": 0.0115,
+      "price_high": 0.013,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5500958648222024/2026-03-15T10-00-00Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5500958648222024/2026-03-15T10-00-00Z",
+      "tier": "silver",
+      "slug": "israeli-parliament-dissolved-by-june-30",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "5500958648222024490080262026563017618333773328581609432182941377205770769101",
+      "price_sample_count": 30,
+      "price_low": 0.45,
+      "price_high": 0.5,
+      "price_span": 0.05,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "crypto"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5696256002830425/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5696256002830425/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "eth-flipped-in-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "5696256002830425095773350415970497521807751621606677935878961079946544685641",
+      "price_sample_count": 30,
+      "price_low": 0.51,
+      "price_high": 0.525,
+      "price_span": 0.015,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5730149827697025/2026-03-15T10-00-40Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5730149827697025/2026-03-15T10-00-40Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-2b-one-day-after-launch-738-867",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "57301498276970257025109591078431189727442302532145853906375186182281603517458",
+      "price_sample_count": 29,
+      "price_low": 0.155,
+      "price_high": 0.165,
+      "price_span": 0.01,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5920400201520112/2026-03-15T10-00-38Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5920400201520112/2026-03-15T10-00-38Z",
+      "tier": "silver",
+      "slug": "another-canada-election-called-by-june-30",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "59204002015201129770533545840384224191282507321553304098589302947213723168912",
+      "price_sample_count": 28,
+      "price_low": 0.07,
+      "price_high": 0.07,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/5936138666214073/2026-03-15T10-14-31Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/5936138666214073/2026-03-15T10-14-31Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-1pt5b-one-day-after-launch",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "59361386662140736273790755583050126642583489495616165418126619457111736694733",
+      "price_sample_count": 28,
+      "price_low": 0.225,
+      "price_high": 0.225,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6049928673355434/2026-03-15T10-00-02Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6049928673355434/2026-03-15T10-00-02Z",
+      "tier": "silver",
+      "slug": "2026-us-senate-election-republican-odds-over-80-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "6049928673355434720113164721866330754070245336757278752814734016380817547183",
+      "price_sample_count": 30,
+      "price_low": 0.012,
+      "price_high": 0.0215,
+      "price_span": 0.0095,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6302359956133594/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6302359956133594/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "2026-balance-of-power-r-senate-d-house-444",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "6302359956133594764084277082169634158291609371270652093164054687145970756151",
+      "price_sample_count": 29,
+      "price_low": 0.365,
+      "price_high": 0.365,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6303743027393781/2026-03-15T10-00-12Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6303743027393781/2026-03-15T10-00-12Z",
+      "tier": "silver",
+      "slug": "2026-us-senate-election-republican-odds-under-40-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "63037430273937813787941462621562909563098733611090177846414558427896920374373",
+      "price_sample_count": 29,
+      "price_low": 0.0805,
+      "price_high": 0.0805,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6308208643609248/2026-03-15T10-00-55Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6308208643609248/2026-03-15T10-00-55Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-total-1pt5",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "63082086436092489144525775116846002062104226693477366682868318954809791387587",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.515,
+      "price_span": 0.015,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6310367364333534/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6310367364333534/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-butchers-stain-win-best-live-action-short-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "63103673643335340612470219774731409977950900795403364162474548382216856767642",
+      "price_sample_count": 29,
+      "price_low": 0.0055,
+      "price_high": 0.013,
+      "price_span": 0.0075,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6396894564063101/2026-03-15T10-00-42Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6396894564063101/2026-03-15T10-00-42Z",
+      "tier": "silver",
+      "slug": "will-bugonia-win-best-original-score-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "63968945640631014821611286147765143024526849761947228438813563167618132455789",
+      "price_sample_count": 29,
+      "price_low": 0.004,
+      "price_high": 0.004,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6405880704006638/2026-03-15T10-00-28Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6405880704006638/2026-03-15T10-00-28Z",
+      "tier": "silver",
+      "slug": "will-byu-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "64058807040066388535980325224655467876194958581371969741085660749560335210613",
+      "price_sample_count": 30,
+      "price_low": 0.0005,
+      "price_high": 0.0005,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6423837128216218/2026-03-15T10-00-28Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6423837128216218/2026-03-15T10-00-28Z",
+      "tier": "silver",
+      "slug": "will-alabama-be-a-number-1-seed-in-the-2026-ncaa-mens-basketball-march-madness-tournament",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 60,
+      "primary_asset_id": "64238371282162180889786576727728132267398016308787457550573659142626503365218",
+      "price_sample_count": 60,
+      "price_low": 0.005,
+      "price_high": 0.0055,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6443923275242122/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6443923275242122/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-coby-white",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "64439232752421228122564761524786270613915827068047243002479724375188804924582",
+      "price_sample_count": 30,
+      "price_low": 0.0075,
+      "price_high": 0.0085,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6468399453420164/2026-03-15T10-00-15Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6468399453420164/2026-03-15T10-00-15Z",
+      "tier": "silver",
+      "slug": "2025-2026-epl-winner-more-than-90-points",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "64683994534201646450394391725616228695952599577525859664835161186648784031970",
+      "price_sample_count": 29,
+      "price_low": 0.0285,
+      "price_high": 0.0295,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6537557503784988/2026-03-15T10-00-04Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6537557503784988/2026-03-15T10-00-04Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-1b-one-day-after-launch-gj9e",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "65375575037849886682769112267853604820362504640888829027195234577761014837492",
+      "price_sample_count": 29,
+      "price_low": 0.525,
+      "price_high": 0.525,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6604050639590715/2026-03-15T10-07-39Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6604050639590715/2026-03-15T10-07-39Z",
+      "tier": "silver",
+      "slug": "ethereum-all-time-high-by-december-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "66040506395907152132921713590756499987350357316685221696411123778680518550059",
+      "price_sample_count": 29,
+      "price_low": 0.18,
+      "price_high": 0.18,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6619541426589518/2026-03-15T10-00-02Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6619541426589518/2026-03-15T10-00-02Z",
+      "tier": "silver",
+      "slug": "main-street-sports-salemerger-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "6619541426589518042237703045460127485365200946472957460869917569050331095122",
+      "price_sample_count": 29,
+      "price_low": 0.415,
+      "price_high": 0.495,
+      "price_span": 0.08,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6695518440878513/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6695518440878513/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "will-chlo-zhao-win-best-director-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "66955184408785136115742118295452337354001933475586643712327760758468304177541",
+      "price_sample_count": 30,
+      "price_low": 0.003,
+      "price_high": 0.0045,
+      "price_span": 0.0015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/6848446965840592/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/6848446965840592/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-dear-me-diane-warren-relentless-win-best-original-song-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "68484469658405928766902398864392056225265942821700006642651922284929448310166",
+      "price_sample_count": 30,
+      "price_low": 0.0025,
+      "price_high": 0.0035,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7086883614962443/2026-03-15T10-00-12Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7086883614962443/2026-03-15T10-00-12Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republican-odds-over-30-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "70868836149624431559286419094186904939289877986173984941867727492244067712571",
+      "price_sample_count": 30,
+      "price_low": 0.0155,
+      "price_high": 0.0155,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7099792734946981/2026-03-15T10-00-43Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7099792734946981/2026-03-15T10-00-43Z",
+      "tier": "silver",
+      "slug": "2026-balance-of-power-d-senate-r-house-692",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "70997927349469817841862065582625658840347600365813612622959588796331622340305",
+      "price_sample_count": 29,
+      "price_low": 0.006,
+      "price_high": 0.0065,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7264108116796609/2026-03-15T10-00-46Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7264108116796609/2026-03-15T10-00-46Z",
+      "tier": "silver",
+      "slug": "col1-dep-alf-2026-02-11-draw",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "72641081167966096071989126730108102869488815019837213072547665100837485982952",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.53,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7409073954768149/2026-03-15T10-00-13Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7409073954768149/2026-03-15T10-00-13Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republican-odds-under-10-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "74090739547681491821520062283366496866075762869245834991039268353662526458255",
+      "price_sample_count": 28,
+      "price_low": 0.031,
+      "price_high": 0.031,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7415827298651213/2026-03-15T10-02-34Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7415827298651213/2026-03-15T10-02-34Z",
+      "tier": "silver",
+      "slug": "ethereum-all-time-high-by-june-30-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "74158272986512133678259440491108222713871044032242747067505485348775431277848",
+      "price_sample_count": 29,
+      "price_low": 0.0325,
+      "price_high": 0.0365,
+      "price_span": 0.004,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7440104415081523/2026-03-15T10-00-09Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7440104415081523/2026-03-15T10-00-09Z",
+      "tier": "silver",
+      "slug": "100-tariff-on-canada-in-effect-by-june-30",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "74401044150815233212315835920011636780189603928313623397904798907525089171384",
+      "price_sample_count": 28,
+      "price_low": 0.07,
+      "price_high": 0.075,
+      "price_span": 0.005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7536985661870982/2026-03-15T10-00-42Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7536985661870982/2026-03-15T10-00-42Z",
+      "tier": "silver",
+      "slug": "col1-dep-alf-2026-02-11-dep",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "75369856618709824788371839229188394086069509703593352366463394698760927099625",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.505,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7612920932623629/2026-03-15T10-01-12Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7612920932623629/2026-03-15T10-01-12Z",
+      "tier": "silver",
+      "slug": "mar1-fus-wac-2026-02-02-total-2pt5",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "76129209326236297860457008084953287657119521424212490106434277597451923817951",
+      "price_sample_count": 29,
+      "price_low": 0.5,
+      "price_high": 0.52,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7658536870066969/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7658536870066969/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-donovan-mitchell",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "76585368700669695667882578113214468140987624432939765055229158058200678835802",
+      "price_sample_count": 29,
+      "price_low": 0.018,
+      "price_high": 0.022,
+      "price_span": 0.004,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7713503217982433/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7713503217982433/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-desmond-bane",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "77135032179824334894309269527892258736897914204233572115225841709368860861495",
+      "price_sample_count": 29,
+      "price_low": 0.005,
+      "price_high": 0.005,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7805908694624316/2026-03-15T10-01-37Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7805908694624316/2026-03-15T10-01-37Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-6b-one-day-after-launch-365-559-334-815",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "78059086946243166298250434231742381590921423205138738331803802527161013528631",
+      "price_sample_count": 29,
+      "price_low": 0.0105,
+      "price_high": 0.0125,
+      "price_span": 0.002,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7832335080192077/2026-03-15T10-00-00Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7832335080192077/2026-03-15T10-00-00Z",
+      "tier": "silver",
+      "slug": "2026-us-house-election-republican-odds-over-60-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "78323350801920778778891318507188343882016209452854959730131872423959220983855",
+      "price_sample_count": 30,
+      "price_low": 0.011,
+      "price_high": 0.0115,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7934105390831689/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7934105390831689/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-austin-reaves",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "79341053908316897123108028692720094539073041828136599634191212259095527929735",
+      "price_sample_count": 30,
+      "price_low": 0.0025,
+      "price_high": 0.0095,
+      "price_span": 0.007,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7956163360909568/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7956163360909568/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-anthony-edwards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "79561633609095688770667140210376543409068405397208896813570662571476839167219",
+      "price_sample_count": 29,
+      "price_low": 0.014,
+      "price_high": 0.019,
+      "price_span": 0.005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/7981244766787603/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/7981244766787603/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-brandon-miller",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "79812447667876035314352594771300171993275582536720714958986792086173849672675",
+      "price_sample_count": 30,
+      "price_low": 0.003,
+      "price_high": 0.0035,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8304283997257669/2026-03-15T10-00-00Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8304283997257669/2026-03-15T10-00-00Z",
+      "tier": "silver",
+      "slug": "will-elle-fanning-win-best-supporting-actress-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "83042839972576699914326314567352613198263544864280130968197473664388412248829",
+      "price_sample_count": 30,
+      "price_low": 0.0015,
+      "price_high": 0.002,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8318352116592976/2026-03-15T10-00-00Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8318352116592976/2026-03-15T10-00-00Z",
+      "tier": "silver",
+      "slug": "will-come-see-me-in-the-good-light-win-best-documentary-feature-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "83183521165929765401911814536490006926928675752281515462095269389180922163963",
+      "price_sample_count": 29,
+      "price_low": 0.07,
+      "price_high": 0.085,
+      "price_span": 0.015,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8322207031738844/2026-03-15T10-03-21Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8322207031738844/2026-03-15T10-03-21Z",
+      "tier": "silver",
+      "slug": "brian-armstrong-out-as-coinbase-ceo-before-2027",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "83222070317388442532274647342051196715216053104933549999785501358606627621161",
+      "price_sample_count": 29,
+      "price_low": 0.145,
+      "price_high": 0.145,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8440609267820376/2026-03-15T10-00-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8440609267820376/2026-03-15T10-00-06Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-aj-green",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "84406092678203764796669278886777374427321464758202537849272470849570375553270",
+      "price_sample_count": 30,
+      "price_low": 0.0005,
+      "price_high": 0.001,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8658106095322851/2026-03-15T10-00-35Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8658106095322851/2026-03-15T10-00-35Z",
+      "tier": "silver",
+      "slug": "bitcoin-more-valuable-than-any-company-before-2027",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "86581060953228516881655146344341039341094964812672641643377113087872781363989",
+      "price_sample_count": 30,
+      "price_low": 0.27,
+      "price_high": 0.35,
+      "price_span": 0.08,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8833235360133154/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8833235360133154/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-anfernee-simons",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "88332353601331542558421890686233263142784033646212650199182442923575484444983",
+      "price_sample_count": 30,
+      "price_low": 0.0045,
+      "price_high": 0.0055,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8940413200618753/2026-03-15T10-00-17Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8940413200618753/2026-03-15T10-00-17Z",
+      "tier": "silver",
+      "slug": "will-emma-stone-win-best-actress-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "89404132006187533843191546752592328910509672904263329977341492363513718135803",
+      "price_sample_count": 30,
+      "price_low": 0.0035,
+      "price_high": 0.0065,
+      "price_span": 0.003,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/8973267347387477/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/8973267347387477/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "2026-us-senate-election-republican-odds-over-90-by-march-31",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "8973267347387477513864526989665460829234702586249156770766303346166298112485",
+      "price_sample_count": 28,
+      "price_low": 0.0105,
+      "price_high": 0.0115,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9215628453428014/2026-03-15T10-02-03Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9215628453428014/2026-03-15T10-02-03Z",
+      "tier": "silver",
+      "slug": "bitcoin-all-time-high-by-march-31-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "92156284534280143070615206923373921895950068003448597987249195254309153661443",
+      "price_sample_count": 29,
+      "price_low": 0.0045,
+      "price_high": 0.0045,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9220645823132509/2026-03-15T10-04-59Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9220645823132509/2026-03-15T10-04-59Z",
+      "tier": "silver",
+      "slug": "megaeth-market-cap-fdv-2b-one-day-after-launch-392-656-565",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "crypto",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "92206458231325096769152348269441704588222763710040504959674288895806154976594",
+      "price_sample_count": 29,
+      "price_low": 0.0575,
+      "price_high": 0.0645,
+      "price_span": 0.007,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9234071306930904/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9234071306930904/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-avatar-fire-and-ash-win-best-visual-effects-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "923407130693090414800382800487399384213521189084413233942171452140857129104",
+      "price_sample_count": 29,
+      "price_low": 0.9325,
+      "price_high": 0.947,
+      "price_span": 0.0145,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9271476715828251/2026-03-15T10-03-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9271476715828251/2026-03-15T10-03-06Z",
+      "tier": "silver",
+      "slug": "claudio-tapia-out-as-afa-president-by-july-19-2026",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "92714767158282519723247724560387828941593726179269759014514785099742463503662",
+      "price_sample_count": 29,
+      "price_low": 0.14,
+      "price_high": 0.145,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9466008695932377/2026-03-15T10-00-01Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9466008695932377/2026-03-15T10-00-01Z",
+      "tier": "silver",
+      "slug": "will-ethan-hawke-win-best-actor-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 29,
+      "primary_asset_id": "94660086959323775686012575874285085691497641124969175874163966877210114112809",
+      "price_sample_count": 29,
+      "price_low": 0.006,
+      "price_high": 0.0135,
+      "price_span": 0.0075,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9707701500469944/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9707701500469944/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "will-elio-win-best-animated-feature-film-at-the-98th-academy-awards",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 28,
+      "primary_asset_id": "97077015004699448380829447276162969345393685874627787124159147490993158431025",
+      "price_sample_count": 28,
+      "price_low": 0.0025,
+      "price_high": 0.0035,
+      "price_span": 0.001,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9819820479786057/2026-03-15T10-00-04Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9819820479786057/2026-03-15T10-00-04Z",
+      "tier": "silver",
+      "slug": "will-armed-only-with-a-camera-the-life-and-death-of-brent-renaud-win-best-documentary-short-film-at-the-98th-academy-awards-841",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "near_resolution",
+      "question": "",
+      "title": "",
+      "event_count": 60,
+      "primary_asset_id": "98198204797860571196441607485240450721801443877657810837006677701905151435879",
+      "price_sample_count": 60,
+      "price_low": 0.16,
+      "price_high": 0.18,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9836354983878384/2026-03-15T10-00-06Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9836354983878384/2026-03-15T10-00-06Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-cj-mccollum",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "98363549838783848352853403892630712079481765743558739683813382386881831215714",
+      "price_sample_count": 30,
+      "price_low": 0.0145,
+      "price_high": 0.018,
+      "price_span": 0.0035,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9925995556544066/2026-03-15T10-00-05Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9925995556544066/2026-03-15T10-00-05Z",
+      "tier": "silver",
+      "slug": "nba-2025-26-3pm-leader-darius-garland",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "9925995556544066664639492614530160181119871195853187296741698299332277282571",
+      "price_sample_count": 30,
+      "price_low": 0.0005,
+      "price_high": 0.0005,
+      "price_span": 0.0,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9930983743247421/2026-03-15T10-00-24Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9930983743247421/2026-03-15T10-00-24Z",
+      "tier": "silver",
+      "slug": "claudia-sheinbaum-out-as-president-of-mexico-by-june-30-791",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "sports",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "99309837432474218579509000241868648485226597214018334052948341435179812240487",
+      "price_sample_count": 30,
+      "price_low": 0.0505,
+      "price_high": 0.053,
+      "price_span": 0.0025,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/silver/9985622221082451/2026-03-15T10-00-10Z/silver_events.jsonl",
+      "tape_dir": "artifacts/silver/9985622221082451/2026-03-15T10-00-10Z",
+      "tier": "silver",
+      "slug": "billionaire-one-time-wealth-tax-on-california-ballot",
+      "metadata_sources": [
+        "market_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "politics",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "99856222210824511753934292062029650226077573071941153542799123525263447880769",
+      "price_sample_count": 30,
+      "price_low": 0.59,
+      "price_high": 0.59,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260225T234032Z_shadow_97449340",
+      "tier": "gold",
+      "slug": "20260225T234032Z_shadow_97449340",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 14,
+      "primary_asset_id": "59259495934562596318644973716893809974860301509869285036503555129962149752635",
+      "price_sample_count": 13,
+      "price_low": 0.99,
+      "price_high": 0.9904999999999999,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699",
+      "tier": "gold",
+      "slug": "will-trump-deport-less-than-250000",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 141,
+      "primary_asset_id": "101676997363687199724245607342877036148401850938023978421879460310389391082353",
+      "price_sample_count": 140,
+      "price_low": 0.0305,
+      "price_high": 0.967,
+      "price_span": 0.9365,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "politics via fallback keywords",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260305T223428Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "tier": "gold",
+      "slug": "will-the-oklahoma-city-thunder-win-the-2026-nba-finals",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 19,
+      "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+      "price_sample_count": 16,
+      "price_low": 0.36,
+      "price_high": 0.365,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "tier": "gold",
+      "slug": "20260305T223919Z_shadow_will-the-oklahoma-city-thunder-win-t_fde7b16a",
+      "metadata_sources": [],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 22,
+      "primary_asset_id": "49500299856831034491021962156746701298730459370557900271970866855042624695770",
+      "price_sample_count": 21,
+      "price_low": 0.36,
+      "price_high": 0.365,
+      "price_span": 0.005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T003541Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T003541Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 5,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 4,
+      "price_low": 0.16749999999999998,
+      "price_high": 0.825,
+      "price_span": 0.6575,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T003627Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T003627Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 6,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 5,
+      "price_low": 0.16749999999999998,
+      "price_high": 0.825,
+      "price_span": 0.6575,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044247Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044247Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "20260306T044247Z_tape_bitboy-convicted_64fd7c95",
+      "metadata_sources": [],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 39,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 38,
+      "price_low": 0.162,
+      "price_high": 0.1625,
+      "price_span": 0.0005,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044313Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044313Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 66,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 65,
+      "price_low": 0.1615,
+      "price_high": 0.1625,
+      "price_span": 0.001,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260306T044438Z_tape_bitboy-convicted_64fd7c95/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260306T044438Z_tape_bitboy-convicted_64fd7c95",
+      "tier": "gold",
+      "slug": "bitboy-convicted",
+      "metadata_sources": [
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 77,
+      "primary_asset_id": "75467129615908319583031474642658885479135630431889036121812713428992454630178",
+      "price_sample_count": 75,
+      "price_low": 0.161,
+      "price_high": 0.162,
+      "price_span": 0.001,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [],
+      "classification_notes": []
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T195039Z_will-the-toronto-map",
+      "tier": "gold",
+      "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 80,
+      "primary_asset_id": "32761305560497515266298907010603238583784271883422104419001315861857080693737",
+      "price_sample_count": 75,
+      "price_low": 0.0015,
+      "price_high": 0.002,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T195542Z_will-the-vancouver-c",
+      "tier": "gold",
+      "slug": "will-the-vancouver-canucks-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 66,
+      "primary_asset_id": "57745051474175280715827307490433711376781914565134185656043688787803746924931",
+      "price_sample_count": 65,
+      "price_low": 0.001,
+      "price_high": 0.0015,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla/events.jsonl",
+      "tape_dir": "artifacts/simtrader/tapes/20260307T200105Z_will-the-calgary-fla",
+      "tier": "gold",
+      "slug": "will-the-calgary-flames-win-the-2026-nhl-stanley-cup",
+      "metadata_sources": [
+        "prep_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 30,
+      "primary_asset_id": "54811975275387163364864047298373893386525828579003336506827163723659384966681",
+      "price_sample_count": 29,
+      "price_low": 0.001,
+      "price_high": 0.0015,
+      "price_span": 0.0005,
+      "near_tail_observed": true,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "sports via regime classifier",
+        "near_resolution via price-tail inference"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/bnb-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/bnb-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "bnb-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 2,
+      "primary_asset_id": "100097834916688000210118007318067919514863955181827771771555316490129394529270",
+      "price_sample_count": 1,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/btc-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/btc-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "btc-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 3,
+      "primary_asset_id": "112743211105732682824065853522599256301175382192545822114934232230980207992039",
+      "price_sample_count": 2,
+      "price_low": 0.505,
+      "price_high": 0.505,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "new_market"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/doge-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/doge-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "doge-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 2,
+      "primary_asset_id": "94093621017194142016089689998471999649872898131309934810269761269305659224070",
+      "price_sample_count": 1,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "new_market"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/eth-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/eth-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "eth-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 2,
+      "primary_asset_id": "66561189670399828647062407060508330493899824502440592773583593566569034238098",
+      "price_sample_count": 1,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "new_market"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/hype-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/hype-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "hype-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 2,
+      "primary_asset_id": "68698188580360185018026515510121104262147953371705280220914090689533422886891",
+      "price_sample_count": 1,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/sol-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/sol-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "sol-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 4,
+      "primary_asset_id": "76688617949976706708604515355579990267723784102477888795722411653371717708701",
+      "price_sample_count": 3,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "new_market"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "new_market via age_hours=0.05"
+      ]
+    },
+    {
+      "tape_path": "artifacts/tapes/new_market/xrp-updown-5m-1774209300/events.jsonl",
+      "tape_dir": "artifacts/tapes/new_market/xrp-updown-5m-1774209300",
+      "tier": "gold",
+      "slug": "xrp-updown-5m-1774209300",
+      "metadata_sources": [
+        "watch_meta.json",
+        "meta.json"
+      ],
+      "category": "",
+      "question": "",
+      "title": "",
+      "event_count": 7,
+      "primary_asset_id": "93473077060060000956298690113083129707980282173986080688687474221459538187633",
+      "price_sample_count": 6,
+      "price_low": 0.5,
+      "price_high": 0.5,
+      "price_span": 0.0,
+      "near_tail_observed": false,
+      "age_hours": 0.05,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto",
+        "new_market"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "new_market via age_hours=0.05"
+      ]
+    }
+  ],
+  "skipped_tapes": []
+}

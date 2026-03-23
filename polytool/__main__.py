@@ -59,7 +59,10 @@ batch_reconstruct_silver_main = _command_entrypoint("tools.cli.batch_reconstruct
 benchmark_manifest_main = _command_entrypoint("tools.cli.benchmark_manifest")
 new_market_capture_main = _command_entrypoint("tools.cli.new_market_capture")
 capture_new_market_tapes_main = _command_entrypoint("tools.cli.capture_new_market_tapes")
+close_benchmark_v1_main = _command_entrypoint("tools.cli.close_benchmark_v1")
+summarize_gap_fill_main = _command_entrypoint("tools.cli.summarize_gap_fill")
 make_session_pack_main = _command_entrypoint("tools.cli.make_session_pack")
+crypto_pair_scan_main = _command_entrypoint("tools.cli.crypto_pair_scan")
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
 rag_query_main = _command_entrypoint("tools.cli.rag_query")
@@ -106,6 +109,9 @@ _COMMAND_HANDLER_NAMES = {
     "benchmark-manifest": "benchmark_manifest_main",
     "new-market-capture": "new_market_capture_main",
     "capture-new-market-tapes": "capture_new_market_tapes_main",
+    "close-benchmark-v1": "close_benchmark_v1_main",
+    "summarize-gap-fill": "summarize_gap_fill_main",
+    "crypto-pair-scan": "crypto_pair_scan_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -154,6 +160,9 @@ def print_usage() -> None:
     print("  llm-bundle            Build an LLM evidence bundle from dossier + RAG excerpts")
     print("  llm-save              Save an LLM report run into the private KB")
     print("")
+    print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
+    print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
+    print("")
     print("--- SimTrader / Execution (Track A, gated) ----------------------------")
     print("  simtrader             Record/replay/shadow/live trading - run 'simtrader --help'")
     print("  market-scan           Rank active Polymarket markets by reward/spread/fill quality")
@@ -173,6 +182,8 @@ def print_usage() -> None:
     print("  benchmark-manifest    Build or validate the frozen benchmark_v1 tape manifest contract")
     print("  new-market-capture    Discover newly listed markets (<48h) and plan Gold tape capture")
     print("  capture-new-market-tapes  Record Gold tapes for benchmark_v1 new_market targets (batch)")
+    print("  close-benchmark-v1        End-to-end benchmark closure: preflight + Silver + new-market + manifest")
+    print("  summarize-gap-fill        Read-only diagnostic summary for gap_fill_run.json artifacts")
     print("")
     print("--- Integrations & Utilities ------------------------------------------")
     print("  mcp                   Start the MCP server for Claude Desktop integration")

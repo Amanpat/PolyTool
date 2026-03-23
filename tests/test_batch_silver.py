@@ -83,6 +83,9 @@ if str(_project_root) not in sys.path:
 from tools.cli.batch_reconstruct_silver import (
     canonical_tape_dir,
     run_batch,
+    run_batch_from_targets,
+    write_market_meta,
+    backfill_market_meta_from_targets,
     main as batch_main,
     BATCH_MANIFEST_SCHEMA,
 )
@@ -503,12 +506,12 @@ class TestBatchCLI:
         assert rc == 1
 
     def test_missing_window_start(self):
-        with pytest.raises(SystemExit) as exc:
-            self._run([
-                "--token-id", "0xTOKEN",
-                "--window-end", "2024-01-01T02:00:00Z",
-            ])
-        assert exc.value.code != 0  # missing required arg -> argparse error
+        # --window-start is now optional in the parser (validated at runtime)
+        rc = self._run([
+            "--token-id", "0xTOKEN",
+            "--window-end", "2024-01-01T02:00:00Z",
+        ])
+        assert rc != 0
 
     def test_window_ordering(self):
         rc = self._run([
@@ -530,6 +533,7 @@ class TestBatchCLI:
                 "--window-end", "2024-01-01T02:00:00Z",
                 "--dry-run",
                 "--skip-price-2min",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
             ])
         assert rc == 0
@@ -546,6 +550,7 @@ class TestBatchCLI:
                 "--window-start", "2024-01-01T00:00:00Z",
                 "--window-end", "2024-01-01T02:00:00Z",
                 "--dry-run",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
             ])
         assert rc == 0
@@ -566,6 +571,7 @@ class TestBatchCLI:
                 "--window-start", "2024-01-01T00:00:00Z",
                 "--window-end", "2024-01-01T02:00:00Z",
                 "--dry-run",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
             ])
         assert rc == 1
@@ -580,6 +586,7 @@ class TestBatchCLI:
                 "--window-start", "1700000000",
                 "--window-end", "1700007200",
                 "--dry-run",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
             ])
         assert rc == 0
@@ -595,6 +602,7 @@ class TestBatchCLI:
                 "--window-start", "2024-01-01T00:00:00Z",
                 "--window-end", "2024-01-01T02:00:00Z",
                 "--skip-metadata",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
                 "--batch-out-dir", str(manifest_dir),
             ])
@@ -623,6 +631,348 @@ class TestBatchCLI:
                 "--window-end", "2024-01-01T02:00:00Z",
                 "--dry-run",
                 "--skip-metadata",
+                "--clickhouse-password", "testpass",
                 "--out-root", str(tmp_path),
             ])
         assert rc == 0
+
+    # -----------------------------------------------------------------------
+    # Credential resolution regression tests
+    # -----------------------------------------------------------------------
+
+    def test_missing_password_returns_1(self, tmp_path):
+        """No --clickhouse-password and no env var on a live (non-dry-run) path → rc=1.
+
+        Dry-run never writes to ClickHouse so it does not require credentials.
+        This test uses a real (non-dry-run) invocation to exercise the fail-fast check.
+        """
+        from unittest.mock import patch as _patch
+        env_without_pw = {k: v for k, v in __import__("os").environ.items()
+                         if k != "CLICKHOUSE_PASSWORD"}
+        with _patch.dict(__import__("os").environ, env_without_pw, clear=True):
+            rc = self._run([
+                "--token-id", "0xTOKEN",
+                "--window-start", "2024-01-01T00:00:00Z",
+                "--window-end", "2024-01-01T02:00:00Z",
+                "--skip-price-2min",
+                "--out-root", str(tmp_path),
+            ])
+        assert rc == 1
+
+    def test_empty_string_password_returns_1(self, tmp_path):
+        """CLICKHOUSE_PASSWORD='' (empty string) must fail fast on non-dry-run path.
+
+        Regression for 2026-03-19 auth fix: prior code only checked `is None`,
+        allowing empty-string through to ClickHouse → HTTP 516 auth failure.
+        """
+        from unittest.mock import patch as _patch
+        with _patch.dict(__import__("os").environ, {"CLICKHOUSE_PASSWORD": ""}):
+            rc = self._run([
+                "--token-id", "0xTOKEN",
+                "--window-start", "2024-01-01T00:00:00Z",
+                "--window-end", "2024-01-01T02:00:00Z",
+                "--skip-price-2min",
+                "--out-root", str(tmp_path),
+            ])
+        assert rc == 1
+
+    def test_password_via_env_var_proceeds(self, tmp_path):
+        """CLICKHOUSE_PASSWORD env var → code proceeds past credential check."""
+        with patch("tools.cli.batch_reconstruct_silver.SilverReconstructor") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.reconstruct.return_value = _FakeSilverResult()
+            mock_cls.return_value = mock_inst
+            with patch.dict(__import__("os").environ, {"CLICKHOUSE_PASSWORD": "envpass"}):
+                rc = self._run([
+                    "--token-id", "0xTOKEN",
+                    "--window-start", "2024-01-01T00:00:00Z",
+                    "--window-end", "2024-01-01T02:00:00Z",
+                    "--dry-run",
+                    "--skip-price-2min",
+                    "--out-root", str(tmp_path),
+                ])
+        assert rc == 0
+
+    def test_password_flag_takes_precedence_over_env(self, tmp_path):
+        """--clickhouse-password flag is used even when env var is also set."""
+        with patch("tools.cli.batch_reconstruct_silver.SilverReconstructor") as mock_cls:
+            mock_inst = MagicMock()
+            mock_inst.reconstruct.return_value = _FakeSilverResult()
+            mock_cls.return_value = mock_inst
+            with patch.dict(__import__("os").environ, {"CLICKHOUSE_PASSWORD": "envpass"}):
+                rc = self._run([
+                    "--token-id", "0xTOKEN",
+                    "--window-start", "2024-01-01T00:00:00Z",
+                    "--window-end", "2024-01-01T02:00:00Z",
+                    "--dry-run",
+                    "--skip-price-2min",
+                    "--clickhouse-password", "flagpass",
+                    "--out-root", str(tmp_path),
+                ])
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# TestWriteMarketMeta
+# ---------------------------------------------------------------------------
+
+_SAMPLE_TARGET = {
+    "bucket": "politics",
+    "slug": "tariff-on-canada",
+    "market_id": "0xABC123",
+    "platform": "polymarket",
+    "token_id": "74401234567890abcdef",
+    "window_start": "2026-03-15T10:00:00+00:00",
+    "window_end": "2026-03-15T14:00:00+00:00",
+    "priority": 1,
+}
+
+
+class TestWriteMarketMeta:
+    def test_writes_file(self, tmp_path):
+        assert write_market_meta(_SAMPLE_TARGET, tmp_path) is True
+        assert (tmp_path / "market_meta.json").exists()
+
+    def test_correct_fields(self, tmp_path):
+        write_market_meta(_SAMPLE_TARGET, tmp_path)
+        data = json.loads((tmp_path / "market_meta.json").read_text())
+        assert data["slug"] == "tariff-on-canada"
+        assert data["category"] == "politics"
+        assert data["market_id"] == "0xABC123"
+        assert data["token_id"] == "74401234567890abcdef"
+        assert data["benchmark_bucket"] == "politics"
+        assert data["platform"] == "polymarket"
+        assert data["schema_version"] == "silver_market_meta_v1"
+
+    def test_category_equals_bucket(self, tmp_path):
+        target = {**_SAMPLE_TARGET, "bucket": "sports"}
+        write_market_meta(target, tmp_path)
+        data = json.loads((tmp_path / "market_meta.json").read_text())
+        assert data["category"] == "sports"
+        assert data["benchmark_bucket"] == "sports"
+
+    def test_returns_false_on_bad_dir(self):
+        bad_dir = Path("/nonexistent/path/that/does/not/exist")
+        result = write_market_meta(_SAMPLE_TARGET, bad_dir)
+        assert result is False
+
+    def test_empty_target_writes_empty_fields(self, tmp_path):
+        write_market_meta({}, tmp_path)
+        data = json.loads((tmp_path / "market_meta.json").read_text())
+        assert data["category"] == ""
+        assert data["slug"] == ""
+
+
+# ---------------------------------------------------------------------------
+# TestBackfillMarketMeta
+# ---------------------------------------------------------------------------
+
+class TestBackfillMarketMeta:
+    def _make_tape(self, root: Path, target: dict) -> Path:
+        """Create a minimal Silver tape directory for a target."""
+        from tools.cli.batch_reconstruct_silver import canonical_tape_dir, _parse_ts
+        ts = _parse_ts(target["window_start"])
+        tape_dir = canonical_tape_dir(target["token_id"], ts, root)
+        tape_dir.mkdir(parents=True, exist_ok=True)
+        (tape_dir / "silver_events.jsonl").write_text("{}\n")
+        return tape_dir
+
+    def test_writes_to_existing_tape(self, tmp_path):
+        target = {**_SAMPLE_TARGET}
+        self._make_tape(tmp_path, target)
+        result = backfill_market_meta_from_targets([target], out_root=tmp_path)
+        assert result["written"] == 1
+        assert result["missing"] == 0
+        assert result["errors"] == 0
+
+    def test_skips_missing_tape(self, tmp_path):
+        # No tape directory created — should count as missing
+        result = backfill_market_meta_from_targets([_SAMPLE_TARGET], out_root=tmp_path)
+        assert result["missing"] == 1
+        assert result["written"] == 0
+
+    def test_skips_invalid_target(self, tmp_path):
+        bad_targets = [
+            "not-a-dict",
+            {"bucket": "politics"},  # missing token_id
+            {"token_id": "abc"},     # missing window_start
+        ]
+        result = backfill_market_meta_from_targets(bad_targets, out_root=tmp_path)
+        assert result["skipped"] == 3
+        assert result["written"] == 0
+
+    def test_multiple_targets(self, tmp_path):
+        targets = []
+        for i, bucket in enumerate(["politics", "sports", "crypto"]):
+            t = {
+                "bucket": bucket,
+                "slug": f"market-{i}",
+                "market_id": f"0x{i:04x}",
+                "platform": "polymarket",
+                "token_id": f"token{i:016x}0000000000000000",
+                "window_start": f"2026-03-1{i+5}T10:00:00+00:00",
+                "window_end": f"2026-03-1{i+5}T14:00:00+00:00",
+            }
+            targets.append(t)
+            self._make_tape(tmp_path, t)
+        result = backfill_market_meta_from_targets(targets, out_root=tmp_path)
+        assert result["written"] == 3
+        assert result["missing"] == 0
+
+    def test_market_meta_content_correct(self, tmp_path):
+        target = {**_SAMPLE_TARGET}
+        tape_dir = self._make_tape(tmp_path, target)
+        backfill_market_meta_from_targets([target], out_root=tmp_path)
+        data = json.loads((tape_dir / "market_meta.json").read_text())
+        assert data["category"] == "politics"
+        assert data["slug"] == "tariff-on-canada"
+
+
+# ---------------------------------------------------------------------------
+# TestRunBatchFromTargetsMarketMeta
+# ---------------------------------------------------------------------------
+
+_SAMPLE_MANIFEST = {
+    "schema_version": "benchmark_gap_fill_v1",
+    "created_at": "2026-03-15T00:00:00+00:00",
+    "targets": [
+        {
+            "bucket": "politics",
+            "slug": "tariff-on-canada",
+            "market_id": "0xABC",
+            "platform": "polymarket",
+            "token_id": "74401234567890abcdef12345678",
+            "window_start": "2026-03-15T10:00:09.554000+00:00",
+            "window_end": "2026-03-15T14:00:09.554000+00:00",
+            "priority": 1,
+            "price_2min_ready": True,
+        }
+    ],
+}
+
+
+class TestRunBatchFromTargetsMarketMeta:
+    def test_market_meta_written_on_success(self, tmp_path):
+        """Successful reconstruction creates market_meta.json alongside silver_events.jsonl."""
+        targets = list(_SAMPLE_MANIFEST["targets"])
+        target = targets[0]
+
+        with patch("tools.cli.batch_reconstruct_silver.SilverReconstructor") as mock_cls:
+            mock_cls.return_value = _FakeReconstructor(config=None)
+            run_batch_from_targets(
+                targets,
+                out_root=tmp_path,
+                clickhouse_password="testpass",
+                dry_run=False,
+                skip_metadata=True,
+            )
+
+        from tools.cli.batch_reconstruct_silver import canonical_tape_dir, _parse_ts
+        ts = _parse_ts(target["window_start"])
+        tape_dir = canonical_tape_dir(target["token_id"], ts, tmp_path)
+
+        assert (tape_dir / "market_meta.json").exists(), "market_meta.json should be written"
+        data = json.loads((tape_dir / "market_meta.json").read_text())
+        assert data["category"] == "politics"
+        assert data["slug"] == "tariff-on-canada"
+
+    def test_market_meta_not_written_on_dry_run(self, tmp_path):
+        """Dry run must NOT write market_meta.json."""
+        targets = list(_SAMPLE_MANIFEST["targets"])
+        target = targets[0]
+
+        with patch("tools.cli.batch_reconstruct_silver.SilverReconstructor") as mock_cls:
+            mock_cls.return_value = _FakeReconstructor(config=None)
+            run_batch_from_targets(
+                targets,
+                out_root=tmp_path,
+                clickhouse_password="testpass",
+                dry_run=True,
+                skip_metadata=True,
+            )
+
+        from tools.cli.batch_reconstruct_silver import canonical_tape_dir, _parse_ts
+        ts = _parse_ts(target["window_start"])
+        tape_dir = canonical_tape_dir(target["token_id"], ts, tmp_path)
+        assert not (tape_dir / "market_meta.json").exists()
+
+    def test_market_meta_not_written_on_failure(self, tmp_path):
+        """Reconstruction failure must NOT write market_meta.json."""
+        targets = list(_SAMPLE_MANIFEST["targets"])
+        target = targets[0]
+
+        with patch("tools.cli.batch_reconstruct_silver.SilverReconstructor") as mock_cls:
+            failed_result = _FakeSilverResult(error="forced failure")
+            mock_cls.return_value = _FakeReconstructor(config=None, result=failed_result)
+            run_batch_from_targets(
+                targets,
+                out_root=tmp_path,
+                clickhouse_password="testpass",
+                dry_run=False,
+                skip_metadata=True,
+            )
+
+        from tools.cli.batch_reconstruct_silver import canonical_tape_dir, _parse_ts
+        ts = _parse_ts(target["window_start"])
+        tape_dir = canonical_tape_dir(target["token_id"], ts, tmp_path)
+        assert not (tape_dir / "market_meta.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# TestBackfillMarketMetaCLI  (--backfill-market-meta flag)
+# ---------------------------------------------------------------------------
+
+class TestBackfillMarketMetaCLI:
+    def _run(self, argv):
+        return batch_main(argv)
+
+    def _write_manifest(self, tmp_path: Path) -> Path:
+        manifest = tmp_path / "targets.json"
+        manifest.write_text(json.dumps(_SAMPLE_MANIFEST), encoding="utf-8")
+        return manifest
+
+    def _make_tape(self, tmp_path: Path) -> Path:
+        """Create a minimal tape dir for the sample manifest target."""
+        from tools.cli.batch_reconstruct_silver import canonical_tape_dir, _parse_ts
+        target = _SAMPLE_MANIFEST["targets"][0]
+        ts = _parse_ts(target["window_start"])
+        tape_dir = canonical_tape_dir(target["token_id"], ts, tmp_path)
+        tape_dir.mkdir(parents=True, exist_ok=True)
+        (tape_dir / "silver_events.jsonl").write_text("{}\n")
+        return tape_dir
+
+    def test_backfill_exits_zero(self, tmp_path):
+        manifest_path = self._write_manifest(tmp_path)
+        self._make_tape(tmp_path)
+        rc = self._run([
+            "--targets-manifest", str(manifest_path),
+            "--out-root", str(tmp_path),
+            "--backfill-market-meta",
+        ])
+        assert rc == 0
+
+    def test_backfill_does_not_require_clickhouse_password(self, tmp_path):
+        """--backfill-market-meta must succeed with no ClickHouse credentials."""
+        import os
+        manifest_path = self._write_manifest(tmp_path)
+        self._make_tape(tmp_path)
+        env_without_pw = {k: v for k, v in os.environ.items() if k != "CLICKHOUSE_PASSWORD"}
+        with patch.dict(__import__("os").environ, env_without_pw, clear=True):
+            rc = self._run([
+                "--targets-manifest", str(manifest_path),
+                "--out-root", str(tmp_path),
+                "--backfill-market-meta",
+            ])
+        assert rc == 0
+
+    def test_backfill_writes_market_meta(self, tmp_path):
+        manifest_path = self._write_manifest(tmp_path)
+        tape_dir = self._make_tape(tmp_path)
+        self._run([
+            "--targets-manifest", str(manifest_path),
+            "--out-root", str(tmp_path),
+            "--backfill-market-meta",
+        ])
+        assert (tape_dir / "market_meta.json").exists()
+        data = json.loads((tape_dir / "market_meta.json").read_text())
+        assert data["category"] == "politics"

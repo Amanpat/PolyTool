@@ -138,10 +138,17 @@ def main(argv: Optional[List[str]] = None) -> int:
             unique_token_ids.append(tid)
     token_ids = unique_token_ids
 
-    # Resolve CH password
+    # Resolve CH password — fail fast if not provided; no silent fallback
     ch_password = args.clickhouse_password
     if ch_password is None:
-        ch_password = os.environ.get("CLICKHOUSE_PASSWORD", "polytool_admin")
+        ch_password = os.environ.get("CLICKHOUSE_PASSWORD")
+    if not ch_password:
+        print(
+            "Error: ClickHouse password not set.\n"
+            "  Pass --clickhouse-password PASSWORD, or export CLICKHOUSE_PASSWORD=<password>.",
+            file=sys.stderr,
+        )
+        return 1
 
     # Build config and engine
     config = FetchConfig(
@@ -155,7 +162,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     mode_label = "DRY-RUN" if args.dry_run else "LIVE"
     print(
-        f"fetch-price-2min [{mode_label}]: {len(token_ids)} token(s) → polytool.price_2min",
+        f"fetch-price-2min [{mode_label}]: {len(token_ids)} token(s) -> polytool.price_2min",
         flush=True,
     )
 

@@ -363,6 +363,7 @@ def _load_metadata(tape_dir: Path, tier: str) -> tuple[dict[str, Any], list[str]
     merged: dict[str, Any] = {}
     sources: list[str] = []
     candidate_files = (
+        "market_meta.json",
         "watch_meta.json",
         "prep_meta.json",
         "meta.json",

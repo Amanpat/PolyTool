@@ -374,6 +374,108 @@ def test_validate_manifest_rejects_fingerprint_drift(tmp_path: Path) -> None:
         raise AssertionError("expected fingerprint-drift validation failure")
 
 
+def _write_silver_tape_with_market_meta(
+    root: Path,
+    name: str,
+    *,
+    bucket: str,
+    prices: list[float],
+) -> Path:
+    """Create a Silver tape that has only market_meta.json (no watch_meta.json).
+
+    This mimics the real artifact layout after gap-fill + backfill.
+    """
+    tape_dir = root / name
+    tape_dir.mkdir(parents=True, exist_ok=True)
+    token_id = f"token-{name}"
+    market_meta = {
+        "schema_version": "silver_market_meta_v1",
+        "slug": name,
+        "category": bucket,
+        "market_id": f"0x{name}",
+        "platform": "polymarket",
+        "token_id": token_id,
+        "benchmark_bucket": bucket,
+    }
+    (tape_dir / "market_meta.json").write_text(json.dumps(market_meta), encoding="utf-8")
+    silver_meta = {
+        "schema_version": "silver_tape_v0",
+        "run_id": f"run-{name}",
+        "token_id": token_id,
+        "window_start": "2026-03-01T00:00:00+00:00",
+        "window_end": "2026-03-01T01:00:00+00:00",
+        "event_count": len(prices),
+    }
+    (tape_dir / "silver_meta.json").write_text(json.dumps(silver_meta), encoding="utf-8")
+    with (tape_dir / "silver_events.jsonl").open("w", encoding="utf-8") as handle:
+        for seq, price in enumerate(prices):
+            handle.write(
+                json.dumps(
+                    {
+                        "event_type": "last_trade_price",
+                        "seq": seq,
+                        "asset_id": token_id,
+                        "price": f"{price:.3f}",
+                    }
+                )
+                + "\n"
+            )
+    return tape_dir / "silver_events.jsonl"
+
+
+def test_silver_tape_with_market_meta_classified_into_politics(tmp_path: Path) -> None:
+    """Silver tape with only market_meta.json (bucket=politics) must appear in politics inventory.
+
+    Regression for 2026-03-21 fix: silver_meta.json has no market text;
+    benchmark_manifest must load market_meta.json to get slug/category.
+    """
+    root = tmp_path / "inventory"
+    _write_silver_tape_with_market_meta(
+        root, "tariff-on-canada-test", bucket="politics", prices=[0.35, 0.60]
+    )
+
+    candidates, _ = discover_inventory([root])
+    silver_politics = [
+        c for c in candidates if c.tier == "silver" and "politics" in c.candidate_buckets
+    ]
+    assert len(silver_politics) >= 1, (
+        "Expected at least one Silver tape classified as politics "
+        f"via market_meta.json; got buckets: {[c.candidate_buckets for c in candidates if c.tier == 'silver']}"
+    )
+
+
+def test_silver_tape_with_market_meta_classified_into_sports(tmp_path: Path) -> None:
+    """Silver tape with bucket=sports in market_meta.json must appear in sports inventory."""
+    root = tmp_path / "inventory"
+    _write_silver_tape_with_market_meta(
+        root, "nfl-superbowl-winner-test", bucket="sports", prices=[0.40, 0.55]
+    )
+
+    candidates, _ = discover_inventory([root])
+    silver_sports = [
+        c for c in candidates if c.tier == "silver" and "sports" in c.candidate_buckets
+    ]
+    assert len(silver_sports) >= 1, (
+        "Expected at least one Silver tape classified as sports via market_meta.json"
+    )
+
+
+def test_silver_tape_with_market_meta_classified_into_crypto(tmp_path: Path) -> None:
+    """Silver tape with bucket=crypto in market_meta.json must appear in crypto inventory."""
+    root = tmp_path / "inventory"
+    _write_silver_tape_with_market_meta(
+        root, "btc-above-100k-test", bucket="crypto", prices=[0.42, 0.48]
+    )
+
+    candidates, _ = discover_inventory([root])
+    silver_crypto = [
+        c for c in candidates if c.tier == "silver" and "crypto" in c.candidate_buckets
+    ]
+    assert len(silver_crypto) >= 1, (
+        "Expected at least one Silver tape classified as crypto via market_meta.json"
+    )
+
+
 def test_validate_cli_smoke_writes_lock(tmp_path: Path) -> None:
     manifest_out, _, _, lock_out = _build_valid_manifest(tmp_path)
     lock_out.unlink()

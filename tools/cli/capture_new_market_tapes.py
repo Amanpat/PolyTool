@@ -135,7 +135,12 @@ def resolve_both_token_ids(
         else:
             if MarketPicker is None:
                 return "", "", "MarketPicker not available (missing dependency)"
-            picker = MarketPicker()
+            try:
+                from packages.polymarket.gamma import GammaClient
+                from packages.polymarket.clob import ClobClient
+            except ImportError as ie:
+                return "", "", f"GammaClient/ClobClient not available (missing dependency): {ie}"
+            picker = MarketPicker(GammaClient(), ClobClient())
         resolved = picker.resolve_slug(slug)
         return resolved.yes_token_id, resolved.no_token_id, None
     except Exception as exc:

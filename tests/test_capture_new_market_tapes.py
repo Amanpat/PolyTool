@@ -251,6 +251,53 @@ class TestResolveBothTokenIds:
         yes_id, no_id, err = resolve_both_token_ids("slug", _picker_factory=bad_factory)
         assert err is not None
 
+    def test_default_path_constructs_picker_with_clients(self):
+        """Regression: default path must pass GammaClient+ClobClient to MarketPicker, not MarketPicker()."""
+        fake_resolved = _FakeResolved(yes_token_id="0xYES", no_token_id="0xNO")
+
+        class _FakeGamma:
+            pass
+
+        class _FakeClob:
+            pass
+
+        constructed_args = {}
+
+        class _CapturingPicker:
+            def __init__(self, gamma_client, clob_client):
+                constructed_args["gamma"] = gamma_client
+                constructed_args["clob"] = clob_client
+
+            def resolve_slug(self, slug):
+                return fake_resolved
+
+        import tools.cli.capture_new_market_tapes as _mod
+        orig_picker = _mod.MarketPicker
+
+        with patch("tools.cli.capture_new_market_tapes.MarketPicker", _CapturingPicker):
+            with patch("tools.cli.capture_new_market_tapes.GammaClient", _FakeGamma, create=True):
+                with patch("tools.cli.capture_new_market_tapes.ClobClient", _FakeClob, create=True):
+                    # Patch the imports inside the function
+                    import sys
+                    gamma_mod = type(sys)("packages.polymarket.gamma")
+                    gamma_mod.GammaClient = _FakeGamma
+                    clob_mod = type(sys)("packages.polymarket.clob")
+                    clob_mod.ClobClient = _FakeClob
+                    with patch.dict("sys.modules", {
+                        "packages.polymarket.gamma": gamma_mod,
+                        "packages.polymarket.clob": clob_mod,
+                    }):
+                        yes_id, no_id, err = resolve_both_token_ids("test-slug")
+
+        assert err is None
+        assert yes_id == "0xYES"
+        assert no_id == "0xNO"
+        # Confirm clients were passed (not a zero-arg call)
+        assert "gamma" in constructed_args
+        assert "clob" in constructed_args
+        assert isinstance(constructed_args["gamma"], _FakeGamma)
+        assert isinstance(constructed_args["clob"], _FakeClob)
+
 
 # ---------------------------------------------------------------------------
 # TestRunCaptureBatch

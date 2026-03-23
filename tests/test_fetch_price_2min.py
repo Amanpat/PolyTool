@@ -268,7 +268,7 @@ class TestFetchPrice2MinCLI:
             "tools.cli.fetch_price_2min.FetchAndIngestEngine",
             side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=fetch_fn),
         ):
-            rc = main(["--token-id", _TOKEN_A, "--dry-run"])
+            rc = main(["--token-id", _TOKEN_A, "--dry-run", "--clickhouse-password", "testpass"])
         assert rc == 0
 
     def test_token_file_is_read(self, tmp_path):
@@ -285,7 +285,7 @@ class TestFetchPrice2MinCLI:
             "tools.cli.fetch_price_2min.FetchAndIngestEngine",
             side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=fetch_fn),
         ):
-            rc = main(["--token-file", str(token_file), "--dry-run"])
+            rc = main(["--token-file", str(token_file), "--dry-run", "--clickhouse-password", "testpass"])
         assert rc == 0
 
     def test_bad_token_file_returns_1(self, capsys):
@@ -306,6 +306,7 @@ class TestFetchPrice2MinCLI:
                 "--token-id", _TOKEN_A,
                 "--dry-run",
                 "--out", str(out_file),
+                "--clickhouse-password", "testpass",
             ])
         assert rc == 0
         assert out_file.exists()
@@ -327,7 +328,7 @@ class TestFetchPrice2MinCLI:
             "tools.cli.fetch_price_2min.FetchAndIngestEngine",
             side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=tracking_fetch),
         ):
-            rc = main(["--token-id", _TOKEN_A, "--token-id", _TOKEN_A, "--dry-run"])
+            rc = main(["--token-id", _TOKEN_A, "--token-id", _TOKEN_A, "--dry-run", "--clickhouse-password", "testpass"])
         assert rc == 0
         assert call_log.count(_TOKEN_A) == 1
 
@@ -341,5 +342,80 @@ class TestFetchPrice2MinCLI:
             "tools.cli.fetch_price_2min.FetchAndIngestEngine",
             side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=_always_fail),
         ):
-            rc = main(["--token-id", _TOKEN_A, "--dry-run"])
+            rc = main(["--token-id", _TOKEN_A, "--dry-run", "--clickhouse-password", "testpass"])
         assert rc == 1
+
+    def test_stdout_encodable_as_cp1252(self, capsys):
+        """Regression: CLI stdout must not contain characters absent from cp1252.
+
+        On Windows terminals using cp1252 (charmap), any non-cp1252 character
+        in a print() call raises UnicodeEncodeError and crashes the process.
+        The confirmed failure was u2192 (RIGHT ARROW) in the header line.
+        """
+        fetch_fn = _make_fetch_fn({_TOKEN_A: _SAMPLE_HISTORY})
+        from unittest.mock import patch
+
+        with patch(
+            "tools.cli.fetch_price_2min.FetchAndIngestEngine",
+            side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=fetch_fn),
+        ):
+            rc = main(["--token-id", _TOKEN_A, "--dry-run", "--clickhouse-password", "testpass"])
+        assert rc == 0
+        captured = capsys.readouterr()
+        # Must not raise — if it does, we have another cp1252-hostile character
+        captured.out.encode("cp1252")
+
+
+# ---------------------------------------------------------------------------
+# Auth fail-fast: regression tests for Stage 2 auth propagation fix
+# ---------------------------------------------------------------------------
+
+
+class TestFetchPrice2MinAuthFailFast:
+    """Regression tests: fetch-price-2min must fail fast when CH password is absent.
+
+    Root cause (2026-03-18 patch was incomplete): fetch_price_2min.py previously
+    used os.environ.get("CLICKHOUSE_PASSWORD", "polytool_admin"), silently falling
+    back to "polytool_admin" and producing HTTP 516 AUTHENTICATION_FAILED from
+    ClickHouse.  The fix removes the default and returns exit code 1 immediately.
+    """
+
+    def test_no_password_arg_no_env_returns_1(self, capsys, monkeypatch):
+        """No --clickhouse-password and no env → fail fast with rc=1."""
+        monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+        rc = main(["--token-id", _TOKEN_A])
+        assert rc == 1
+        assert "password" in capsys.readouterr().err.lower()
+
+    def test_empty_env_password_returns_1(self, capsys, monkeypatch):
+        """CLICKHOUSE_PASSWORD='' (empty string) must also fail fast, not attempt connect."""
+        monkeypatch.setenv("CLICKHOUSE_PASSWORD", "")
+        rc = main(["--token-id", _TOKEN_A])
+        assert rc == 1
+        assert "password" in capsys.readouterr().err.lower()
+
+    def test_explicit_password_arg_accepted(self, monkeypatch):
+        """--clickhouse-password passes through; engine is called (not blocked)."""
+        monkeypatch.delenv("CLICKHOUSE_PASSWORD", raising=False)
+        fetch_fn = _make_fetch_fn({_TOKEN_A: _SAMPLE_HISTORY})
+        from unittest.mock import patch
+
+        with patch(
+            "tools.cli.fetch_price_2min.FetchAndIngestEngine",
+            side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=fetch_fn),
+        ):
+            rc = main(["--token-id", _TOKEN_A, "--dry-run", "--clickhouse-password", "secret"])
+        assert rc == 0
+
+    def test_env_password_accepted(self, monkeypatch):
+        """CLICKHOUSE_PASSWORD env var satisfies the check; engine is called."""
+        monkeypatch.setenv("CLICKHOUSE_PASSWORD", "secret")
+        fetch_fn = _make_fetch_fn({_TOKEN_A: _SAMPLE_HISTORY})
+        from unittest.mock import patch
+
+        with patch(
+            "tools.cli.fetch_price_2min.FetchAndIngestEngine",
+            side_effect=lambda config: FetchAndIngestEngine(_fetch_fn=fetch_fn),
+        ):
+            rc = main(["--token-id", _TOKEN_A, "--dry-run"])
+        assert rc == 0

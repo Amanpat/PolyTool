@@ -412,24 +412,42 @@ def _real_fetch_jon_fills(
             token_col = _detect_col(columns, _JON_TOKEN_CANDIDATES)
             ts_col = _detect_col(columns, _JON_TS_CANDIDATES)
 
-            if not token_col or not ts_col:
+            # Detect maker/taker schema (Jon-Becker real dataset uses
+            # maker_asset_id + taker_asset_id instead of a single asset_id)
+            _col_lower = {c.lower(): c for c in columns}
+            _maker_col = _col_lower.get("maker_asset_id")
+            _taker_col = _col_lower.get("taker_asset_id")
+            _maker_taker = bool(_maker_col and _taker_col)
+
+            if not ts_col or (not token_col and not _maker_taker):
                 logger.warning(
                     "jon: missing required columns. token_col=%s ts_col=%s in %s",
                     token_col, ts_col, columns[:20],
                 )
                 return []
 
-            query = (
-                f'SELECT * FROM {read_expr} '
-                f'WHERE "{token_col}" = ? AND "{ts_col}" >= ? AND "{ts_col}" <= ? '
-                f'ORDER BY "{ts_col}" ASC'
-            )
+            if _maker_taker and not token_col:
+                query = (
+                    f'SELECT * FROM {read_expr} '
+                    f'WHERE ("{_maker_col}" = ? OR "{_taker_col}" = ?) '
+                    f'AND "{ts_col}" >= ? AND "{ts_col}" <= ? '
+                    f'ORDER BY "{ts_col}" ASC'
+                )
+                params_prefix: List[Any] = [token_id, token_id]
+            else:
+                query = (
+                    f'SELECT * FROM {read_expr} '
+                    f'WHERE "{token_col}" = ? AND "{ts_col}" >= ? AND "{ts_col}" <= ? '
+                    f'ORDER BY "{ts_col}" ASC'
+                )
+                params_prefix = [token_id]
+
             for ts_start, ts_end in [
                 (_ts_to_iso(window_start), _ts_to_iso(window_end)),
                 (window_start, window_end),
             ]:
                 try:
-                    rows = conn.execute(query, [token_id, ts_start, ts_end]).fetchall()
+                    rows = conn.execute(query, params_prefix + [ts_start, ts_end]).fetchall()
                     return [dict(zip(columns, r)) for r in rows]
                 except Exception:
                     continue
@@ -461,8 +479,8 @@ def _real_fetch_price_2min(
             f"SELECT toUnixTimestamp(ts) AS ts, price "
             f"FROM {_PRICE_2MIN_TABLE} "
             f"WHERE token_id = '{token_id}' "
-            f"AND ts >= toDateTime('{_ts_to_iso(window_start)}') "
-            f"AND ts <= toDateTime('{_ts_to_iso(window_end)}') "
+            f"AND ts >= toDateTime({int(window_start)}) "
+            f"AND ts <= toDateTime({int(window_end)}) "
             f"ORDER BY ts ASC "
             f"FORMAT JSONEachRow"
         )
