@@ -11,10 +11,10 @@ services:
     environment:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-polytool}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polytool_admin}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-polytool_admin}
+      - "CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env before starting ClickHouse}"
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      test: ["CMD-SHELL", "clickhouse-client --user \"$CLICKHOUSE_USER\" --password \"$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,7 +60,7 @@ services:
       - CLICKHOUSE_HOST=clickhouse
       - CLICKHOUSE_PORT=8123
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polytool_admin}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-polytool_admin}
+      - "CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env before starting ClickHouse}"
       - CLICKHOUSE_DATABASE=${CLICKHOUSE_DB:-polytool}
     depends_on:
       clickhouse:
@@ -78,7 +78,7 @@ services:
     container_name: polytool-migrate
     environment:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polytool_admin}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-polytool_admin}
+      - "CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env before starting ClickHouse}"
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-polytool}
     volumes:
       - ./infra/clickhouse/initdb:/migrations:ro

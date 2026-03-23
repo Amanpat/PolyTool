@@ -1,0 +1,4 @@
+{"event_type": "book", "asset_id": "yes-resolution-6", "bids": [{"price": "0.510", "size": "100"}], "asks": [{"price": "0.530", "size": "100"}], "last_trade_price": "0.520"}
+{"event_type": "book", "asset_id": "no-resolution-6", "bids": [{"price": "0.470", "size": "100"}], "asks": [{"price": "0.490", "size": "100"}], "last_trade_price": "0.480"}
+{"event_type": "book", "asset_id": "yes-resolution-6", "bids": [{"price": "0.540", "size": "100"}], "asks": [{"price": "0.560", "size": "100"}], "last_trade_price": "0.550"}
+{"event_type": "book", "asset_id": "no-resolution-6", "bids": [{"price": "0.440", "size": "100"}], "asks": [{"price": "0.460", "size": "100"}], "last_trade_price": "0.450"}

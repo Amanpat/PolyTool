@@ -1,26 +1,69 @@
-﻿# Architecture
+# Architecture
 
 PolyTool keeps the public documentation and code clean while routing all user/private data into
 local-only storage.
 
-## Components
+Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
+governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
+describes the current implemented architecture; treat the v5 north-star diagram
+as target-state architecture unless the components below say otherwise.
+
+## Roadmap Authority and Open Deltas
+
+| Area | Master Roadmap v5 north star | Current architecture truth |
+|------|-------------------------------|----------------------------|
+| Control plane | n8n orchestrates workflows through a thin FastAPI wrapper layer. | The repo is still CLI-first and local-first. `services/api/` exists, but the broad v4 wrapper surface and n8n control plane are not current architecture truth. |
+| Knowledge inputs | Research scraper and signals/news ingestion feed the RAG brain continuously. | Current RAG flows are driven by local docs, `kb/`, artifacts, and manually triggered source caching. Scraper and signals pipelines are not shipped architecture components here. |
+| Operator UI | PolyTool Studio v2 becomes a unified Next.js operator dashboard. | Current surfaces remain Grafana plus the existing Studio/CLI workflows. Do not read the v4 Studio rebuild as implemented architecture. |
+| RAG layout | One hybrid brain with partitions such as `user_data`, `research`, `signals`, `market_data`, and `external_knowledge`. | Current RAG metadata filters and storage locations are documented below; the full partitioned v4 brain is roadmap intent, not current topology. |
+| Database split | DuckDB = historical Parquet reads. ClickHouse = live streaming writes. | v4.2 rule adopted. DuckDB setup and integration is the next immediate work item. ClickHouse bulk import (SPEC-0018) is off the critical path. |
+
+## Components (current implementation)
 - `services/api/`: FastAPI service that ingests and computes analytics.
 - `infra/clickhouse/`: ClickHouse schemas + migrations.
 - `packages/polymarket/`: Shared clients + analytics logic.
   - `simtrader/execution/`: KillSwitch, RateLimiter, RiskManager, LiveExecutor, LiveRunner, OrderManager
   - `simtrader/strategies/`: MarketMakerV0 (+ CopyWalletReplay, BinaryComplementArb)
-- `packages/research/hypotheses/`: Offline hypothesis registry and experiment skeleton.
+- `packages/research/hypotheses/`: Offline hypothesis registry and experiment skeleton; saved-artifact validation/diff/summary live under `packages/polymarket/hypotheses/`.
 - `tools/cli/`: Local CLI utilities (scan, dossier export, clickhouse export, RAG, simtrader, hypotheses).
 - `docs/`: Public truth source + ADRs.
 - `kb/` + `artifacts/`: Private local data (gitignored).
   - `artifacts/research/hypothesis_registry/registry.jsonl`: append-only hypothesis lifecycle events
   - `artifacts/research/experiments/<hypothesis_id>/`: experiment skeleton directories
 
+## Database Architecture — v4.2 Rule
+
+**DuckDB = historical Parquet reads. ClickHouse = live streaming writes.**
+
+This is the ONE-SENTENCE rule from Master Roadmap v5 (Database Architecture section).
+The two databases never share data and never communicate.
+
+| What | Database | Notes |
+|------|----------|-------|
+| Live fills, tick data, VPIN, price series, WS events | ClickHouse | High-throughput concurrent writes |
+| pmxt Parquet, Jon-Becker trades (historical bulk) | DuckDB | Zero-import native Parquet reads |
+| Silver tape reconstruction queries | DuckDB | Joins pmxt + Jon-Becker + price_history |
+| Autoresearch experiment ledger, SimTrader sweep results | DuckDB | Join-heavy analytics |
+| Tape metadata, resolution signatures, signal reactions | ClickHouse | Updated continuously |
+| `price_2min` live series | ClickHouse | Live-updating; not yet started |
+
+DuckDB is zero-config (`pip install duckdb`, no server process). It reads Parquet
+directly from `/data/raw/` with no ingestion step. **Historical ClickHouse bulk import
+(SPEC-0018) is off the critical path under v4.2** — DuckDB eliminates the need to
+import pmxt and Jon-Becker data into ClickHouse tables.
+
+**Open naming question**: the 2-minute price history from polymarket-apis is referenced as
+`price_history_2min` (source kind, migration) in SPEC-0018 and as `price_2min` in other
+contexts. These refer to the same data series. See dev log
+`docs/dev_logs/2026-03-16_v42_docs_reconciliation.md` for details.
+
 ## Data flow (local-only)
 ```
-Polymarket APIs -> API ingest -> ClickHouse
+Polymarket APIs -> API ingest -> ClickHouse (live/live-updating writes)
                               -> dossier export -> artifacts/
                               -> clickhouse export -> kb/
+pmxt Parquet / Jon-Becker Parquet -> DuckDB (direct file reads, no import step)
+                                  -> Silver reconstruction -> Gate 2 tapes
 kb/ + artifacts/ -> local embeddings -> Chroma index (kb/rag/index)
 kb/ + artifacts/ -> lexical index (SQLite FTS5: kb/rag/lexical/lexical.sqlite3)
 Chroma/lexical -> rag-query -> snippets for offline memos
@@ -42,13 +85,13 @@ wallets.txt (handles + wallet addresses)
   -> alpha_candidates.json       (ranked cross-user edge hypothesis candidates)
        per candidate: sample_size gates, friction_risk_flags, next_test, stop_condition
 
-  -> manual review -> llm-bundle -> paste into LLM UI -> llm-save
+  -> manual review -> llm-bundle -> paste into LLM UI -> llm-save --hypothesis-path hypothesis.json
        kb/users/<slug>/llm_bundles/<date>/<run_id>/bundle.md
-       kb/users/<slug>/reports/<date>/<run_id>_report.md  (blank stub for operator)
+       kb/users/<slug>/reports/<date>/<run_id>_report.md  (blank stub for operator); llm_reports/<date>/<model>_<run_id>/ stores hypothesis.json + validation_result.json
 ```
 
-Track B foundation status (2026-03-05): complete (`wallet-scan` v0,
-`alpha-distill` v0, and RAG/hypothesis scaffolding baseline).
+Track B research status (2026-03-12): foundation, hypothesis registry v0, and
+Hypothesis Validation Loop v0 are complete. This is not Master Roadmap v4.1 Phase 2 completion.
 
 ## Optional execution loop (Track A, gated)
 Track A is in-scope as an optional module and is never default-on.

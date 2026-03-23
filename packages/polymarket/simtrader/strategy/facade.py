@@ -7,6 +7,7 @@ exact same execution path.
 
 from __future__ import annotations
 
+import copy
 import importlib
 import json
 from dataclasses import dataclass
@@ -15,7 +16,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..broker.latency import LatencyConfig
+from ..execution.adverse_selection import (
+    AdverseSelectionGuard,
+    GuardResult,
+    MMWithdrawalSignal,
+    OFISignal,
+    ORDER_FLOW_SIGNAL_PROXY,
+    UnavailableVPINSignal,
+    build_adverse_selection_truth_surface,
+)
 from ..portfolio.mark import MARK_BID, MARK_MID
+from .base import OrderIntent, Strategy
 from .runner import StrategyRunner
 
 STRATEGY_REGISTRY: dict[str, str] = {
@@ -28,6 +39,9 @@ STRATEGY_REGISTRY: dict[str, str] = {
     "market_maker_v0": (
         "packages.polymarket.simtrader.strategies.market_maker_v0.MarketMakerV0"
     ),
+    "market_maker_v1": (
+        "packages.polymarket.simtrader.strategies.market_maker_v1.MarketMakerV1"
+    ),
 }
 
 _MARK_METHODS = frozenset({MARK_BID, MARK_MID})
@@ -37,10 +51,118 @@ _SUMMARY_METRIC_KEYS = (
     "unrealized_pnl",
     "total_fees",
 )
+_MARKET_MAKER_V1 = "market_maker_v1"
+_ADVERSE_SELECTION_CONFIG_KEY = "adverse_selection"
+_ADVERSE_SELECTION_ALLOWED_KEYS = frozenset(
+    {"enabled", "order_flow_signal", "ofi", "mm_withdrawal"}
+)
+_DEFAULT_ADVERSE_SELECTION_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "order_flow_signal": ORDER_FLOW_SIGNAL_PROXY,
+}
 
 
 class StrategyRunConfigError(ValueError):
     """Raised when run configuration is invalid."""
+
+
+class _GuardedMarketMakerStrategy(Strategy):
+    """Wrap one strategy instance and suppress submits while the guard is active."""
+
+    def __init__(self, inner: Strategy, guard: AdverseSelectionGuard) -> None:
+        self._inner = inner
+        self._adverse_selection_guard = guard
+        existing_counts = getattr(inner, "rejection_counts", None)
+        if isinstance(existing_counts, dict):
+            self.rejection_counts = existing_counts
+        else:
+            self.rejection_counts: dict[str, int] = {}
+            setattr(inner, "rejection_counts", self.rejection_counts)
+        self.last_guard_result: GuardResult | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def on_start(self, asset_id: str, starting_cash: Decimal) -> None:
+        self._inner.on_start(asset_id, starting_cash)
+
+    def on_event(
+        self,
+        event: dict,
+        seq: int,
+        ts_recv: float,
+        best_bid: Optional[float],
+        best_ask: Optional[float],
+        open_orders: dict[str, Any],
+    ) -> list[OrderIntent]:
+        intents = list(
+            self._inner.on_event(
+                event,
+                seq,
+                ts_recv,
+                best_bid,
+                best_ask,
+                open_orders,
+            )
+        )
+        if not intents:
+            return intents
+
+        book = getattr(self._inner, "_book", None)
+        if book is None:
+            return self._suppress_submit_intents(intents)
+
+        self._adverse_selection_guard.on_book_update(book)
+        guard_result = self._adverse_selection_guard.check()
+        self.last_guard_result = guard_result
+        if not guard_result.blocked:
+            return intents
+        return self._suppress_submit_intents(intents)
+
+    def on_fill(
+        self,
+        order_id: str,
+        asset_id: str,
+        side: str,
+        fill_price: Decimal,
+        fill_size: Decimal,
+        fill_status: str,
+        seq: int,
+        ts_recv: float,
+    ) -> None:
+        self._inner.on_fill(
+            order_id=order_id,
+            asset_id=asset_id,
+            side=side,
+            fill_price=fill_price,
+            fill_size=fill_size,
+            fill_status=fill_status,
+            seq=seq,
+            ts_recv=ts_recv,
+        )
+
+    def on_finish(self) -> None:
+        self._inner.on_finish()
+
+    def _suppress_submit_intents(
+        self,
+        intents: list[OrderIntent],
+    ) -> list[OrderIntent]:
+        filtered: list[OrderIntent] = []
+        blocked_submits = 0
+        for intent in intents:
+            if intent.action == "submit":
+                blocked_submits += 1
+                continue
+            filtered.append(intent)
+
+        if blocked_submits:
+            self.rejection_counts["adverse_selection"] = (
+                int(self.rejection_counts.get("adverse_selection", 0))
+                + blocked_submits
+            )
+
+        return filtered
 
 
 @dataclass(frozen=True)
@@ -156,6 +278,11 @@ def _build_strategy(strategy_name: str, strategy_config: dict[str, Any]) -> Any:
         raise StrategyRunConfigError(
             f"unknown strategy {strategy_name!r}. Known: {known}"
         )
+
+    constructor_config, adverse_selection_config = _split_strategy_config(
+        strategy_name,
+        strategy_config,
+    )
     module_path, class_name = STRATEGY_REGISTRY[strategy_name].rsplit(".", 1)
     try:
         module = importlib.import_module(module_path)
@@ -165,10 +292,150 @@ def _build_strategy(strategy_name: str, strategy_config: dict[str, Any]) -> Any:
             f"could not load strategy {strategy_name!r}: {exc}"
         ) from exc
     try:
-        return strategy_cls(**strategy_config)
+        strategy = strategy_cls(**constructor_config)
     except TypeError as exc:
         raise StrategyRunConfigError(
             f"invalid strategy config for {strategy_name!r}: {exc}"
+        ) from exc
+
+    if adverse_selection_config is None:
+        return strategy
+
+    adverse_selection_surface = _build_adverse_selection_surface(
+        adverse_selection_config
+    )
+    _attach_adverse_selection_surface(strategy, adverse_selection_surface)
+    if not adverse_selection_config["enabled"]:
+        return strategy
+
+    wrapped_strategy = _GuardedMarketMakerStrategy(
+        strategy,
+        _build_adverse_selection_guard(adverse_selection_config),
+    )
+    _attach_adverse_selection_surface(wrapped_strategy, adverse_selection_surface)
+    return wrapped_strategy
+
+
+def _split_strategy_config(
+    strategy_name: str,
+    strategy_config: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    constructor_config = dict(strategy_config)
+    raw_adverse_selection = constructor_config.pop(_ADVERSE_SELECTION_CONFIG_KEY, None)
+
+    if strategy_name != _MARKET_MAKER_V1:
+        if raw_adverse_selection is not None:
+            raise StrategyRunConfigError(
+                f"{_ADVERSE_SELECTION_CONFIG_KEY!r} is supported only for "
+                f"{_MARKET_MAKER_V1!r}"
+            )
+        return constructor_config, None
+
+    if raw_adverse_selection is None:
+        raw_adverse_selection = copy.deepcopy(_DEFAULT_ADVERSE_SELECTION_CONFIG)
+
+    adverse_selection_config = _normalize_adverse_selection_config(
+        raw_adverse_selection
+    )
+    return constructor_config, adverse_selection_config
+
+
+def _normalize_adverse_selection_config(raw_config: Any) -> dict[str, Any]:
+    if isinstance(raw_config, bool):
+        return {
+            "enabled": raw_config,
+            "order_flow_signal": ORDER_FLOW_SIGNAL_PROXY,
+        }
+
+    if not isinstance(raw_config, dict):
+        raise StrategyRunConfigError(
+            "adverse_selection must be a boolean or JSON object"
+        )
+
+    unknown_keys = sorted(set(raw_config) - _ADVERSE_SELECTION_ALLOWED_KEYS)
+    if unknown_keys:
+        unknown = ", ".join(repr(key) for key in unknown_keys)
+        raise StrategyRunConfigError(
+            f"unknown adverse_selection keys: {unknown}"
+        )
+
+    enabled = raw_config.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise StrategyRunConfigError(
+            "adverse_selection.enabled must be true or false"
+        )
+
+    order_flow_signal = raw_config.get("order_flow_signal", ORDER_FLOW_SIGNAL_PROXY)
+    if not isinstance(order_flow_signal, str):
+        raise StrategyRunConfigError(
+            "adverse_selection.order_flow_signal must be a string"
+        )
+    try:
+        truth_surface = build_adverse_selection_truth_surface(
+            enabled=enabled,
+            order_flow_signal=order_flow_signal,
+        )
+    except ValueError as exc:
+        raise StrategyRunConfigError(
+            f"invalid adverse_selection config: {exc}"
+        ) from exc
+
+    normalized: dict[str, Any] = {
+        "enabled": enabled,
+        "order_flow_signal": str(
+            truth_surface["requested_order_flow_signal"]
+        ),
+    }
+    for key in ("ofi", "mm_withdrawal"):
+        value = raw_config.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            raise StrategyRunConfigError(
+                f"adverse_selection.{key} must be a JSON object"
+            )
+        normalized[key] = dict(value)
+    return normalized
+
+
+def _build_adverse_selection_surface(
+    guard_config: dict[str, Any],
+) -> dict[str, Any]:
+    return build_adverse_selection_truth_surface(
+        enabled=bool(guard_config.get("enabled", True)),
+        order_flow_signal=str(
+            guard_config.get("order_flow_signal", ORDER_FLOW_SIGNAL_PROXY)
+        ),
+    )
+
+
+def _attach_adverse_selection_surface(
+    strategy: Any,
+    surface: dict[str, Any],
+) -> None:
+    setattr(strategy, "adverse_selection_surface", dict(surface))
+
+
+def _build_adverse_selection_guard(
+    guard_config: dict[str, Any],
+) -> AdverseSelectionGuard:
+    ofi_config = dict(guard_config.get("ofi", {}))
+    mm_config = dict(guard_config.get("mm_withdrawal", {}))
+    order_flow_signal = str(
+        guard_config.get("order_flow_signal", ORDER_FLOW_SIGNAL_PROXY)
+    )
+    try:
+        if order_flow_signal == ORDER_FLOW_SIGNAL_PROXY:
+            order_flow_guard: Any = OFISignal(**ofi_config)
+        else:
+            order_flow_guard = UnavailableVPINSignal()
+        return AdverseSelectionGuard(
+            ofi=order_flow_guard,
+            mm_withdrawal=MMWithdrawalSignal(**mm_config),
+        )
+    except (TypeError, ValueError) as exc:
+        raise StrategyRunConfigError(
+            f"invalid adverse_selection config: {exc}"
         ) from exc
 
 

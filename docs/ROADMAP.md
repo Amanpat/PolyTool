@@ -1,11 +1,26 @@
 # Roadmap
 
-This is the public roadmap for PolyTool. Each milestone is a self-contained
-deliverable. Check the box when a milestone is fully shipped and verified.
+Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
+governing roadmap document as of 2026-03-21 and supersedes v4.2.
+
+This file is retained as the legacy implementation ledger for the numbered
+Roadmap 0-10 milestones and Track A/Track B checkpoints. Treat `COMPLETE` in
+this file as evidence that a pre-v4 milestone shipped, not as proof that the
+corresponding v4.2 phase is complete.
+
+## Authority Notes / Material Deltas vs v5
+
+| Area | Master Roadmap v5 | Current ledger meaning |
+|------|-------------------|------------------------|
+| Phase 1A / crypto pair bot | Fastest path to first dollar; standalone, not blocked on SimTrader gates. | Not yet started. Phase 1A can begin independently of Gate 2 or Gate 3. |
+| Phase 1B / live bot | Includes Gate 2 scenario sweep, Gate 3 shadow, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. benchmark_v1 manifest is CLOSED (2026-03-21). |
+| Database split | DuckDB = historical Parquet reads. ClickHouse = live streaming writes. | Rule adopted and in force. ClickHouse bulk import (SPEC-0018) is off the critical path; pmxt and Jon-Becker raw files exist locally for DuckDB. |
+| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, hypothesis registry foundation, and Hypothesis Validation Loop v0 only. |
+| Phase 3+ / Studio rebuild | Calls for a new unified Next.js Studio in later phases. | Current UI-related items in this file describe the existing operator surfaces. No custom frontend before profit. |
 
 ---
 
-## Milestone Checklist
+## Legacy Milestone Checklist (pre-v4 ledger)
 
 ### Roadmap 0 - Foundation [COMPLETE]
 
@@ -237,8 +252,8 @@ validated/rejected/parked.
 - `docs/specs/SPEC-hypothesis-registry-v0.md`, `docs/features/FEATURE-hypothesis-registry-v0.md`
 - `tests/test_hypothesis_registry.py`, `tests/test_experiment_init.py`, `tests/test_hypotheses_cli.py`
 
-**TODO next**: connect `experiment-run` to actual tape/sweep execution once the
-manual validation loop is ready.
+**Status**: Hypothesis Validation Loop v0 is complete [CLOSED 2026-03-12].
+Gate 2 scenario sweep against `config/benchmark_v1.tape_manifest` is the Phase 2 starting point (Phase 1B).
 
 ---
 
@@ -247,16 +262,23 @@ manual validation loop is ready.
 Track A is optional. It is not required for Track B research workflows and is
 never enabled by default.
 
-#### Current Track A status (2026-03-07)
+#### Current Track A status (2026-03-21)
 
 - Gate 1: PASSED
-- Gate 2: not passed yet, but tooling is implemented and working
+- Gate 2: not passed yet, but tooling and tape manifest are ready
 - Gate 3: blocked behind Gate 2
 - Gate 4: PASSED
-- Current blocker: edge scarcity / lack of qualifying live dislocations, not
-  SimTrader plumbing
-- Current next step: bounded live dislocation capture for
-  `binary_complement_arb`; see
+- **Phase 1 benchmark CLOSED (2026-03-21)**: `config/benchmark_v1.tape_manifest`
+  exists (50 tapes: `politics=10, sports=15, crypto=10, near_resolution=10,
+  new_market=5`). Lock and audit artifacts also exist.
+- Current next step (Phase 2): Gate 2 scenario sweep against the benchmark
+  manifest. DuckDB + Silver reconstruction infrastructure is in place.
+  See `docs/dev_logs/2026-03-21_phase1_docs_closeout.md`.
+- ClickHouse bulk import (SPEC-0018): off the critical path under v4.2.
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md` is retained as
+  legacy/optional cache-index tooling.
+- Fallback trigger (live path): bounded live dislocation capture remains
+  an option when a catalyst window fires; see
   `docs/dev_logs/2026-03-07_bounded_dislocation_capture_trial.md`
 - Opportunity Radar remains deferred
 
@@ -286,8 +308,10 @@ Track A code is complete, but promotion remains blocked until the gate checklist
 below is fully closed.
 
 - [x] Replay gate: PASSED (artifact: `artifacts/gates/replay_gate/gate_passed.json`)
-- [ ] Scenario sweep gate: NOT PASSED. Tooling is ready, but no eligible tape
-  has been captured yet.
+- [ ] Scenario sweep gate: NOT PASSED. Tooling is ready.
+  `config/benchmark_v1.tape_manifest` now exists (50 tapes, 5 buckets) —
+  Phase 1 complete as of 2026-03-21. Gate 2 sweep against this manifest is
+  the Phase 2 starting point.
 - [ ] Shadow gate: BLOCKED behind Gate 2; follow
   `tools/gates/shadow_gate_checklist.md` after Gate 2 passes
 - [x] Dry-run live gate: PASSED (artifact: `artifacts/gates/dry_run_gate/gate_passed.json`)
@@ -552,3 +576,4 @@ The `polytool` backward-compatibility shim (double-t typo) will be removed
 after version 0.2.0. Until then, `python -m polytool` still works but prints
 a deprecation warning. All new docs and scripts must use `python -m polytool`.
 See [ADR-0001](adr/ADR-0001-cli-and-module-rename.md) for details.
+

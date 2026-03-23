@@ -1,6 +1,6 @@
 """Offline tests for ShadowRunner and the 'shadow' CLI subcommand.
 
-All tests are fully offline — no network calls are made.  The WS layer is
+All tests are fully offline â€” no network calls are made.  The WS layer is
 replaced by injecting a pre-built list of normalised events via the
 ``_event_source`` parameter.
 """
@@ -94,7 +94,7 @@ def _make_fake_events(yes_id=YES_ID, no_id=NO_ID) -> list[dict]:
 
 
 class _NoOpStrategy:
-    """Strategy that never submits orders — used for artifact existence tests."""
+    """Strategy that never submits orders â€” used for artifact existence tests."""
 
     def on_start(self, asset_id, starting_cash):
         pass
@@ -312,7 +312,7 @@ class TestShadowTapeRecording:
         assert "reconnect_count" in meta
         assert "started_at" in meta
         assert "ended_at" in meta
-        # In injected mode, raw_ws.jsonl is not expected — source is "injected"
+        # In injected mode, raw_ws.jsonl is not expected â€” source is "injected"
         assert meta.get("source") == "injected"
 
     def test_shadow_tape_meta_includes_shadow_context(self, tmp_path):
@@ -564,6 +564,55 @@ class TestShadowCLI:
         assert params["run_dir"].name == params["tape_dir"].name
         assert f"_shadow_{SLUG}_" in params["run_dir"].name
 
+    def test_shadow_default_market_maker_v1_enables_adverse_selection_guard(self, capsys):
+        """Default shadow market_maker_v1 wiring includes the adverse-selection guard."""
+        from tools.cli.simtrader import main
+
+        captured: dict = {}
+
+        def fake_build_strategy(strategy_name, strategy_config):
+            captured["strategy_name"] = strategy_name
+            captured["strategy_config"] = dict(strategy_config)
+            return _NoOpStrategy()
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient") as MockGamma,
+            patch("packages.polymarket.clob.ClobClient") as MockClob,
+            patch(
+                "packages.polymarket.simtrader.strategy.facade._build_strategy",
+                side_effect=fake_build_strategy,
+            ),
+            patch(
+                "packages.polymarket.simtrader.shadow.runner.ShadowRunner.run",
+                return_value={"net_profit": "0.00", "run_id": "test"},
+            ),
+        ):
+            gamma_instance = MockGamma.return_value
+            gamma_instance.fetch_markets_filtered.return_value = [self._make_market()]
+            clob_instance = MockClob.return_value
+            clob_instance.fetch_book.return_value = self._make_good_book()
+
+            rc = main(
+                [
+                    "shadow",
+                    "--market",
+                    SLUG,
+                    "--duration",
+                    "1",
+                    "--no-record-tape",
+                ]
+            )
+
+        assert rc == 0
+        assert captured["strategy_name"] == "market_maker_v1"
+        assert captured["strategy_config"]["adverse_selection"]["enabled"] is True
+        assert (
+            captured["strategy_config"]["adverse_selection"]["order_flow_signal"]
+            == "proxy"
+        )
+        captured_io = capsys.readouterr()
+        assert "adverse-selection: proxy signal active (OFI VPIN proxy)" in captured_io.err
+
     def test_shadow_loose_strategy_preset_expands_strategy_config(self):
         """--strategy-preset loose maps to JSON-equivalent strategy config overrides."""
         from tools.cli.simtrader import main
@@ -597,6 +646,8 @@ class TestShadowCLI:
                     "shadow",
                     "--market",
                     SLUG,
+                    "--strategy",
+                    "binary_complement_arb",
                     "--duration",
                     "1",
                     "--strategy-preset",
@@ -662,6 +713,7 @@ class TestShadowCLI:
         assert cfg["order_size"] == "5"
         assert "yes_asset_id" not in cfg
         assert "no_asset_id" not in cfg
+        assert "adverse_selection" not in cfg
 
     def test_shadow_subcommand_in_parser(self):
         """'shadow' is a registered subcommand in the argument parser."""
@@ -680,7 +732,7 @@ class TestShadowCLI:
         parser = _build_parser()
         args = parser.parse_args(["shadow", "--market", "test-slug"])
         assert args.duration == 300.0
-        assert args.strategy == "binary_complement_arb"
+        assert args.strategy == "market_maker_v1"
         assert args.starting_cash == 1000.0
         assert args.mark_method == "bid"
         assert args.strategy_preset == "sane"
@@ -1098,3 +1150,5 @@ class TestCancelAllOnDisconnect:
 
         for name in ("run_manifest.json", "meta.json", "summary.json", "orders.jsonl"):
             assert (run_dir / name).exists(), f"Missing artifact after disconnect: {name}"
+
+

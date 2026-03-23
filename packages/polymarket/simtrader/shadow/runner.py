@@ -884,6 +884,16 @@ class ShadowRunner:
         opportunities: list[dict] = getattr(self.strategy, "opportunities", [])
         modeled_arb_summary: dict = getattr(self.strategy, "modeled_arb_summary", {})
         rejection_counts: Optional[dict] = getattr(self.strategy, "rejection_counts", None)
+        adverse_selection_surface = getattr(
+            self.strategy,
+            "adverse_selection_surface",
+            None,
+        )
+        calibration_provenance: Optional[dict] = getattr(
+            self.strategy,
+            "calibration_provenance",
+            None,
+        )
 
         opportunities_count = 0
         if opportunities:
@@ -896,6 +906,14 @@ class ShadowRunner:
             summary_payload["warnings"] = warnings[:50]
         if rejection_counts is not None:
             summary_payload["strategy_debug"] = {"rejection_counts": rejection_counts}
+        if isinstance(adverse_selection_surface, dict):
+            summary_payload["adverse_selection"] = adverse_selection_surface
+        if isinstance(calibration_provenance, dict):
+            summary_payload["calibration_provenance"] = calibration_provenance
+        # Observational label: strategy activity present but no fills.
+        # Informational only — does NOT change Gate 2 eligibility or pass criteria.
+        if decisions and not broker.fills:
+            summary_payload["observational_evidence"] = True
         (run_dir / "summary.json").write_text(
             json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8"
         )
@@ -950,6 +968,13 @@ class ShadowRunner:
             manifest["modeled_arb_summary"] = modeled_arb_summary
         if rejection_counts is not None:
             manifest["strategy_debug"] = {"rejection_counts": rejection_counts}
+        if isinstance(adverse_selection_surface, dict):
+            manifest["adverse_selection"] = adverse_selection_surface
+        if isinstance(calibration_provenance, dict):
+            manifest["calibration_provenance"] = calibration_provenance
+        # Observational label: informational only — does NOT affect Gate 2 eligibility.
+        if decisions and not broker.fills:
+            manifest["observational_evidence"] = True
         manifest["display_name"] = build_display_name(
             kind="shadow",
             timestamp=started_at,

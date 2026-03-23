@@ -25,6 +25,7 @@ classifiers = [
 dependencies = [
     "requests>=2.28.0",
     "clickhouse-connect>=0.6.0",
+    "jsonschema>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,8 +47,14 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
 ]
+historical = [
+    "duckdb>=1.0.0",
+]
+historical-import = [
+    "pyarrow>=12.0.0",
+]
 all = [
-    "polytool[rag,mcp,simtrader,studio,dev]",
+    "polytool[rag,mcp,simtrader,studio,dev,historical,historical-import]",
 ]
 
 [project.scripts]
@@ -61,7 +68,9 @@ Documentation = "https://github.com/polymarket/polytool/tree/main/docs"
 packages = [
     "polytool", "polytool.reports",
     "packages", "packages.polymarket", "packages.polymarket.rag",
+    "packages.polymarket.hypotheses",
     "packages.polymarket.market_selection",
+    "packages.polymarket.historical_import",
     "packages.research", "packages.research.hypotheses",
     "packages.polymarket.simtrader",
     "packages.polymarket.simtrader.studio",
@@ -71,6 +80,9 @@ packages = [
     "packages.polymarket.simtrader.broker",
     "tools", "tools.cli", "tools.guard",
 ]
+
+[tool.setuptools.package-data]
+"packages.polymarket.hypotheses" = ["hypothesis_schema_v1.json"]
 
 [tool.setuptools.package-dir]
 "" = "."
@@ -84,3 +96,4 @@ norecursedirs = ["tests/pytest_tmp", "tests/.pytest_tmp", ".tmp", "pytest_tmp", 
 markers = [
     "optional_dep: tests that require optional third-party dependencies",
 ]
+

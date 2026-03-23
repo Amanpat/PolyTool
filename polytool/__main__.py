@@ -6,28 +6,123 @@ Usage: python -m polytool <command> [options]
 
 from __future__ import annotations
 
+import importlib
 import sys
 from typing import Optional
 
-from tools.cli.export_clickhouse import main as export_clickhouse_main
-from tools.cli.export_dossier import main as export_dossier_main
-from tools.cli.agent_run import main as agent_run_main
-from tools.cli.batch_run import main as batch_run_main
-from tools.cli.hypotheses import main as hypotheses_main
-from tools.cli.wallet_scan import main as wallet_scan_main
-from tools.cli.alpha_distill import main as alpha_distill_main
-from tools.cli.llm_bundle import main as llm_bundle_main
-from tools.cli.llm_save import main as llm_save_main
-from tools.cli.market_scan import main as market_scan_main
-from tools.cli.scan_gate2_candidates import main as scan_gate2_candidates_main
-from tools.cli.prepare_gate2 import main as prepare_gate2_main
-from tools.cli.watch_arb_candidates import main as watch_arb_candidates_main
-from tools.cli.rag_index import main as rag_index_main
-from tools.cli.rag_eval import main as rag_eval_main
-from tools.cli.rag_query import main as rag_query_main
-from tools.cli.rag_run import main as rag_run_main
-from tools.cli.scan import main as scan_main
-from tools.cli.simtrader import main as simtrader_main
+
+def _run_command(module_path: str, args: list[str]) -> int:
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    main_fn = getattr(module, "main", None)
+    if main_fn is None:
+        print(
+            f"Error: {module_path} does not expose a main() entrypoint.",
+            file=sys.stderr,
+        )
+        return 1
+    return main_fn(args)
+
+
+def _command_entrypoint(module_path: str):
+    def _main(args: list[str]) -> int:
+        return _run_command(module_path, args)
+
+    return _main
+
+
+export_clickhouse_main = _command_entrypoint("tools.cli.export_clickhouse")
+export_dossier_main = _command_entrypoint("tools.cli.export_dossier")
+agent_run_main = _command_entrypoint("tools.cli.agent_run")
+batch_run_main = _command_entrypoint("tools.cli.batch_run")
+audit_coverage_main = _command_entrypoint("tools.cli.audit_coverage")
+hypotheses_main = _command_entrypoint("tools.cli.hypotheses")
+wallet_scan_main = _command_entrypoint("tools.cli.wallet_scan")
+alpha_distill_main = _command_entrypoint("tools.cli.alpha_distill")
+llm_bundle_main = _command_entrypoint("tools.cli.llm_bundle")
+llm_save_main = _command_entrypoint("tools.cli.llm_save")
+market_scan_main = _command_entrypoint("tools.cli.market_scan")
+scan_gate2_candidates_main = _command_entrypoint("tools.cli.scan_gate2_candidates")
+prepare_gate2_main = _command_entrypoint("tools.cli.prepare_gate2")
+watch_arb_candidates_main = _command_entrypoint("tools.cli.watch_arb_candidates")
+tape_manifest_main = _command_entrypoint("tools.cli.tape_manifest")
+gate2_preflight_main = _command_entrypoint("tools.cli.gate2_preflight")
+historical_import_main = _command_entrypoint("tools.cli.historical_import")
+smoke_historical_main = _command_entrypoint("tools.cli.smoke_historical")
+fetch_price_2min_main = _command_entrypoint("tools.cli.fetch_price_2min")
+reconstruct_silver_main = _command_entrypoint("tools.cli.reconstruct_silver")
+batch_reconstruct_silver_main = _command_entrypoint("tools.cli.batch_reconstruct_silver")
+benchmark_manifest_main = _command_entrypoint("tools.cli.benchmark_manifest")
+new_market_capture_main = _command_entrypoint("tools.cli.new_market_capture")
+capture_new_market_tapes_main = _command_entrypoint("tools.cli.capture_new_market_tapes")
+close_benchmark_v1_main = _command_entrypoint("tools.cli.close_benchmark_v1")
+summarize_gap_fill_main = _command_entrypoint("tools.cli.summarize_gap_fill")
+make_session_pack_main = _command_entrypoint("tools.cli.make_session_pack")
+crypto_pair_scan_main = _command_entrypoint("tools.cli.crypto_pair_scan")
+rag_index_main = _command_entrypoint("tools.cli.rag_index")
+rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
+rag_query_main = _command_entrypoint("tools.cli.rag_query")
+rag_run_main = _command_entrypoint("tools.cli.rag_run")
+scan_main = _command_entrypoint("tools.cli.scan")
+simtrader_main = _command_entrypoint("tools.cli.simtrader")
+
+
+_COMMAND_HANDLER_NAMES = {
+    "agent-run": "agent_run_main",
+    "alpha-distill": "alpha_distill_main",
+    "audit-coverage": "audit_coverage_main",
+    "batch-run": "batch_run_main",
+    "export-clickhouse": "export_clickhouse_main",
+    "export-dossier": "export_dossier_main",
+    "gate2-preflight": "gate2_preflight_main",
+    "hypothesis-register": "hypotheses_main",
+    "hypothesis-status": "hypotheses_main",
+    "hypothesis-diff": "hypotheses_main",
+    "hypothesis-summary": "hypotheses_main",
+    "hypothesis-validate": "hypotheses_main",
+    "experiment-init": "hypotheses_main",
+    "experiment-run": "hypotheses_main",
+    "llm-bundle": "llm_bundle_main",
+    "llm-save": "llm_save_main",
+    "make-session-pack": "make_session_pack_main",
+    "market-scan": "market_scan_main",
+    "prepare-gate2": "prepare_gate2_main",
+    "rag-eval": "rag_eval_main",
+    "rag-index": "rag_index_main",
+    "rag-query": "rag_query_main",
+    "rag-run": "rag_run_main",
+    "scan": "scan_main",
+    "scan-gate2-candidates": "scan_gate2_candidates_main",
+    "simtrader": "simtrader_main",
+    "tape-manifest": "tape_manifest_main",
+    "watch-arb-candidates": "watch_arb_candidates_main",
+    "wallet-scan": "wallet_scan_main",
+    "import-historical": "historical_import_main",
+    "smoke-historical": "smoke_historical_main",
+    "fetch-price-2min": "fetch_price_2min_main",
+    "reconstruct-silver": "reconstruct_silver_main",
+    "batch-reconstruct-silver": "batch_reconstruct_silver_main",
+    "benchmark-manifest": "benchmark_manifest_main",
+    "new-market-capture": "new_market_capture_main",
+    "capture-new-market-tapes": "capture_new_market_tapes_main",
+    "close-benchmark-v1": "close_benchmark_v1_main",
+    "summarize-gap-fill": "summarize_gap_fill_main",
+    "crypto-pair-scan": "crypto_pair_scan_main",
+}
+
+_FULL_ARGV_COMMANDS = {
+    "hypothesis-register",
+    "hypothesis-status",
+    "hypothesis-diff",
+    "hypothesis-summary",
+    "hypothesis-validate",
+    "experiment-init",
+    "experiment-run",
+}
 
 
 def print_usage() -> None:
@@ -42,8 +137,11 @@ def print_usage() -> None:
     print("  alpha-distill         Distill wallet-scan data -> ranked edge candidates (no LLM)")
     print("  hypothesis-register   Register a candidate in the offline hypothesis registry")
     print("  hypothesis-status     Update lifecycle status for a registered hypothesis")
+    print("  hypothesis-diff       Compare two saved hypothesis.json artifacts")
+    print("  hypothesis-summary    Extract a deterministic summary from hypothesis.json")
     print("  experiment-init       Create an experiment.json skeleton for a hypothesis")
     print("  experiment-run        Create a generated experiment attempt for a hypothesis")
+    print("  hypothesis-validate   Validate a hypothesis JSON file against schema_v1")
     print("")
     print("--- Analysis & Evidence -----------------------------------------------")
     print("  scan                  Run a one-shot scan via the PolyTool API")
@@ -62,12 +160,30 @@ def print_usage() -> None:
     print("  llm-bundle            Build an LLM evidence bundle from dossier + RAG excerpts")
     print("  llm-save              Save an LLM report run into the private KB")
     print("")
+    print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
+    print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
+    print("")
     print("--- SimTrader / Execution (Track A, gated) ----------------------------")
     print("  simtrader             Record/replay/shadow/live trading - run 'simtrader --help'")
     print("  market-scan           Rank active Polymarket markets by reward/spread/fill quality")
     print("  scan-gate2-candidates Rank markets by Gate 2 binary_complement_arb executability")
     print("  prepare-gate2         Scan -> record -> check eligibility for Gate 2 (orchestrator)")
     print("  watch-arb-candidates  Watch a market list and auto-record on near-edge dislocation")
+    print("  tape-manifest         Scan tape corpus, check eligibility, emit acquisition manifest")
+    print("  gate2-preflight       Check whether Gate 2 sweep is ready and why it may be blocked")
+    print("  make-session-pack     Create exact watchlist + watcher-compatible session plan for a capture session")
+    print("")
+    print("--- Data Import (Phase 1 / Bulk Historical Foundation) ----------------")
+    print("  import-historical     Validate and document local historical dataset layout")
+    print("  smoke-historical      DuckDB smoke - validate pmxt/Jon raw files directly (no ClickHouse)")
+    print("  fetch-price-2min      Fetch 2-min price history from CLOB API -> polytool.price_2min (ClickHouse)")
+    print("  reconstruct-silver    Reconstruct a Silver tape (pmxt anchor + Jon fills + price_2min midpoint guide)")
+    print("  batch-reconstruct-silver Batch-reconstruct Silver tapes for multiple tokens over one window")
+    print("  benchmark-manifest    Build or validate the frozen benchmark_v1 tape manifest contract")
+    print("  new-market-capture    Discover newly listed markets (<48h) and plan Gold tape capture")
+    print("  capture-new-market-tapes  Record Gold tapes for benchmark_v1 new_market targets (batch)")
+    print("  close-benchmark-v1        End-to-end benchmark closure: preflight + Silver + new-market + manifest")
+    print("  summarize-gap-fill        Read-only diagnostic summary for gap_fill_run.json artifacts")
     print("")
     print("--- Integrations & Utilities ------------------------------------------")
     print("  mcp                   Start the MCP server for Claude Desktop integration")
@@ -91,7 +207,7 @@ def print_usage() -> None:
     print("")
     print("  # SimTrader (gated)")
     print('  polytool market-scan --top 5')
-    print('  polytool simtrader shadow --market <slug> --strategy market_maker_v0 --duration 300')
+    print('  polytool simtrader shadow --market <slug> --strategy market_maker_v1 --duration 300')
     print("")
     print("For more information, see:")
     print("  docs/OPERATOR_QUICKSTART.md   (end-to-end guide)")
@@ -124,37 +240,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         print_version()
         return 0
 
-    # Route to command handlers
-    if command == "scan":
-        return scan_main(argv[1:])
-    if command == "batch-run":
-        return batch_run_main(argv[1:])
-    if command == "audit-coverage":
-        from tools.cli.audit_coverage import main as audit_coverage_main
-        return audit_coverage_main(argv[1:])
-    if command == "export-dossier":
-        return export_dossier_main(argv[1:])
-    if command == "export-clickhouse":
-        return export_clickhouse_main(argv[1:])
-    if command == "agent-run":
-        return agent_run_main(argv[1:])
-    if command == "llm-save":
-        return llm_save_main(argv[1:])
-    if command == "llm-bundle":
-        return llm_bundle_main(argv[1:])
-    if command == "rag-index":
-        return rag_index_main(argv[1:])
-
     if command == "rag-refresh":
         # Thin alias: rag-index --rebuild with default roots (kb,artifacts).
         # Use this after any scan/wallet-scan to make new content searchable.
         return rag_index_main(["--rebuild"] + argv[1:])
-    if command == "rag-query":
-        return rag_query_main(argv[1:])
-    if command == "rag-run":
-        return rag_run_main(argv[1:])
-    if command == "rag-eval":
-        return rag_eval_main(argv[1:])
 
     # New commands (will be implemented)
     if command == "examine":
@@ -172,30 +261,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         except ImportError:
             print("Error: cache-source command not yet implemented.", file=sys.stderr)
             return 1
-
-    if command == "wallet-scan":
-        return wallet_scan_main(argv[1:])
-
-    if command == "alpha-distill":
-        return alpha_distill_main(argv[1:])
-
-    if command == "market-scan":
-        return market_scan_main(argv[1:])
-
-    if command == "scan-gate2-candidates":
-        return scan_gate2_candidates_main(argv[1:])
-
-    if command == "prepare-gate2":
-        return prepare_gate2_main(argv[1:])
-
-    if command == "watch-arb-candidates":
-        return watch_arb_candidates_main(argv[1:])
-
-    if command in {"hypothesis-register", "hypothesis-status", "experiment-init", "experiment-run"}:
-        return hypotheses_main(argv)
-
-    if command == "simtrader":
-        return simtrader_main(argv[1:])
 
     if command == "mcp":
         try:
@@ -218,6 +283,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             file=sys.stderr,
         )
         return llm_bundle_main(argv[1:])
+
+    handler_name = _COMMAND_HANDLER_NAMES.get(command)
+    if handler_name is not None:
+        args = argv if command in _FULL_ARGV_COMMANDS else argv[1:]
+        return globals()[handler_name](args)
 
     print(f"Unknown command: {command}")
     print_usage()

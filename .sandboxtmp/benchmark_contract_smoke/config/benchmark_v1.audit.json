@@ -1,0 +1,2867 @@
+{
+  "schema_version": "benchmark_tape_inventory_audit_v1",
+  "benchmark_version": "benchmark_v1",
+  "manifest_schema_version": "benchmark_tape_manifest_v1",
+  "generated_at": "2026-03-16T23:06:21+00:00",
+  "inventory_roots": [
+    ".sandboxtmp/benchmark_contract_smoke/inventory"
+  ],
+  "discovered_count": 50,
+  "skipped_count": 0,
+  "selected_count": 50,
+  "inventory_by_tier": {
+    "gold": 40,
+    "silver": 10
+  },
+  "selected_by_tier": {
+    "gold": 40,
+    "silver": 10
+  },
+  "bucket_summary": {
+    "politics": {
+      "quota": 10,
+      "candidate_count": 10,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 10,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 10,
+        "silver": 0
+      }
+    },
+    "sports": {
+      "quota": 15,
+      "candidate_count": 15,
+      "selected_count": 15,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 15,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 15,
+        "silver": 0
+      }
+    },
+    "crypto": {
+      "quota": 10,
+      "candidate_count": 20,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 10,
+        "silver": 10
+      },
+      "selected_by_tier": {
+        "gold": 0,
+        "silver": 10
+      }
+    },
+    "near_resolution": {
+      "quota": 10,
+      "candidate_count": 10,
+      "selected_count": 10,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 10,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 10,
+        "silver": 0
+      }
+    },
+    "new_market": {
+      "quota": 5,
+      "candidate_count": 5,
+      "selected_count": 5,
+      "shortage": 0,
+      "candidate_by_tier": {
+        "gold": 5,
+        "silver": 0
+      },
+      "selected_by_tier": {
+        "gold": 5,
+        "silver": 0
+      }
+    }
+  },
+  "selected_assignments": {
+    "politics": [
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-0/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-0",
+        "tier": "gold",
+        "slug": "politics-0",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-0",
+        "title": "politics-0",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-0",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-1/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-1",
+        "tier": "gold",
+        "slug": "politics-1",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-1",
+        "title": "politics-1",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-1",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-2/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-2",
+        "tier": "gold",
+        "slug": "politics-2",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-2",
+        "title": "politics-2",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-2",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-3/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-3",
+        "tier": "gold",
+        "slug": "politics-3",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-3",
+        "title": "politics-3",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-3",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-4/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-4",
+        "tier": "gold",
+        "slug": "politics-4",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-4",
+        "title": "politics-4",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-4",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-5/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-5",
+        "tier": "gold",
+        "slug": "politics-5",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-5",
+        "title": "politics-5",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-5",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-6/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-6",
+        "tier": "gold",
+        "slug": "politics-6",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-6",
+        "title": "politics-6",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-6",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-7/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-7",
+        "tier": "gold",
+        "slug": "politics-7",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-7",
+        "title": "politics-7",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-7",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-8/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-8",
+        "tier": "gold",
+        "slug": "politics-8",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-8",
+        "title": "politics-8",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-8",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-9/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-9",
+        "tier": "gold",
+        "slug": "politics-9",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Politics",
+        "question": "politics-9",
+        "title": "politics-9",
+        "event_count": 4,
+        "primary_asset_id": "yes-politics-9",
+        "price_sample_count": 2,
+        "price_low": 0.2,
+        "price_high": 0.75,
+        "price_span": 0.55,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "politics"
+        ],
+        "classification_notes": [
+          "politics via regime classifier"
+        ]
+      }
+    ],
+    "sports": [
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-0/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-0",
+        "tier": "gold",
+        "slug": "sports-0",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-0",
+        "title": "sports-0",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-0",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-1/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-1",
+        "tier": "gold",
+        "slug": "sports-1",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-1",
+        "title": "sports-1",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-1",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-10/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-10",
+        "tier": "gold",
+        "slug": "sports-10",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-10",
+        "title": "sports-10",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-10",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-11/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-11",
+        "tier": "gold",
+        "slug": "sports-11",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-11",
+        "title": "sports-11",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-11",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-12/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-12",
+        "tier": "gold",
+        "slug": "sports-12",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-12",
+        "title": "sports-12",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-12",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-13/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-13",
+        "tier": "gold",
+        "slug": "sports-13",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-13",
+        "title": "sports-13",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-13",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-14/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-14",
+        "tier": "gold",
+        "slug": "sports-14",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-14",
+        "title": "sports-14",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-14",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-2/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-2",
+        "tier": "gold",
+        "slug": "sports-2",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-2",
+        "title": "sports-2",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-2",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-3/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-3",
+        "tier": "gold",
+        "slug": "sports-3",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-3",
+        "title": "sports-3",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-3",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-4/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-4",
+        "tier": "gold",
+        "slug": "sports-4",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-4",
+        "title": "sports-4",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-4",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-5/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-5",
+        "tier": "gold",
+        "slug": "sports-5",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-5",
+        "title": "sports-5",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-5",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-6/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-6",
+        "tier": "gold",
+        "slug": "sports-6",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-6",
+        "title": "sports-6",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-6",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-7/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-7",
+        "tier": "gold",
+        "slug": "sports-7",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-7",
+        "title": "sports-7",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-7",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-8/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-8",
+        "tier": "gold",
+        "slug": "sports-8",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-8",
+        "title": "sports-8",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-8",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-9/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-9",
+        "tier": "gold",
+        "slug": "sports-9",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Sports",
+        "question": "sports-9",
+        "title": "sports-9",
+        "event_count": 4,
+        "primary_asset_id": "yes-sports-9",
+        "price_sample_count": 2,
+        "price_low": 0.4,
+        "price_high": 0.46,
+        "price_span": 0.06,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "sports"
+        ],
+        "classification_notes": [
+          "sports via regime classifier"
+        ]
+      }
+    ],
+    "crypto": [
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-0/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-0",
+        "tier": "silver",
+        "slug": "crypto-0",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-0",
+        "title": "crypto-0",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-0",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-1/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-1",
+        "tier": "silver",
+        "slug": "crypto-1",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-1",
+        "title": "crypto-1",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-1",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-2/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-2",
+        "tier": "silver",
+        "slug": "crypto-2",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-2",
+        "title": "crypto-2",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-2",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-3/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-3",
+        "tier": "silver",
+        "slug": "crypto-3",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-3",
+        "title": "crypto-3",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-3",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-4/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-4",
+        "tier": "silver",
+        "slug": "crypto-4",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-4",
+        "title": "crypto-4",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-4",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-5/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-5",
+        "tier": "silver",
+        "slug": "crypto-5",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-5",
+        "title": "crypto-5",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-5",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-6/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-6",
+        "tier": "silver",
+        "slug": "crypto-6",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-6",
+        "title": "crypto-6",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-6",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-7/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-7",
+        "tier": "silver",
+        "slug": "crypto-7",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-7",
+        "title": "crypto-7",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-7",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-8/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-8",
+        "tier": "silver",
+        "slug": "crypto-8",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-8",
+        "title": "crypto-8",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-8",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-9/silver_events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-9",
+        "tier": "silver",
+        "slug": "crypto-9",
+        "metadata_sources": [
+          "watch_meta.json",
+          "silver_meta.json"
+        ],
+        "category": "Crypto",
+        "question": "crypto-9",
+        "title": "crypto-9",
+        "event_count": 2,
+        "primary_asset_id": "token-crypto-9",
+        "price_sample_count": 2,
+        "price_low": 0.35,
+        "price_high": 0.58,
+        "price_span": 0.23,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "crypto"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords"
+        ]
+      }
+    ],
+    "near_resolution": [
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-0/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-0",
+        "tier": "gold",
+        "slug": "resolution-0",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-0",
+        "title": "resolution-0",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-0",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-1/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-1",
+        "tier": "gold",
+        "slug": "resolution-1",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-1",
+        "title": "resolution-1",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-1",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-2/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-2",
+        "tier": "gold",
+        "slug": "resolution-2",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-2",
+        "title": "resolution-2",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-2",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-3/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-3",
+        "tier": "gold",
+        "slug": "resolution-3",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-3",
+        "title": "resolution-3",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-3",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-4/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-4",
+        "tier": "gold",
+        "slug": "resolution-4",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-4",
+        "title": "resolution-4",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-4",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-5/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-5",
+        "tier": "gold",
+        "slug": "resolution-5",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-5",
+        "title": "resolution-5",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-5",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-6/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-6",
+        "tier": "gold",
+        "slug": "resolution-6",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-6",
+        "title": "resolution-6",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-6",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-7/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-7",
+        "tier": "gold",
+        "slug": "resolution-7",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-7",
+        "title": "resolution-7",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-7",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-8/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-8",
+        "tier": "gold",
+        "slug": "resolution-8",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-8",
+        "title": "resolution-8",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-8",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-9/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-9",
+        "tier": "gold",
+        "slug": "resolution-9",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "resolution-9",
+        "title": "resolution-9",
+        "event_count": 4,
+        "primary_asset_id": "yes-resolution-9",
+        "price_sample_count": 2,
+        "price_low": 0.52,
+        "price_high": 0.55,
+        "price_span": 0.03,
+        "near_tail_observed": false,
+        "age_hours": null,
+        "hours_to_resolution": 6.0,
+        "candidate_buckets": [
+          "crypto",
+          "near_resolution"
+        ],
+        "classification_notes": [
+          "crypto via metadata keywords",
+          "near_resolution via hours_to_resolution=6.00"
+        ]
+      }
+    ],
+    "new_market": [
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-0/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-0",
+        "tier": "gold",
+        "slug": "fresh-0",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "fresh-0",
+        "title": "fresh-0",
+        "event_count": 4,
+        "primary_asset_id": "yes-fresh-0",
+        "price_sample_count": 2,
+        "price_low": 0.48,
+        "price_high": 0.5,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": 12.0,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=12.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-1/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-1",
+        "tier": "gold",
+        "slug": "fresh-1",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "fresh-1",
+        "title": "fresh-1",
+        "event_count": 4,
+        "primary_asset_id": "yes-fresh-1",
+        "price_sample_count": 2,
+        "price_low": 0.48,
+        "price_high": 0.5,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": 12.0,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=12.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-2/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-2",
+        "tier": "gold",
+        "slug": "fresh-2",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "fresh-2",
+        "title": "fresh-2",
+        "event_count": 4,
+        "primary_asset_id": "yes-fresh-2",
+        "price_sample_count": 2,
+        "price_low": 0.48,
+        "price_high": 0.5,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": 12.0,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=12.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-3/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-3",
+        "tier": "gold",
+        "slug": "fresh-3",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "fresh-3",
+        "title": "fresh-3",
+        "event_count": 4,
+        "primary_asset_id": "yes-fresh-3",
+        "price_sample_count": 2,
+        "price_low": 0.48,
+        "price_high": 0.5,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": 12.0,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=12.00"
+        ]
+      },
+      {
+        "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-4/events.jsonl",
+        "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-4",
+        "tier": "gold",
+        "slug": "fresh-4",
+        "metadata_sources": [
+          "watch_meta.json"
+        ],
+        "category": "Science",
+        "question": "fresh-4",
+        "title": "fresh-4",
+        "event_count": 4,
+        "primary_asset_id": "yes-fresh-4",
+        "price_sample_count": 2,
+        "price_low": 0.48,
+        "price_high": 0.5,
+        "price_span": 0.02,
+        "near_tail_observed": false,
+        "age_hours": 12.0,
+        "hours_to_resolution": null,
+        "candidate_buckets": [
+          "new_market"
+        ],
+        "classification_notes": [
+          "new_market via age_hours=12.00"
+        ]
+      }
+    ]
+  },
+  "discovered_tapes": [
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-0/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-0",
+      "tier": "silver",
+      "slug": "crypto-0",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-0",
+      "title": "crypto-0",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-0",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-1/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-1",
+      "tier": "silver",
+      "slug": "crypto-1",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-1",
+      "title": "crypto-1",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-1",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-2/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-2",
+      "tier": "silver",
+      "slug": "crypto-2",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-2",
+      "title": "crypto-2",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-2",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-3/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-3",
+      "tier": "silver",
+      "slug": "crypto-3",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-3",
+      "title": "crypto-3",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-3",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-4/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-4",
+      "tier": "silver",
+      "slug": "crypto-4",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-4",
+      "title": "crypto-4",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-4",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-5/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-5",
+      "tier": "silver",
+      "slug": "crypto-5",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-5",
+      "title": "crypto-5",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-5",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-6/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-6",
+      "tier": "silver",
+      "slug": "crypto-6",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-6",
+      "title": "crypto-6",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-6",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-7/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-7",
+      "tier": "silver",
+      "slug": "crypto-7",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-7",
+      "title": "crypto-7",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-7",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-8/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-8",
+      "tier": "silver",
+      "slug": "crypto-8",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-8",
+      "title": "crypto-8",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-8",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-9/silver_events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/crypto-9",
+      "tier": "silver",
+      "slug": "crypto-9",
+      "metadata_sources": [
+        "watch_meta.json",
+        "silver_meta.json"
+      ],
+      "category": "Crypto",
+      "question": "crypto-9",
+      "title": "crypto-9",
+      "event_count": 2,
+      "primary_asset_id": "token-crypto-9",
+      "price_sample_count": 2,
+      "price_low": 0.35,
+      "price_high": 0.58,
+      "price_span": 0.23,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "crypto"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-0/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-0",
+      "tier": "gold",
+      "slug": "fresh-0",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "fresh-0",
+      "title": "fresh-0",
+      "event_count": 4,
+      "primary_asset_id": "yes-fresh-0",
+      "price_sample_count": 2,
+      "price_low": 0.48,
+      "price_high": 0.5,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": 12.0,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=12.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-1/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-1",
+      "tier": "gold",
+      "slug": "fresh-1",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "fresh-1",
+      "title": "fresh-1",
+      "event_count": 4,
+      "primary_asset_id": "yes-fresh-1",
+      "price_sample_count": 2,
+      "price_low": 0.48,
+      "price_high": 0.5,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": 12.0,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=12.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-2/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-2",
+      "tier": "gold",
+      "slug": "fresh-2",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "fresh-2",
+      "title": "fresh-2",
+      "event_count": 4,
+      "primary_asset_id": "yes-fresh-2",
+      "price_sample_count": 2,
+      "price_low": 0.48,
+      "price_high": 0.5,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": 12.0,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=12.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-3/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-3",
+      "tier": "gold",
+      "slug": "fresh-3",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "fresh-3",
+      "title": "fresh-3",
+      "event_count": 4,
+      "primary_asset_id": "yes-fresh-3",
+      "price_sample_count": 2,
+      "price_low": 0.48,
+      "price_high": 0.5,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": 12.0,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=12.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-4/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/fresh-4",
+      "tier": "gold",
+      "slug": "fresh-4",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "fresh-4",
+      "title": "fresh-4",
+      "event_count": 4,
+      "primary_asset_id": "yes-fresh-4",
+      "price_sample_count": 2,
+      "price_low": 0.48,
+      "price_high": 0.5,
+      "price_span": 0.02,
+      "near_tail_observed": false,
+      "age_hours": 12.0,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "new_market"
+      ],
+      "classification_notes": [
+        "new_market via age_hours=12.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-0/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-0",
+      "tier": "gold",
+      "slug": "politics-0",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-0",
+      "title": "politics-0",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-0",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-1/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-1",
+      "tier": "gold",
+      "slug": "politics-1",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-1",
+      "title": "politics-1",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-1",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-2/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-2",
+      "tier": "gold",
+      "slug": "politics-2",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-2",
+      "title": "politics-2",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-2",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-3/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-3",
+      "tier": "gold",
+      "slug": "politics-3",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-3",
+      "title": "politics-3",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-3",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-4/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-4",
+      "tier": "gold",
+      "slug": "politics-4",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-4",
+      "title": "politics-4",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-4",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-5/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-5",
+      "tier": "gold",
+      "slug": "politics-5",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-5",
+      "title": "politics-5",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-5",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-6/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-6",
+      "tier": "gold",
+      "slug": "politics-6",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-6",
+      "title": "politics-6",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-6",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-7/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-7",
+      "tier": "gold",
+      "slug": "politics-7",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-7",
+      "title": "politics-7",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-7",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-8/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-8",
+      "tier": "gold",
+      "slug": "politics-8",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-8",
+      "title": "politics-8",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-8",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-9/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/politics-9",
+      "tier": "gold",
+      "slug": "politics-9",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Politics",
+      "question": "politics-9",
+      "title": "politics-9",
+      "event_count": 4,
+      "primary_asset_id": "yes-politics-9",
+      "price_sample_count": 2,
+      "price_low": 0.2,
+      "price_high": 0.75,
+      "price_span": 0.55,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "politics"
+      ],
+      "classification_notes": [
+        "politics via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-0/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-0",
+      "tier": "gold",
+      "slug": "resolution-0",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-0",
+      "title": "resolution-0",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-0",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-1/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-1",
+      "tier": "gold",
+      "slug": "resolution-1",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-1",
+      "title": "resolution-1",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-1",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-2/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-2",
+      "tier": "gold",
+      "slug": "resolution-2",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-2",
+      "title": "resolution-2",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-2",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-3/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-3",
+      "tier": "gold",
+      "slug": "resolution-3",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-3",
+      "title": "resolution-3",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-3",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-4/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-4",
+      "tier": "gold",
+      "slug": "resolution-4",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-4",
+      "title": "resolution-4",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-4",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-5/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-5",
+      "tier": "gold",
+      "slug": "resolution-5",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-5",
+      "title": "resolution-5",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-5",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-6/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-6",
+      "tier": "gold",
+      "slug": "resolution-6",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-6",
+      "title": "resolution-6",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-6",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-7/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-7",
+      "tier": "gold",
+      "slug": "resolution-7",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-7",
+      "title": "resolution-7",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-7",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-8/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-8",
+      "tier": "gold",
+      "slug": "resolution-8",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-8",
+      "title": "resolution-8",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-8",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-9/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/resolution-9",
+      "tier": "gold",
+      "slug": "resolution-9",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Science",
+      "question": "resolution-9",
+      "title": "resolution-9",
+      "event_count": 4,
+      "primary_asset_id": "yes-resolution-9",
+      "price_sample_count": 2,
+      "price_low": 0.52,
+      "price_high": 0.55,
+      "price_span": 0.03,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": 6.0,
+      "candidate_buckets": [
+        "crypto",
+        "near_resolution"
+      ],
+      "classification_notes": [
+        "crypto via metadata keywords",
+        "near_resolution via hours_to_resolution=6.00"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-0/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-0",
+      "tier": "gold",
+      "slug": "sports-0",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-0",
+      "title": "sports-0",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-0",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-1/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-1",
+      "tier": "gold",
+      "slug": "sports-1",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-1",
+      "title": "sports-1",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-1",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-10/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-10",
+      "tier": "gold",
+      "slug": "sports-10",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-10",
+      "title": "sports-10",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-10",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-11/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-11",
+      "tier": "gold",
+      "slug": "sports-11",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-11",
+      "title": "sports-11",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-11",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-12/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-12",
+      "tier": "gold",
+      "slug": "sports-12",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-12",
+      "title": "sports-12",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-12",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-13/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-13",
+      "tier": "gold",
+      "slug": "sports-13",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-13",
+      "title": "sports-13",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-13",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-14/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-14",
+      "tier": "gold",
+      "slug": "sports-14",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-14",
+      "title": "sports-14",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-14",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-2/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-2",
+      "tier": "gold",
+      "slug": "sports-2",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-2",
+      "title": "sports-2",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-2",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-3/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-3",
+      "tier": "gold",
+      "slug": "sports-3",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-3",
+      "title": "sports-3",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-3",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-4/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-4",
+      "tier": "gold",
+      "slug": "sports-4",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-4",
+      "title": "sports-4",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-4",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-5/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-5",
+      "tier": "gold",
+      "slug": "sports-5",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-5",
+      "title": "sports-5",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-5",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-6/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-6",
+      "tier": "gold",
+      "slug": "sports-6",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-6",
+      "title": "sports-6",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-6",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-7/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-7",
+      "tier": "gold",
+      "slug": "sports-7",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-7",
+      "title": "sports-7",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-7",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-8/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-8",
+      "tier": "gold",
+      "slug": "sports-8",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-8",
+      "title": "sports-8",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-8",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    },
+    {
+      "tape_path": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-9/events.jsonl",
+      "tape_dir": ".sandboxtmp/benchmark_contract_smoke/inventory/sports-9",
+      "tier": "gold",
+      "slug": "sports-9",
+      "metadata_sources": [
+        "watch_meta.json"
+      ],
+      "category": "Sports",
+      "question": "sports-9",
+      "title": "sports-9",
+      "event_count": 4,
+      "primary_asset_id": "yes-sports-9",
+      "price_sample_count": 2,
+      "price_low": 0.4,
+      "price_high": 0.46,
+      "price_span": 0.06,
+      "near_tail_observed": false,
+      "age_hours": null,
+      "hours_to_resolution": null,
+      "candidate_buckets": [
+        "sports"
+      ],
+      "classification_notes": [
+        "sports via regime classifier"
+      ]
+    }
+  ],
+  "skipped_tapes": []
+}

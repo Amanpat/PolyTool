@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Gate Status Reporter.
 
 Reads ``gate_passed.json`` / ``gate_failed.json`` files under
 ``artifacts/gates/`` and prints a status table.
 
-Exit code 0 if every expected gate has a passing artifact.
-Exit code 1 if any gate is missing or failed.
+Exit code 0 if every required gate has a passing artifact.
+Exit code 1 if any required gate is missing or failed.
 
 Usage
 -----
@@ -19,28 +19,26 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Gate registry
-# ---------------------------------------------------------------------------
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GATES_DIR = _REPO_ROOT / "artifacts" / "gates"
 
-# Ordered list of (gate_key, dir_name, description)
-_EXPECTED_GATES: list[tuple[str, str, str]] = [
-    ("replay",    "replay_gate",    "Gate 1 - Replay Determinism"),
-    ("sweep",     "sweep_gate",     "Gate 2 - Scenario Sweep (>=70% profitable)"),
-    ("shadow",    "shadow_gate",    "Gate 3 - Shadow Mode (manual)"),
-    ("dry_run",   "dry_run_gate",   "Gate 4 - Dry-Run Live"),
+# Ordered list of (gate_key, dir_name, description, required)
+_EXPECTED_GATES: list[tuple[str, str, str, bool]] = [
+    ("replay", "replay_gate", "Gate 1 - Replay Determinism", True),
+    ("sweep", "sweep_gate", "Gate 2 - Scenario Sweep (>=70% profitable)", True),
+    ("shadow", "shadow_gate", "Gate 3 - Shadow Mode (manual)", True),
+    ("dry_run", "dry_run_gate", "Gate 4 - Dry-Run Live", True),
+    ("mm_sweep", "mm_sweep_gate", "mm_sweep_gate (Gate 2b optional)", False),
 ]
 
-_COL_GATE = 38
+_COL_GATE = 46
 _COL_STATUS = 10
 _COL_TS = 28
 _COL_NOTES = 40
+_TABLE_WIDTH = 118
 
 
-def _load_gate(gate_dir: Path) -> tuple[str, dict | None]:
+def _load_gate(gate_dir: Path, *, missing_label: str) -> tuple[str, dict | None]:
     """Return (status_label, payload_or_None) for a gate directory."""
     passed_path = gate_dir / "gate_passed.json"
     failed_path = gate_dir / "gate_failed.json"
@@ -48,32 +46,40 @@ def _load_gate(gate_dir: Path) -> tuple[str, dict | None]:
     if passed_path.exists():
         try:
             return "PASSED", json.loads(passed_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # noqa: BLE001
             return "CORRUPT", None
 
     if failed_path.exists():
         try:
             return "FAILED", json.loads(failed_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # noqa: BLE001
             return "CORRUPT", None
 
-    return "MISSING", None
+    return missing_label, None
 
 
 def _fmt_ts(ts_str: str | None) -> str:
     if not ts_str:
         return "-"
-    # Truncate to date+time for table readability
     return ts_str[:19].replace("T", " ")
 
 
 def _fmt_notes(gate_key: str, status: str, payload: dict | None) -> str:
     if status == "MISSING":
         return "No artifact found"
+    if status == "NOT_RUN":
+        return "Optional gate not run"
     if status == "CORRUPT":
         return "artifact JSON unreadable"
     if payload is None:
         return ""
+
+    if gate_key == "mm_sweep":
+        positive = payload.get("tapes_positive")
+        total = payload.get("tapes_total")
+        pass_rate = payload.get("pass_rate")
+        if positive is not None and total is not None and pass_rate is not None:
+            return f"{positive}/{total} positive tapes ({pass_rate:.0%})"
 
     if status == "PASSED":
         if gate_key == "sweep":
@@ -84,27 +90,33 @@ def _fmt_notes(gate_key: str, status: str, payload: dict | None) -> str:
         if gate_key == "replay":
             return f"commit {payload.get('commit', '?')}"
         if gate_key == "dry_run":
-            return f"submitted=0, dry_run=true"
+            return "submitted=0, dry_run=true"
         if gate_key == "shadow":
             return payload.get("notes", "manual sign-off")
         return f"commit {payload.get('commit', '?')}"
 
     if status == "FAILED":
         reason = payload.get("failure_reason", "")
-        return reason[:_COL_NOTES - 3] + "..." if len(reason) > _COL_NOTES else reason
+        if reason:
+            return reason[:_COL_NOTES - 3] + "..." if len(reason) > _COL_NOTES else reason
 
     return ""
 
 
 def _status_symbol(status: str) -> str:
-    return {"PASSED": "[PASSED]", "FAILED": "[FAILED]", "MISSING": "[MISSING]",
-            "CORRUPT": "[CORRUPT]"}.get(status, status)
+    return {
+        "PASSED": "[PASSED]",
+        "FAILED": "[FAILED]",
+        "MISSING": "[MISSING]",
+        "NOT_RUN": "[NOT_RUN]",
+        "CORRUPT": "[CORRUPT]",
+    }.get(status, status)
 
 
 def main() -> int:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     print(f"\nGate Status Report  [{now}]")
-    print("=" * 100)
+    print("=" * _TABLE_WIDTH)
 
     header = (
         f"{'Gate':<{_COL_GATE}}"
@@ -113,18 +125,23 @@ def main() -> int:
         f"Notes"
     )
     print(header)
-    print("-" * 100)
+    print("-" * _TABLE_WIDTH)
 
-    all_passed = True
+    all_required_passed = True
 
-    for gate_key, dir_name, description in _EXPECTED_GATES:
+    for gate_key, dir_name, description, required in _EXPECTED_GATES:
         gate_dir = _GATES_DIR / dir_name
-        status, payload = _load_gate(gate_dir)
+        status, payload = _load_gate(
+            gate_dir,
+            missing_label="MISSING" if required else "NOT_RUN",
+        )
 
-        if status != "PASSED":
-            all_passed = False
+        if required and status != "PASSED":
+            all_required_passed = False
 
-        ts_str = payload.get("timestamp") if payload else None
+        ts_str = None
+        if payload is not None:
+            ts_str = payload.get("timestamp") or payload.get("generated_at")
         notes = _fmt_notes(gate_key, status, payload)
         symbol = _status_symbol(status)
 
@@ -136,26 +153,25 @@ def main() -> int:
         )
         print(row)
 
-    print("-" * 100)
+    print("-" * _TABLE_WIDTH)
 
-    # Scan for any extra gate artifacts not in the registry
     if _GATES_DIR.exists():
         extra_dirs = [
             d for d in _GATES_DIR.iterdir()
-            if d.is_dir() and d.name not in {dn for _, dn, _ in _EXPECTED_GATES}
+            if d.is_dir() and d.name not in {dir_name for _, dir_name, _, _ in _EXPECTED_GATES}
         ]
         if extra_dirs:
             print(f"\nExtra gate dirs (not in registry): {[d.name for d in extra_dirs]}")
 
-    if all_passed:
-        print("\nResult: ALL GATES PASSED - Track A promotion criteria met.\n")
+    if all_required_passed:
+        print("\nResult: ALL REQUIRED GATES PASSED - Track A promotion criteria met.\n")
         return 0
-    else:
-        print(
-            "\nResult: ONE OR MORE GATES NOT PASSED - "
-            "do not promote to Stage 1 capital.\n"
-        )
-        return 1
+
+    print(
+        "\nResult: ONE OR MORE REQUIRED GATES NOT PASSED - "
+        "do not promote to Stage 1 capital.\n"
+    )
+    return 1
 
 
 if __name__ == "__main__":

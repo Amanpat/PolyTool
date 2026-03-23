@@ -97,8 +97,8 @@ Common entries:
 - "Position snapshots between ingestion windows"
 
 If the list is empty, the hypothesis is considered `backtest_ready`. In practice,
-no hypotheses will be backtest_ready until Roadmap 3 data gaps are closed.
-
+do not treat a hypothesis as operationally backtest-ready until the remaining data gaps are closed and a future falsification/backtest harness exists.
+The completed Hypothesis Validation Loop v0 standardizes saved artifacts, but it does not remove those dependencies.
 ---
 
 ## Quality Rubric
@@ -144,11 +144,11 @@ A high-quality hypothesis report:
 After the LLM produces hypothesis.md and hypothesis.json:
 
 ```powershell
-python -m polytool llm-save --user "@handle" --model "model-name" --report-path "path/to/hypothesis.md" --prompt-path "path/to/prompt.txt" --input "path/to/bundle.md" --tags "exam,report"
+python -m polytool llm-save --user "@handle" --model "model-name" --report-path "path/to/hypothesis.md" --hypothesis-path "path/to/hypothesis.json" --prompt-path "path/to/prompt.txt" --input "path/to/bundle.md" --tags "exam,report"
 ```
 
-This writes to `kb/users/<slug>/llm_reports/<date>/<model>_<run_id>/` and
-creates an LLM_note summary in `kb/users/<slug>/notes/LLM_notes/`.
+This writes to `kb/users/<slug>/llm_reports/<date>/<model>_<run_id>/` and creates an LLM_note summary in `kb/users/<slug>/notes/LLM_notes/`.
+It also writes `validation_result.json` beside the saved `hypothesis.json`; review the saved artifact with `hypothesis-validate`, `hypothesis-summary`, or `hypothesis-diff`.
 
 Then rebuild the RAG index so the report is searchable:
 

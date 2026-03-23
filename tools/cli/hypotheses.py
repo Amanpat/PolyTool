@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Optional
 
+from packages.polymarket.hypotheses.diff import (
+    diff_hypothesis_documents,
+    load_hypothesis_artifact,
+)
+from packages.polymarket.hypotheses.summary import (
+    extract_hypothesis_summary,
+    load_hypothesis_summary_artifact,
+)
+from packages.polymarket.hypotheses.validator import validate_hypothesis_json
 from packages.research.hypotheses.registry import (
     VALID_STATUSES,
     experiment_init,
@@ -83,6 +93,89 @@ def handle_experiment_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_hypothesis_validate(args: argparse.Namespace) -> int:
+    report_path = Path(args.hypothesis_path)
+    try:
+        raw = report_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"Error: file not found: {report_path}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"Error reading file: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON in {report_path}: {exc}", file=sys.stderr)
+        return 1
+
+    result = validate_hypothesis_json(data)
+    print(
+        json.dumps(
+            {"valid": result.valid, "errors": result.errors, "warnings": result.warnings},
+            indent=2,
+        )
+    )
+    return 0 if result.valid else 1
+
+
+def handle_hypothesis_diff(args: argparse.Namespace) -> int:
+    old_path = Path(args.old)
+    new_path = Path(args.new)
+
+    try:
+        old_doc = load_hypothesis_artifact(old_path)
+        new_doc = load_hypothesis_artifact(new_path)
+    except FileNotFoundError as exc:
+        print(f"Error: file not found: {exc.filename}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"Error reading file: {exc}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    payload = diff_hypothesis_documents(
+        old_doc,
+        new_doc,
+        old_path=old_path.as_posix(),
+        new_path=new_path.as_posix(),
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def handle_hypothesis_summary(args: argparse.Namespace) -> int:
+    hypothesis_path = Path(args.hypothesis_path)
+
+    try:
+        document = load_hypothesis_summary_artifact(hypothesis_path)
+    except FileNotFoundError:
+        print(f"Error: file not found: {hypothesis_path}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"Error reading file: {exc}", file=sys.stderr)
+        return 1
+    except json.JSONDecodeError as exc:
+        print(f"Error: invalid JSON: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    payload = extract_hypothesis_summary(
+        document,
+        hypothesis_path=hypothesis_path.as_posix(),
+    )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
 def register_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     register_parser = subparsers.add_parser(
         "hypothesis-register",
@@ -131,6 +224,44 @@ def register_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         help="Parent directory where a generated experiment attempt directory will be created.",
     )
     experiment_run_parser.set_defaults(func=handle_experiment_run)
+
+    validate_parser = subparsers.add_parser(
+        "hypothesis-validate",
+        help="Validate a hypothesis JSON file against hypothesis_schema_v1.",
+    )
+    validate_parser.add_argument(
+        "--hypothesis-path",
+        required=True,
+        help="Path to the hypothesis JSON file to validate.",
+    )
+    validate_parser.set_defaults(func=handle_hypothesis_validate)
+
+    diff_parser = subparsers.add_parser(
+        "hypothesis-diff",
+        help="Compare two saved hypothesis JSON artifacts and emit a structured diff.",
+    )
+    diff_parser.add_argument(
+        "--old",
+        required=True,
+        help="Path to the older hypothesis JSON artifact.",
+    )
+    diff_parser.add_argument(
+        "--new",
+        required=True,
+        help="Path to the newer hypothesis JSON artifact.",
+    )
+    diff_parser.set_defaults(func=handle_hypothesis_diff)
+
+    summary_parser = subparsers.add_parser(
+        "hypothesis-summary",
+        help="Extract a deterministic summary from a saved hypothesis JSON artifact.",
+    )
+    summary_parser.add_argument(
+        "--hypothesis-path",
+        required=True,
+        help="Path to the hypothesis JSON artifact to summarize.",
+    )
+    summary_parser.set_defaults(func=handle_hypothesis_summary)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1,0 +1,388 @@
+"""Config models for Track 2 / Phase 1A crypto-pair paper mode.
+
+The scanner packet can later populate these models, but the config contract is
+kept independent from scanner implementation details so the paper ledger can be
+fed by any deterministic upstream source.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
+
+CONFIG_SCHEMA_VERSION = "crypto_pair_paper_mode_v0"
+SUPPORTED_SYMBOLS = frozenset({"BTC", "ETH", "SOL"})
+SUPPORTED_DURATIONS_MIN = frozenset({5, 15})
+
+
+class CryptoPairPaperConfigError(ValueError):
+    """Raised when Phase 1A paper-mode config is invalid."""
+
+
+def _coerce_decimal(value: Any, field_name: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise CryptoPairPaperConfigError(
+            f"{field_name} must be a decimal-compatible value, got {value!r}"
+        ) from exc
+
+
+def _coerce_int(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise CryptoPairPaperConfigError(f"{field_name} must be an integer, got bool")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise CryptoPairPaperConfigError(
+            f"{field_name} must be an integer-compatible value, got {value!r}"
+        ) from exc
+
+
+def _coerce_bool(value: Any, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise CryptoPairPaperConfigError(f"{field_name} must be a bool, got {value!r}")
+    return value
+
+
+def _normalize_symbols(symbols: Any) -> tuple[str, ...]:
+    if symbols is None:
+        symbols = ("BTC", "ETH", "SOL")
+    if not isinstance(symbols, (list, tuple)):
+        raise CryptoPairPaperConfigError("filters.symbols must be a list or tuple")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).strip().upper()
+        if not symbol:
+            raise CryptoPairPaperConfigError("filters.symbols cannot contain empty values")
+        if symbol not in SUPPORTED_SYMBOLS:
+            raise CryptoPairPaperConfigError(
+                f"filters.symbols contains unsupported symbol {symbol!r}"
+            )
+        if symbol not in seen:
+            normalized.append(symbol)
+            seen.add(symbol)
+
+    if not normalized:
+        raise CryptoPairPaperConfigError("filters.symbols must contain at least one symbol")
+    return tuple(normalized)
+
+
+def _normalize_durations(durations_min: Any) -> tuple[int, ...]:
+    if durations_min is None:
+        durations_min = (5, 15)
+    if not isinstance(durations_min, (list, tuple)):
+        raise CryptoPairPaperConfigError(
+            "filters.durations_min must be a list or tuple"
+        )
+
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for raw_duration in durations_min:
+        duration = _coerce_int(raw_duration, "filters.durations_min[]")
+        if duration not in SUPPORTED_DURATIONS_MIN:
+            raise CryptoPairPaperConfigError(
+                f"filters.durations_min contains unsupported duration {duration!r}"
+            )
+        if duration not in seen:
+            normalized.append(duration)
+            seen.add(duration)
+
+    if not normalized:
+        raise CryptoPairPaperConfigError(
+            "filters.durations_min must contain at least one duration"
+        )
+    return tuple(normalized)
+
+
+def _ensure_mapping(raw: Any, field_name: str) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise CryptoPairPaperConfigError(f"{field_name} must be an object-like mapping")
+    return raw
+
+
+@dataclass(frozen=True)
+class CryptoPairFilterConfig:
+    """Symbol and duration filters for the paper-mode decision surface."""
+
+    symbols: tuple[str, ...] = ("BTC", "ETH", "SOL")
+    durations_min: tuple[int, ...] = (5, 15)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "symbols", _normalize_symbols(self.symbols))
+        object.__setattr__(self, "durations_min", _normalize_durations(self.durations_min))
+
+    def matches(self, symbol: str, duration_min: int) -> bool:
+        return str(symbol).upper() in self.symbols and int(duration_min) in self.durations_min
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "symbols": list(self.symbols),
+            "durations_min": list(self.durations_min),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any | None) -> "CryptoPairFilterConfig":
+        if raw is None:
+            return cls()
+        data = _ensure_mapping(raw, "filters")
+        return cls(
+            symbols=tuple(data.get("symbols", ("BTC", "ETH", "SOL"))),
+            durations_min=tuple(data.get("durations_min", (5, 15))),
+        )
+
+
+@dataclass(frozen=True)
+class CryptoPairFeeAssumptionConfig:
+    """Explicit fee and rebate assumptions.
+
+    These are strategy assumptions only. They are not proof of current
+    exchange behavior.
+    """
+
+    maker_rebate_bps: Decimal = Decimal("20")
+    maker_fee_bps: Decimal = Decimal("0")
+    taker_fee_bps: Decimal = Decimal("0")
+
+    def __post_init__(self) -> None:
+        maker_rebate_bps = _coerce_decimal(self.maker_rebate_bps, "fees.maker_rebate_bps")
+        maker_fee_bps = _coerce_decimal(self.maker_fee_bps, "fees.maker_fee_bps")
+        taker_fee_bps = _coerce_decimal(self.taker_fee_bps, "fees.taker_fee_bps")
+
+        if maker_rebate_bps < 0:
+            raise CryptoPairPaperConfigError("fees.maker_rebate_bps must be >= 0")
+        if maker_fee_bps < 0:
+            raise CryptoPairPaperConfigError("fees.maker_fee_bps must be >= 0")
+        if taker_fee_bps < 0:
+            raise CryptoPairPaperConfigError("fees.taker_fee_bps must be >= 0")
+        if maker_rebate_bps > 0 and maker_fee_bps > 0:
+            raise CryptoPairPaperConfigError(
+                "fees.maker_rebate_bps and fees.maker_fee_bps cannot both be positive"
+            )
+
+        object.__setattr__(self, "maker_rebate_bps", maker_rebate_bps)
+        object.__setattr__(self, "maker_fee_bps", maker_fee_bps)
+        object.__setattr__(self, "taker_fee_bps", taker_fee_bps)
+
+    @property
+    def maker_adjustment_bps(self) -> Decimal:
+        return self.maker_rebate_bps - self.maker_fee_bps
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "maker_rebate_bps": str(self.maker_rebate_bps),
+            "maker_fee_bps": str(self.maker_fee_bps),
+            "taker_fee_bps": str(self.taker_fee_bps),
+            "maker_adjustment_bps": str(self.maker_adjustment_bps),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any | None) -> "CryptoPairFeeAssumptionConfig":
+        if raw is None:
+            return cls()
+        data = _ensure_mapping(raw, "fees")
+        return cls(
+            maker_rebate_bps=data.get("maker_rebate_bps", Decimal("20")),
+            maker_fee_bps=data.get("maker_fee_bps", Decimal("0")),
+            taker_fee_bps=data.get("taker_fee_bps", Decimal("0")),
+        )
+
+
+@dataclass(frozen=True)
+class CryptoPairSafetyConfig:
+    """Safety knobs for paper-mode gating."""
+
+    stale_quote_timeout_seconds: int = 15
+    max_unpaired_exposure_seconds: int = 120
+    block_new_intents_with_open_unpaired: bool = True
+    require_fresh_quotes: bool = True
+
+    def __post_init__(self) -> None:
+        stale_quote_timeout_seconds = _coerce_int(
+            self.stale_quote_timeout_seconds,
+            "safety.stale_quote_timeout_seconds",
+        )
+        max_unpaired_exposure_seconds = _coerce_int(
+            self.max_unpaired_exposure_seconds,
+            "safety.max_unpaired_exposure_seconds",
+        )
+        if stale_quote_timeout_seconds <= 0:
+            raise CryptoPairPaperConfigError(
+                "safety.stale_quote_timeout_seconds must be > 0"
+            )
+        if max_unpaired_exposure_seconds <= 0:
+            raise CryptoPairPaperConfigError(
+                "safety.max_unpaired_exposure_seconds must be > 0"
+            )
+
+        object.__setattr__(
+            self,
+            "stale_quote_timeout_seconds",
+            stale_quote_timeout_seconds,
+        )
+        object.__setattr__(
+            self,
+            "max_unpaired_exposure_seconds",
+            max_unpaired_exposure_seconds,
+        )
+        object.__setattr__(
+            self,
+            "block_new_intents_with_open_unpaired",
+            _coerce_bool(
+                self.block_new_intents_with_open_unpaired,
+                "safety.block_new_intents_with_open_unpaired",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "require_fresh_quotes",
+            _coerce_bool(self.require_fresh_quotes, "safety.require_fresh_quotes"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stale_quote_timeout_seconds": self.stale_quote_timeout_seconds,
+            "max_unpaired_exposure_seconds": self.max_unpaired_exposure_seconds,
+            "block_new_intents_with_open_unpaired": (
+                self.block_new_intents_with_open_unpaired
+            ),
+            "require_fresh_quotes": self.require_fresh_quotes,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any | None) -> "CryptoPairSafetyConfig":
+        if raw is None:
+            return cls()
+        data = _ensure_mapping(raw, "safety")
+        return cls(
+            stale_quote_timeout_seconds=data.get("stale_quote_timeout_seconds", 15),
+            max_unpaired_exposure_seconds=data.get("max_unpaired_exposure_seconds", 120),
+            block_new_intents_with_open_unpaired=data.get(
+                "block_new_intents_with_open_unpaired",
+                True,
+            ),
+            require_fresh_quotes=data.get("require_fresh_quotes", True),
+        )
+
+
+@dataclass(frozen=True)
+class CryptoPairPaperModeConfig:
+    """Phase 1A paper-mode config contract."""
+
+    filters: CryptoPairFilterConfig = field(default_factory=CryptoPairFilterConfig)
+    max_capital_per_market_usdc: Decimal = Decimal("250")
+    max_open_paired_notional_usdc: Decimal = Decimal("500")
+    target_pair_cost_threshold: Decimal = Decimal("0.99")
+    fees: CryptoPairFeeAssumptionConfig = field(
+        default_factory=CryptoPairFeeAssumptionConfig
+    )
+    safety: CryptoPairSafetyConfig = field(default_factory=CryptoPairSafetyConfig)
+
+    def __post_init__(self) -> None:
+        filters = (
+            CryptoPairFilterConfig.from_dict(self.filters)
+            if isinstance(self.filters, Mapping)
+            else self.filters
+        )
+        fees = (
+            CryptoPairFeeAssumptionConfig.from_dict(self.fees)
+            if isinstance(self.fees, Mapping)
+            else self.fees
+        )
+        safety = (
+            CryptoPairSafetyConfig.from_dict(self.safety)
+            if isinstance(self.safety, Mapping)
+            else self.safety
+        )
+
+        if not isinstance(filters, CryptoPairFilterConfig):
+            raise CryptoPairPaperConfigError("filters must be a CryptoPairFilterConfig")
+        if not isinstance(fees, CryptoPairFeeAssumptionConfig):
+            raise CryptoPairPaperConfigError("fees must be a CryptoPairFeeAssumptionConfig")
+        if not isinstance(safety, CryptoPairSafetyConfig):
+            raise CryptoPairPaperConfigError(
+                "safety must be a CryptoPairSafetyConfig"
+            )
+
+        max_capital_per_market_usdc = _coerce_decimal(
+            self.max_capital_per_market_usdc,
+            "max_capital_per_market_usdc",
+        )
+        max_open_paired_notional_usdc = _coerce_decimal(
+            self.max_open_paired_notional_usdc,
+            "max_open_paired_notional_usdc",
+        )
+        target_pair_cost_threshold = _coerce_decimal(
+            self.target_pair_cost_threshold,
+            "target_pair_cost_threshold",
+        )
+
+        if max_capital_per_market_usdc <= 0:
+            raise CryptoPairPaperConfigError("max_capital_per_market_usdc must be > 0")
+        if max_open_paired_notional_usdc <= 0:
+            raise CryptoPairPaperConfigError(
+                "max_open_paired_notional_usdc must be > 0"
+            )
+        if max_capital_per_market_usdc > max_open_paired_notional_usdc:
+            raise CryptoPairPaperConfigError(
+                "max_capital_per_market_usdc cannot exceed max_open_paired_notional_usdc"
+            )
+        if target_pair_cost_threshold <= 0 or target_pair_cost_threshold > 1:
+            raise CryptoPairPaperConfigError(
+                "target_pair_cost_threshold must be > 0 and <= 1"
+            )
+
+        object.__setattr__(self, "filters", filters)
+        object.__setattr__(self, "fees", fees)
+        object.__setattr__(self, "safety", safety)
+        object.__setattr__(
+            self,
+            "max_capital_per_market_usdc",
+            max_capital_per_market_usdc,
+        )
+        object.__setattr__(
+            self,
+            "max_open_paired_notional_usdc",
+            max_open_paired_notional_usdc,
+        )
+        object.__setattr__(
+            self,
+            "target_pair_cost_threshold",
+            target_pair_cost_threshold,
+        )
+
+    def allows_market(self, symbol: str, duration_min: int) -> bool:
+        return self.filters.matches(symbol, duration_min)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": CONFIG_SCHEMA_VERSION,
+            "filters": self.filters.to_dict(),
+            "max_capital_per_market_usdc": str(self.max_capital_per_market_usdc),
+            "max_open_paired_notional_usdc": str(self.max_open_paired_notional_usdc),
+            "target_pair_cost_threshold": str(self.target_pair_cost_threshold),
+            "fees": self.fees.to_dict(),
+            "safety": self.safety.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any | None) -> "CryptoPairPaperModeConfig":
+        if raw is None:
+            return cls()
+        data = _ensure_mapping(raw, "config")
+        return cls(
+            filters=CryptoPairFilterConfig.from_dict(data.get("filters")),
+            max_capital_per_market_usdc=data.get("max_capital_per_market_usdc", "250"),
+            max_open_paired_notional_usdc=data.get(
+                "max_open_paired_notional_usdc",
+                "500",
+            ),
+            target_pair_cost_threshold=data.get("target_pair_cost_threshold", "0.99"),
+            fees=CryptoPairFeeAssumptionConfig.from_dict(data.get("fees")),
+            safety=CryptoPairSafetyConfig.from_dict(data.get("safety")),
+        )

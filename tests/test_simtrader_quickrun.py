@@ -1,6 +1,6 @@
 """Offline tests for market_picker, config_loader, and the quickrun CLI subcommand.
 
-All tests are fully offline — no network calls are made.  External collaborators
+All tests are fully offline â€” no network calls are made.  External collaborators
 (GammaClient, ClobClient, TapeRecorder, run_strategy) are replaced with
 test doubles or patched out.
 """
@@ -55,7 +55,7 @@ class TestResolveSlug:
         return MarketPicker(gamma, MagicMock())
 
     def test_resolve_slug_binary_yes_no(self):
-        """Standard binary market: outcomes ["Yes", "No"] → correct token mapping."""
+        """Standard binary market: outcomes ["Yes", "No"] â†’ correct token mapping."""
         from packages.polymarket.simtrader.market_picker import ResolvedMarket
 
         market = _make_market(outcomes=["Yes", "No"])
@@ -70,7 +70,7 @@ class TestResolveSlug:
         assert result.slug == SLUG
 
     def test_resolve_slug_reversed_order(self):
-        """Outcomes in No/Yes order → YES still maps to token at index 1."""
+        """Outcomes in No/Yes order â†’ YES still maps to token at index 1."""
         market = _make_market(
             outcomes=["No", "Yes"],
             clob_token_ids=[NO_TOKEN, YES_TOKEN],
@@ -93,7 +93,7 @@ class TestResolveSlug:
             picker.resolve_slug(SLUG)
 
     def test_resolve_slug_ambiguous_outcomes_raises(self):
-        """Outcomes ["Rain", "Shine"] that don't match YES/NO patterns → error."""
+        """Outcomes ["Rain", "Shine"] that don't match YES/NO patterns â†’ error."""
         from packages.polymarket.simtrader.market_picker import MarketPickerError
 
         market = _make_market(outcomes=["Rain", "Shine"])
@@ -102,7 +102,7 @@ class TestResolveSlug:
             picker.resolve_slug(SLUG)
 
     def test_resolve_slug_no_markets_raises(self):
-        """Empty result from Gamma → MarketPickerError."""
+        """Empty result from Gamma â†’ MarketPickerError."""
         from packages.polymarket.simtrader.market_picker import MarketPickerError
 
         picker = self._picker([])
@@ -127,7 +127,7 @@ class TestValidateBook:
         return MarketPicker(MagicMock(), clob)
 
     def test_validate_book_error_response(self):
-        """Book response with 'error' key → valid=False, reason=error_response."""
+        """Book response with 'error' key â†’ valid=False, reason=error_response."""
         picker = self._picker(
             fetch_book_return={"error": "No orderbook exists for the requested token id"}
         )
@@ -136,21 +136,21 @@ class TestValidateBook:
         assert result.reason == "error_response"
 
     def test_validate_book_empty_rejected_by_default(self):
-        """Empty bids and asks → valid=False, reason=empty_book (default)."""
+        """Empty bids and asks â†’ valid=False, reason=empty_book (default)."""
         picker = self._picker(fetch_book_return={"bids": [], "asks": []})
         result = picker.validate_book(YES_TOKEN)
         assert not result.valid
         assert result.reason == "empty_book"
 
     def test_validate_book_empty_allowed_with_flag(self):
-        """Empty bids and asks with allow_empty=True → valid=True."""
+        """Empty bids and asks with allow_empty=True â†’ valid=True."""
         picker = self._picker(fetch_book_return={"bids": [], "asks": []})
         result = picker.validate_book(YES_TOKEN, allow_empty=True)
         assert result.valid
         assert result.reason == "ok"
 
     def test_validate_book_nonempty_accepted(self):
-        """Non-empty book → valid=True, best_bid/best_ask extracted."""
+        """Non-empty book â†’ valid=True, best_bid/best_ask extracted."""
         picker = self._picker(
             fetch_book_return=_make_book(
                 bids=[{"price": "0.43", "size": "50"}],
@@ -164,7 +164,7 @@ class TestValidateBook:
         assert result.best_ask == pytest.approx(0.58)
 
     def test_validate_book_fetch_failed(self):
-        """fetch_book raises an exception → valid=False, reason=fetch_failed."""
+        """fetch_book raises an exception â†’ valid=False, reason=fetch_failed."""
         picker = self._picker(fetch_book_side_effect=ConnectionError("network error"))
         result = picker.validate_book(YES_TOKEN)
         assert not result.valid
@@ -185,7 +185,7 @@ class TestAutoPick:
         }
 
     def test_auto_pick_skips_invalid_returns_first_valid(self):
-        """First two markets fail book check, third passes → returns third."""
+        """First two markets fail book check, third passes â†’ returns third."""
         from packages.polymarket.simtrader.market_picker import MarketPicker
 
         slug_a = "market-a"
@@ -229,7 +229,7 @@ class TestAutoPick:
         assert result.slug == slug_c
 
     def test_auto_pick_no_candidates_raises(self):
-        """All candidates fail → MarketPickerError."""
+        """All candidates fail â†’ MarketPickerError."""
         from packages.polymarket.simtrader.market_picker import (
             MarketPicker,
             MarketPickerError,
@@ -258,7 +258,7 @@ class TestAutoPick:
 
 class TestConfigLoader:
     def test_config_loader_bom_regression(self, tmp_path):
-        """JSON file with UTF-8 BOM bytes → parsed correctly (PowerShell 5.1 regression)."""
+        """JSON file with UTF-8 BOM bytes â†’ parsed correctly (PowerShell 5.1 regression)."""
         from packages.polymarket.simtrader.config_loader import load_json_from_path
 
         p = tmp_path / "cfg.json"
@@ -267,7 +267,7 @@ class TestConfigLoader:
         assert result == {"buffer": 0.01}
 
     def test_config_loader_path_no_bom(self, tmp_path):
-        """Normal UTF-8 file without BOM → parsed correctly."""
+        """Normal UTF-8 file without BOM â†’ parsed correctly."""
         from packages.polymarket.simtrader.config_loader import load_json_from_path
 
         p = tmp_path / "cfg.json"
@@ -579,6 +579,7 @@ class TestQuickrunFullCli:
         tape_dir_capture: list = [None]
         run_dir_capture: list = [None]
         strategy_config_capture: list = [None]
+        strategy_name_capture: list = [None]
 
         def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
             """Write a minimal valid tape without network."""
@@ -628,8 +629,9 @@ class TestQuickrunFullCli:
             params.run_dir.mkdir(parents=True, exist_ok=True)
             run_dir_capture[0] = params.run_dir
             strategy_config_capture[0] = params.strategy_config
+            strategy_name_capture[0] = params.strategy_name
 
-            # orders.jsonl: 3 broker events → orders_count should be 3
+            # orders.jsonl: 3 broker events â†’ orders_count should be 3
             orders = [
                 {"order_id": "o1", "event": "submitted", "asset_id": YES_TOKEN},
                 {"order_id": "o1", "event": "activated", "asset_id": YES_TOKEN},
@@ -718,9 +720,11 @@ class TestQuickrunFullCli:
             )
 
         assert exit_code == 0
+        assert strategy_name_capture[0] == "market_maker_v1"
 
         captured = capsys.readouterr()
         out = captured.out
+        err = captured.err
 
         # Net profit visible in output
         assert "5.25" in out
@@ -762,7 +766,7 @@ class TestQuickrunFullCli:
 
         # run_manifest.json also has quickrun_context
         assert run_dir_capture[0] is not None
-        assert f"_run_{SLUG}_binary_complement_arb_sane" in run_dir_capture[0].name
+        assert f"_run_{SLUG}_market_maker_v1" in run_dir_capture[0].name
         manifest_path = run_dir_capture[0] / "run_manifest.json"
         run_manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
         assert "quickrun_context" in run_manifest, "run_manifest.json missing quickrun_context"
@@ -774,6 +778,12 @@ class TestQuickrunFullCli:
 
         # --strategy-config-json override reached strategy_config
         assert strategy_config_capture[0] is not None
+        assert strategy_config_capture[0]["adverse_selection"]["enabled"] is True
+        assert (
+            strategy_config_capture[0]["adverse_selection"]["order_flow_signal"]
+            == "proxy"
+        )
+        assert "adverse-selection: proxy signal active (OFI VPIN proxy)" in err
         assert abs(strategy_config_capture[0].get("buffer", 0) - 0.02) < 1e-9
 
     def test_quickrun_loose_strategy_preset_expands_strategy_config(
@@ -904,6 +914,8 @@ class TestQuickrunFullCli:
                     SLUG,
                     "--duration",
                     "1",
+                    "--strategy",
+                    "binary_complement_arb",
                     "--strategy-preset",
                     "loose",
                 ]
@@ -916,6 +928,152 @@ class TestQuickrunFullCli:
         assert abs(float(cfg["buffer"]) - 0.0005) < 1e-12
         assert cfg["max_notional_usdc"] == 25
 
+
+    def test_quickrun_explicit_market_maker_v0_passes_through_config(
+        self, tmp_path, monkeypatch
+    ):
+        """Explicit quickrun --strategy market_maker_v0 remains supported."""
+        import json as _json
+
+        from packages.polymarket.simtrader.market_picker import ResolvedMarket
+        from packages.polymarket.simtrader.strategy.facade import StrategyRunResult
+
+        mock_resolved = ResolvedMarket(
+            slug=SLUG,
+            yes_token_id=YES_TOKEN,
+            no_token_id=NO_TOKEN,
+            yes_label="Yes",
+            no_label="No",
+            question=QUESTION,
+        )
+        mock_picker = MagicMock()
+        mock_picker.resolve_slug.return_value = mock_resolved
+        mock_picker.validate_book.return_value = MagicMock(valid=True, reason="ok")
+
+        captured_name: list = [None]
+        captured_cfg: list = [None]
+
+        def FakeTapeRecorder(tape_dir, asset_ids, strict=False):
+            rec = MagicMock()
+
+            def fake_record(duration_seconds=None, ws_url=None):
+                tape_dir.mkdir(parents=True, exist_ok=True)
+                (tape_dir / "events.jsonl").write_text(
+                    _json.dumps(
+                        {
+                            "seq": 0,
+                            "ts_recv": 1.0,
+                            "asset_id": YES_TOKEN,
+                            "event_type": "book",
+                            "bids": [],
+                            "asks": [],
+                        }
+                    )
+                    + "\n"
+                    + _json.dumps(
+                        {
+                            "seq": 1,
+                            "ts_recv": 1.1,
+                            "asset_id": NO_TOKEN,
+                            "event_type": "book",
+                            "bids": [],
+                            "asks": [],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                (tape_dir / "meta.json").write_text(
+                    _json.dumps(
+                        {
+                            "ws_url": "wss://fake",
+                            "asset_ids": asset_ids,
+                            "event_count": 2,
+                            "warnings": [],
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            rec.record = fake_record
+            return rec
+
+        def fake_run_strategy(params):
+            captured_name[0] = params.strategy_name
+            captured_cfg[0] = dict(params.strategy_config)
+            params.run_dir.mkdir(parents=True, exist_ok=True)
+            (params.run_dir / "orders.jsonl").write_text("", encoding="utf-8")
+            summary = {
+                "net_profit": "0.0",
+                "realized_pnl": "0.0",
+                "unrealized_pnl": "0.0",
+                "total_fees": "0.0",
+            }
+            (params.run_dir / "summary.json").write_text(
+                _json.dumps(summary) + "\n", encoding="utf-8"
+            )
+            (params.run_dir / "run_manifest.json").write_text(
+                _json.dumps(
+                    {
+                        "run_id": params.run_dir.name,
+                        "fills_count": 0,
+                        "decisions_count": 0,
+                        "run_quality": "ok",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return StrategyRunResult(
+                run_id=params.run_dir.name,
+                run_dir=params.run_dir,
+                summary=summary,
+                metrics={k: "0.0" for k in summary},
+                warnings_count=0,
+            )
+
+        monkeypatch.setattr("tools.cli.simtrader.DEFAULT_ARTIFACTS_DIR", tmp_path / "sim")
+
+        with (
+            patch("packages.polymarket.gamma.GammaClient", return_value=MagicMock()),
+            patch("packages.polymarket.clob.ClobClient", return_value=MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker",
+                return_value=mock_picker,
+            ),
+            patch(
+                "packages.polymarket.simtrader.tape.recorder.TapeRecorder",
+                side_effect=FakeTapeRecorder,
+            ),
+            patch(
+                "packages.polymarket.simtrader.strategy.facade.run_strategy",
+                side_effect=fake_run_strategy,
+            ),
+        ):
+            from tools.cli.simtrader import main
+
+            exit_code = main(
+                [
+                    "quickrun",
+                    "--market",
+                    SLUG,
+                    "--duration",
+                    "1",
+                    "--strategy",
+                    "market_maker_v0",
+                    "--strategy-config-json",
+                    '{"tick_size":"0.01","order_size":"5"}',
+                ]
+            )
+
+        assert exit_code == 0
+        assert captured_name[0] == "market_maker_v0"
+        assert captured_cfg[0]["tick_size"] == "0.01"
+        assert captured_cfg[0]["order_size"] == "5"
+        assert "yes_asset_id" not in captured_cfg[0]
+        assert "no_asset_id" not in captured_cfg[0]
+        assert "adverse_selection" not in captured_cfg[0]
 
 class TestQuickrunMinEventsWarning:
     def test_warns_when_tape_is_shorter_than_min_events(
@@ -1067,7 +1225,7 @@ class TestQuickrunMinEventsWarning:
 
 class TestBuildQuickSweepConfig:
     def test_returns_24_scenarios(self):
-        """'quick' preset produces exactly 4 × 3 × 2 = 24 scenarios."""
+        """'quick' preset produces exactly 4 Ã— 3 Ã— 2 = 24 scenarios."""
         from tools.cli.simtrader import _build_quick_sweep_config
 
         cfg = _build_quick_sweep_config()
@@ -1454,6 +1612,8 @@ class TestQuickrunSweepCli:
                     "1",
                     "--sweep",
                     "quick_small",
+                    "--strategy",
+                    "binary_complement_arb",
                     "--strategy-preset",
                     "loose",
                 ]
@@ -1536,7 +1696,7 @@ class TestYesNoMapping:
         return MarketPicker(gamma, MagicMock())
 
     def test_yes_no_standard(self):
-        """Yes/No → yes_token_id=YES_TOKEN, mapping_tier=explicit."""
+        """Yes/No â†’ yes_token_id=YES_TOKEN, mapping_tier=explicit."""
         picker = self._picker(["Yes", "No"])
         result = picker.resolve_slug(SLUG)
         assert result.yes_token_id == YES_TOKEN
@@ -1552,7 +1712,7 @@ class TestYesNoMapping:
         assert result.mapping_tier == "alias"
 
     def test_up_down_mapping(self):
-        """Up/Down outcomes → Up=YES, Down=NO via alias tier."""
+        """Up/Down outcomes â†’ Up=YES, Down=NO via alias tier."""
         picker = self._picker(["Up", "Down"])
         result = picker.resolve_slug(SLUG)
         assert result.yes_token_id == YES_TOKEN
@@ -1560,7 +1720,7 @@ class TestYesNoMapping:
         assert result.mapping_tier == "alias"
 
     def test_down_up_reversed_mapping(self):
-        """Down/Up reversed order → Up still maps to YES (index 1)."""
+        """Down/Up reversed order â†’ Up still maps to YES (index 1)."""
         picker = self._picker(
             ["Down", "Up"],
             token_ids=[NO_TOKEN, YES_TOKEN],
@@ -1578,7 +1738,7 @@ class TestYesNoMapping:
             picker.resolve_slug(SLUG)
 
     def test_false_true_reversed(self):
-        """False/True reversed order → True still maps to YES."""
+        """False/True reversed order â†’ True still maps to YES."""
         picker = self._picker(
             ["False", "True"],
             token_ids=[NO_TOKEN, YES_TOKEN],
@@ -1587,7 +1747,7 @@ class TestYesNoMapping:
         assert result.yes_token_id == YES_TOKEN
 
     def test_ambiguous_outcomes_raise_clear_error(self):
-        """Rain/Shine outcomes → MarketPickerError with raw names in message."""
+        """Rain/Shine outcomes â†’ MarketPickerError with raw names in message."""
         from packages.polymarket.simtrader.market_picker import MarketPickerError
 
         picker = self._picker(["Rain", "Shine"])
@@ -1676,7 +1836,7 @@ class TestDepthFilter:
 
     def test_depth_filter_disabled_when_zero(self):
         """min_depth_size=0 (default) disables depth check."""
-        # Only 5 total size — would fail depth check if enabled
+        # Only 5 total size â€” would fail depth check if enabled
         book = {
             "bids": [{"price": "0.48", "size": "1"}],
             "asks": [{"price": "0.52", "size": "4"}],
@@ -2160,3 +2320,12 @@ class TestExcludeMarket:
         assert "will-not-pick-this" in ctx["excluded_slugs"]
         assert "also-skip-this" in ctx["excluded_slugs"]
         assert ctx["list_candidates"] == 0
+
+
+
+
+
+
+
+
+

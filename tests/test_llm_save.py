@@ -203,3 +203,120 @@ def test_llm_save_never_writes_to_docs(tmp_path, monkeypatch):
     assert exit_code == 0
     doc_files = [path for path in docs_dir.rglob("*") if path.is_file()]
     assert doc_files == [sentinel]
+
+
+# ── hypothesis-path behavior ───────────────────────────────────────────────────
+
+def _minimal_valid_hypothesis() -> dict:
+    return {
+        "schema_version": "hypothesis_v1",
+        "metadata": {
+            "user_slug": "testuser",
+            "run_id": "abc123",
+            "created_at_utc": "2026-03-11T00:00:00Z",
+            "model": "claude-sonnet-4-6",
+        },
+        "executive_summary": {"bullets": ["Trader shows edge."]},
+        "hypotheses": [],
+    }
+
+
+def _write_hypothesis(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def _base_args(tmp_path: Path) -> list:
+    report_path = tmp_path / "report.md"
+    prompt_path = tmp_path / "prompt.md"
+    _write_text(report_path, "report")
+    _write_text(prompt_path, "prompt")
+    return [
+        "--user", "@Tester",
+        "--model", "opus45",
+        "--run-id", "hyp001",
+        "--date", "2026-03-11",
+        "--report-path", str(report_path),
+        "--prompt-path", str(prompt_path),
+        "--no-devlog",
+    ]
+
+
+def test_llm_save_hypothesis_valid_writes_artifacts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(llm_save, "_utcnow", lambda: datetime(2026, 3, 11, 0, 0, 0))
+
+    hyp_path = tmp_path / "hypothesis.json"
+    _write_hypothesis(hyp_path, _minimal_valid_hypothesis())
+
+    exit_code = llm_save.main(_base_args(tmp_path) + ["--hypothesis-path", str(hyp_path)])
+    assert exit_code == 0
+
+    out_dir = tmp_path / "kb" / "users" / "tester" / "llm_reports" / "2026-03-11" / "opus45_hyp001"
+    assert (out_dir / "hypothesis.json").exists()
+    vr = json.loads((out_dir / "validation_result.json").read_text(encoding="utf-8"))
+    assert vr["valid"] is True
+    assert vr["errors"] == []
+
+
+def test_llm_save_hypothesis_schema_invalid_exits_0_and_writes_both(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(llm_save, "_utcnow", lambda: datetime(2026, 3, 11, 0, 0, 0))
+
+    bad_hyp = _minimal_valid_hypothesis()
+    bad_hyp["schema_version"] = "wrong_version"
+    hyp_path = tmp_path / "hypothesis.json"
+    _write_hypothesis(hyp_path, bad_hyp)
+
+    exit_code = llm_save.main(_base_args(tmp_path) + ["--hypothesis-path", str(hyp_path)])
+    assert exit_code == 0  # schema-invalid but parseable: does not block save
+
+    out_dir = tmp_path / "kb" / "users" / "tester" / "llm_reports" / "2026-03-11" / "opus45_hyp001"
+    assert (out_dir / "hypothesis.json").exists()  # parseable JSON persisted
+    vr = json.loads((out_dir / "validation_result.json").read_text(encoding="utf-8"))
+    assert vr["valid"] is False
+    assert len(vr["errors"]) > 0
+
+    captured = capsys.readouterr()
+    assert "validation error" in captured.err.lower() or "schema_version" in captured.err
+
+
+def test_llm_save_hypothesis_malformed_json_exits_1_no_hypothesis_json(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(llm_save, "_utcnow", lambda: datetime(2026, 3, 11, 0, 0, 0))
+
+    hyp_path = tmp_path / "hypothesis.json"
+    hyp_path.write_text("{not valid json", encoding="utf-8")
+
+    exit_code = llm_save.main(_base_args(tmp_path) + ["--hypothesis-path", str(hyp_path)])
+    assert exit_code == 1
+
+    out_dir = tmp_path / "kb" / "users" / "tester" / "llm_reports" / "2026-03-11" / "opus45_hyp001"
+    assert not (out_dir / "hypothesis.json").exists()  # malformed: must NOT be persisted
+    vr = json.loads((out_dir / "validation_result.json").read_text(encoding="utf-8"))
+    assert vr["valid"] is False
+    assert any("parsed" in e.lower() or "json" in e.lower() for e in vr["errors"])
+
+    captured = capsys.readouterr()
+    assert "error" in captured.err.lower()
+
+
+def test_llm_save_hypothesis_unreadable_path_exits_1(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kb").mkdir()
+    monkeypatch.setattr(llm_save, "_utcnow", lambda: datetime(2026, 3, 11, 0, 0, 0))
+
+    missing_path = tmp_path / "does_not_exist.json"
+
+    exit_code = llm_save.main(_base_args(tmp_path) + ["--hypothesis-path", str(missing_path)])
+    assert exit_code == 1
+
+    out_dir = tmp_path / "kb" / "users" / "tester" / "llm_reports" / "2026-03-11" / "opus45_hyp001"
+    assert not (out_dir / "hypothesis.json").exists()
+    vr = json.loads((out_dir / "validation_result.json").read_text(encoding="utf-8"))
+    assert vr["valid"] is False
+
+    captured = capsys.readouterr()
+    assert "error" in captured.err.lower()
