@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-21 - Completed quick-018: rebuilt all repo authority docs around Roadmap v5; CLAUDE.md benchmark section updated to reflect Phase 1 closure; Track 2 standalone note added
+Last activity: 2026-03-23 - Completed quick-019: deterministic backtest harness for Phase 1A crypto-pair bot; BacktestHarness pure replay engine, CLI crypto-pair-backtest, 22 offline tests, feature doc, dev log
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -38,6 +38,9 @@ Last activity: 2026-03-21 - Completed quick-018: rebuilt all repo authority docs
 - SimTrader Studio --host: default 127.0.0.1, 0.0.0.0 for Docker; --open has no effect inside Docker containers (help text caveat)
 - Studio workspace monitor: /api/sessions/{id}/monitor reads only run_manifest+summary (no JSONL rows); wsMonitorFetching Set guards in-flight; 1s interval re-renders from cache; dual interval (1s monitor, 3s full state); openSimulationArtifact() navigates simulation tab from workspace card
 
+- BacktestObservation includes yes/no_accumulated_size (default 0.0) to allow partial-pair state simulation; soft_rule_blocked_all_legs is unreachable in stateless replay due to fair_yes+fair_no=1 complement constraint
+- BacktestHarness is pure function: no network, no ClickHouse; CLI layer handles all artifact I/O
+
 ### Blockers/Concerns
 None currently.
 
@@ -62,3 +65,4 @@ None currently.
 | 016 | Studio workspace grid real-time monitor: /api/sessions/{id}/monitor, 1s refresh, enhanced session/artifact/ondemand cards | 2026-03-03 | c3f5e73 | [16-studio-workspace-grid-real-time-monitor-](./quick/16-studio-workspace-grid-real-time-monitor-/) |
 | 017 | Update README.md with SimTrader Studio user guide: launch, 8-tab reference, workflows A/B/C, troubleshooting, doc links | 2026-03-04 | 76b398e | [17-update-readme-md-with-simtrader-studio-u](./quick/17-update-readme-md-with-simtrader-studio-u/) |
 | 018 | Rebuild repo authority docs around Roadmap v5: 6 docs updated, benchmark closure recorded, Track 2 standalone noted | 2026-03-21 | d6a33d1 | [18-rebuild-repo-authority-docs-around-roadm](./quick/18-rebuild-repo-authority-docs-around-roadm/) |
+| 019 | Deterministic backtest harness for Phase 1A crypto-pair bot: BacktestHarness, CLI crypto-pair-backtest, 22 tests, feature doc, dev log | 2026-03-23 | c1a57de | [19-add-phase-1a-backtest-history-harness-fo](./quick/19-add-phase-1a-backtest-history-harness-fo/) |
