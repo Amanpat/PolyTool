@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-23 - Completed quick-020: wire CryptoPairPaperRunner into dormant ClickHouse Track 2 event sink; batch-at-finalization emission, soft-fail, sink_write_result in manifest, 5 offline tests, feature doc, dev log
+Last activity: 2026-03-24 - Completed quick-021: add opt-in streaming flush mode to crypto-pair paper runner sink; write_event() + consecutive-fail guard on CryptoPairClickHouseSink, sink_flush_mode field on CryptoPairRunnerSettings, per-event incremental emission in _process_opportunity(), --sink-streaming CLI flag, 8 new offline tests, dedup guard for safety transitions, feature doc, dev log
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -40,6 +40,10 @@ Last activity: 2026-03-23 - Completed quick-020: wire CryptoPairPaperRunner into
 
 - BacktestObservation includes yes/no_accumulated_size (default 0.0) to allow partial-pair state simulation; soft_rule_blocked_all_legs is unreachable in stateless replay due to fair_yes+fair_no=1 complement constraint
 - BacktestHarness is pure function: no network, no ClickHouse; CLI layer handles all artifact I/O
+- sink_flush_mode lives on CryptoPairRunnerSettings (not the sink) — runner owns when/how often sink is called
+- write_event() is a distinct method on sink (not just repeated calls to write_events()) so consecutive-fail guard applies per-event in streaming mode
+- RunSummaryEvent always in finalization write_events() batch because it requires the final run_summary dict not available until after run loop
+- _streamed_transition_ids dedup uses composite key (not event_id) to match finalization list which reconstructs from raw transition dicts
 
 ### Blockers/Concerns
 None currently.
@@ -67,3 +71,4 @@ None currently.
 | 018 | Rebuild repo authority docs around Roadmap v5: 6 docs updated, benchmark closure recorded, Track 2 standalone noted | 2026-03-21 | d6a33d1 | [18-rebuild-repo-authority-docs-around-roadm](./quick/18-rebuild-repo-authority-docs-around-roadm/) |
 | 019 | Deterministic backtest harness for Phase 1A crypto-pair bot: BacktestHarness, CLI crypto-pair-backtest, 22 tests, feature doc, dev log | 2026-03-23 | c1a57de | [19-add-phase-1a-backtest-history-harness-fo](./quick/19-add-phase-1a-backtest-history-harness-fo/) |
 | 020 | Wire paper runner into dormant ClickHouse Track 2 event sink: batch-at-finalization, soft-fail, sink_write_result in manifest, 5 tests, feature doc, dev log | 2026-03-23 | ba8da25 | [20-wire-paper-runner-into-dormant-event-sin](./quick/20-wire-paper-runner-into-dormant-event-sin/) |
+| 021 | Add incremental mid-run event emission to paper runner sink: streaming flush mode, write_event() + consecutive-fail guard, sink_flush_mode field, --sink-streaming CLI flag, 8 new offline tests, dedup guard for safety transitions | 2026-03-24 | ddca74b | [21-add-incremental-mid-run-event-emission-f](./quick/21-add-incremental-mid-run-event-emission-f/) |
