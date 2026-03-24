@@ -122,6 +122,48 @@ class StaticFeed:
         return self.snapshot
 
 
+class _CyclingStaleFeed:
+    """Returns fresh snapshot on first call, stale on subsequent calls."""
+
+    def __init__(self, symbol: str = "BTC") -> None:
+        self._symbol = symbol
+        self._calls = 0
+
+    def connect(self) -> None:
+        pass
+
+    def disconnect(self) -> None:
+        pass
+
+    def get_snapshot(self, symbol: str) -> ReferencePriceSnapshot:
+        self._calls += 1
+        if self._calls == 1:
+            return _fresh_snapshot(symbol)
+        return _stale_snapshot(symbol)
+
+
+def _make_paper_obs():
+    """Build a minimal PaperOpportunityObservation for direct unit tests."""
+    from packages.polymarket.crypto_pairs.paper_ledger import PaperOpportunityObservation
+    return PaperOpportunityObservation(
+        opportunity_id="opp-unit-test",
+        run_id="run-unit",
+        observed_at="2026-01-01T00:00:00Z",
+        market_id="btc-5m-up",
+        condition_id="cond-1",
+        slug="btc-5m-up",
+        symbol="BTC",
+        duration_min=5,
+        yes_token_id="yes-tok",
+        no_token_id="no-tok",
+        yes_quote_price="0.47",
+        no_quote_price="0.48",
+        target_pair_cost_threshold="0.97",
+        quote_age_seconds=0,
+        assumptions=(),
+    )
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     return [
         json.loads(line)
@@ -139,6 +181,16 @@ class CaptureSink:
     def __init__(self) -> None:
         self.captured: list = []
 
+    def write_event(self, event) -> ClickHouseWriteResult:
+        self.captured.append(event)
+        return ClickHouseWriteResult(
+            enabled=False,
+            table_name=CRYPTO_PAIR_EVENTS_TABLE,
+            attempted_events=1,
+            written_rows=0,
+            skipped_reason="disabled",
+        )
+
     def write_events(self, events) -> ClickHouseWriteResult:
         self.captured.extend(events)
         return ClickHouseWriteResult(
@@ -147,6 +199,45 @@ class CaptureSink:
             attempted_events=len(self.captured),
             written_rows=0,
             skipped_reason="disabled",
+        )
+
+    def contract(self):
+        return DisabledCryptoPairClickHouseSink().contract()
+
+
+class _SpySink:
+    """Records write_event / write_events calls separately for assertion."""
+
+    def __init__(self, fail_write_event: bool = False) -> None:
+        self.write_event_calls: list = []
+        self.write_events_calls: list = []
+        self._fail_write_event = fail_write_event
+
+    def write_event(self, event) -> ClickHouseWriteResult:
+        self.write_event_calls.append(event)
+        if self._fail_write_event:
+            return ClickHouseWriteResult(
+                enabled=True,
+                table_name=CRYPTO_PAIR_EVENTS_TABLE,
+                attempted_events=1,
+                written_rows=0,
+                error="injected_failure",
+            )
+        return ClickHouseWriteResult(
+            enabled=True,
+            table_name=CRYPTO_PAIR_EVENTS_TABLE,
+            attempted_events=1,
+            written_rows=1,
+        )
+
+    def write_events(self, events) -> ClickHouseWriteResult:
+        events = list(events)
+        self.write_events_calls.append(events)
+        return ClickHouseWriteResult(
+            enabled=True,
+            table_name=CRYPTO_PAIR_EVENTS_TABLE,
+            attempted_events=len(events),
+            written_rows=len(events),
         )
 
     def contract(self):
@@ -367,3 +458,270 @@ def test_deterministic_event_count(tmp_path: Path) -> None:
     assert by_type.get(EVENT_TYPE_RUN_SUMMARY, 0) == 1
     assert by_type.get(EVENT_TYPE_SAFETY_STATE_TRANSITION, 0) == 0
     assert sum(by_type.values()) == 6
+
+
+# ---------------------------------------------------------------------------
+# Streaming mode tests (quick-021)
+# ---------------------------------------------------------------------------
+
+
+def test_batch_mode_default_unchanged(tmp_path: Path) -> None:
+    """In batch mode write_event() is never called; write_events() called exactly once."""
+    spy = _SpySink()
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+
+    settings = build_runner_settings(
+        artifact_base_dir=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        sink=spy,
+        sleep_fn=lambda _: None,
+    )
+    manifest = runner.run()
+
+    assert manifest["stopped_reason"] == "completed"
+    assert len(spy.write_event_calls) == 0, "write_event() must not be called in batch mode"
+    assert len(spy.write_events_calls) == 1, "write_events() must be called exactly once at finalization"
+    assert "sink_write_result" in manifest
+
+
+def test_streaming_mode_emits_incrementally(tmp_path: Path) -> None:
+    """In streaming mode write_event() is called for each in-loop event."""
+    spy = _SpySink()
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+
+    settings = build_runner_settings(
+        artifact_base_dir=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+        config_payload={"sink_flush_mode": "streaming"},
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        sink=spy,
+        sleep_fn=lambda _: None,
+    )
+    manifest = runner.run()
+
+    assert manifest["stopped_reason"] == "completed"
+    # observation + intent + 2 fills + exposure = 5 minimum
+    assert len(spy.write_event_calls) >= 5, (
+        f"Expected >= 5 incremental write_event calls in streaming mode, "
+        f"got {len(spy.write_event_calls)}"
+    )
+    # finalization batch (run_summary at minimum) is still called
+    assert len(spy.write_events_calls) == 1
+
+
+def test_streaming_mode_sink_failure_soft_fails(tmp_path: Path) -> None:
+    """Sink write failure in streaming mode logs a warning but run completes and artifacts exist."""
+    spy = _SpySink(fail_write_event=True)
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+
+    settings = build_runner_settings(
+        artifact_base_dir=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+        config_payload={"sink_flush_mode": "streaming"},
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        sink=spy,
+        sleep_fn=lambda _: None,
+    )
+    # Must not raise even though all write_event calls return errors
+    manifest = runner.run()
+
+    assert manifest["stopped_reason"] == "completed"
+    run_dir = Path(manifest["artifact_dir"])
+    assert (run_dir / "run_manifest.json").exists()
+    assert (run_dir / "observations.jsonl").exists()
+
+
+def test_streaming_mode_consecutive_fail_guard(tmp_path: Path) -> None:
+    """CryptoPairClickHouseSink skips write_event after max_consecutive_failures reached."""
+    from packages.polymarket.crypto_pairs.event_models import OpportunityObservedEvent
+
+    class _FailingClient:
+        def insert_rows(self, table, columns, rows):
+            raise RuntimeError("CH down")
+
+    config = CryptoPairClickHouseSinkConfig(enabled=True, soft_fail=True)
+    sink = CryptoPairClickHouseSink(config, client=_FailingClient(), max_consecutive_failures=2)
+
+    obs = _make_paper_obs()
+    evt = OpportunityObservedEvent.from_observation(obs, mode="paper")
+
+    r1 = sink.write_event(evt)
+    assert r1.error == "CH down"
+    assert sink._consecutive_fail_count == 1
+
+    r2 = sink.write_event(evt)
+    assert r2.error == "CH down"
+    assert sink._consecutive_fail_count == 2
+
+    # 3rd call: limit reached, returns skipped
+    r3 = sink.write_event(evt)
+    assert r3.skipped_reason == "consecutive_fail_limit"
+    assert r3.written_rows == 0
+
+
+def test_streaming_mode_safety_transition_no_duplicate(tmp_path: Path) -> None:
+    """Safety state transition streamed in loop is not re-emitted in finalization batch."""
+    spy = _SpySink()
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+
+    settings = build_runner_settings(
+        artifact_base_dir=tmp_path,
+        duration_seconds=0,
+        cycle_limit=2,
+        config_payload={"sink_flush_mode": "streaming"},
+    )
+    # cycling feed: cycle 1 = fresh (no transition), cycle 2 = stale (triggers transition)
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=_CyclingStaleFeed("BTC"),
+        sink=spy,
+        sleep_fn=lambda _: None,
+    )
+    runner.run()
+
+    streaming_transitions = [
+        e for e in spy.write_event_calls
+        if e.event_type == EVENT_TYPE_SAFETY_STATE_TRANSITION
+    ]
+    batched_transitions = [
+        e
+        for batch in spy.write_events_calls
+        for e in batch
+        if e.event_type == EVENT_TYPE_SAFETY_STATE_TRANSITION
+    ]
+
+    # Each unique transition_id must appear at most once across both channels
+    all_transition_ids = [e.event_id for e in streaming_transitions] + [
+        e.event_id for e in batched_transitions
+    ]
+    assert len(all_transition_ids) == len(set(all_transition_ids)), (
+        "Same transition emitted in both streaming write_event() and finalization write_events()"
+    )
+
+
+def test_streaming_mode_run_summary_always_at_finalization(tmp_path: Path) -> None:
+    """RunSummaryEvent is always present in the finalization write_events() batch."""
+    spy = _SpySink()
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+
+    settings = build_runner_settings(
+        artifact_base_dir=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+        config_payload={"sink_flush_mode": "streaming"},
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        sink=spy,
+        sleep_fn=lambda _: None,
+    )
+    runner.run()
+
+    assert len(spy.write_events_calls) == 1
+    finalization_batch = spy.write_events_calls[0]
+    run_summary_events = [
+        e for e in finalization_batch if e.event_type == EVENT_TYPE_RUN_SUMMARY
+    ]
+    assert len(run_summary_events) == 1, (
+        f"Expected exactly 1 RunSummaryEvent in finalization batch, "
+        f"got {len(run_summary_events)}"
+    )
+
+
+def test_write_event_disabled_sink_noop() -> None:
+    """DisabledCryptoPairClickHouseSink.write_event() returns enabled=False, skipped."""
+    from packages.polymarket.crypto_pairs.event_models import OpportunityObservedEvent
+
+    sink = DisabledCryptoPairClickHouseSink()
+    obs = _make_paper_obs()
+    evt = OpportunityObservedEvent.from_observation(obs, mode="paper")
+    result = sink.write_event(evt)
+
+    assert result.enabled is False
+    assert result.written_rows == 0
+    assert result.skipped_reason == "disabled"
+    assert result.attempted_events == 1
+
+
+def test_write_event_enabled_sink_delegates() -> None:
+    """CryptoPairClickHouseSink.write_event() calls insert_rows exactly once with 1 row."""
+    from packages.polymarket.crypto_pairs.event_models import OpportunityObservedEvent
+
+    insert_calls: list = []
+
+    class _TrackingClient:
+        def insert_rows(self, table, columns, rows):
+            insert_calls.append((table, columns, rows))
+            return len(rows)
+
+    obs = _make_paper_obs()
+    evt = OpportunityObservedEvent.from_observation(obs, mode="paper")
+
+    config = CryptoPairClickHouseSinkConfig(enabled=True)
+    sink = CryptoPairClickHouseSink(config, client=_TrackingClient())
+    result = sink.write_event(evt)
+
+    assert result.enabled is True
+    assert result.written_rows == 1
+    assert len(insert_calls) == 1
+    _, _, rows = insert_calls[0]
+    assert len(rows) == 1
