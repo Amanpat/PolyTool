@@ -1,19 +1,25 @@
 """Adverse-selection signal computation for the live risk/control path.
 
-Two signals are provided:
+Three signal classes are provided:
 
-OFISignal — Order-Flow Imbalance (VPIN proxy)
-    Approximates buy/sell pressure using the tick-rule on mid-price changes.
-    True VPIN requires trade-tick volume with aggressor-side labels, which our
-    tape format does not provide (``last_trade_price`` events carry price only,
-    no size or direction).  The OFI proxy classifies each mid-price move as a
-    buy tick (up) or sell tick (down) and triggers when the rolling imbalance
-    ratio exceeds a threshold.
+OFISignal — Order-Flow Imbalance (tick-rule mid-price imbalance)
+    Classifies each book update as a buy tick (mid went up) or sell tick (mid
+    went down) and triggers when the rolling imbalance ratio exceeds a
+    threshold.  This is a pure OFI / tick-rule signal — it is NOT VPIN.
 
     Cold-start / missing-data behaviour:
       * No book update ever received → no-trigger, metadata status ``"cold_start"``
       * Fewer than ``min_samples`` classified ticks → no-trigger, status ``"warming_up"``
       * All ticks are neutral (mid unchanged) → no-trigger, status ``"neutral"``
+
+VPINSignal — Volume-Synchronized Probability of Informed Trading (UNAVAILABLE)
+    True VPIN requires trade-tick events with aggressor-side labels and traded
+    volume per tick.  Our tape format provides ``last_trade_price`` events with
+    **price only** — no volume, no direction.  Therefore VPIN cannot be
+    computed from the current data path.  This class is an explicit sentinel
+    that communicates the data gap; it never triggers and always returns
+    metadata status ``"unavailable"``.  Replace with a real rolling-bucket
+    implementation when the tape format is enriched.
 
 MMWithdrawalSignal — Competing market-maker quote withdrawal
     Detects BBO depth collapse: when total size across the top N bid + ask
@@ -26,11 +32,11 @@ MMWithdrawalSignal — Competing market-maker quote withdrawal
       * Rolling baseline is zero (e.g. empty book) → no-trigger, status ``"zero_baseline"``
 
 AdverseSelectionGuard
-    Wraps both signals.  Exposes ``on_book_update(book)`` (call once per book
-    tick) and ``check()`` which returns a ``GuardResult``.  Either signal
-    triggering is sufficient to block an order.  If the book argument is
-    ``None`` or lacks expected attributes, both signals receive empty data and
-    stay at their safe no-trigger state.
+    Wraps OFI and MM-withdrawal signals.  Exposes ``on_book_update(book)``
+    (call once per book tick) and ``check()`` which returns a ``GuardResult``.
+    Either signal triggering is sufficient to block an order.  If the book
+    argument is ``None`` or lacks expected attributes, both signals receive
+    empty data and stay at their safe no-trigger state.
 """
 
 from __future__ import annotations
@@ -157,7 +163,7 @@ class GuardResult:
 
 
 class OFISignal:
-    """Order-Flow Imbalance proxy using the mid-price tick rule.
+    """Order-Flow Imbalance signal using the mid-price tick rule.
 
     Each book update is classified as +1 (buy tick, mid went up) or -1 (sell
     tick, mid went down).  Ties (mid unchanged) produce no tick and are not
@@ -167,6 +173,11 @@ class OFISignal:
 
     Triggers when imbalance > ``threshold`` and at least ``min_samples``
     classified ticks have been accumulated.
+
+    This is a tick-rule mid-price direction signal (OFI-based).  It is NOT
+    VPIN.  True VPIN requires trade-tick volume with aggressor-side labels,
+    which our tape format does not provide.  See ``VPINSignal`` for the
+    explicit unavailability sentinel.
 
     Args:
         window_ticks: Rolling window size (max classified ticks to retain).
@@ -298,6 +309,49 @@ class UnavailableVPINSignal:
                 "signal": ORDER_FLOW_SIGNAL_TRUE_VPIN,
                 "status": "unavailable",
                 "sentinel": TRUE_VPIN_UNAVAILABLE_SENTINEL,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# VPIN Signal (unavailability sentinel)
+# ---------------------------------------------------------------------------
+
+
+class VPINSignal:
+    """Explicit sentinel for true VPIN — permanently unavailable.
+
+    True Volume-Synchronized Probability of Informed Trading (VPIN) requires:
+      * Aggressor-side label per trade (buyer-initiated vs seller-initiated)
+      * Traded volume per tick
+
+    Our tape format provides ``last_trade_price`` events with **price only**:
+    no volume, no aggressor-side direction.  VPIN therefore cannot be computed
+    from the current data path.
+
+    This class never triggers.  Its ``check()`` always returns
+    ``status="unavailable"`` with a ``reason`` explaining the data gap, so
+    that the limitation is explicit in audit logs and operator dashboards.
+
+    When the tape format is enriched with per-trade volume and aggressor-side
+    labels, replace this class with a real rolling-bucket VPIN implementation.
+    """
+
+    def on_book_update(self, *args: object, **kwargs: object) -> None:
+        """No-op: VPIN cannot be updated without trade-tick volume data."""
+
+    def check(self) -> SignalResult:
+        """Return unavailability result — VPIN cannot be computed from current data."""
+        return SignalResult(
+            triggered=False,
+            reason="",
+            metadata={
+                "signal": "vpin",
+                "status": "unavailable",
+                "reason": (
+                    "tape format provides last_trade_price events with price only; "
+                    "trade volume and aggressor-side labels required for VPIN are absent"
+                ),
             },
         )
 

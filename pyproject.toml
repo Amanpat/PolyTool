@@ -69,6 +69,7 @@ packages = [
     "polytool", "polytool.reports",
     "packages", "packages.polymarket", "packages.polymarket.rag",
     "packages.polymarket.hypotheses",
+    "packages.polymarket.notifications",
     "packages.polymarket.market_selection",
     "packages.polymarket.historical_import",
     "packages.research", "packages.research.hypotheses",

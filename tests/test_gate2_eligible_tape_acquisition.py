@@ -12,7 +12,7 @@ Coverage:
   - Regime reading: meta.json shadow_context → regime field
   - Regime reading: no metadata → "unknown"
   - build_corpus_summary: counts correct
-  - build_corpus_summary: mixed_regime_eligible only when >= 2 distinct named regimes
+  - build_corpus_summary: mixed_regime_eligible requires an eligible tape plus >= 2 named classified regimes
   - manifest_to_dict: schema keys present
   - manifest_to_dict: eligibility_params written correctly
   - --regime flag on watch-arb-candidates writes to watch_meta.json
@@ -36,11 +36,12 @@ from tools.cli.tape_manifest import (
     _read_regime,
     _read_recorded_by,
     _read_slug,
+    _read_tape_market_metadata,
     build_corpus_summary,
     manifest_to_dict,
     scan_one_tape,
 )
-from tools.cli.watch_arb_candidates import ResolvedWatch
+from tools.cli.watch_arb_candidates import ResolvedWatch, _record_tape_for_market
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,23 @@ def _write_prep_meta(tape_dir: Path, regime: str = "unknown") -> None:
         "regime": regime,
     }
     (tape_dir / "prep_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def _write_eligible_watch_tape(tape_dir: Path, regime: str) -> None:
+    _write_watch_meta(tape_dir, regime=regime)
+    _write_events(tape_dir, [
+        _book_event(YES_ID, [_ask("0.40", "100")]),
+        _book_event(NO_ID, [_ask("0.55", "100")]),
+        _price_change_event(YES_ID, [_ask("0.40", "100")]),
+    ])
+
+
+def _write_ineligible_watch_tape_no_edge(tape_dir: Path, regime: str) -> None:
+    _write_watch_meta(tape_dir, regime=regime)
+    _write_events(tape_dir, [
+        _book_event(YES_ID, [_ask("0.50", "100")]),
+        _book_event(NO_ID, [_ask("0.50", "100")]),
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -299,12 +317,36 @@ class TestCorpusSummary:
         assert summary.gate2_eligible_tapes == []
         assert "BLOCKED" in summary.corpus_note
 
+    def test_ineligible_classified_tapes_still_count_toward_coverage(self):
+        records = [
+            self._record(False, "sports"),
+            self._record(False, "sports"),
+            self._record(False, "sports"),
+        ]
+        summary = build_corpus_summary(records)
+        assert summary.by_regime["sports"]["total"] == 3
+        assert summary.regime_coverage["regime_counts"]["sports"] == 3
+        assert summary.regime_coverage["covered_regimes"] == (SPORTS,)
+        assert summary.regime_coverage["missing_regimes"] == (POLITICS, NEW_MARKET)
+        assert summary.mixed_regime_eligible is False
+
     def test_single_eligible_no_mixed(self):
         records = [self._record(True, "sports")]
         summary = build_corpus_summary(records)
         assert summary.eligible_count == 1
         assert summary.mixed_regime_eligible is False  # only 1 named regime
         assert "PARTIAL" in summary.corpus_note
+
+    def test_classified_ineligible_tapes_can_complete_mixed_regime_flag(self):
+        records = [
+            self._record(True, "sports"),
+            self._record(False, "politics"),
+        ]
+        summary = build_corpus_summary(records)
+        assert summary.regime_coverage["covered_regimes"] == (POLITICS, SPORTS)
+        assert summary.regime_coverage["missing_regimes"] == (NEW_MARKET,)
+        assert summary.mixed_regime_eligible is True
+        assert "Missing classified tapes for: new_market" in summary.corpus_note
 
     def test_two_regimes_eligible_is_mixed(self):
         records = [
@@ -430,6 +472,54 @@ class TestResolvedWatchRegime:
 
 
 # ---------------------------------------------------------------------------
+# Tests: watch/prep artifact metadata snapshots
+# ---------------------------------------------------------------------------
+
+
+class TestCaptureMetadataSnapshots:
+    def test_watch_meta_persists_market_snapshot(self, tmp_path, monkeypatch):
+        from packages.polymarket.simtrader.tape import recorder as recorder_mod
+
+        class _FakeRecorder:
+            def __init__(self, tape_dir, asset_ids):
+                self.tape_dir = tape_dir
+                self.asset_ids = asset_ids
+
+            def record(self, *, duration_seconds, ws_url):
+                (self.tape_dir / "events.jsonl").touch()
+
+        monkeypatch.setattr(recorder_mod, "TapeRecorder", _FakeRecorder)
+
+        tape_dir = tmp_path / "watch_tape"
+        resolved = ResolvedWatch(
+            slug="watch-market",
+            yes_token_id=YES_ID,
+            no_token_id=NO_ID,
+            regime="politics",
+            market_snapshot={
+                "market_slug": "watch-market",
+                "question": "Will Democrats win the Senate?",
+                "created_at": "2026-03-08T00:00:00Z",
+                "age_hours": 12.0,
+                "captured_at": "2026-03-08T12:00:00Z",
+            },
+        )
+
+        _record_tape_for_market(
+            resolved,
+            tape_dir,
+            duration_seconds=10.0,
+            ws_url="wss://test",
+        )
+
+        watch_meta = json.loads((tape_dir / "watch_meta.json").read_text(encoding="utf-8"))
+        assert watch_meta["regime"] == "politics"
+        assert "market_snapshot" in watch_meta
+        assert watch_meta["market_snapshot"]["question"] == "Will Democrats win the Senate?"
+        assert watch_meta["market_snapshot"]["age_hours"] == pytest.approx(12.0)
+
+
+# ---------------------------------------------------------------------------
 # Tests: prepare_gate2 regime written to prep_meta.json
 # ---------------------------------------------------------------------------
 
@@ -496,6 +586,74 @@ class TestPrepareGate2RegimeWritten:
         prep_meta = json.loads((tape_dir / "prep_meta.json").read_text(encoding="utf-8"))
         assert prep_meta.get("regime") == "sports"
 
+    def test_market_snapshot_written_to_prep_meta(self, tmp_path):
+        from tools.cli.prepare_gate2 import prepare_candidates
+
+        class _FakeCand:
+            slug = "prep-market"
+            edge_ok_ticks = 1
+            depth_ok_ticks = 1
+            executable_ticks = 1
+            best_edge = 0.02
+            max_depth_yes = 100.0
+            max_depth_no = 100.0
+            total_ticks = 100
+            source = "live"
+            market_meta = {
+                "market_slug": "prep-market",
+                "question": "Will Democrats win the Senate?",
+                "category": "Politics",
+                "age_hours": 8.0,
+            }
+
+        recorded_dirs = []
+
+        def _fake_resolve(slug):
+            return YES_ID, NO_ID
+
+        def _fake_record(slug, yes_id, no_id, tape_dir, *, duration_seconds, ws_url):
+            tape_dir.mkdir(parents=True, exist_ok=True)
+            (tape_dir / "events.jsonl").touch()
+            meta = {"market_slug": slug, "yes_asset_id": yes_id, "no_asset_id": no_id}
+            (tape_dir / "prep_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            recorded_dirs.append(tape_dir)
+
+        @dataclass
+        class _FakeElig:
+            eligible: bool = False
+            reason: str = "no edge"
+            stats: dict = None
+
+            def __post_init__(self):
+                if self.stats is None:
+                    self.stats = {"ticks_with_depth_and_edge": 0}
+
+        def _fake_check(tape_dir, yes_id, no_id, max_size, buffer):
+            return _FakeElig()
+
+        prepare_candidates(
+            [_FakeCand()],
+            top=1,
+            tapes_base_dir=tmp_path / "tapes",
+            duration_seconds=10.0,
+            max_size=50.0,
+            buffer=0.01,
+            ws_url="wss://test",
+            dry_run=False,
+            regime="sports",
+            _resolve_fn=_fake_resolve,
+            _record_fn=_fake_record,
+            _check_fn=_fake_check,
+        )
+
+        tape_dir = recorded_dirs[0]
+        prep_meta = json.loads((tape_dir / "prep_meta.json").read_text(encoding="utf-8"))
+        assert "market_snapshot" in prep_meta
+        assert prep_meta["market_snapshot"]["question"] == "Will Democrats win the Senate?"
+        assert prep_meta["market_snapshot"]["category"] == "Politics"
+        assert prep_meta["market_snapshot"]["age_hours"] == pytest.approx(8.0)
+        assert "captured_at" in prep_meta["market_snapshot"]
+
 
 # ---------------------------------------------------------------------------
 # Tests: recorded_by reader
@@ -526,6 +684,62 @@ class TestRecordedByReader:
         tape_dir = tmp_path / "t"
         tape_dir.mkdir()
         assert _read_recorded_by(tape_dir) == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Tests: tape metadata snapshot preference and legacy fallback
+# ---------------------------------------------------------------------------
+
+
+class TestTapeMarketMetadataPreference:
+    def test_legacy_meta_json_fallback_still_works(self, tmp_path):
+        tape_dir = tmp_path / "legacy_tape"
+        tape_dir.mkdir()
+        meta = {
+            "shadow_context": {
+                "market": "legacy-market",
+                "question": "Will Democrats win the Senate?",
+                "category": "Politics",
+            }
+        }
+        (tape_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        metadata = _read_tape_market_metadata(tape_dir)
+
+        assert metadata["market_slug"] == "legacy-market"
+        assert metadata["question"] == "Will Democrats win the Senate?"
+        assert metadata["category"] == "Politics"
+
+    def test_manifest_prefers_artifact_snapshot_metadata(self, tmp_path):
+        tape_dir = tmp_path / "snapshot_pref"
+        tape_dir.mkdir()
+        watch_meta = {
+            "market_slug": "generic-market",
+            "yes_asset_id": YES_ID,
+            "no_asset_id": NO_ID,
+            "regime": "unknown",
+            "market_snapshot": {
+                "market_slug": "generic-market",
+                "captured_at": "2026-03-08T12:00:00Z",
+                "age_hours": 6.0,
+            },
+        }
+        (tape_dir / "watch_meta.json").write_text(json.dumps(watch_meta), encoding="utf-8")
+        meta = {
+            "shadow_context": {
+                "market": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+                "question": "Will the Toronto Maple Leafs win the 2026 NHL Stanley Cup?",
+                "category": "Sports",
+            }
+        }
+        (tape_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+        (tape_dir / "events.jsonl").touch()
+
+        record = scan_one_tape(tape_dir)
+
+        assert record.derived_regime == NEW_MARKET
+        assert record.final_regime == NEW_MARKET
+        assert record.regime_source == "derived"
 
 
 # ---------------------------------------------------------------------------
@@ -681,13 +895,24 @@ class TestMixedRegimeCoverageViaSharedHelper:
         assert "satisfies_policy" in summary.regime_coverage
         assert "covered_regimes" in summary.regime_coverage
 
-    def test_regime_coverage_empty_when_no_eligible(self):
+    def test_regime_coverage_tracks_classified_ineligible_tapes(self):
         records = [
             self._record_with_final_regime(False, SPORTS),
         ]
         summary = build_corpus_summary(records)
         assert summary.regime_coverage["satisfies_policy"] is False
-        assert summary.regime_coverage["covered_regimes"] == ()
+        assert summary.regime_coverage["covered_regimes"] == (SPORTS,)
+        assert summary.regime_coverage["missing_regimes"] == (POLITICS, NEW_MARKET)
+        assert summary.regime_coverage["regime_counts"]["sports"] == 1
+
+    def test_covered_and_missing_regimes_align_with_classified_corpus(self):
+        records = [
+            self._record_with_final_regime(False, POLITICS),
+            self._record_with_final_regime(True, SPORTS),
+        ]
+        summary = build_corpus_summary(records)
+        assert summary.regime_coverage["covered_regimes"] == (POLITICS, SPORTS)
+        assert summary.regime_coverage["missing_regimes"] == (NEW_MARKET,)
 
     def test_manifest_includes_regime_coverage(self):
         records = []
@@ -752,3 +977,95 @@ class TestManifestRegimeIntegrityFields:
         tape_entry = manifest["tapes"][0]
         # regime should fall back to rec.regime when final_regime is empty
         assert tape_entry["regime"] == "politics"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Gate 2 preflight command
+# ---------------------------------------------------------------------------
+
+
+class TestGate2PreflightCommand:
+    def test_ready_case(self, tmp_path, capsys):
+        from tools.cli.gate2_preflight import main as gate2_preflight_main
+
+        _write_eligible_watch_tape(tmp_path / "sports_tape", regime="sports")
+        _write_eligible_watch_tape(tmp_path / "politics_tape", regime="politics")
+        _write_eligible_watch_tape(tmp_path / "new_market_tape", regime="new_market")
+
+        exit_code = gate2_preflight_main(["--tapes-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+
+        assert exit_code == 0
+        assert "Result: READY" in out
+        assert "Eligible tapes: 3" in out
+        assert "Eligible tape list:" in out
+        assert "sports_tape" in out
+        assert "politics_tape" in out
+        assert "new_market_tape" in out
+        assert "Mixed-regime coverage: READY" in out
+        assert "Missing regimes: none" in out
+        assert "python tools/gates/close_sweep_gate.py" in out
+
+    def test_blocked_with_zero_eligible_tapes(self, tmp_path, capsys):
+        from tools.cli.gate2_preflight import main as gate2_preflight_main
+
+        _write_ineligible_watch_tape_no_edge(tmp_path / "sports_tape", regime="sports")
+
+        exit_code = gate2_preflight_main(["--tapes-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+
+        assert exit_code == 2
+        assert "Result: BLOCKED" in out
+        assert "Eligible tapes: 0" in out
+        assert "Eligible tape list: none" in out
+        assert "Mixed-regime coverage: BLOCKED" in out
+        assert "Covered regimes: sports" in out
+        assert "Missing regimes: politics, new_market" in out
+        assert "No eligible tapes" in out
+        assert "python -m polytool scan-gate2-candidates --all --top 20 --explain" in out
+
+    def test_blocked_with_missing_mixed_regime_coverage(self, tmp_path, capsys):
+        from tools.cli.gate2_preflight import main as gate2_preflight_main
+
+        _write_eligible_watch_tape(tmp_path / "sports_tape", regime="sports")
+
+        exit_code = gate2_preflight_main(["--tapes-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+
+        assert exit_code == 2
+        assert "Result: BLOCKED" in out
+        assert "Eligible tapes: 1" in out
+        assert "sports_tape" in out
+        assert "Covered regimes: sports" in out
+        assert "Missing regimes: politics, new_market" in out
+        assert "Missing mixed-regime coverage: politics, new_market." in out
+        assert "Capture an eligible politics tape" in out
+        assert "python -m polytool gate2-preflight" in out
+
+    def test_preflight_coverage_matches_manifest_when_ineligible_tape_fills_regime(self, tmp_path, capsys):
+        from tools.cli.gate2_preflight import main as gate2_preflight_main
+
+        _write_eligible_watch_tape(tmp_path / "sports_tape", regime="sports")
+        _write_ineligible_watch_tape_no_edge(tmp_path / "politics_tape", regime="politics")
+
+        exit_code = gate2_preflight_main(["--tapes-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+
+        assert exit_code == 2
+        assert "Eligible tapes: 1" in out
+        assert "Covered regimes: politics, sports" in out
+        assert "Missing regimes: new_market" in out
+        assert "Missing mixed-regime coverage: new_market." in out
+
+    def test_stable_output_and_exit_code_via_polytool_dispatch(self, tmp_path, capsys):
+        from polytool.__main__ import main as polytool_main
+
+        exit_code = polytool_main(["gate2-preflight", "--tapes-dir", str(tmp_path)])
+        out = capsys.readouterr().out
+
+        assert exit_code == 2
+        lines = [line for line in out.splitlines() if line]
+        assert lines[0] == "Gate 2 Preflight"
+        assert lines[1] == "================"
+        assert lines[2] == "Result: BLOCKED"
+        assert "Eligible tapes: 0" in out

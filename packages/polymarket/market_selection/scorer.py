@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
+
+from packages.polymarket.market_selection.regime_policy import (
+    NEW_MARKET,
+    POLITICS,
+    SPORTS,
+    classify_market_regime,
+)
 
 WEIGHTS = {
     "reward_apr_est": 0.35,
@@ -157,6 +164,73 @@ _EDGE_NORM_LOW:  float = -0.10
 _EDGE_NORM_HIGH: float =  0.05
 # CandidateResult uses (threshold - 99) as sentinel when no BBO data
 _EDGE_SENTINEL_FLOOR: float = -90.0
+_AGE_HOURS_KEYS = ("age_hours", "ageHours")
+_CREATED_AT_KEYS = (
+    "created_at",
+    "createdAt",
+    "created_time",
+    "createdTime",
+    "published_at",
+    "publishedAt",
+    "listed_at",
+    "listedAt",
+)
+_NAMED_REGIMES = {POLITICS, SPORTS, NEW_MARKET}
+
+
+def _market_age_hours(
+    market: Mapping[str, Any],
+    *,
+    reference_time: datetime,
+) -> Optional[float]:
+    for key in _AGE_HOURS_KEYS:
+        age_hours = _coerce_float(market.get(key))
+        if age_hours is not None and age_hours >= 0.0:
+            return age_hours
+
+    for key in _CREATED_AT_KEYS:
+        created_at = _parse_datetime(market.get(key))
+        if created_at is None:
+            continue
+        age_hours = (reference_time - created_at).total_seconds() / 3600.0
+        if age_hours < 0.0:
+            return None
+        return age_hours
+
+    return None
+
+
+def _operator_regime_label(market: Mapping[str, Any]) -> Optional[str]:
+    for key in ("_regime", "regime"):
+        raw_value = market.get(key)
+        if not isinstance(raw_value, str):
+            continue
+        clean = raw_value.strip().lower()
+        if clean in _NAMED_REGIMES:
+            return clean
+    return None
+
+
+def _derive_regime_context(
+    market: Mapping[str, Any],
+    *,
+    reference_time: datetime,
+) -> tuple[Optional[str], Optional[str], Optional[str], str]:
+    derived_raw = classify_market_regime(market, reference_time=reference_time)
+    derived_regime = derived_raw if derived_raw in _NAMED_REGIMES else None
+    operator_regime = _operator_regime_label(market)
+
+    if derived_regime is not None:
+        final_regime = derived_regime
+        regime_source = "derived"
+    elif operator_regime is not None:
+        final_regime = operator_regime
+        regime_source = "operator"
+    else:
+        final_regime = None
+        regime_source = "fallback_unknown"
+
+    return derived_regime, operator_regime, final_regime, regime_source
 
 
 @dataclass(frozen=True)
@@ -164,7 +238,7 @@ class Gate2RankScore:
     """Explainable ranking score for a Gate 2 candidate market.
 
     Combines Gate 2 depth/edge signals with market quality factors.
-    ``None`` on any quality factor means the data was unavailable —
+    ``None`` on any quality factor means the data was unavailable  -
     missing factors contribute **zero** to ``rank_score``, not positive evidence.
 
     A high ``rank_score`` is NOT the same as Gate 2 tradable.
@@ -187,7 +261,10 @@ class Gate2RankScore:
     competition_score: Optional[float]
     age_hours: Optional[float]
     is_new_market: Optional[bool]  # True if age_hours < 48
-    regime: Optional[str]          # None = not yet labeled
+    derived_regime: Optional[str]  # classifier result when metadata is strong enough
+    operator_regime: Optional[str] # optional label carried in market metadata
+    regime: Optional[str]          # final displayed regime; None = unknown
+    regime_source: str             # derived | operator | fallback_unknown
 
     # Composite attractiveness score (0–1)
     rank_score: float
@@ -238,7 +315,7 @@ def score_gate2_candidate(
         executable_ticks: Ticks with simultaneous depth+edge (from CandidateResult).
         edge_ok_ticks:    Ticks where sum_ask < threshold (may lack depth).
         depth_ok_ticks:   Ticks where both legs met depth requirement.
-        best_edge_raw:    CandidateResult.best_edge — uses a sentinel value
+        best_edge_raw:    CandidateResult.best_edge  - uses a sentinel value
                           (below _EDGE_SENTINEL_FLOOR) when no dual-leg BBO exists.
         depth_yes:        Peak YES-leg best-ask size observed.
         depth_no:         Peak NO-leg best-ask size observed.
@@ -259,24 +336,24 @@ def score_gate2_candidate(
     # ---- Gate 2 summary header -----------------------------------------
     if executable_ticks > 0:
         explanation.append(
-            f"GATE2: EXECUTABLE — {executable_ticks} tick(s) with depth+edge simultaneously"
+            f"GATE2: EXECUTABLE - {executable_ticks} tick(s) with depth+edge simultaneously"
         )
     elif edge_ok_ticks > 0 and depth_ok_ticks > 0:
         explanation.append(
-            "GATE2: NEAR — edge and depth both seen but never simultaneously"
+            "GATE2: NEAR  - edge and depth both seen but never simultaneously"
         )
     elif edge_ok_ticks > 0:
         explanation.append(
-            f"GATE2: EDGE_ONLY — complement sum crossed threshold but depth insufficient "
+            f"GATE2: EDGE_ONLY  - complement sum crossed threshold but depth insufficient "
             f"(YES {depth_yes:.0f} / NO {depth_no:.0f} vs {max_size:.0f} required)"
         )
     elif depth_ok_ticks > 0:
         explanation.append(
-            "GATE2: DEPTH_ONLY — depth OK but sum_ask never fell below threshold"
+            "GATE2: DEPTH_ONLY  - depth OK but sum_ask never fell below threshold"
         )
     else:
         explanation.append(
-            "GATE2: NO_SIGNAL — neither depth nor edge condition met at this snapshot"
+            "GATE2: NO_SIGNAL  - neither depth nor edge condition met at this snapshot"
         )
 
     # ---- Factor: Gate 2 depth ------------------------------------------
@@ -284,12 +361,12 @@ def score_gate2_candidate(
     gate2_depth_factor = min(depth_min / max_size, 1.0) if max_size > 0 else 0.0
     if depth_min >= max_size:
         explanation.append(
-            f"depth: YES {depth_yes:.0f} / NO {depth_no:.0f} — MEETS target ({max_size:.0f} shares)"
+            f"depth: YES {depth_yes:.0f} / NO {depth_no:.0f}  - MEETS target ({max_size:.0f} shares)"
         )
     else:
         pct = depth_min / max_size * 100 if max_size > 0 else 0.0
         explanation.append(
-            f"depth: YES {depth_yes:.0f} / NO {depth_no:.0f} — {pct:.0f}% of target "
+            f"depth: YES {depth_yes:.0f} / NO {depth_no:.0f}  - {pct:.0f}% of target "
             f"({max_size:.0f}; weaker leg is the binding constraint)"
         )
 
@@ -304,19 +381,19 @@ def score_gate2_candidate(
         edge_pct = best_edge_raw * 100
         if best_edge_raw >= 0:
             explanation.append(
-                f"edge: best_edge={edge_pct:+.2f}% ABOVE threshold ({threshold:.4f}) — "
+                f"edge: best_edge={edge_pct:+.2f}% ABOVE threshold ({threshold:.4f})  - "
                 "arb window existed at this snapshot"
             )
         else:
             explanation.append(
-                f"edge: best_edge={edge_pct:+.2f}% — sum_ask was "
+                f"edge: best_edge={edge_pct:+.2f}%  - sum_ask was "
                 f"{abs(edge_pct):.2f}% above threshold (not yet executable)"
             )
     else:
         best_edge = None
         gate2_edge_factor = 0.0
         explanation.append(
-            "edge: UNKNOWN — no dual-leg BBO data available for this market"
+            "edge: UNKNOWN  - no dual-leg BBO data available for this market"
         )
 
     # ---- Factor: reward ------------------------------------------------
@@ -328,14 +405,14 @@ def score_gate2_candidate(
             reward_apr_est = min(rr * 365.0, 3.0)
             reward_factor = reward_apr_est / 3.0
             level = "HIGH" if reward_apr_est >= 1.5 else "MED" if reward_apr_est >= 0.5 else "LOW"
-            explanation.append(f"reward: APR≈{reward_apr_est:.2f}/yr ({level})")
+            explanation.append(f"reward: APR~{reward_apr_est:.2f}/yr ({level})")
         else:
             explanation.append(
-                "reward: UNKNOWN — reward_config present but rate is zero or missing"
+                "reward: UNKNOWN  - reward_config present but rate is zero or missing"
             )
     else:
         explanation.append(
-            "reward: UNKNOWN — no reward_config data "
+            "reward: UNKNOWN  - no reward_config data "
             "(market may not participate in a reward program)"
         )
 
@@ -351,10 +428,10 @@ def score_gate2_candidate(
             explanation.append(f"volume_24h: ${vol:,.0f} ({level})")
         else:
             explanation.append(
-                "volume_24h: UNKNOWN — volume field missing from market metadata"
+                "volume_24h: UNKNOWN  - volume field missing from market metadata"
             )
     else:
-        explanation.append("volume_24h: UNKNOWN — no market metadata supplied")
+        explanation.append("volume_24h: UNKNOWN  - no market metadata supplied")
 
     # ---- Factor: competition / crowding --------------------------------
     competition_score_val: Optional[float] = None
@@ -373,49 +450,62 @@ def score_gate2_candidate(
         )
     else:
         explanation.append(
-            "competition: UNKNOWN — no orderbook supplied for competition estimation"
+            "competition: UNKNOWN  - no orderbook supplied for competition estimation"
         )
 
     # ---- Factor: age / new-market logic --------------------------------
+    reference_time = _utcnow()
+
     age_hours: Optional[float] = None
     is_new_market: Optional[bool] = None
     age_factor = 0.0
     if market is not None:
-        created_at = _parse_datetime(market.get("created_at"))
-        if created_at is not None:
-            age_hours = max((_utcnow() - created_at).total_seconds() / 3600.0, 0.0)
+        age_hours = _market_age_hours(market, reference_time=reference_time)
+        if age_hours is not None:
             is_new_market = age_hours < 48.0
             if is_new_market:
                 age_factor = 1.0
                 explanation.append(
-                    f"age: NEW MARKET ({age_hours:.1f}h old) — wider spreads, lower "
-                    "competition, and higher reward volatility expected; "
-                    "label tape with --regime new_market"
+                    f"age: NEW MARKET ({age_hours:.1f}h old)  - derived from market age metadata; "
+                    "label tape with --regime new_market during capture if preserving early-market context"
                 )
             else:
-                age_factor = 0.0
                 explanation.append(
-                    f"age: {age_hours:.1f}h (mature; no new-market bonus)"
+                    f"age: {age_hours:.1f}h old (mature; no new-market bonus)"
                 )
         else:
             explanation.append(
-                "age: UNKNOWN — no created_at in market metadata"
+                "age: UNKNOWN  - no created_at/age_hours metadata supplied"
             )
     else:
-        explanation.append("age: UNKNOWN — no market metadata supplied")
+        explanation.append("age: UNKNOWN  - no market metadata supplied")
 
     # ---- Regime label --------------------------------------------------
+    derived_regime: Optional[str] = None
+    operator_regime: Optional[str] = None
+    regime_source = "fallback_unknown"
     regime: Optional[str] = None
     if market is not None:
-        r = market.get("_regime") or market.get("regime")
-        if r:
-            regime = str(r).strip() or None
+        derived_regime, operator_regime, regime, regime_source = _derive_regime_context(
+            market,
+            reference_time=reference_time,
+        )
+    regime_mismatch = (
+        derived_regime is not None
+        and operator_regime is not None
+        and derived_regime != operator_regime
+    )
     if regime:
-        explanation.append(f"regime: {regime} (labeled)")
+        details = (
+            f"source={regime_source}; derived={derived_regime or 'UNKNOWN'}; "
+            f"operator={operator_regime or 'UNKNOWN'}"
+        )
+        if regime_mismatch:
+            details += "; mismatch"
+        explanation.append(f"regime: {regime} ({details})")
     else:
         explanation.append(
-            "regime: UNKNOWN — not yet labeled; set with --regime during tape capture "
-            "(politics | sports | new_market | unknown)"
+            "regime: UNKNOWN  - source=fallback_unknown; derived=UNKNOWN; operator=UNKNOWN"
         )
 
     # ---- Composite rank score ------------------------------------------
@@ -441,7 +531,10 @@ def score_gate2_candidate(
         competition_score=competition_score_val,
         age_hours=age_hours,
         is_new_market=is_new_market,
+        derived_regime=derived_regime,
+        operator_regime=operator_regime,
         regime=regime,
+        regime_source=regime_source,
         rank_score=rank_score,
         explanation=explanation,
         source=source,
@@ -454,10 +547,10 @@ def rank_gate2_candidates(
     """Sort Gate 2 candidate scores by executability then composite rank.
 
     Sort key (all descending):
-      1. executable_ticks — confirmed Gate 2 opportunity first
-      2. rank_score       — composite attractiveness (market quality + edge proximity)
-      3. edge_ok_ticks    — secondary Gate 2 signal
-      4. depth_ok_ticks   — tertiary Gate 2 signal
+      1. executable_ticks  - confirmed Gate 2 opportunity first
+      2. rank_score        - composite attractiveness (market quality + edge proximity)
+      3. edge_ok_ticks     - secondary Gate 2 signal
+      4. depth_ok_ticks    - tertiary Gate 2 signal
     """
     def _key(s: Gate2RankScore) -> tuple:
         return (s.executable_ticks, s.rank_score, s.edge_ok_ticks, s.depth_ok_ticks)

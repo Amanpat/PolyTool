@@ -1,14 +1,18 @@
 # Track A: Live CLOB Wiring + Gate Harness
 
-Date: 2026-03-05
+Date: 2026-03-05 (code complete); gate status last updated 2026-03-08
 Status: Code Complete / Gates Pending
 
 ## Summary
 
-Track A now has real CLOB wiring, a gated live execution path, a market
-selection CLI, and an operator-facing gate harness. Sprint-end validation was
-1188 passing tests, but Stage 1 capital remains blocked until Gates 1-3 are
-closed.
+Track A has real CLOB wiring, a gated live execution path, a market selection
+CLI, and an operator-facing gate harness. Sprint-end validation was 1188
+passing tests. Stage 1 capital remains blocked until all four gates pass and
+Stage 0 paper-live completes cleanly.
+
+**Phase 1 mainline strategy**: `market_maker_v0` (Avellaneda-Stoikov market
+maker). `binary_complement_arb` is used as a Gate 2 scouting vehicle to detect
+complement-arb dislocations in the tape; it is not the Phase 1 live strategy.
 
 ## What was built
 
@@ -21,14 +25,21 @@ closed.
 - `tools/cli/simtrader.py`: adds `--live`, gate artifact enforcement, wallet loading, `CONFIRM`, USD risk flags, and `python -m polytool simtrader kill`.
 - [LIVE_DEPLOYMENT_STAGE1.md](../runbooks/LIVE_DEPLOYMENT_STAGE1.md): Stage 1 live deployment operator runbook.
 
-## Gate status
+## Gate status (as of 2026-03-08)
+
+The table below reflects the current authoritative status. See `docs/ROADMAP.md`
+and `docs/CURRENT_STATE.md` for the full gate narrative.
 
 | Gate | Status | Notes |
 |------|--------|-------|
-| Gate 1 - Replay Determinism | OPEN | Run `python tools/gates/close_replay_gate.py`; requires live Polymarket network access. |
-| Gate 2 - Scenario Sweep | OPEN | Run `python tools/gates/close_sweep_gate.py`; requires live Polymarket network access. |
-| Gate 3 - Shadow Mode | 90% COMPLETE | Shadow run recorded on an OKC Thunder market; reconnect validation still needs an elevated Administrator PowerShell firewall test. |
-| Gate 4 - Dry-Run Live | PASSED | Artifact present at `artifacts/gates/dry_run_gate/gate_passed.json`. |
+| Gate 1 — Replay Determinism | **PASSED** | Artifact at `artifacts/gates/replay_gate/gate_passed.json`. |
+| Gate 2 — Scenario Sweep | NOT PASSED | Tooling ready; blocked on an eligible tape with `executable_ticks > 0`. |
+| Gate 3 — Shadow Mode | BLOCKED | Blocked behind Gate 2; follow `tools/gates/shadow_gate_checklist.md` after Gate 2 passes. |
+| Gate 4 — Dry-Run Live | **PASSED** | Artifact at `artifacts/gates/dry_run_gate/gate_passed.json`. |
+
+Historical snapshot from 2026-03-05 (this feature doc's original date) showed
+Gates 1 and 2 as "OPEN" and Gate 3 as "90% COMPLETE". Those labels are
+superseded by the 2026-03-07 gate status in ROADMAP.md and CURRENT_STATE.md.
 
 ## How to check gate status
 

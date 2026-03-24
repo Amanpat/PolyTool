@@ -8,6 +8,7 @@ other test files.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -120,6 +121,8 @@ def test_score_gate2_candidate_complete_inputs(monkeypatch):
     assert result.age_hours == pytest.approx(100.0, abs=0.1)
     assert result.is_new_market is False
     assert result.best_edge == pytest.approx(0.02)
+    assert result.derived_regime is None
+    assert result.regime_source == "fallback_unknown"
 
     # Explanation must contain all factor headings
     all_text = "\n".join(result.explanation)
@@ -162,6 +165,8 @@ def test_score_gate2_candidate_all_unknown(monkeypatch):
     assert result.age_hours is None
     assert result.is_new_market is None
     assert result.best_edge is None
+    assert result.derived_regime is None
+    assert result.regime_source == "fallback_unknown"
     assert result.regime is None
 
     text = "\n".join(result.explanation)
@@ -301,19 +306,47 @@ def test_explanation_contains_gate2_status_codes(monkeypatch):
         assert f"GATE2: {expected_status}" in result.explanation[0]
 
 
-def test_regime_label_written_when_present(monkeypatch):
+def test_derived_regime_wins_when_metadata_has_clear_signal(monkeypatch):
     monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
 
     result = score_gate2_candidate(
-        "political-market",
+        "will-democrats-win-the-senate",
+        **_candidate_kwargs(),
+        market={
+            "slug": "will-democrats-win-the-senate",
+            "question": "Will Democrats win the Senate?",
+            "volume_24h": 20_000.0,
+            "_regime": "sports",
+        },
+    )
+
+    assert result.regime == "politics"
+    assert result.derived_regime == "politics"
+    assert result.operator_regime == "sports"
+    assert result.regime_source == "derived"
+    text = "\n".join(result.explanation)
+    assert "regime: politics" in text
+    assert "source=derived" in text
+    assert "operator=sports" in text
+    assert "mismatch" in text
+
+
+def test_operator_regime_used_as_fallback_when_classifier_is_weak(monkeypatch):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+
+    result = score_gate2_candidate(
+        "generic-market",
         **_candidate_kwargs(),
         market={"volume_24h": 20_000.0, "_regime": "politics"},
     )
 
     assert result.regime == "politics"
+    assert result.derived_regime is None
+    assert result.operator_regime == "politics"
+    assert result.regime_source == "operator"
     text = "\n".join(result.explanation)
-    assert "regime: politics" in text
-    assert "UNKNOWN" not in [l for l in result.explanation if l.startswith("regime:")][-1]
+    assert "source=operator" in text
+    assert "derived=UNKNOWN" in text
 
 
 def test_regime_unknown_when_not_set(monkeypatch):
@@ -321,8 +354,11 @@ def test_regime_unknown_when_not_set(monkeypatch):
 
     result = score_gate2_candidate("plain-market", **_candidate_kwargs(), market={})
     assert result.regime is None
+    assert result.derived_regime is None
+    assert result.regime_source == "fallback_unknown"
     text = "\n".join(result.explanation)
     assert "regime: UNKNOWN" in text
+    assert "source=fallback_unknown" in text
 
 
 # ---------------------------------------------------------------------------
@@ -422,26 +458,41 @@ def test_score_and_rank_candidates_integration():
     assert ranked[0].competition_score is None
 
 
+def test_scan_gate2_parser_accepts_enrich_flag():
+    from tools.cli.scan_gate2_candidates import build_parser
+
+    args = build_parser().parse_args(["--enrich"])
+    assert args.enrich is True
+
+
+def test_scan_gate2_parser_accepts_watchlist_out():
+    from tools.cli.scan_gate2_candidates import build_parser
+
+    args = build_parser().parse_args(["--watchlist-out", "artifacts/watchlists/top.txt"])
+    assert args.watchlist_out == "artifacts/watchlists/top.txt"
+
+
 def test_score_and_rank_candidates_with_market_meta(monkeypatch):
     monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
     from tools.cli.scan_gate2_candidates import CandidateResult, score_and_rank_candidates
 
     candidates = [
         CandidateResult(
-            slug="politics-market",
+            slug="will-democrats-win-the-senate",
             total_ticks=1, depth_ok_ticks=1, edge_ok_ticks=0, executable_ticks=0,
             best_edge=-0.03, max_depth_yes=80.0, max_depth_no=70.0, source="live",
         ),
     ]
 
     market_meta = {
-        "politics-market": {
+        "will-democrats-win-the-senate": {
+            "slug": "will-democrats-win-the-senate",
+            "question": "Will Democrats win the Senate?",
             "volume_24h": 20_000.0,
             "created_at": _iso(FIXED_NOW - timedelta(hours=30)),
-            "_regime": "politics",
         }
     }
-    reward_configs = {"politics-market": {"reward_rate": 0.005}}
+    reward_configs = {"will-democrats-win-the-senate": {"reward_rate": 0.005}}
 
     ranked = score_and_rank_candidates(
         candidates,
@@ -451,9 +502,540 @@ def test_score_and_rank_candidates_with_market_meta(monkeypatch):
 
     assert len(ranked) == 1
     r = ranked[0]
-    assert r.slug == "politics-market"
+    assert r.slug == "will-democrats-win-the-senate"
     assert r.regime == "politics"
+    assert r.derived_regime == "politics"
+    assert r.regime_source == "derived"
     assert r.is_new_market is True  # 30h < 48h
     assert r.volume_24h == pytest.approx(20_000.0)
     assert r.reward_apr_est == pytest.approx(0.005 * 365.0, abs=0.01)
     assert r.rank_score > 0
+
+
+def test_score_and_rank_candidates_uses_candidate_market_meta(monkeypatch):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import CandidateResult, score_and_rank_candidates
+
+    candidates = [
+        CandidateResult(
+            slug="will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+            total_ticks=1,
+            depth_ok_ticks=0,
+            edge_ok_ticks=1,
+            executable_ticks=0,
+            best_edge=-0.02,
+            max_depth_yes=40.0,
+            max_depth_no=45.0,
+            source="live",
+            market_meta={
+                "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+                "question": "Will the Toronto Maple Leafs win the 2026 NHL Stanley Cup?",
+            },
+        ),
+    ]
+
+    ranked = score_and_rank_candidates(candidates)
+
+    assert len(ranked) == 1
+    assert ranked[0].regime == "sports"
+    assert ranked[0].derived_regime == "sports"
+    assert ranked[0].regime_source == "derived"
+
+
+def test_enrich_live_candidate_context_success(monkeypatch):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        enrich_live_candidate_context,
+        score_and_rank_candidates,
+    )
+
+    slug = "will-democrats-win-the-senate"
+    candidates = [
+        CandidateResult(
+            slug=slug,
+            total_ticks=1,
+            depth_ok_ticks=1,
+            edge_ok_ticks=1,
+            executable_ticks=1,
+            best_edge=0.01,
+            max_depth_yes=80.0,
+            max_depth_no=75.0,
+            source="live",
+            market_meta={"slug": slug, "market_slug": slug, "question": "Will Democrats win the Senate?"},
+            ranking_orderbook={
+                "bids": [{"price": "0.45", "size": "200"}],
+                "asks": [{"price": "0.55", "size": "100"}],
+            },
+        ),
+    ]
+
+    fake_market = SimpleNamespace(
+        market_slug=slug,
+        question="Will Democrats win the Senate?",
+        category="Politics",
+        subcategory="US elections",
+        tags=["senate", "election"],
+        event_slug="2026-senate",
+        event_title="2026 Senate",
+        raw_json={
+            "slug": slug,
+            "question": "Will Democrats win the Senate?",
+            "volume24h": "12000",
+            "createdAt": _iso(FIXED_NOW - timedelta(hours=24)),
+        },
+    )
+
+    class FakeGamma:
+        def get_markets_by_slugs(self, slugs):
+            assert slugs == [slug]
+            return [fake_market]
+
+    market_meta, reward_configs, orderbooks = enrich_live_candidate_context(
+        candidates,
+        gamma_client=FakeGamma(),
+        fetch_reward_config_fn=lambda market_slug: {"reward_rate": 0.005} if market_slug == slug else None,
+    )
+
+    assert market_meta[slug]["volume_24h"] == pytest.approx(12_000.0)
+    assert reward_configs[slug]["reward_rate"] == pytest.approx(0.005)
+    assert orderbooks[slug] == candidates[0].ranking_orderbook
+
+    ranked = score_and_rank_candidates(
+        candidates,
+        market_meta=market_meta,
+        reward_configs=reward_configs,
+        orderbooks=orderbooks,
+    )
+
+    assert len(ranked) == 1
+    result = ranked[0]
+    assert result.reward_apr_est == pytest.approx(0.005 * 365.0, abs=0.01)
+    assert result.volume_24h == pytest.approx(12_000.0)
+    assert result.age_hours == pytest.approx(24.0, abs=0.1)
+    assert result.competition_score == pytest.approx(1.0)
+    assert result.regime == "politics"
+    assert result.regime_source == "derived"
+
+    text = "\n".join(result.explanation)
+    assert "reward: UNKNOWN" not in text
+    assert "volume_24h: UNKNOWN" not in text
+    assert "competition: UNKNOWN" not in text
+    assert "age: UNKNOWN" not in text
+
+
+def test_enrich_live_candidate_context_failure_is_nonfatal(monkeypatch):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        enrich_live_candidate_context,
+        score_and_rank_candidates,
+    )
+
+    candidates = [
+        CandidateResult(
+            slug="generic-market",
+            total_ticks=1,
+            depth_ok_ticks=0,
+            edge_ok_ticks=0,
+            executable_ticks=0,
+            best_edge=-98.0,
+            max_depth_yes=10.0,
+            max_depth_no=8.0,
+            source="live",
+            market_meta={"slug": "generic-market", "market_slug": "generic-market", "question": "Generic market"},
+        ),
+    ]
+
+    class BrokenGamma:
+        def get_markets_by_slugs(self, slugs):
+            raise RuntimeError("gamma unavailable")
+
+    def broken_reward_fetch(_slug: str) -> dict | None:
+        raise RuntimeError("reward unavailable")
+
+    market_meta, reward_configs, orderbooks = enrich_live_candidate_context(
+        candidates,
+        gamma_client=BrokenGamma(),
+        fetch_reward_config_fn=broken_reward_fetch,
+    )
+
+    assert market_meta == {}
+    assert reward_configs == {}
+    assert orderbooks == {}
+
+    ranked = score_and_rank_candidates(
+        candidates,
+        market_meta=market_meta,
+        reward_configs=reward_configs,
+        orderbooks=orderbooks,
+    )
+
+    assert len(ranked) == 1
+    result = ranked[0]
+    assert result.reward_apr_est is None
+    assert result.volume_24h is None
+    assert result.competition_score is None
+    assert result.age_hours is None
+    assert result.regime is None
+
+    text = "\n".join(result.explanation)
+    assert "reward: UNKNOWN" in text
+    assert "volume_24h: UNKNOWN" in text
+    assert "competition: UNKNOWN" in text
+    assert "age: UNKNOWN" in text
+    assert "regime: UNKNOWN" in text
+
+
+def test_enrich_live_candidate_context_keeps_volume_unknown_without_24h_field(monkeypatch):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        enrich_live_candidate_context,
+        score_and_rank_candidates,
+    )
+
+    slug = "generic-market"
+    candidates = [
+        CandidateResult(
+            slug=slug,
+            total_ticks=1,
+            depth_ok_ticks=0,
+            edge_ok_ticks=0,
+            executable_ticks=0,
+            best_edge=-98.0,
+            max_depth_yes=10.0,
+            max_depth_no=9.0,
+            source="live",
+            market_meta={"slug": slug, "market_slug": slug, "question": "Generic market"},
+        ),
+    ]
+
+    fake_market = SimpleNamespace(
+        market_slug=slug,
+        question="Generic market",
+        category="",
+        subcategory="",
+        tags=[],
+        event_slug="",
+        event_title="",
+        raw_json={
+            "slug": slug,
+            "question": "Generic market",
+            "volumeNum": "999999",
+            "createdAt": _iso(FIXED_NOW - timedelta(hours=12)),
+        },
+    )
+
+    class FakeGamma:
+        def get_markets_by_slugs(self, slugs):
+            assert slugs == [slug]
+            return [fake_market]
+
+    market_meta, reward_configs, orderbooks = enrich_live_candidate_context(
+        candidates,
+        gamma_client=FakeGamma(),
+        fetch_reward_config_fn=lambda _slug: None,
+    )
+
+    ranked = score_and_rank_candidates(
+        candidates,
+        market_meta=market_meta,
+        reward_configs=reward_configs,
+        orderbooks=orderbooks,
+    )
+
+    assert len(ranked) == 1
+    result = ranked[0]
+    assert result.volume_24h is None
+    assert result.age_hours == pytest.approx(12.0, abs=0.1)
+
+    text = "\n".join(result.explanation)
+    assert "volume_24h: UNKNOWN" in text
+    assert "age: UNKNOWN" not in text
+
+
+def test_print_ranked_table_shows_age_and_regime_source(monkeypatch, capsys):
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import print_ranked_table
+
+    scores = [
+        score_gate2_candidate(
+            "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+            **_candidate_kwargs(edge_ok_ticks=1, best_edge_raw=-0.02, depth_yes=40.0, depth_no=45.0),
+            market={
+                "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+                "question": "Will the Toronto Maple Leafs win the 2026 NHL Stanley Cup?",
+                "created_at": _iso(FIXED_NOW - timedelta(hours=12)),
+            },
+        ),
+        score_gate2_candidate(
+            "plain-market",
+            **_candidate_kwargs(),
+            market={},
+        ),
+    ]
+
+    print_ranked_table(scores, top=2, mode="live")
+    out = capsys.readouterr().out
+
+    assert "Age" in out
+    assert "RegSrc" in out
+    assert "NEW 12h" in out
+    assert "sports" in out
+    assert "derived" in out
+    assert "UNKNOWN" in out
+
+
+def test_main_watchlist_out_writes_exact_untruncated_slugs(monkeypatch, tmp_path, capsys):
+    from tools.cli import scan_gate2_candidates as module
+
+    long_slug = "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup-with-full-export"
+
+    monkeypatch.setattr(
+        module,
+        "scan_live_markets",
+        lambda **_kwargs: [
+            module.CandidateResult(
+                slug=long_slug,
+                total_ticks=1,
+                depth_ok_ticks=1,
+                edge_ok_ticks=1,
+                executable_ticks=1,
+                best_edge=0.01,
+                max_depth_yes=80.0,
+                max_depth_no=75.0,
+                source="live",
+            ),
+            module.CandidateResult(
+                slug="short-slug",
+                total_ticks=1,
+                depth_ok_ticks=0,
+                edge_ok_ticks=1,
+                executable_ticks=0,
+                best_edge=-0.01,
+                max_depth_yes=45.0,
+                max_depth_no=45.0,
+                source="live",
+            ),
+        ],
+    )
+
+    watchlist_path = tmp_path / "watchlists" / "gate2_top.txt"
+    exit_code = module.main(["--top", "1", "--watchlist-out", str(watchlist_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert watchlist_path.read_text(encoding="utf-8") == f"{long_slug}\n"
+    assert long_slug[:44] in captured.out
+    assert long_slug not in captured.out
+    assert "Wrote 1 exact slug(s)" in captured.err
+
+
+def test_main_default_output_still_works_without_watchlist_export(monkeypatch, capsys):
+    from tools.cli import scan_gate2_candidates as module
+
+    monkeypatch.setattr(
+        module,
+        "scan_live_markets",
+        lambda **_kwargs: [
+            module.CandidateResult(
+                slug="plain-market",
+                total_ticks=1,
+                depth_ok_ticks=1,
+                edge_ok_ticks=0,
+                executable_ticks=0,
+                best_edge=-0.02,
+                max_depth_yes=60.0,
+                max_depth_no=55.0,
+                source="live",
+            ),
+        ],
+    )
+
+    exit_code = module.main(["--top", "1"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Market" in captured.out
+    assert "plain-market" in captured.out
+    assert "Showed 1/1 candidates. Mode: live" in captured.out
+    assert "[scan-gate2] Scanning live markets" in captured.err
+    assert "Wrote" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Test: write_ranked_json
+# ---------------------------------------------------------------------------
+
+
+def test_write_ranked_json_creates_file(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        RANKED_JSON_SCHEMA_VERSION,
+        score_and_rank_candidates,
+        write_ranked_json,
+    )
+
+    candidates = [
+        CandidateResult(
+            slug="will-the-okc-thunder-win",
+            total_ticks=10, depth_ok_ticks=5, edge_ok_ticks=3, executable_ticks=0,
+            best_edge=-0.02, max_depth_yes=60.0, max_depth_no=55.0, source="live",
+        ),
+        CandidateResult(
+            slug="short-slug",
+            total_ticks=5, depth_ok_ticks=0, edge_ok_ticks=1, executable_ticks=0,
+            best_edge=-0.05, max_depth_yes=30.0, max_depth_no=25.0, source="live",
+        ),
+    ]
+    ranked = score_and_rank_candidates(candidates)
+    out_path = tmp_path / "ranked" / "scan.json"
+    written = write_ranked_json(ranked, out_path, top=2, mode="live")
+
+    assert written == 2
+    assert out_path.exists()
+    artifact = json.loads(out_path.read_text(encoding="utf-8"))
+    assert artifact["schema_version"] == RANKED_JSON_SCHEMA_VERSION
+    assert artifact["scan_mode"] == "live"
+    assert artifact["total_candidates"] == 2
+    assert len(artifact["candidates"]) == 2
+    first = artifact["candidates"][0]
+    assert first["rank"] == 1
+    assert first["slug"] == ranked[0].slug
+    assert first["gate2_status"] == ranked[0].gate2_status
+    assert "rank_score" in first
+    assert "explanation" in first
+    assert isinstance(first["explanation"], list)
+
+
+def test_write_ranked_json_top_limits_output(monkeypatch, tmp_path):
+    import json
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        score_and_rank_candidates,
+        write_ranked_json,
+    )
+
+    candidates = [
+        CandidateResult(
+            slug=f"market-{i}",
+            total_ticks=1, depth_ok_ticks=0, edge_ok_ticks=0, executable_ticks=0,
+            best_edge=-98.0, max_depth_yes=10.0, max_depth_no=10.0, source="live",
+        )
+        for i in range(5)
+    ]
+    ranked = score_and_rank_candidates(candidates)
+    out_path = tmp_path / "scan.json"
+    written = write_ranked_json(ranked, out_path, top=3, mode="live")
+
+    assert written == 3
+    artifact = json.loads(out_path.read_text(encoding="utf-8"))
+    assert len(artifact["candidates"]) == 3
+    assert artifact["total_candidates"] == 5
+
+
+def test_write_ranked_json_fields_match_score(monkeypatch, tmp_path):
+    """Each ranked JSON candidate carries the exact same values as Gate2RankScore."""
+    import json
+    monkeypatch.setattr(scorer, "_utcnow", lambda: FIXED_NOW)
+    from tools.cli.scan_gate2_candidates import (
+        CandidateResult,
+        score_and_rank_candidates,
+        write_ranked_json,
+    )
+
+    candidates = [
+        CandidateResult(
+            slug="will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+            total_ticks=1, depth_ok_ticks=1, edge_ok_ticks=1, executable_ticks=1,
+            best_edge=0.02, max_depth_yes=70.0, max_depth_no=65.0, source="live",
+            market_meta={
+                "slug": "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup",
+                "question": "Will the Toronto Maple Leafs win the 2026 NHL Stanley Cup?",
+                "volume_24h": 20000.0,
+                "created_at": _iso(FIXED_NOW - timedelta(hours=30)),
+            },
+        ),
+    ]
+    ranked = score_and_rank_candidates(candidates)
+    score = ranked[0]
+    out_path = tmp_path / "scan.json"
+    write_ranked_json(ranked, out_path, top=1, mode="live")
+
+    artifact = json.loads(out_path.read_text(encoding="utf-8"))
+    entry = artifact["candidates"][0]
+
+    assert entry["slug"] == score.slug
+    assert entry["gate2_status"] == score.gate2_status
+    assert entry["rank_score"] == pytest.approx(score.rank_score, abs=1e-5)
+    assert entry["executable_ticks"] == score.executable_ticks
+    assert entry["regime"] == score.regime
+    assert entry["is_new_market"] == score.is_new_market
+    assert entry["age_hours"] == pytest.approx(30.0, abs=0.2)
+    assert entry["explanation"] == list(score.explanation)
+
+
+def test_main_ranked_json_out_writes_file(monkeypatch, tmp_path, capsys):
+    import json
+    from tools.cli import scan_gate2_candidates as module
+
+    long_slug = "will-the-toronto-maple-leafs-win-the-2026-nhl-stanley-cup-playoffs"
+    monkeypatch.setattr(
+        module,
+        "scan_live_markets",
+        lambda **_kwargs: [
+            module.CandidateResult(
+                slug=long_slug,
+                total_ticks=1, depth_ok_ticks=1, edge_ok_ticks=1, executable_ticks=1,
+                best_edge=0.01, max_depth_yes=80.0, max_depth_no=75.0, source="live",
+            ),
+        ],
+    )
+
+    ranked_path = tmp_path / "ranked_scan.json"
+    exit_code = module.main(["--top", "1", "--ranked-json-out", str(ranked_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert ranked_path.exists()
+    artifact = json.loads(ranked_path.read_text(encoding="utf-8"))
+    assert artifact["schema_version"] == module.RANKED_JSON_SCHEMA_VERSION
+    assert len(artifact["candidates"]) == 1
+    # Slug is stored full and untruncated in the JSON
+    assert artifact["candidates"][0]["slug"] == long_slug
+    assert "Wrote 1 ranked candidate(s)" in captured.err
+
+
+def test_main_ranked_json_out_and_watchlist_out_can_coexist(monkeypatch, tmp_path, capsys):
+    from tools.cli import scan_gate2_candidates as module
+
+    monkeypatch.setattr(
+        module,
+        "scan_live_markets",
+        lambda **_kwargs: [
+            module.CandidateResult(
+                slug="plain-market",
+                total_ticks=1, depth_ok_ticks=1, edge_ok_ticks=0, executable_ticks=0,
+                best_edge=-0.02, max_depth_yes=60.0, max_depth_no=55.0, source="live",
+            ),
+        ],
+    )
+
+    watchlist_path = tmp_path / "slugs.txt"
+    ranked_path = tmp_path / "ranked.json"
+    exit_code = module.main([
+        "--top", "1",
+        "--watchlist-out", str(watchlist_path),
+        "--ranked-json-out", str(ranked_path),
+    ])
+
+    assert exit_code == 0
+    assert watchlist_path.exists()
+    assert ranked_path.exists()
+    captured = capsys.readouterr()
+    assert "Wrote 1 exact slug(s)" in captured.err
+    assert "Wrote 1 ranked candidate(s)" in captured.err

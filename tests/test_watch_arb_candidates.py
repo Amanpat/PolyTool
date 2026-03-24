@@ -67,6 +67,25 @@ def _write_watchlist(tmp_path: Path, entries: list[dict]) -> Path:
     return path
 
 
+def _write_slug_watchlist(tmp_path: Path, lines: list[str]) -> Path:
+    path = tmp_path / "watchlist.txt"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleep_calls: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleep_calls.append(seconds)
+        self.now += seconds
+
+
 # ---------------------------------------------------------------------------
 # evaluate_trigger: correct firing behaviour
 # ---------------------------------------------------------------------------
@@ -203,23 +222,29 @@ def _make_watcher(
     *,
     near_edge_threshold: float = _NEAR_EDGE,
     min_depth: float = _MIN_DEPTH,
+    poll_interval: float = 0.0,
+    duration_seconds: float = 1.0,
     fetch_fn=None,
     record_fn=None,
     max_concurrent: int = 2,
     dry_run: bool = False,
+    monotonic_fn=None,
+    sleep_fn=None,
 ) -> ArbWatcher:
     return ArbWatcher(
         resolved_markets=resolved_markets,
         near_edge_threshold=near_edge_threshold,
         min_depth=min_depth,
-        poll_interval=0.0,
-        duration_seconds=1.0,
+        poll_interval=poll_interval,
+        duration_seconds=duration_seconds,
         tapes_base_dir=Path("artifacts/simtrader/tapes"),
         ws_url="wss://test",
         max_concurrent=max_concurrent,
         dry_run=dry_run,
         _fetch_fn=fetch_fn,
         _record_fn=record_fn,
+        _monotonic_fn=monotonic_fn,
+        _sleep_fn=sleep_fn,
     )
 
 
@@ -397,6 +422,33 @@ class TestArbWatcherTrigger:
         with watcher._lock:
             assert resolved.slug not in watcher._recording_slugs
 
+    def test_run_exits_when_duration_elapses_without_major_overshoot(self, capsys):
+        resolved = _resolved("market-duration-stop")
+        clock = _FakeClock()
+        fetch_calls: list[float] = []
+
+        def fake_fetch(r):
+            fetch_calls.append(clock.now)
+            return _asks(0.50, 100), _asks(0.51, 100)  # no trigger
+
+        watcher = _make_watcher(
+            [resolved],
+            fetch_fn=fake_fetch,
+            poll_interval=5.0,
+            duration_seconds=0.6,
+            monotonic_fn=clock.monotonic,
+            sleep_fn=clock.sleep,
+        )
+
+        watcher.run()
+
+        out = capsys.readouterr().out
+        assert fetch_calls == [0.0]
+        assert clock.now == pytest.approx(0.6)
+        assert sum(clock.sleep_calls) == pytest.approx(0.6)
+        assert max(clock.sleep_calls) <= 0.25
+        assert "Duration elapsed; stopping." in out
+
 
 # ---------------------------------------------------------------------------
 # Watchlist-file ingest
@@ -404,6 +456,50 @@ class TestArbWatcherTrigger:
 
 
 class TestWatchlistFileInput:
+    def test_comma_separated_markets_are_accepted(self):
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(self):
+            captured["slugs"] = [resolved.slug for resolved in self.resolved_markets]
+
+        with (
+            patch("tools.cli.watch_arb_candidates._resolve_market", side_effect=_resolved),
+            patch.object(ArbWatcher, "run", fake_run),
+        ):
+            rc = main(
+                [
+                    "--markets",
+                    "market-a,market-b,market-c",
+                    "--dry-run",
+                ]
+            )
+
+        assert rc == 0
+        assert captured["slugs"] == ["market-a", "market-b", "market-c"]
+
+    def test_space_separated_markets_are_accepted(self):
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(self):
+            captured["slugs"] = [resolved.slug for resolved in self.resolved_markets]
+
+        with (
+            patch("tools.cli.watch_arb_candidates._resolve_market", side_effect=_resolved),
+            patch.object(ArbWatcher, "run", fake_run),
+        ):
+            rc = main(
+                [
+                    "--markets",
+                    "market-a",
+                    "market-b",
+                    "market-c",
+                    "--dry-run",
+                ]
+            )
+
+        assert rc == 0
+        assert captured["slugs"] == ["market-a", "market-b", "market-c"]
+
     def test_valid_watchlist_file_ingest(self, tmp_path):
         now = datetime(2026, 3, 7, 12, 0, tzinfo=timezone.utc)
         watchlist_path = _write_watchlist(
@@ -426,6 +522,22 @@ class TestWatchlistFileInput:
         assert targets[0].metadata["priority"] == 1
         assert targets[0].metadata["provenance"]["source_id"] == "abc123"
 
+    def test_newline_delimited_watchlist_file_ingest(self, tmp_path):
+        watchlist_path = _write_slug_watchlist(
+            tmp_path,
+            [
+                "report-market-a",
+                "",
+                "  report-market-b  ",
+                "",
+            ],
+        )
+
+        targets = _load_watchlist_file(watchlist_path)
+
+        assert [target.slug for target in targets] == ["report-market-a", "report-market-b"]
+        assert [target.metadata for target in targets] == [{}, {}]
+
     def test_missing_market_slug_rejected(self, tmp_path):
         watchlist_path = _write_watchlist(
             tmp_path,
@@ -438,6 +550,26 @@ class TestWatchlistFileInput:
         )
 
         with pytest.raises(ValueError, match="market_slug"):
+            _load_watchlist_file(watchlist_path)
+
+    def test_empty_watchlist_file_rejected(self, tmp_path):
+        watchlist_path = tmp_path / "watchlist.txt"
+        watchlist_path.write_text("\n  \n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="watchlist file is empty"):
+            _load_watchlist_file(watchlist_path)
+
+    def test_malformed_json_watchlist_file_rejected(self, tmp_path):
+        watchlist_path = tmp_path / "watchlist.json"
+        watchlist_path.write_text("{not valid json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="looks like JSON but is not valid JSON"):
+            _load_watchlist_file(watchlist_path)
+
+    def test_malformed_slug_watchlist_file_rejected(self, tmp_path):
+        watchlist_path = _write_slug_watchlist(tmp_path, ["market-a,market-b"])
+
+        with pytest.raises(ValueError, match="one market slug per non-blank line"):
             _load_watchlist_file(watchlist_path)
 
     def test_duplicate_slugs_deduped(self, tmp_path):
@@ -530,9 +662,12 @@ class TestMain:
         rc = main(["--markets", "test-slug", "--min-depth", "-1"])
         assert rc == 1
 
-    def test_rejects_empty_markets(self):
+    def test_rejects_empty_markets(self, capsys):
         rc = main(["--markets", ",,,"])
+        err = capsys.readouterr().err
         assert rc == 1
+        assert "--markets slug1 slug2" in err
+        assert '--markets "slug1,slug2"' in err
 
     def test_resolve_failure_skips_market_and_returns_error_when_all_fail(self):
         """When all slugs fail to resolve, main returns exit code 1."""

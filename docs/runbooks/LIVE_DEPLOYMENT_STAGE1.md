@@ -8,7 +8,7 @@
 - VPS is provisioned, reachable, and has the repo checked out on the intended release commit.
 - Environment is loaded with `PK` and, if already derived, `CLOB_API_KEY`, `CLOB_API_SECRET`, and `CLOB_API_PASSPHRASE`.
 - The trading wallet holds enough USDC for the configured Stage 1 limits.
-- Grafana dashboards and Telegram alerts are active before the session starts.
+- Grafana dashboards and Discord alerts are active before the session starts.
 
 ## Validation Pipeline (Canonical)
 
@@ -45,7 +45,7 @@ python -m polytool simtrader live --live --strategy market_maker_v0 \
 ## Monitor
 
 - Watch Grafana panels for order attempts, submitted orders, rejections, and kill-switch state.
-- Watch Telegram alerts for runtime errors, kill-switch trips, and loss-cap breaches.
+- Watch Discord alerts for runtime errors, kill-switch trips, and loss-cap breaches.
 - Confirm the stderr banner shows `mode          : LIVE` before treating the session as armed.
 
 ## Emergency Stop
@@ -69,5 +69,5 @@ touch artifacts/kill_switch.txt
 - Confirm gate artifacts still match the release commit used for the session.
 - Review fills, cancels, rejects, and realized PnL for the day.
 - Check that daily loss cap and inventory skew stayed within limits.
-- Verify Grafana and Telegram coverage matched the actual session timeline.
+- Verify Grafana and Discord coverage matched the actual session timeline.
 - Archive the session notes, commit hash, and any incidents before the next live run.

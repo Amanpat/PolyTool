@@ -86,6 +86,16 @@ def _write_gate_result(passed: bool, payload: dict) -> Path:
     if opposite.exists():
         opposite.unlink()
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    try:
+        from packages.polymarket.notifications.discord import notify_gate_result as _ng
+        _ng(
+            payload.get("gate", "unknown"),
+            passed,
+            commit=payload.get("commit", "unknown"),
+            detail=payload.get("failure_reason") if not passed else None,
+        )
+    except Exception:
+        pass  # notifications are best-effort; never block gate script
     return path
 
 

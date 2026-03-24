@@ -36,7 +36,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Mapping, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +69,166 @@ class PrepResult:
     stats: dict[str, Any] = field(default_factory=dict)
 
 
+_SNAPSHOT_FIELD_MAP = (
+    ("market_slug", "market_slug"),
+    ("slug", "market_slug"),
+    ("question", "question"),
+    ("title", "title"),
+    ("category", "category"),
+    ("subcategory", "subcategory"),
+    ("category_source", "category_source"),
+    ("subcategory_source", "subcategory_source"),
+    ("tags", "tags"),
+    ("tag_names", "tag_names"),
+    ("tagNames", "tagNames"),
+    ("event_slug", "event_slug"),
+    ("event_title", "event_title"),
+    ("created_at", "created_at"),
+    ("createdAt", "created_at"),
+    ("age_hours", "age_hours"),
+    ("ageHours", "age_hours"),
+    ("captured_at", "captured_at"),
+)
+_SNAPSHOT_CREATED_AT_KEYS = (
+    "created_at",
+    "createdAt",
+    "created_time",
+    "createdTime",
+    "published_at",
+    "publishedAt",
+    "listed_at",
+    "listedAt",
+)
+_SNAPSHOT_AGE_KEYS = ("age_hours", "ageHours")
+
+
+def _snapshot_value_present(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _snapshot_iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _snapshot_float(value: Any) -> Optional[float]:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshot_datetime(value: Any) -> Optional[datetime]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _merge_market_snapshot(dst: dict[str, Any], src: Mapping[str, Any]) -> dict[str, Any]:
+    for src_key, dst_key in _SNAPSHOT_FIELD_MAP:
+        value = src.get(src_key)
+        if _snapshot_value_present(value) and dst_key not in dst:
+            dst[dst_key] = value
+    return dst
+
+
+def _finalize_market_snapshot(
+    snapshot: dict[str, Any],
+    *,
+    captured_at: datetime,
+) -> dict[str, Any]:
+    snapshot.setdefault("captured_at", _snapshot_iso(captured_at))
+    age_hours = None
+    for key in _SNAPSHOT_AGE_KEYS:
+        age_hours = _snapshot_float(snapshot.get(key))
+        if age_hours is not None and age_hours >= 0.0:
+            snapshot["age_hours"] = age_hours
+            break
+    if age_hours is None:
+        for key in _SNAPSHOT_CREATED_AT_KEYS:
+            created_at = _snapshot_datetime(snapshot.get(key))
+            if created_at is None:
+                continue
+            age_hours = (captured_at - created_at).total_seconds() / 3600.0
+            if age_hours >= 0.0:
+                snapshot["age_hours"] = age_hours
+            break
+    return snapshot
+
+
+def _build_market_snapshot(
+    market: Any,
+    *,
+    captured_at: Optional[datetime] = None,
+) -> dict[str, Any]:
+    captured_dt = captured_at or datetime.now(timezone.utc)
+    snapshot: dict[str, Any] = {}
+
+    for attr in (
+        "market_slug",
+        "question",
+        "category",
+        "subcategory",
+        "category_source",
+        "subcategory_source",
+        "tags",
+        "event_slug",
+        "event_title",
+    ):
+        value = getattr(market, attr, None)
+        if _snapshot_value_present(value):
+            snapshot[attr] = value
+
+    raw_json = getattr(market, "raw_json", None)
+    if isinstance(raw_json, Mapping):
+        _merge_market_snapshot(snapshot, raw_json)
+
+    return _finalize_market_snapshot(snapshot, captured_at=captured_dt)
+
+
+def _candidate_market_snapshot(candidate: Any) -> dict[str, Any]:
+    captured_at = datetime.now(timezone.utc)
+    snapshot: dict[str, Any] = {}
+    market_meta = getattr(candidate, "market_meta", None)
+    if isinstance(market_meta, Mapping):
+        _merge_market_snapshot(snapshot, market_meta)
+    if getattr(candidate, "slug", None):
+        snapshot.setdefault("market_slug", getattr(candidate, "slug"))
+    return _finalize_market_snapshot(snapshot, captured_at=captured_at)
+
+
+def _normalize_resolve_result(result: Any) -> tuple[str, str, dict[str, Any]]:
+    if isinstance(result, tuple):
+        if len(result) == 3:
+            yes_id, no_id, snapshot = result
+            snapshot_dict = dict(snapshot) if isinstance(snapshot, Mapping) else {}
+            return str(yes_id), str(no_id), snapshot_dict
+        if len(result) == 2:
+            yes_id, no_id = result
+            return str(yes_id), str(no_id), {}
+    raise ValueError("resolve function must return (yes_id, no_id) or (yes_id, no_id, snapshot)")
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers (each is independently injectable for testing)
 # ---------------------------------------------------------------------------
 
 
-def _resolve_asset_ids(slug: str) -> tuple[str, str]:
-    """Return (yes_token_id, no_token_id) for a market slug.
+def _resolve_asset_ids(slug: str) -> tuple[str, str, dict[str, Any]]:
+    """Return (yes_token_id, no_token_id, market_snapshot) for a market slug.
 
     Raises MarketPickerError when the slug cannot be resolved.
     """
@@ -83,9 +236,27 @@ def _resolve_asset_ids(slug: str) -> tuple[str, str]:
     from packages.polymarket.gamma import GammaClient
     from packages.polymarket.simtrader.market_picker import MarketPicker
 
-    picker = MarketPicker(GammaClient(), ClobClient())
+    gamma = GammaClient()
+    picker = MarketPicker(gamma, ClobClient())
+    captured_at = datetime.now(timezone.utc)
     resolved = picker.resolve_slug(slug)
-    return resolved.yes_token_id, resolved.no_token_id
+    snapshot = _finalize_market_snapshot(
+        {
+            "market_slug": resolved.slug,
+            "question": resolved.question,
+        },
+        captured_at=captured_at,
+    )
+    try:
+        markets = gamma.fetch_markets_filtered(slugs=[slug])
+    except Exception:
+        markets = []
+    if markets:
+        snapshot = _build_market_snapshot(markets[0], captured_at=captured_at)
+        snapshot.setdefault("market_slug", resolved.slug)
+        if resolved.question:
+            snapshot.setdefault("question", resolved.question)
+    return resolved.yes_token_id, resolved.no_token_id, snapshot
 
 
 def _record_tape(
@@ -231,6 +402,7 @@ def prepare_candidates(
     buffer: float,
     ws_url: str,
     dry_run: bool,
+    regime: str = "unknown",
     # Injectable for testing — pass None to use production implementations.
     _resolve_fn: Optional[Callable] = None,
     _record_fn: Optional[Callable] = None,
@@ -252,7 +424,8 @@ def prepare_candidates(
         buffer:          Strategy buffer for eligibility check.
         ws_url:          WebSocket URL for recording.
         dry_run:         If True, skip recording and eligibility (show candidates only).
-        _resolve_fn:     Injectable resolver: fn(slug) -> (yes_id, no_id).
+        _resolve_fn:     Injectable resolver: fn(slug) -> (yes_id, no_id)
+                         or (yes_id, no_id, market_snapshot).
         _record_fn:      Injectable recorder: fn(slug, yes_id, no_id, tape_dir, *, ...).
         _check_fn:       Injectable check: fn(tape_dir, yes_id, no_id, max_size, buffer).
 
@@ -268,6 +441,7 @@ def prepare_candidates(
 
     for candidate in selected:
         slug = candidate.slug
+        market_snapshot = _candidate_market_snapshot(candidate)
         print(f"\n[prepare-gate2] {slug}", file=sys.stderr)
 
         if dry_run:
@@ -276,7 +450,14 @@ def prepare_candidates(
 
         # -- Step 1: Resolve YES/NO token IDs. --------------------------------
         try:
-            yes_id, no_id = resolve_fn(slug)
+            yes_id, no_id, resolved_snapshot = _normalize_resolve_result(resolve_fn(slug))
+            if resolved_snapshot:
+                merged_snapshot = dict(resolved_snapshot)
+                _merge_market_snapshot(merged_snapshot, market_snapshot)
+                market_snapshot = _finalize_market_snapshot(
+                    merged_snapshot,
+                    captured_at=datetime.now(timezone.utc),
+                )
         except Exception as exc:
             logger.warning("Could not resolve asset IDs for %r: %s", slug, exc)
             results.append(
@@ -315,6 +496,24 @@ def prepare_candidates(
                 )
             )
             continue
+
+        # Write regime label into prep_meta.json (best-effort merge).
+        prep_meta_path = tape_dir / "prep_meta.json"
+        if prep_meta_path.exists():
+            try:
+                existing = json.loads(prep_meta_path.read_text(encoding="utf-8"))
+                existing["regime"] = regime
+                if market_snapshot:
+                    existing_snapshot = existing.get("market_snapshot")
+                    merged_snapshot = dict(existing_snapshot) if isinstance(existing_snapshot, Mapping) else {}
+                    _merge_market_snapshot(merged_snapshot, market_snapshot)
+                    existing["market_snapshot"] = _finalize_market_snapshot(
+                        merged_snapshot,
+                        captured_at=datetime.now(timezone.utc),
+                    )
+                prep_meta_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+            except Exception:
+                pass
 
         # -- Step 3: Eligibility check. ----------------------------------------
         print("[prepare-gate2]   checking eligibility...", file=sys.stderr)
@@ -554,6 +753,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="WebSocket URL for tape recording.",
     )
     p.add_argument(
+        "--regime",
+        choices=["politics", "sports", "new_market", "unknown"],
+        default="unknown",
+        metavar="REGIME",
+        help=(
+            "Market regime label written to tape metadata for corpus tracking. "
+            "Used by 'tape-manifest' to verify mixed-regime coverage. "
+            "Choices: politics, sports, new_market, unknown (default: unknown)."
+        ),
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Show candidates but skip recording and eligibility checks.",
@@ -634,6 +844,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         buffer=args.buffer,
         ws_url=args.ws_url,
         dry_run=args.dry_run,
+        regime=args.regime,
     )
 
     print_summary(results, dry_run=args.dry_run)

@@ -64,8 +64,15 @@ Quick-reference index of all key docs and what they cover.
 | [Track A: Live CLOB Wiring + Gate Harness](features/FEATURE-trackA-live-clob-wiring.md) | Track A live CLOB integration, gate harness, market-scan CLI |
 | [Gate 2 Eligible Tape Acquisition](features/FEATURE-gate2-eligible-tape-acquisition.md) | tape-manifest CLI, regime labeling, eligibility invariant, corpus coverage tracking |
 | [Discord Alerting — Track A](features/FEATURE-discord-alerting-tracka.md) | Discord webhook transport, gate hooks, kill-switch and risk-halt alerts |
+| [Discord Session Lifecycle Hooks](features/FEATURE-discord-session-lifecycle-hooks.md) | `simtrader live` now fires Discord session start/stop/error alerts at the CLI boundary and reuses the same notifier for runtime alerts |
 | [Regime Integrity for Gate 2 Artifacts](features/FEATURE-regime-integrity-gate2-artifacts.md) | Machine-derived regime classification, provenance fields, mismatch detection, shared coverage helper |
 | [Gate 2 Candidate Ranking](features/FEATURE-phase1-gate2-candidate-ranking.md) | Explainable multi-factor ranking for Gate 2 candidate markets (reward/volume/competition/new-market/regime) |
+| [Gate 2 Preflight](features/FEATURE-gate2-preflight.md) | Operator-safe READY/BLOCKED preflight for sweep readiness, eligible tape visibility, and mixed-regime blockers |
+| [Gate 2 Capture Session Pack](features/FEATURE-gate2-capture-session-pack.md) | `make-session-pack` turns an explicit Gate 2 selection into an exact watchlist file plus a watcher-compatible session plan; coverage-aware via `--prefer-missing-regimes` / `--target-regime` |
+| [Scan Derived Regime Context](features/FEATURE-scan-derived-regime-context.md) | Gate 2 scan output now derives regime from metadata first, shows provenance, and prints explicit age/regime unknowns |
+| [Scan Metadata Enrichment](features/FEATURE-scan-metadata-enrichment.md) | Optional live `--enrich` fetch reduces UNKNOWN reward/volume/age/competition/regime-context fields without changing the default scan path |
+| [Scan Exact Slug Export](features/FEATURE-scan-exact-slug-export.md) | `scan-gate2-candidates --watchlist-out` writes exact full slugs for the shown ranked candidates so operators do not copy truncated table values |
+| [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
 
 ## Specs
 
@@ -86,15 +93,33 @@ Quick-reference index of all key docs and what they cover.
 | [SPEC-0015: Discord Alerting and Operator Notifications](specs/SPEC-0015-discord-alerting-and-operator-notifications.md) | Event taxonomy, transport contract, env config, failure behavior, test strategy |
 | [SPEC-0016: Regime Integrity for Gate 2 Artifacts](specs/SPEC-0016-regime-integrity-for-gate2-artifacts.md) | Regime provenance contract for Gate 2 tape manifest: derived vs operator labels, mismatch detection, shared coverage helper |
 | [SPEC-0017: Phase 1 Gate 2 Candidate Ranking](specs/SPEC-0017-phase1-gate2-candidate-ranking.md) | Ranking factors, weights, missing-data policy, new-market logic, operator guidance |
+| [SPEC-0018: Gate 2 Capture Session Pack](specs/SPEC-0018-gate2-capture-session-pack.md) | Session pack format, CLI contract, watcher-compatible plan JSON, and post-session template |
 
 ## Dev Logs (recent)
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Phase 1 Track A Docs Truth Sync](dev_logs/2026-03-10_phase1_tracka_docs_truth_sync.md) | 2026-03-10 | Docs-only truth sync: status date, Gate 2 tooling inventory, corpus state, INDEX gaps all corrected |
+| [Session Pack Target-Regime Fix](dev_logs/2026-03-10_session_pack_target_regime_fix.md) | 2026-03-10 | Fixed: UNKNOWN-regime markets no longer falsely claim to advance named-regime coverage via session-level `--regime` operator fallback |
+| [Phase 1 Track A Contract Exercise](dev_logs/2026-03-10_phase1_tracka_contract_exercise.md) | 2026-03-10 | Offline contract exercise: full ranked-JSON → session pack → watcher loader chain verified; corpus confirmed 0 eligible tapes, sports coverage only |
+| [Background Gate 2 Session Helper](dev_logs/2026-03-10_background_gate2_session_helper.md) | 2026-03-10 | `tools/ops/run_gate2_session.ps1` — PowerShell helper that runs scan → session pack → background watch in one command |
+| [Coverage-Aware Session Pack](dev_logs/2026-03-10_coverage_aware_session_pack.md) | 2026-03-10 | `make-session-pack` now accepts `--prefer-missing-regimes` / `--target-regime`; adds `coverage_intent` field to session_plan.json |
+| [Ranked Scan → Session Pack Pipeline](dev_logs/2026-03-09_ranked_scan_to_session_pack.md) | 2026-03-09 | `scan-gate2-candidates --ranked-json-out` emits advisory JSON; `make-session-pack --ranked-json` consumes it with rank/gate2_status/explanation preserved in the session plan |
+| [Gate 2 Capture Session Pack](dev_logs/2026-03-09_gate2_capture_session_pack.md) | 2026-03-09 | `make-session-pack` now accepts ranked watchlist input and writes a watcher-compatible plan JSON with per-slug planning context |
+| [Phase 1 Track A Offline Verification](dev_logs/2026-03-09_phase1_tracka_offline_verification.md) | 2026-03-09 | Offline verification pass for the end-to-end Gate 2 toolchain against local artifact fixtures |
+| [Gate 2 Regime Coverage Fix](dev_logs/2026-03-09_gate2_regime_coverage_fix.md) | 2026-03-09 | Fixed regime coverage derivation in tape-manifest and corpus summary |
+| [Watch Arb Duration Fix](dev_logs/2026-03-09_watch_arb_duration_fix.md) | 2026-03-09 | `watch-arb-candidates` now enforces `--duration` with a monotonic deadline and capped sleep so bounded watch sessions exit automatically |
+| [Watch Arb CLI Ergonomics](dev_logs/2026-03-08_watch_arb_cli_ergonomics.md) | 2026-03-08 | `watch-arb-candidates --markets` now accepts repeated or comma-delimited slugs; empty malformed input prints the expected format |
 | [Phase 1 Gate 2 Candidate Ranking](dev_logs/2026-03-08_phase1_gate2_candidate_ranking.md) | 2026-03-08 | Gate2RankScore, score_gate2_candidate, rank_gate2_candidates, 14 new tests |
+| [Scan Derived Regime Context](dev_logs/2026-03-08_scan_derived_regime_context.md) | 2026-03-08 | scan metadata pass-through, derived regime provenance, Age/RegSrc output, 27 passing tests |
+| [Scan Metadata Enrichment](dev_logs/2026-03-08_scan_metadata_enrichment.md) | 2026-03-08 | optional live `--enrich`, reward/market metadata fetch, conservative UNKNOWN fallback, 31 passing tests |
+| [Capture Metadata Snapshot Hardening](dev_logs/2026-03-08_capture_metadata_snapshot_hardening.md) | 2026-03-08 | additive market_snapshot persistence, manifest snapshot preference, legacy fallback, 75 passing tests |
+| [Scan Exact Slug Export](dev_logs/2026-03-08_scan_exact_slug_export.md) | 2026-03-08 | `scan-gate2-candidates --watchlist-out` exports exact full slugs for the shown ranked candidates; default output unchanged |
 | [Regime Integrity for Gate 2 Artifacts](dev_logs/2026-03-08_regime_integrity_gate2_artifacts.md) | 2026-03-08 | derive_tape_regime, coverage_from_classified_regimes, TapeRecord provenance fields, schema v2, 25 new tests |
 | [Discord Alerting — Track A](dev_logs/2026-03-08_discord_alerting_tracka.md) | 2026-03-08 | Discord webhook module, gate hooks, LiveRunner notifier, 29 tests |
+| [Discord Session Lifecycle Hooks](dev_logs/2026-03-08_discord_session_lifecycle_hooks.md) | 2026-03-08 | `simtrader live` CLI lifecycle hooks, safe notifier dispatch, 4 new offline tests |
 | [Gate 2 Eligible Tape Acquisition](dev_logs/2026-03-08_gate2_eligible_tape_acquisition.md) | 2026-03-08 | tape-manifest CLI, regime labeling on capture tools, eligibility invariant, 34 new tests |
+| [Gate 2 Preflight](dev_logs/2026-03-08_gate2_preflight.md) | 2026-03-08 | operator READY/BLOCKED preflight, eligible tape list, exact next action, 55 passing tests |
 | [Phase 1 Track A Gap Audit](dev_logs/2026-03-08_phase1_tracka_gap_audit.md) | 2026-03-08 | Read-only audit: gap matrix findings, top 3 blockers, recommended packets (→ SPEC-0013) |
 | [Phase 1 Track A Truth Sync](dev_logs/2026-03-08_phase1_tracka_truth_sync.md) | 2026-03-08 | Docs-only truth sync: canonical strategy, Discord alerting, gate ladder, SPEC-0012 |
 | [Usability Streamlining Pass](dev_logs/2026-03-07_usability_streamlining_pass.md) | 2026-03-07 | CLI grouping, rag-refresh alias, Studio Grafana links, OPERATOR_QUICKSTART rewrite |

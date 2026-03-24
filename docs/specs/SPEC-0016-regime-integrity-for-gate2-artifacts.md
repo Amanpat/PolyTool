@@ -65,6 +65,13 @@ Every tape entry in `gate2_tape_manifest.json` (schema v2) carries:
 The existing `regime` field is retained for backward compatibility and equals
 `final_regime` for all new records.
 
+### Artifact-local snapshot precedence
+
+If `watch_meta.json` or `prep_meta.json` contains a `market_snapshot` block,
+the manifest generator derives regime/new-market context from that snapshot
+first. Legacy top-level metadata and `meta.json` remain fallback sources for
+older tapes that do not carry a snapshot.
+
 ### Selection logic for `final_regime`
 
 ```
@@ -123,8 +130,9 @@ Coverage is computed from eligible tapes' `final_regime` values only.
 
 ## 5. Legacy artifact backward compatibility
 
-Tapes recorded before this spec have no `derived_regime` / `final_regime` in
-their metadata files.  The manifest generator handles these conservatively:
+Tapes recorded before this spec have no `market_snapshot`, `derived_regime`,
+or `final_regime` in their metadata files. The manifest generator handles
+these conservatively:
 
 1. `operator_regime` = whatever the `regime` field says in the existing
    watch_meta.json / prep_meta.json (may be `"unknown"`)
@@ -148,10 +156,12 @@ will upgrade their manifest entries automatically.
    regimes and they disagree.
 5. `corpus_summary.regime_coverage` is present and uses
    `coverage_from_classified_regimes()` logic.
-6. `mixed_regime_eligible` computation is identical under both the old and new
+6. When a capture artifact contains `market_snapshot`, regime/new-market
+   derivation prefers that artifact-local snapshot over `meta.json`.
+7. `mixed_regime_eligible` computation is identical under both the old and new
    implementations for any corpus where all tapes have operator labels.
-7. Legacy tape records (no new fields) serialize with `regime` = operator label.
-8. All tests in `tests/test_regime_policy.py` and
+8. Legacy tape records (no new fields) serialize with `regime` = operator label.
+9. All tests in `tests/test_regime_policy.py` and
    `tests/test_gate2_eligible_tape_acquisition.py` pass.
 
 ---

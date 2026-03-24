@@ -54,7 +54,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from packages.polymarket.market_selection.regime_policy import (
     TapeRegimeIntegrity,
@@ -69,6 +69,24 @@ _DEFAULT_OUT = Path("artifacts/gates/gate2_tape_manifest.json")
 _VALID_REGIMES = frozenset({"politics", "sports", "new_market", "unknown"})
 _DEFAULT_MAX_SIZE: float = 50.0
 _DEFAULT_BUFFER: float = 0.01
+_SNAPSHOT_FIELD_MAP = (
+    ("market_slug", "market_slug"),
+    ("slug", "slug"),
+    ("question", "question"),
+    ("title", "title"),
+    ("tags", "tags"),
+    ("tag_names", "tag_names"),
+    ("tagNames", "tagNames"),
+    ("category", "category"),
+    ("subcategory", "subcategory"),
+    ("event_slug", "event_slug"),
+    ("event_title", "event_title"),
+    ("created_at", "created_at"),
+    ("createdAt", "created_at"),
+    ("age_hours", "age_hours"),
+    ("ageHours", "age_hours"),
+    ("captured_at", "captured_at"),
+)
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -103,7 +121,7 @@ class CorpusSummary:
     eligible_count: int
     ineligible_count: int
     by_regime: dict[str, dict[str, int]]
-    mixed_regime_eligible: bool        # eligible tapes span >= 2 distinct named regimes
+    mixed_regime_eligible: bool        # at least one eligible tape exists and corpus spans >= 2 named regimes
     gate2_eligible_tapes: list[str]    # tape_dirs with eligible=True
     generated_at: str
     corpus_note: str = ""
@@ -113,6 +131,14 @@ class CorpusSummary:
 # ---------------------------------------------------------------------------
 # Metadata readers
 # ---------------------------------------------------------------------------
+
+
+def _merge_market_metadata(dst: dict[str, Any], src: Mapping[str, Any]) -> dict[str, Any]:
+    for src_key, dst_key in _SNAPSHOT_FIELD_MAP:
+        value = src.get(src_key)
+        if value not in (None, "") and dst_key not in dst:
+            dst[dst_key] = value
+    return dst
 
 
 def _read_regime(tape_dir: Path) -> str:
@@ -172,52 +198,54 @@ def _read_recorded_by(tape_dir: Path) -> str:
 def _read_tape_market_metadata(tape_dir: Path) -> dict:
     """Read all available market metadata from tape files for regime derivation.
 
-    Collects slug, title, question, tags, category, and timestamp fields
-    from watch_meta.json, prep_meta.json, or meta.json shadow/quickrun context.
+    Prefers additive ``market_snapshot`` blocks from ``watch_meta.json`` or
+    ``prep_meta.json`` when present. This keeps regime/new-market derivation
+    tied to capture-time evidence rather than later mutable metadata sources.
+
+    When no snapshot exists, falls back to the legacy top-level fields in
+    ``watch_meta.json`` / ``prep_meta.json``, then ``meta.json``
+    shadow/quickrun context.
 
     Returns a dict suitable for passing to :func:`derive_tape_regime`.
     At minimum returns ``{"market_slug": slug_or_dir_name}``.
     """
     metadata: dict = {}
+    snapshot_found = False
 
-    # 1. watch_meta.json or prep_meta.json (first found wins for slug-level fields)
+    # 1. Prefer additive snapshot metadata from watch/prep artifacts.
     for meta_name in ("watch_meta.json", "prep_meta.json"):
         meta_path = tape_dir / meta_name
         if meta_path.exists():
             try:
                 data = json.loads(meta_path.read_text(encoding="utf-8"))
-                for key in (
-                    "market_slug", "title", "question", "tags",
-                    "category", "created_at", "age_hours",
-                ):
-                    val = data.get(key)
-                    if val is not None:
-                        metadata[key] = val
+                snapshot = data.get("market_snapshot")
+                if isinstance(snapshot, Mapping):
+                    snapshot_found = True
+                    _merge_market_metadata(metadata, snapshot)
+                if isinstance(data, Mapping):
+                    _merge_market_metadata(metadata, data)
             except Exception:
                 pass
-            break  # only read first found
 
-    # 2. meta.json shadow/quickrun context (enriches with any additional fields)
-    meta_path = tape_dir / "meta.json"
-    if meta_path.exists():
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            for ctx_key in ("shadow_context", "quickrun_context"):
-                ctx = meta.get(ctx_key)
-                if not isinstance(ctx, dict):
-                    continue
-                # "market" key in shadow context = market slug
-                if "market" in ctx and "market_slug" not in metadata:
-                    metadata["market_slug"] = ctx["market"]
-                for key in ("title", "question", "tags", "category", "created_at"):
-                    if key in ctx and key not in metadata:
-                        metadata[key] = ctx[key]
-                break
-        except Exception:
-            pass
+    # 2. Legacy fallback: meta.json shadow/quickrun context only when no snapshot exists.
+    if not snapshot_found:
+        meta_path = tape_dir / "meta.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                for ctx_key in ("shadow_context", "quickrun_context"):
+                    ctx = meta.get(ctx_key)
+                    if not isinstance(ctx, Mapping):
+                        continue
+                    if "market" in ctx and "market_slug" not in metadata:
+                        metadata["market_slug"] = ctx["market"]
+                    _merge_market_metadata(metadata, ctx)
+                    break
+            except Exception:
+                pass
 
     # 3. Fallback: directory name as slug
-    if "market_slug" not in metadata:
+    if "market_slug" not in metadata and "slug" not in metadata:
         metadata["market_slug"] = tape_dir.name
 
     return metadata
@@ -354,7 +382,11 @@ def scan_one_tape(
     tape_metadata = _read_tape_market_metadata(tape_dir)
 
     # Compute regime integrity from shared classification logic.
-    integrity = derive_tape_regime(tape_metadata, operator_regime=operator_regime)
+    integrity = derive_tape_regime(
+        tape_metadata,
+        operator_regime=operator_regime,
+        reference_time=tape_metadata.get("captured_at"),
+    )
 
     events_path = tape_dir / "events.jsonl"
     if not events_path.exists():
@@ -474,8 +506,10 @@ def build_corpus_summary(records: list[TapeRecord]) -> CorpusSummary:
 
     Mixed-regime coverage is computed via the shared
     ``coverage_from_classified_regimes`` helper from ``regime_policy``
-    rather than ad hoc label counting.  This ensures coverage tracking
-    cannot drift from the canonical policy definition.
+    using the authoritative ``final_regime`` from every classified tape.
+    Eligibility stays a separate concern: it still controls
+    ``eligible_count`` and ``gate2_eligible_tapes``, but it does not erase
+    regime coverage evidence from classified ineligible tapes.
     """
     by_regime: dict[str, dict[str, int]] = {
         r: {"total": 0, "eligible": 0}
@@ -483,7 +517,7 @@ def build_corpus_summary(records: list[TapeRecord]) -> CorpusSummary:
     }
     gate2_eligible_tapes: list[str] = []
     eligible_count = 0
-    eligible_final_regimes: list[str] = []
+    classified_final_regimes: list[str] = []
 
     for rec in records:
         # Use final_regime when populated (new records); fall back to regime
@@ -491,19 +525,21 @@ def build_corpus_summary(records: list[TapeRecord]) -> CorpusSummary:
         effective_regime = rec.final_regime if rec.final_regime else rec.regime
         regime_key = effective_regime if effective_regime in by_regime else "unknown"
         by_regime[regime_key]["total"] += 1
+        classified_final_regimes.append(effective_regime)
         if rec.eligible:
             by_regime[regime_key]["eligible"] += 1
             eligible_count += 1
             gate2_eligible_tapes.append(rec.tape_dir)
-            eligible_final_regimes.append(effective_regime)
 
-    # Use shared regime policy helper for mixed-regime coverage.
+    # Use shared regime policy helper for corpus coverage from all classified tapes.
     # coverage_from_classified_regimes only counts politics/sports/new_market.
-    coverage = coverage_from_classified_regimes(eligible_final_regimes)
-    # mixed_regime_eligible: at least 2 distinct named regimes have eligible tapes.
-    mixed_regime_eligible = len(coverage["covered_regimes"]) >= 2
+    coverage = coverage_from_classified_regimes(classified_final_regimes)
+    # mixed_regime_eligible remains a gate-oriented signal: there must be at
+    # least one eligible tape, and the classified corpus must span at least
+    # two named regimes.
+    mixed_regime_eligible = eligible_count > 0 and len(coverage["covered_regimes"]) >= 2
 
-    corpus_note = _corpus_note(eligible_count, by_regime, set(eligible_final_regimes))
+    corpus_note = _corpus_note(eligible_count, coverage)
 
     return CorpusSummary(
         total_tapes=len(records),
@@ -520,8 +556,7 @@ def build_corpus_summary(records: list[TapeRecord]) -> CorpusSummary:
 
 def _corpus_note(
     eligible_count: int,
-    by_regime: dict[str, dict[str, int]],
-    eligible_regimes: set[str],
+    coverage: Mapping[str, Any],
 ) -> str:
     """Human-readable corpus assessment for the operator."""
     if eligible_count == 0:
@@ -532,22 +567,20 @@ def _corpus_note(
             "with sufficient depth and complement edge."
         )
 
-    missing_regimes = [
-        r for r in ("politics", "sports", "new_market")
-        if by_regime.get(r, {}).get("eligible", 0) == 0
-    ]
+    missing_regimes = tuple(str(regime) for regime in coverage.get("missing_regimes") or ())
     if missing_regimes:
         return (
             f"PARTIAL: {eligible_count} eligible tape(s) found, but "
             "mixed-regime corpus is incomplete. "
-            f"Missing eligible tapes for: {', '.join(missing_regimes)}. "
-            "Gate 3 validation requires eligible tapes covering at least "
+            f"Missing classified tapes for: {', '.join(missing_regimes)}. "
+            "Gate 3 validation requires classified tape coverage across "
             "politics, sports, and new_market."
         )
 
     return (
-        f"OK: {eligible_count} eligible tape(s) spanning all three required "
-        "regimes (politics, sports, new_market). "
+        f"OK: {eligible_count} eligible tape(s) found and the classified "
+        "corpus covers all three required regimes "
+        "(politics, sports, new_market). "
         "Proceed to Gate 2 sweep: python tools/gates/close_sweep_gate.py"
     )
 

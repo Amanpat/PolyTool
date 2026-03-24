@@ -145,8 +145,8 @@ resulting tape with `--regime new_market` during capture (see SPEC-0014 §4).
 - Missing factors score **zero** on their weight contribution.
 - The explanation line reads `FACTOR: UNKNOWN — <reason why data is absent>`.
 - Operators can enrich rankings by supplying `market_meta`, `reward_configs`, and
-  `orderbooks` to `score_and_rank_candidates()`, or by using `--enrich` on the CLI
-  when a future version adds live metadata fetch.
+  `orderbooks` to `score_and_rank_candidates()`, or by using `--enrich` on the
+  live CLI to fetch optional metadata without changing default scan behavior.
 
 ---
 
@@ -159,14 +159,37 @@ python -m polytool scan-gate2-candidates --all --top 20
 # Full factor breakdown per candidate
 python -m polytool scan-gate2-candidates --all --top 20 --explain
 
+# Live scan with optional metadata enrichment to reduce UNKNOWN fields
+python -m polytool scan-gate2-candidates --all --top 20 --explain --enrich
+
 # Tape scan with factor breakdown
 python -m polytool scan-gate2-candidates --tapes-dir artifacts/simtrader/tapes --explain
+
+# Emit ranked JSON artifact for make-session-pack consumption
+python -m polytool scan-gate2-candidates --all --top 20 --ranked-json-out artifacts/watchlists/ranked.json
+
+# Combine ranked JSON with exact-slug watchlist export
+python -m polytool scan-gate2-candidates --all --top 20 \
+  --watchlist-out artifacts/watchlists/gate2_top20.txt \
+  --ranked-json-out artifacts/watchlists/gate2_top20_ranked.json
 ```
+
+### `--ranked-json-out PATH`
+
+Writes a machine-readable JSON artifact (`gate2_ranked_scan_v1`) alongside the
+human table. The file contains every field from `Gate2RankScore` — slug,
+gate2_status, rank_score, executable/edge/depth ticks, best_edge, depth_yes/no,
+regime/regime_source, is_new_market, age_hours, explanation lines — for each
+shown candidate.
+
+This artifact is the canonical input for `make-session-pack --ranked-json PATH`.
+It lets the operator move from scan output to a disciplined session pack without
+hand-copying slugs or losing the advisory context produced by scoring.
 
 ### Output columns
 
 ```
-Market                                       | Status | Score | Exec | BestEdge  | MaxDepth YES/NO  | New? | Regime
+Market                                       | Status | Score | Exec | BestEdge  | MaxDepth YES/NO  | Age      | Regime       | RegSrc
 ```
 
 - **Status**: gate2_status abbreviation (EXEC/NEAR/EDGE/DEPTH/NONE)
@@ -174,10 +197,12 @@ Market                                       | Status | Score | Exec | BestEdge 
 - **Exec**: executable_ticks count
 - **BestEdge**: best_edge value (+ = arb existed, N/A = no BBO)
 - **MaxDepth YES/NO**: peak best-ask sizes per leg
-- **New?**: Y (new market), N (mature), ? (unknown)
-- **Regime**: labeled regime or `?`
+- **Age**: `NEW <Nh>` when age metadata says `< 48h`, `<Nh>` when mature, `UNKNOWN` when age metadata is absent
+- **Regime**: derived regime when classifier signal is strong; otherwise operator label fallback; otherwise `UNKNOWN`
+- **RegSrc**: `derived`, `operator`, or `UNKNOWN`
 
-With `--explain`, each row is followed by its full factor breakdown.
+With `--explain`, each row is followed by its full factor breakdown, including
+regime provenance (`source`, `derived`, `operator`) on the regime line.
 
 ---
 
@@ -187,12 +212,14 @@ With `--explain`, each row is followed by its full factor breakdown.
    (game start, vote close, news breaks).
 2. Focus on markets with `Status = NEAR` or `EDGE_ONLY` — these are closest to becoming
    `EXECUTABLE`.
-3. Check `New?` column: new markets (Y) should be labeled `--regime new_market` during
-   tape capture and monitored closely for early dislocation.
+3. Check the `Age` column: `NEW <Nh>` rows indicate markets younger than 48 hours
+   and should be labeled `--regime new_market` during tape capture if preserving
+   early-market behavior.
 4. `Score` is a watchlist-priority signal — high score means the market has good depth,
    reward, and volume. It does NOT predict whether a dislocation will occur.
 5. Markets with many `UNKNOWN` factors are not penalized but are also not boosted.
-   Enrich the data (supply market metadata) to get a meaningful rank_score.
+   Enrich the data (supply market metadata or use live `--enrich`) to get a
+   more meaningful rank_score.
 
 ---
 
@@ -201,10 +228,10 @@ With `--explain`, each row is followed by its full factor breakdown.
 | Factor | Why it may be unknown | How to resolve |
 |--------|----------------------|----------------|
 | reward | Market has no reward program, or Gamma API returns no rate | Accept UNKNOWN; not all markets pay rewards |
-| volume_24h | Not included in live scan metadata (requires separate Gamma call) | Use `--enrich` flag (future enhancement) |
-| competition | Requires orderbook; live scan does not pass books to scorer by default | Pass orderbook via `score_and_rank_candidates(orderbooks=...)` |
-| age | Gamma does not return `created_at` for some markets | Accept UNKNOWN; check manually if market appears new |
-| regime | Not derivable from API data alone | Set during tape capture with `--regime` flag |
+| volume_24h | Gamma metadata may not include a 24h-volume field for the market | Use live `--enrich`; if Gamma still omits a 24h field, remain `UNKNOWN` |
+| competition | Requires orderbook; live scan does not pass books to scorer by default | Pass orderbook via `score_and_rank_candidates(orderbooks=...)` or use live `--enrich` |
+| age | Metadata has no `created_at` / `age_hours` field | Use live `--enrich`; if created-time metadata is still absent, remain `UNKNOWN` |
+| regime | Slug/question/tag/category metadata is too weak to classify, and no operator label is supplied | Accept UNKNOWN; operator label is fallback only |
 
 ---
 
@@ -214,14 +241,26 @@ With `--explain`, each row is followed by its full factor breakdown.
    competition, age, regime) plus a `GATE2:` summary header.
 2. `UNKNOWN` appears in explanation for each factor where data is absent.
 3. `is_new_market = True` when `age_hours < 48`; False when `>= 48`; None when unknown.
-4. `rank_score` for a market with all-UNKNOWN market quality factors equals
+4. Regime output uses `classify_market_regime()` when metadata provides a clear signal
+   and only falls back to operator labels when the classifier is weak.
+5. `rank_score` for a market with all-UNKNOWN market quality factors equals
    `gate2_depth_factor * 0.25 + gate2_edge_factor * 0.25` (only Gate 2 signals contribute).
-5. `rank_gate2_candidates` places `executable_ticks > 0` markets first, regardless of
+6. `rank_gate2_candidates` places `executable_ticks > 0` markets first, regardless of
    `rank_score` of other candidates.
-6. `score_and_rank_candidates(results)` wraps `CandidateResult` list and returns
+7. `score_and_rank_candidates(results)` wraps `CandidateResult` list and returns
    `list[Gate2RankScore]` without error when all market metadata dicts are None.
-7. All tests in `tests/test_gate2_candidate_ranking.py` pass.
-8. All tests in `tests/test_market_selection.py` still pass.
+8. All tests in `tests/test_gate2_candidate_ranking.py` pass.
+9. All tests in `tests/test_market_selection.py` still pass.
+10. `scan-gate2-candidates --enrich` is optional and live-only; omitting it preserves
+    current default behavior.
+11. If any enrichment fetch fails, ranking remains non-fatal and the affected
+    factors stay `UNKNOWN`.
+12. `scan-gate2-candidates --ranked-json-out PATH` writes a valid
+    `gate2_ranked_scan_v1` JSON file with `schema_version`, `scan_mode`,
+    `total_candidates`, `shown_candidates`, and a `candidates` array where
+    each entry includes `rank`, `slug`, `gate2_status`, `rank_score`, and
+    `explanation`. The file is machine-readable by
+    `make-session-pack --ranked-json PATH`.
 
 ---
 
