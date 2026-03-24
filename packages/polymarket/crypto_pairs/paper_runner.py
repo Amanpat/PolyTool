@@ -37,7 +37,11 @@ from .clickhouse_sink import (
     DisabledCryptoPairClickHouseSink,
 )
 from .event_models import (
+    IntentGeneratedEvent,
+    OpportunityObservedEvent,
+    PartialExposureUpdatedEvent,
     SafetyStateTransitionEvent,
+    SimulatedFillRecordedEvent,
     build_events_from_paper_records,
 )
 from .position_store import CryptoPairPositionStore, iso_utc, utc_now
@@ -114,6 +118,7 @@ class CryptoPairRunnerSettings:
     symbol_filters: tuple[str, ...] = ()
     duration_filters: tuple[int, ...] = ()
     cycle_limit: Optional[int] = None
+    sink_flush_mode: str = "batch"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "artifact_base_dir", Path(self.artifact_base_dir))
@@ -146,6 +151,11 @@ class CryptoPairRunnerSettings:
             "duration_filters",
             tuple(sorted({int(duration) for duration in self.duration_filters})),
         )
+
+        if self.sink_flush_mode not in ("batch", "streaming"):
+            raise ValueError(
+                f"sink_flush_mode must be 'batch' or 'streaming', got {self.sink_flush_mode!r}"
+            )
 
         if self.duration_seconds < 0:
             raise ValueError("duration_seconds must be >= 0")
@@ -203,6 +213,7 @@ class CryptoPairRunnerSettings:
             symbol_filters=self.symbol_filters,
             duration_filters=self.duration_filters,
             cycle_limit=self.cycle_limit,
+            sink_flush_mode=self.sink_flush_mode,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -218,6 +229,7 @@ class CryptoPairRunnerSettings:
             "symbol_filters": list(self.symbol_filters),
             "duration_filters": list(self.duration_filters),
             "cycle_limit": self.cycle_limit,
+            "sink_flush_mode": self.sink_flush_mode,
         }
 
 
@@ -282,6 +294,7 @@ def build_runner_settings(
         if duration_filters is not None
         else tuple(payload.get("duration_filters", ())),
         cycle_limit=cycle_limit if cycle_limit is not None else payload.get("cycle_limit"),
+        sink_flush_mode=payload.get("sink_flush_mode", "batch"),
     )
 
 
@@ -456,6 +469,7 @@ class CryptoPairPaperRunner:
         self._owns_reference_feed = reference_feed is None
         self.sink: CryptoPairClickHouseEventWriter = sink or DisabledCryptoPairClickHouseSink()
         self._feed_state_transitions: list[dict] = []
+        self._streamed_transition_ids: set[str] = set()
         self.store = store or CryptoPairPositionStore(
             mode="paper",
             artifact_base_dir=settings.artifact_base_dir,
@@ -582,18 +596,36 @@ class CryptoPairPaperRunner:
             )
             for t in self._feed_state_transitions
         ]
-        events = build_events_from_paper_records(
-            observations=self.store.observations,
-            intents=self.store.intents,
-            fills=self.store.fills,
-            exposures=self.store.latest_exposures(),
-            settlements=self.store.settlements,
-            run_summary=run_summary,
-            mode="paper",
-            stopped_reason=stopped_reason,
-        )
-        events.extend(transition_events)
-        write_result = self.sink.write_events(events)
+
+        if self.settings.sink_flush_mode == "streaming":
+            # In streaming mode: observations, intents, fills, exposures were already
+            # emitted incrementally. Only emit the run summary and any transitions that
+            # were not yet streamed (avoids duplicates).
+            unstreamed_transitions = [
+                evt for evt in transition_events
+                if evt.transition_id not in self._streamed_transition_ids
+            ]
+            run_summary_event_obj = None
+            from .event_models import RunSummaryEvent
+            run_summary_event_obj = RunSummaryEvent.from_summary(
+                run_summary, mode="paper", stopped_reason=stopped_reason
+            )
+            finalization_events = unstreamed_transitions + [run_summary_event_obj]
+            write_result = self.sink.write_events(finalization_events)
+        else:
+            # Batch mode: emit all events at once (default behavior, unchanged from quick-020)
+            events = build_events_from_paper_records(
+                observations=self.store.observations,
+                intents=self.store.intents,
+                fills=self.store.fills,
+                exposures=self.store.latest_exposures(),
+                settlements=self.store.settlements,
+                run_summary=run_summary,
+                mode="paper",
+                stopped_reason=stopped_reason,
+            )
+            events.extend(transition_events)
+            write_result = self.sink.write_events(events)
         self.store.record_runtime_event(
             "sink_write_result",
             enabled=write_result.enabled,
@@ -639,6 +671,14 @@ class CryptoPairPaperRunner:
             target_pair_cost_threshold=self.settings.paper_config.target_pair_cost_threshold,
         )
         self.store.record_observation(observation)
+        if self.settings.sink_flush_mode == "streaming":
+            _obs_evt = OpportunityObservedEvent.from_observation(observation, mode="paper")
+            _obs_result = self.sink.write_event(_obs_evt)
+            if _obs_result.error:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "sink stream write failed (observation): %s", _obs_result.error
+                )
 
         snapshot = self.reference_feed.get_snapshot(opportunity.symbol)
         current_feed_state = classify_feed_state(snapshot)
@@ -656,8 +696,9 @@ class CryptoPairPaperRunner:
             # Only emit a sink transition event for genuine state changes
             # (skip the first-observation case where previous_feed_state is None)
             if previous_feed_state is not None:
+                _transition_id = f"fst-{self.store.run_id}-{opportunity.symbol}-{event_at}"
                 self._feed_state_transitions.append({
-                    "transition_id": f"fst-{self.store.run_id}-{opportunity.symbol}-{event_at}",
+                    "transition_id": _transition_id,
                     "event_ts": event_at,
                     "symbol": opportunity.symbol,
                     "from_state": previous_feed_state,
@@ -668,6 +709,29 @@ class CryptoPairPaperRunner:
                     "duration_min": opportunity.duration_min,
                     "cycle": cycle,
                 })
+                if self.settings.sink_flush_mode == "streaming":
+                    _trans_evt = SafetyStateTransitionEvent.from_feed_state_change(
+                        transition_id=_transition_id,
+                        event_ts=event_at,
+                        run_id=self.store.run_id,
+                        mode="paper",
+                        symbol=opportunity.symbol,
+                        from_state=previous_feed_state,
+                        to_state=current_feed_state,
+                        market_id=opportunity.slug,
+                        condition_id=opportunity.condition_id,
+                        slug=opportunity.slug,
+                        duration_min=opportunity.duration_min,
+                        cycle=cycle,
+                    )
+                    _trans_result = self.sink.write_event(_trans_evt)
+                    if not _trans_result.error:
+                        self._streamed_transition_ids.add(_transition_id)
+                    else:
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(
+                            "sink stream write failed (transition): %s", _trans_result.error
+                        )
 
         yes_size, no_size = self.store.market_leg_sizes(observation.market_id)
         state = PairMarketState(
@@ -793,6 +857,14 @@ class CryptoPairPaperRunner:
             return
 
         self.store.record_intent(intent)
+        if self.settings.sink_flush_mode == "streaming":
+            _intent_evt = IntentGeneratedEvent.from_intent(intent, mode="paper")
+            _intent_result = self.sink.write_event(_intent_evt)
+            if _intent_result.error:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "sink stream write failed (intent): %s", _intent_result.error
+                )
         self.store.record_runtime_event(
             "order_intent_created",
             at=event_at,
@@ -809,9 +881,25 @@ class CryptoPairPaperRunner:
         )
         for fill in fills:
             self.store.record_fill(fill)
+            if self.settings.sink_flush_mode == "streaming":
+                _fill_evt = SimulatedFillRecordedEvent.from_fill(fill, mode="paper")
+                _fill_result = self.sink.write_event(_fill_evt)
+                if _fill_result.error:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "sink stream write failed (fill): %s", _fill_result.error
+                    )
 
         exposure = compute_partial_leg_exposure(intent, fills, as_of=event_at)
         self.store.record_exposure(exposure)
+        if self.settings.sink_flush_mode == "streaming":
+            _exp_evt = PartialExposureUpdatedEvent.from_exposure(exposure, mode="paper")
+            _exp_result = self.sink.write_event(_exp_evt)
+            if _exp_result.error:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "sink stream write failed (exposure): %s", _exp_result.error
+                )
         self.store.record_runtime_event(
             "exposure_recorded",
             at=event_at,

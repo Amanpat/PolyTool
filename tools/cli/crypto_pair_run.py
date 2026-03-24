@@ -119,6 +119,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="polytool_admin",
         help="ClickHouse user for the event sink (default: polytool_admin).",
     )
+    parser.add_argument(
+        "--sink-streaming",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable incremental per-event sink writes during the run loop instead of "
+            "batching all events at finalization. Requires --sink-enabled. "
+            "Allows Grafana visibility during long runs."
+        ),
+    )
     return parser
 
 
@@ -151,6 +161,7 @@ def run_crypto_pair_runner(
     clickhouse_port: int = 8123,
     clickhouse_user: str = "polytool_admin",
     clickhouse_password: str = "",
+    sink_flush_mode: str = "batch",
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -160,6 +171,10 @@ def run_crypto_pair_runner(
     payload = dict(config_payload or {})
     if config_path is not None:
         payload.update(load_config_payload(config_path))
+
+    # CLI-level sink_flush_mode overrides anything in the config file
+    if sink_flush_mode != "batch":
+        payload["sink_flush_mode"] = sink_flush_mode
 
     default_output = DEFAULT_LIVE_ARTIFACTS_DIR if live else DEFAULT_PAPER_ARTIFACTS_DIR
     settings = build_runner_settings(
@@ -234,6 +249,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             )
             return 1
 
+    if args.sink_streaming and not args.sink_enabled:
+        print(
+            "Warning: --sink-streaming has no effect without --sink-enabled.",
+            file=sys.stderr,
+        )
+
     if args.duration_seconds < 0:
         print("Error: --duration-seconds must be >= 0.", file=sys.stderr)
         return 1
@@ -254,6 +275,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             clickhouse_port=args.clickhouse_port,
             clickhouse_user=args.clickhouse_user,
             clickhouse_password=ch_password,
+            sink_flush_mode="streaming" if args.sink_streaming else "batch",
         )
     except (ConfigLoadError, ValueError) as exc:
         print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
