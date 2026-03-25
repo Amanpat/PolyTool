@@ -79,27 +79,51 @@ jobs:
           PY
           echo "GDRIVE_CREDENTIALS JSON parse passed"
 
-      - name: Upload docs folder
-        uses: adityak74/google-drive-upload-git-action@main
-        with:
-          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
-          filename: "docs/"
-          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
-          overwrite: "true"
-          mirrorDirectoryStructure: "true"
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl https://rclone.org/install.sh | sudo bash
+          rclone version
 
-      - name: Upload claude.md
-        uses: adityak74/google-drive-upload-git-action@main
-        with:
-          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
-          filename: "claude.md"
-          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
-          overwrite: "true"
+      - name: Show planned Drive targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "docs/ -> <Drive root folder>/docs/ (rclone copy; deletions are not propagated)"
+          echo "claude.md -> <Drive root folder>/claude.md (rclone copyto)"
+          echo "AGENTS.md -> <Drive root folder>/AGENTS.md (rclone copyto)"
 
-      - name: Upload AGENTS.md
-        uses: adityak74/google-drive-upload-git-action@main
-        with:
-          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
-          filename: "AGENTS.md"
-          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
-          overwrite: "true"
+      - name: Sync docs and root markdown files with rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          credentials_file="$(mktemp)"
+          config_file="$(mktemp)"
+          trap 'rm -f "${credentials_file}" "${config_file}"' EXIT
+
+          printf '%s' "${GDRIVE_CREDENTIALS}" | base64 --decode > "${credentials_file}"
+
+          cat > "${config_file}" <<EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          root_folder_id = ${GDRIVE_FOLDER_ID}
+          service_account_file = ${credentials_file}
+          EOF
+
+          export RCLONE_CONFIG="${config_file}"
+
+          # Use the configured root folder ID as the Drive root so every upload goes to a
+          # fixed, predictable destination. This avoids creating stray nested docs folders.
+          rclone mkdir gdrive:docs
+
+          # Copy the contents of repo docs/ into <Drive root folder>/docs/.
+          # copy is the safer default here: it updates and adds files without deleting
+          # Drive-only files if the repo docs tree no longer contains them.
+          rclone copy docs gdrive:docs
+
+          # Keep these root-level files explicit and deterministic by targeting exact paths.
+          rclone copyto claude.md gdrive:claude.md
+          rclone copyto AGENTS.md gdrive:AGENTS.md
