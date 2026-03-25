@@ -1,5 +1,7 @@
 name: Sync Docs to Google Drive
 on:
+  # Manual trigger exists for connector/sync verification when path filters do not fire.
+  workflow_dispatch:
   push:
     branches: [main, phase-1, phase-1A]
     paths:
