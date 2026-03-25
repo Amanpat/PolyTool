@@ -1,0 +1,40 @@
+name: Sync Docs to Google Drive
+on:
+  push:
+    branches: [main, phase-1, phase-1A]
+    paths:
+      - 'docs/**'
+      - 'claude.md'
+      - 'AGENTS.md'
+      - 'config/strategy_research_program.md'
+
+jobs:
+  sync-to-drive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload docs folder
+        uses: adityak74/google-drive-upload-git-action@main
+        with:
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          filename: "docs/"
+          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+          overwrite: "true"
+          mirrorDirectoryStructure: "true"
+
+      - name: Upload claude.md
+        uses: adityak74/google-drive-upload-git-action@main
+        with:
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          filename: "claude.md"
+          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+          overwrite: "true"
+
+      - name: Upload AGENTS.md
+        uses: adityak74/google-drive-upload-git-action@main
+        with:
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS }}
+          filename: "AGENTS.md"
+          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+          overwrite: "true"
