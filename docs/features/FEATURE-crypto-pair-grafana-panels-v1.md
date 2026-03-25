@@ -152,3 +152,58 @@ Or use the direct URL pattern:
   verdicts still require `run_manifest.json` and `runtime_events.jsonl`.
 - The paper runner emits ClickHouse rows only at finalization. Use the artifact
   directory and `runtime_events.jsonl` for mid-soak liveness checks.
+
+---
+
+## No-Data Operator Guide
+
+If the dashboard shows blank panels or the "No Track 2 events yet" message,
+work through this checklist in order:
+
+**1. Confirm Docker is running**
+
+```bash
+docker compose ps
+```
+
+All services (clickhouse, grafana) must show `healthy`.
+
+**2. Confirm the table exists and has rows**
+
+```bash
+curl -s "http://localhost:8123/?query=SELECT%20count()%20FROM%20polytool.crypto_pair_events" \
+  --user grafana_ro:grafana_readonly_local
+```
+
+Expected: `0` (table exists, no rows yet) vs an error (table missing or
+ClickHouse unreachable). If the table is missing, the migrate service did
+not run — restart with `docker compose up migrate`.
+
+**3. Understand why rows are absent**
+
+The sink writes events only at paper run finalization, and only when:
+
+- The paper run was launched with `--sink-enabled`
+- At least one market was observed (non-zero eligible markets)
+- The run reached finalization without aborting
+
+Track 2 soaks as of 2026-03-25 had zero eligible BTC/ETH/SOL 5m-15m markets.
+No rows will appear until markets are available and a complete soak finishes.
+
+**4. Wait for markets, then re-soak**
+
+```bash
+# Poll until markets are available (exits 0 when found)
+python -m polytool crypto-pair-watch --watch --timeout 3600
+
+# Then run a paper soak with sink enabled
+python -m polytool crypto-pair-run --sink-enabled [other flags]
+```
+
+After finalization, check `run_manifest.json["sink_write_result"]` for the
+write outcome. The Grafana dashboard reloads automatically every 30 seconds.
+
+**5. Time range**
+
+The default dashboard range is `now-7d`. If the soak ran more than 7 days
+ago, widen the time picker.
