@@ -444,7 +444,26 @@ Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
   `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
   `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
 
-The next operator action is the 24h paper soak:
+**BLOCKER (2026-03-25): Binance HTTP 451 geo-restriction — paper soak cannot proceed.**
+
+A smoke soak ran on 2026-03-25 (run ID `603e0ef17ff2`,
+`artifacts/crypto_pairs/paper_runs/2026-03-25/603e0ef17ff2/`).
+The runner completed cleanly (240 cycles, `stopped_reason=completed`,
+zero safety violations), but Binance returned HTTP 451 on every WebSocket
+connection attempt. The reference feed never delivered data: `markets_seen=0`,
+`opportunities_observed=0`, `order_intents_generated=0`. The `crypto-pair-report`
+rubric verdict is `RERUN PAPER SOAK` (evidence floor not met; no reject-band
+metric fired because no metric had data). The 24h soak was intentionally not run
+because it would produce an informationally identical zero-data outcome.
+
+Unblocking requires one of:
+1. Implement Coinbase fallback feed in `reference_feed.py` (preferred — no geo-restriction).
+2. Run from a machine with unrestricted Binance access.
+3. Route via VPN (fragile for a 24h soak, not preferred).
+
+See dev log `docs/dev_logs/2026-03-25_phase1a_first_real_paper_soak.md`.
+
+The next operator action (once feed access is resolved) is the 24h paper soak:
 
 ```powershell
 $env:CLICKHOUSE_PASSWORD = "polytool_admin"
