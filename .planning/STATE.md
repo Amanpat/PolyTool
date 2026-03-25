@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-25 - Completed quick-023: Coinbase smoke soak rerun — Coinbase feed confirmed working, but BLOCKED: Polymarket has zero active BTC/ETH/SOL 5m/15m markets (market availability blocker, not feed blocker)
+Last activity: 2026-03-25 - Completed quick-024: Market availability watcher operational — `crypto-pair-watch` command ships with one-shot and watch modes, deterministic artifacts, 20 offline tests. Run `python -m polytool crypto-pair-watch --watch --timeout 3600` to poll until markets rotate in.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -44,9 +44,10 @@ Last activity: 2026-03-25 - Completed quick-023: Coinbase smoke soak rerun — C
 - write_event() is a distinct method on sink (not just repeated calls to write_events()) so consecutive-fail guard applies per-event in streaming mode
 - RunSummaryEvent always in finalization write_events() batch because it requires the final run_summary dict not available until after run loop
 - _streamed_transition_ids dedup uses composite key (not event_id) to match finalization list which reconstructs from raw transition dicts
+- crypto-pair-watch: injectable _sleep_fn/_check_fn for offline testing; one-shot exits 0 always; watch exits 0/1 (found/timeout); --symbol/--duration reserved in v0
 
 ### Blockers/Concerns
-- Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in.
+- Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
 
 ### Quick Tasks Completed
 
@@ -74,3 +75,4 @@ Last activity: 2026-03-25 - Completed quick-023: Coinbase smoke soak rerun — C
 | 021 | Add incremental mid-run event emission to paper runner sink: streaming flush mode, write_event() + consecutive-fail guard, sink_flush_mode field, --sink-streaming CLI flag, 8 new offline tests, dedup guard for safety transitions | 2026-03-24 | ddca74b | [21-add-incremental-mid-run-event-emission-f](./quick/21-add-incremental-mid-run-event-emission-f/) |
 | 022 | Phase 1A first real paper soak: smoke soak ran cleanly but Binance HTTP 451 geo-restriction blocked all reference feed data; 24h soak intentionally skipped; rubric verdict RERUN; dev log + CURRENT_STATE.md blocker note | 2026-03-25 | e32cc0c | [22-execute-the-first-real-phase-1a-crypto-p](./quick/22-execute-the-first-real-phase-1a-crypto-p/) |
 | 023 | Coinbase smoke soak rerun: Coinbase feed confirmed working (--reference-feed-provider coinbase accepted), BLOCKED due to Polymarket having zero active BTC/ETH/SOL 5m/15m markets; blocker shifted from reference feed to market availability | 2026-03-25 | 1c73cec | [23-execute-the-coinbase-based-rerun-smoke-s](./quick/23-execute-the-coinbase-based-rerun-smoke-s/) |
+| 024 | Market availability watcher for Track 2: crypto-pair-watch command with one-shot and watch modes, AvailabilitySummary, deterministic artifact bundle (watch_manifest.json, availability_summary.json, .md), 20 offline tests, feature doc, dev log | 2026-03-25 | 6c2c0e9 | [24-implement-track-2-market-availability-wa](./quick/24-implement-track-2-market-availability-wa/) |
