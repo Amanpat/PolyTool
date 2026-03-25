@@ -1,0 +1,943 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "WITH summary AS (\n    SELECT\n        run_id,\n        max(event_ts) AS summary_ts,\n        max(order_intents_generated) AS order_intents_generated,\n        max(paired_exposure_count) AS paired_exposure_count,\n        max(partial_exposure_count) AS partial_exposure_count,\n        max(settled_pair_count) AS settled_pair_count,\n        max(open_unpaired_notional_usdc) AS open_unpaired_notional_usdc,\n        max(net_pnl_usdc) AS run_net_pnl_usdc\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'run_summary'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n),\npaired AS (\n    SELECT\n        run_id,\n        avg(paired_cost_usdc) AS avg_completed_pair_cost_usdc,\n        avg(1 - paired_net_cash_outflow_usdc) AS est_profit_per_completed_pair_usdc\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'partial_exposure_updated'\n      AND exposure_status = 'paired'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n),\nfills AS (\n    SELECT\n        run_id,\n        count() AS fill_rows\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'simulated_fill_recorded'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n),\nsettlements AS (\n    SELECT\n        run_id,\n        count() AS settlement_rows,\n        avg(net_pnl_usdc) AS avg_net_pnl_per_settlement_usdc\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'pair_settlement_completed'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n),\nsafety AS (\n    SELECT\n        run_id,\n        countIf(to_state = 'stale') AS stale_transitions,\n        countIf(to_state = 'disconnected') AS disconnect_transitions,\n        argMax(to_state, tuple(event_ts, recorded_at)) AS latest_feed_state\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'safety_state_transition'\n      AND state_key = 'reference_feed'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n)\nSELECT\n    s.run_id,\n    s.summary_ts,\n    s.order_intents_generated AS intents,\n    s.paired_exposure_count AS paired_intents,\n    s.partial_exposure_count AS partial_intents,\n    s.settled_pair_count AS settled_pairs,\n    round(s.paired_exposure_count / nullIf(s.order_intents_generated, 0), 4) AS pair_completion_rate,\n    round(coalesce(f.fill_rows, 0) / nullIf(2 * s.order_intents_generated, 0), 4) AS maker_fill_rate_floor,\n    round(s.partial_exposure_count / nullIf(s.order_intents_generated, 0), 4) AS partial_leg_incidence,\n    round(p.avg_completed_pair_cost_usdc, 4) AS avg_completed_pair_cost_usdc,\n    round(p.est_profit_per_completed_pair_usdc, 4) AS est_profit_per_completed_pair_usdc,\n    round(st.avg_net_pnl_per_settlement_usdc, 4) AS avg_net_pnl_per_settlement_usdc,\n    coalesce(sa.stale_transitions, 0) AS stale_transitions,\n    coalesce(sa.disconnect_transitions, 0) AS disconnect_transitions,\n    coalesce(sa.latest_feed_state, 'no_transition_recorded') AS latest_feed_state,\n    round(s.open_unpaired_notional_usdc, 4) AS open_unpaired_notional_usdc,\n    round(s.run_net_pnl_usdc, 4) AS run_net_pnl_usdc\nFROM summary s\nLEFT JOIN paired p USING (run_id)\nLEFT JOIN fills f USING (run_id)\nLEFT JOIN settlements st USING (run_id)\nLEFT JOIN safety sa USING (run_id)\nORDER BY s.summary_ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper Soak Scorecard",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT\n    event_ts AS summary_ts,\n    run_id,\n    opportunities_observed,\n    threshold_pass_count,\n    threshold_miss_count,\n    order_intents_generated,\n    paired_exposure_count,\n    partial_exposure_count,\n    settled_pair_count\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'run_summary'\n  AND $__timeFilter(event_ts)\nORDER BY summary_ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Run Summary Funnel",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "WITH summary AS (\n    SELECT\n        run_id,\n        max(event_ts) AS summary_ts,\n        max(order_intents_generated) AS order_intents_generated\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'run_summary'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n),\nfills AS (\n    SELECT\n        run_id,\n        count() AS fill_rows\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'simulated_fill_recorded'\n      AND $__timeFilter(event_ts)\n    GROUP BY run_id\n)\nSELECT\n    s.run_id,\n    s.summary_ts,\n    s.order_intents_generated,\n    coalesce(f.fill_rows, 0) AS fill_rows,\n    round(coalesce(f.fill_rows, 0) / nullIf(2 * s.order_intents_generated, 0), 4) AS maker_fill_rate_floor\nFROM summary s\nLEFT JOIN fills f USING (run_id)\nORDER BY s.summary_ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Maker Fill Rate Floor",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT\n    event_ts AS summary_ts,\n    run_id,\n    order_intents_generated,\n    partial_exposure_count,\n    round(partial_exposure_count / nullIf(order_intents_generated, 0), 4) AS partial_leg_incidence\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'run_summary'\n  AND $__timeFilter(event_ts)\nORDER BY summary_ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Partial-Leg Incidence",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "WITH latest_intent_state AS (\n    SELECT\n        intent_id,\n        argMax(event_type, tuple(event_ts, recorded_at)) AS latest_event_type,\n        argMax(event_ts, tuple(event_ts, recorded_at)) AS latest_event_ts,\n        argMax(run_id, tuple(event_ts, recorded_at)) AS run_id,\n        argMax(symbol, tuple(event_ts, recorded_at)) AS symbol,\n        argMax(duration_min, tuple(event_ts, recorded_at)) AS duration_min,\n        argMax(slug, tuple(event_ts, recorded_at)) AS slug,\n        argMax(exposure_status, tuple(event_ts, recorded_at)) AS exposure_status,\n        argMax(paired_size, tuple(event_ts, recorded_at)) AS paired_size,\n        argMax(unpaired_size, tuple(event_ts, recorded_at)) AS unpaired_size,\n        argMax(paired_net_cash_outflow_usdc, tuple(event_ts, recorded_at)) AS paired_net_cash_outflow_usdc,\n        argMax(unpaired_notional_usdc, tuple(event_ts, recorded_at)) AS unpaired_notional_usdc\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type IN ('partial_exposure_updated', 'pair_settlement_completed')\n      AND $__timeFilter(event_ts)\n    GROUP BY intent_id\n)\nSELECT\n    latest_event_ts AS event_ts,\n    run_id,\n    symbol,\n    duration_min,\n    slug,\n    intent_id,\n    exposure_status,\n    round(paired_size, 4) AS paired_size,\n    round(unpaired_size, 4) AS unpaired_size,\n    round(paired_net_cash_outflow_usdc, 4) AS paired_net_cash_outflow_usdc,\n    round(unpaired_notional_usdc, 4) AS unpaired_notional_usdc\nFROM latest_intent_state\nWHERE latest_event_type = 'partial_exposure_updated'\nORDER BY latest_event_ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Pairs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 6,
+      "options": {
+        "barWidth": 0.97,
+        "groupWidth": 0.7,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "auto",
+        "showValue": "auto",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "xField": "pair_cost_bucket"
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT\n    round(paired_cost_usdc, 3) AS pair_cost_bucket,\n    count() AS completed_pairs\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'partial_exposure_updated'\n  AND exposure_status = 'paired'\n  AND $__timeFilter(event_ts)\nGROUP BY pair_cost_bucket\nORDER BY pair_cost_bucket",
+          "refId": "A"
+        }
+      ],
+      "title": "Pair Cost Distribution",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n    event_ts AS time,\n    run_id,\n    symbol,\n    duration_min,\n    slug,\n    round(1 - paired_net_cash_outflow_usdc, 4) AS est_profit_per_completed_pair_usdc\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'partial_exposure_updated'\n  AND exposure_status = 'paired'\n  AND $__timeFilter(event_ts)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Estimated Profit Per Completed Pair",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT\n    event_ts AS time,\n    run_id,\n    symbol,\n    duration_min,\n    slug,\n    settlement_id,\n    round(gross_pnl_usdc, 4) AS gross_pnl_usdc,\n    round(net_pnl_usdc, 4) AS net_pnl_usdc,\n    round(settlement_value_usdc, 4) AS settlement_value_usdc\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'pair_settlement_completed'\n  AND $__timeFilter(event_ts)\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Net Profit Per Settlement",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": true,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n    time,\n    run_id,\n    sum(net_pnl_usdc) OVER (\n        PARTITION BY run_id\n        ORDER BY time, event_id\n        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW\n    ) AS cumulative_net_pnl_usdc\nFROM (\n    SELECT\n        event_id,\n        run_id,\n        event_ts AS time,\n        net_pnl_usdc\n    FROM polytool.crypto_pair_events\n    WHERE mode = 'paper'\n      AND event_type = 'pair_settlement_completed'\n      AND $__timeFilter(event_ts)\n)\nORDER BY time, event_id",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative Net PnL",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n    toStartOfDay(event_ts) AS time,\n    count() AS simulated_leg_fills,\n    uniqExact(intent_id) AS distinct_intents\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'simulated_fill_recorded'\n  AND $__timeFilter(event_ts)\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Trade Count",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n    toStartOfHour(event_ts) AS time,\n    countIf(to_state = 'stale') AS stale_transitions,\n    countIf(to_state = 'disconnected') AS disconnect_transitions,\n    countIf(to_state = 'connected_fresh') AS recoveries\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'safety_state_transition'\n  AND state_key = 'reference_feed'\n  AND $__timeFilter(event_ts)\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Feed State Transition Counts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-polytool"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "id": 12,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-polytool"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT\n    event_ts,\n    run_id,\n    symbol,\n    duration_min,\n    market_id,\n    slug,\n    from_state,\n    to_state,\n    reason\nFROM polytool.crypto_pair_events\nWHERE mode = 'paper'\n  AND event_type = 'safety_state_transition'\n  AND state_key = 'reference_feed'\n  AND $__timeFilter(event_ts)\nORDER BY event_ts DESC\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Feed Safety Events",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["polytool", "track2", "crypto-pair"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "PolyTool - Crypto Pair Paper Soak",
+  "uid": "polytool-crypto-pair-paper-soak",
+  "version": 1,
+  "weekStart": ""
+}

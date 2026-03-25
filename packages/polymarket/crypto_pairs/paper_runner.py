@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 from packages.polymarket.simtrader.execution.kill_switch import FileBasedKillSwitch
 
@@ -58,6 +58,8 @@ _OPERATOR_MAX_OPEN_PAIRS = 5
 _OPERATOR_DAILY_LOSS_CAP_USDC = Decimal("15")
 _OPERATOR_MAX_PAIR_COST = Decimal("0.97")
 _OPERATOR_MIN_PROFIT_THRESHOLD_USDC = Decimal("0.03")
+_STOPPED_REASON_COMPLETED = "completed"
+_STOPPED_REASON_OPERATOR_INTERRUPT = "operator_interrupt"
 
 
 class ReferenceFeed(Protocol):
@@ -118,6 +120,7 @@ class CryptoPairRunnerSettings:
     symbol_filters: tuple[str, ...] = ()
     duration_filters: tuple[int, ...] = ()
     cycle_limit: Optional[int] = None
+    heartbeat_interval_seconds: int = 0
     sink_flush_mode: str = "batch"
 
     def __post_init__(self) -> None:
@@ -159,6 +162,8 @@ class CryptoPairRunnerSettings:
 
         if self.duration_seconds < 0:
             raise ValueError("duration_seconds must be >= 0")
+        if self.heartbeat_interval_seconds < 0:
+            raise ValueError("heartbeat_interval_seconds must be >= 0")
         if self.cycle_interval_seconds <= 0:
             raise ValueError("cycle_interval_seconds must be > 0")
         if self.max_open_pairs <= 0:
@@ -213,6 +218,7 @@ class CryptoPairRunnerSettings:
             symbol_filters=self.symbol_filters,
             duration_filters=self.duration_filters,
             cycle_limit=self.cycle_limit,
+            heartbeat_interval_seconds=self.heartbeat_interval_seconds,
             sink_flush_mode=self.sink_flush_mode,
         )
 
@@ -229,6 +235,7 @@ class CryptoPairRunnerSettings:
             "symbol_filters": list(self.symbol_filters),
             "duration_filters": list(self.duration_filters),
             "cycle_limit": self.cycle_limit,
+            "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
             "sink_flush_mode": self.sink_flush_mode,
         }
 
@@ -242,6 +249,7 @@ def build_runner_settings(
     symbol_filters: Optional[tuple[str, ...]] = None,
     duration_filters: Optional[tuple[int, ...]] = None,
     cycle_limit: Optional[int] = None,
+    heartbeat_interval_seconds: Optional[int] = None,
 ) -> CryptoPairRunnerSettings:
     payload = dict(config_payload or {})
     default_paper_payload = build_default_paper_mode_config().to_dict()
@@ -294,6 +302,9 @@ def build_runner_settings(
         if duration_filters is not None
         else tuple(payload.get("duration_filters", ())),
         cycle_limit=cycle_limit if cycle_limit is not None else payload.get("cycle_limit"),
+        heartbeat_interval_seconds=heartbeat_interval_seconds
+        if heartbeat_interval_seconds is not None
+        else int(payload.get("heartbeat_interval_seconds", 0)),
         sink_flush_mode=payload.get("sink_flush_mode", "batch"),
     )
 
@@ -315,6 +326,38 @@ class PaperRunnerResult:
             "stopped_reason": self.stopped_reason,
             "cycles_completed": self.cycles_completed,
             "manifest_path": self.manifest_path,
+        }
+
+
+@dataclass(frozen=True)
+class PaperRunnerHeartbeat:
+    recorded_at: str
+    cycle: int
+    elapsed_seconds: int
+    elapsed_runtime: str
+    opportunities_observed: int
+    intents_generated: int
+    completed_pairs: int
+    partial_exposure_count: int
+    open_pairs: int
+    latest_feed_states: dict[str, str]
+    stale_symbols: list[str]
+    degraded_symbols: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "recorded_at": self.recorded_at,
+            "cycle": self.cycle,
+            "elapsed_seconds": self.elapsed_seconds,
+            "elapsed_runtime": self.elapsed_runtime,
+            "opportunities_observed": self.opportunities_observed,
+            "intents_generated": self.intents_generated,
+            "completed_pairs": self.completed_pairs,
+            "partial_exposure_count": self.partial_exposure_count,
+            "open_pairs": self.open_pairs,
+            "latest_feed_states": dict(self.latest_feed_states),
+            "stale_symbols": list(self.stale_symbols),
+            "degraded_symbols": list(self.degraded_symbols),
         }
 
 
@@ -443,6 +486,13 @@ def compute_pair_size(
     )
 
 
+def format_elapsed_runtime(elapsed_seconds: int) -> str:
+    total_seconds = max(0, int(elapsed_seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 class CryptoPairPaperRunner:
     """Paper-mode crypto-pair runtime shell."""
 
@@ -456,6 +506,7 @@ class CryptoPairPaperRunner:
         store: Optional[CryptoPairPositionStore] = None,
         execution_adapter: Optional[PaperExecutionAdapter] = None,
         sink: Optional[CryptoPairClickHouseEventWriter] = None,
+        heartbeat_callback: Optional[Callable[[dict[str, Any]], None]] = None,
         now_fn=utc_now,
         sleep_fn=time.sleep,
         discovery_fn=discover_crypto_pair_markets,
@@ -476,6 +527,7 @@ class CryptoPairPaperRunner:
             sink=self.sink,
         )
         self.execution_adapter = execution_adapter or DeterministicPaperExecutionAdapter()
+        self.heartbeat_callback = heartbeat_callback
         self.now_fn = now_fn
         self.sleep_fn = sleep_fn
         self.discovery_fn = discovery_fn
@@ -483,6 +535,11 @@ class CryptoPairPaperRunner:
         self.rank_fn = rank_fn
         self.kill_switch = FileBasedKillSwitch(settings.kill_switch_path)
         self._feed_states: dict[str, str] = {}
+        self._next_heartbeat_elapsed_seconds = (
+            settings.heartbeat_interval_seconds
+            if settings.heartbeat_interval_seconds > 0
+            else None
+        )
 
     def run(self) -> dict[str, Any]:
         self.store.write_config_snapshot(
@@ -508,7 +565,7 @@ class CryptoPairPaperRunner:
             self.reference_feed.connect()
             self.store.record_runtime_event("reference_feed_connect_called")
 
-        stopped_reason = "completed"
+        stopped_reason = _STOPPED_REASON_COMPLETED
         completed_cycles = 0
         total_cycles = cycle_count_from_settings(self.settings)
 
@@ -556,9 +613,17 @@ class CryptoPairPaperRunner:
                     open_unpaired=self.store.has_open_unpaired_exposure(),
                     drawdown_usdc=str(self.store.estimated_daily_drawdown_usdc()),
                 )
+                self._emit_heartbeat_if_due(cycle=completed_cycles)
 
                 if cycle_index < total_cycles - 1:
                     self.sleep_fn(self.settings.cycle_interval_seconds)
+        except KeyboardInterrupt:
+            stopped_reason = _STOPPED_REASON_OPERATOR_INTERRUPT
+            self.store.record_runtime_event(
+                "operator_interrupt",
+                at=iso_utc(self.now_fn()),
+                cycle=completed_cycles,
+            )
         finally:
             if self._owns_reference_feed:
                 self.reference_feed.disconnect()
@@ -651,6 +716,80 @@ class CryptoPairPaperRunner:
             },
         )
         return manifest
+
+    def _emit_heartbeat_if_due(self, *, cycle: int) -> None:
+        interval_seconds = self.settings.heartbeat_interval_seconds
+        if interval_seconds <= 0 or self._next_heartbeat_elapsed_seconds is None:
+            return
+
+        current_time = self.now_fn()
+        elapsed_seconds = max(
+            0,
+            int((current_time - self.store.started_at).total_seconds()),
+        )
+        if elapsed_seconds < self._next_heartbeat_elapsed_seconds:
+            return
+
+        heartbeat = self._build_heartbeat(
+            recorded_at=iso_utc(current_time),
+            cycle=cycle,
+            elapsed_seconds=elapsed_seconds,
+        )
+        heartbeat_payload = heartbeat.to_dict()
+        recorded_at = heartbeat_payload.pop("recorded_at")
+        self.store.record_runtime_event(
+            "runner_heartbeat",
+            at=recorded_at,
+            **heartbeat_payload,
+        )
+        if self.heartbeat_callback is not None:
+            self.heartbeat_callback(
+                {
+                    "recorded_at": recorded_at,
+                    **heartbeat_payload,
+                }
+            )
+
+        while elapsed_seconds >= self._next_heartbeat_elapsed_seconds:
+            self._next_heartbeat_elapsed_seconds += interval_seconds
+
+    def _build_heartbeat(
+        self,
+        *,
+        recorded_at: str,
+        cycle: int,
+        elapsed_seconds: int,
+    ) -> PaperRunnerHeartbeat:
+        exposures = self.store.latest_exposures()
+        completed_pairs = sum(1 for exposure in exposures if exposure.paired_size > _ZERO)
+        partial_exposure_count = sum(
+            1 for exposure in exposures if exposure.unpaired_size > _ZERO
+        )
+        latest_feed_states = dict(sorted(self._feed_states.items()))
+        stale_symbols = sorted(
+            symbol
+            for symbol, state in latest_feed_states.items()
+            if state == "stale"
+        )
+        degraded_symbols = sorted(
+            symbol
+            for symbol, state in latest_feed_states.items()
+            if state != "connected_fresh"
+        )
+        return PaperRunnerHeartbeat(
+            recorded_at=recorded_at,
+            cycle=cycle,
+            elapsed_seconds=elapsed_seconds,
+            elapsed_runtime=format_elapsed_runtime(elapsed_seconds),
+            opportunities_observed=len(self.store.observations),
+            intents_generated=len(self.store.intents),
+            completed_pairs=completed_pairs,
+            partial_exposure_count=partial_exposure_count,
+            open_pairs=self.store.open_pair_count(),
+            latest_feed_states=latest_feed_states,
+            stale_symbols=stale_symbols,
+            degraded_symbols=degraded_symbols,
+        )
 
     def _process_opportunity(self, opportunity: PairOpportunity, *, cycle: int) -> None:
         event_at = iso_utc(self.now_fn())

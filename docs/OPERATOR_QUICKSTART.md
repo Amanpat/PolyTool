@@ -379,5 +379,8 @@ python tools/gates/gate_status.py
 | SimTrader full guide | `docs/README_SIMTRADER.md` |
 | Live execution spec | `docs/specs/SPEC-0011-live-execution-layer.md` |
 | Stage 1 runbook | `docs/runbooks/LIVE_DEPLOYMENT_STAGE1.md` |
+| Track 2 paper soak runbook | `docs/runbooks/CRYPTO_PAIR_PAPER_SOAK_RUNBOOK.md` |
+| Track 2 paper soak rubric | `docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md` |
+| Track 2 Grafana panel pack | `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` |
 | Roadmap | `docs/ROADMAP.md` |
 | Architecture | `docs/ARCHITECTURE.md` |

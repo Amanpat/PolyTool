@@ -109,7 +109,8 @@
       "Bash(pipx install:*)",
       "Bash(pipx list:*)",
       "Bash(scrapling install:*)",
-      "Bash(rtk python:*)"
+      "Bash(rtk python:*)",
+      "mcp__ScraplingServer__get"
     ]
   },
   "enableAllProjectMcpServers": true,

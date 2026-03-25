@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from packages.polymarket.crypto_pairs.clickhouse_sink import (
     CryptoPairClickHouseSinkConfig,
@@ -22,10 +23,17 @@ from packages.polymarket.crypto_pairs.paper_runner import (
     CryptoPairPaperRunner,
     build_runner_settings,
 )
+from packages.polymarket.crypto_pairs.reporting import (
+    CryptoPairReportError,
+    build_report_artifact_paths,
+    generate_crypto_pair_paper_report,
+    is_graceful_paper_stop_reason,
+)
 from packages.polymarket.simtrader.config_loader import ConfigLoadError, load_json_from_path
 
 
 LIVE_CONFIRMATION_TEXT = "CONFIRM"
+_CLI_PREFIX = "[crypto-pair-run]"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,8 +54,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--duration-seconds",
         type=int,
-        default=30,
-        help="How long to run the shell. Values <= 0 still execute one cycle.",
+        default=None,
+        help=(
+            "Run duration seconds. Combines with --duration-minutes/--duration-hours. "
+            "If all duration flags are omitted, default is 30 seconds. Values <= 0 still execute one cycle."
+        ),
+    )
+    parser.add_argument(
+        "--duration-minutes",
+        type=int,
+        default=None,
+        help="Additional run duration in minutes for paper-soak launches.",
+    )
+    parser.add_argument(
+        "--duration-hours",
+        type=int,
+        default=None,
+        help="Additional run duration in hours for paper-soak launches.",
     )
     parser.add_argument(
         "--cycle-interval-seconds",
@@ -83,6 +106,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--kill-switch",
         default=str(DEFAULT_KILL_SWITCH_PATH),
         help="Kill-switch file checked every cycle.",
+    )
+    parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=None,
+        help=(
+            "Emit operator heartbeat/status output every N seconds. "
+            "Combine with --heartbeat-minutes. Default: disabled."
+        ),
+    )
+    parser.add_argument(
+        "--heartbeat-minutes",
+        type=int,
+        default=None,
+        help="Emit operator heartbeat/status output every N minutes. Default: disabled.",
+    )
+    parser.add_argument(
+        "--auto-report",
+        action="store_true",
+        default=False,
+        help=(
+            "Paper mode only. On graceful exit, auto-run crypto-pair-report and print "
+            "where paper_soak_summary artifacts landed."
+        ),
     )
     parser.add_argument(
         "--live",
@@ -138,6 +185,70 @@ def load_config_payload(config_path: Optional[str]) -> dict[str, Any]:
     return load_json_from_path(config_path)
 
 
+def resolve_duration_seconds(
+    *,
+    duration_seconds: Optional[int],
+    duration_minutes: Optional[int],
+    duration_hours: Optional[int],
+) -> int:
+    parts = [
+        duration_seconds or 0,
+        (duration_minutes or 0) * 60,
+        (duration_hours or 0) * 3600,
+    ]
+    if duration_seconds is None and duration_minutes is None and duration_hours is None:
+        return 30
+    return sum(parts)
+
+
+def resolve_heartbeat_interval_seconds(
+    *,
+    heartbeat_seconds: Optional[int],
+    heartbeat_minutes: Optional[int],
+) -> int:
+    return (heartbeat_seconds or 0) + ((heartbeat_minutes or 0) * 60)
+
+
+def format_heartbeat_status(payload: dict[str, Any]) -> str:
+    latest_feed_states = payload.get("latest_feed_states") or {}
+    if isinstance(latest_feed_states, dict) and latest_feed_states:
+        feed_state_text = ",".join(
+            f"{symbol}={state}"
+            for symbol, state in sorted(latest_feed_states.items())
+        )
+    else:
+        feed_state_text = "unseen"
+
+    stale_symbols = payload.get("stale_symbols") or []
+    if isinstance(stale_symbols, list) and stale_symbols:
+        stale_text = ",".join(str(symbol) for symbol in stale_symbols)
+    else:
+        stale_text = "none"
+
+    return (
+        f"{_CLI_PREFIX} heartbeat     : "
+        f"elapsed={payload.get('elapsed_runtime', '00:00:00')} "
+        f"cycle={payload.get('cycle', 0)} "
+        f"opportunities={payload.get('opportunities_observed', 0)} "
+        f"intents={payload.get('intents_generated', 0)} "
+        f"completed_pairs={payload.get('completed_pairs', 0)} "
+        f"partial_exposure={payload.get('partial_exposure_count', 0)} "
+        f"feed={feed_state_text} "
+        f"stale={stale_text}"
+    )
+
+
+def persist_manifest_update(manifest: dict[str, Any]) -> None:
+    manifest_path = Path(
+        manifest.get("artifacts", {}).get("manifest_path")
+        or Path(str(manifest["artifact_dir"])) / "run_manifest.json"
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
 def run_crypto_pair_runner(
     *,
     live: bool = False,
@@ -156,12 +267,16 @@ def run_crypto_pair_runner(
     execution_adapter: Any = None,
     store: Any = None,
     cycle_limit: Optional[int] = None,
+    heartbeat_interval_seconds: int = 0,
+    heartbeat_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     sink_enabled: bool = False,
     clickhouse_host: str = "localhost",
     clickhouse_port: int = 8123,
     clickhouse_user: str = "polytool_admin",
     clickhouse_password: str = "",
     sink_flush_mode: str = "batch",
+    auto_report: bool = False,
+    report_generator=generate_crypto_pair_paper_report,
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -185,6 +300,7 @@ def run_crypto_pair_runner(
         symbol_filters=symbol_filters,
         duration_filters=duration_filters,
         cycle_limit=cycle_limit,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
     )
     if cycle_interval_seconds is not None:
         settings = build_runner_settings(
@@ -195,6 +311,7 @@ def run_crypto_pair_runner(
                 "max_open_pairs": settings.max_open_pairs,
                 "daily_loss_cap_usdc": str(settings.daily_loss_cap_usdc),
                 "min_profit_threshold_usdc": str(settings.min_profit_threshold_usdc),
+                "heartbeat_interval_seconds": settings.heartbeat_interval_seconds,
             },
             artifact_base_dir=settings.artifact_base_dir,
             kill_switch_path=settings.kill_switch_path,
@@ -202,6 +319,7 @@ def run_crypto_pair_runner(
             symbol_filters=settings.symbol_filters,
             duration_filters=settings.duration_filters,
             cycle_limit=settings.cycle_limit,
+            heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         )
 
     sink_config = CryptoPairClickHouseSinkConfig(
@@ -231,13 +349,46 @@ def run_crypto_pair_runner(
             store=store,
             execution_adapter=execution_adapter,
             sink=sink,
+            heartbeat_callback=heartbeat_callback,
         )
-    return runner.run()
+    manifest = runner.run()
+
+    if auto_report and not live:
+        auto_report_payload = {
+            "enabled": True,
+            "executed": False,
+            "stopped_reason": manifest.get("stopped_reason"),
+        }
+        if is_graceful_paper_stop_reason(manifest.get("stopped_reason")):
+            report_result = report_generator(Path(str(manifest["artifact_dir"])))
+            auto_report_payload.update(
+                {
+                    "executed": True,
+                    "decision": report_result.report.get("rubric", {}).get("decision"),
+                    "verdict": report_result.report.get("rubric", {}).get("verdict"),
+                    **build_report_artifact_paths(report_result),
+                }
+            )
+        else:
+            auto_report_payload["skipped_reason"] = "non_graceful_stop"
+        manifest["auto_report"] = auto_report_payload
+        persist_manifest_update(manifest)
+
+    return manifest
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    duration_seconds = resolve_duration_seconds(
+        duration_seconds=args.duration_seconds,
+        duration_minutes=args.duration_minutes,
+        duration_hours=args.duration_hours,
+    )
+    heartbeat_interval_seconds = resolve_heartbeat_interval_seconds(
+        heartbeat_seconds=args.heartbeat_seconds,
+        heartbeat_minutes=args.heartbeat_minutes,
+    )
 
     ch_password = ""
     if args.sink_enabled:
@@ -255,29 +406,76 @@ def main(argv: Optional[list[str]] = None) -> int:
             file=sys.stderr,
         )
 
-    if args.duration_seconds < 0:
-        print("Error: --duration-seconds must be >= 0.", file=sys.stderr)
+    duration_parts = (
+        ("--duration-seconds", args.duration_seconds),
+        ("--duration-minutes", args.duration_minutes),
+        ("--duration-hours", args.duration_hours),
+    )
+    for flag, value in duration_parts:
+        if value is not None and value < 0:
+            print(f"Error: {flag} must be >= 0.", file=sys.stderr)
+            return 1
+    heartbeat_parts = (
+        ("--heartbeat-seconds", args.heartbeat_seconds),
+        ("--heartbeat-minutes", args.heartbeat_minutes),
+    )
+    for flag, value in heartbeat_parts:
+        if value is not None and value < 0:
+            print(f"Error: {flag} must be >= 0.", file=sys.stderr)
+            return 1
+
+    if duration_seconds < 0:
+        print("Error: total duration must be >= 0.", file=sys.stderr)
         return 1
+    if heartbeat_interval_seconds < 0:
+        print("Error: heartbeat interval must be >= 0.", file=sys.stderr)
+        return 1
+    if args.live and heartbeat_interval_seconds > 0:
+        print(
+            "Warning: paper heartbeat output is ignored in live mode.",
+            file=sys.stderr,
+        )
+    if args.live and args.auto_report:
+        print(
+            "Warning: --auto-report is ignored in live mode.",
+            file=sys.stderr,
+        )
+
+    heartbeat_callback = None if args.live else lambda payload: print(
+        format_heartbeat_status(payload)
+    )
 
     try:
         manifest = run_crypto_pair_runner(
             live=args.live,
             confirm=args.confirm,
             config_path=args.config,
-            duration_seconds=args.duration_seconds,
+            duration_seconds=duration_seconds,
             cycle_interval_seconds=args.cycle_interval_seconds,
             symbol_filters=tuple(args.symbol or ()),
             duration_filters=tuple(args.market_duration or ()),
             output_base=Path(args.output) if args.output else None,
             kill_switch_path=Path(args.kill_switch),
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+            heartbeat_callback=heartbeat_callback,
             sink_enabled=args.sink_enabled,
             clickhouse_host=args.clickhouse_host,
             clickhouse_port=args.clickhouse_port,
             clickhouse_user=args.clickhouse_user,
             clickhouse_password=ch_password,
             sink_flush_mode="streaming" if args.sink_streaming else "batch",
+            auto_report=args.auto_report and not args.live,
         )
-    except (ConfigLoadError, ValueError) as exc:
+    except ConfigLoadError as exc:
+        print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
+        return 1
+    except CryptoPairReportError as exc:
+        print(
+            f"crypto-pair-run completed but auto-report failed: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    except ValueError as exc:
         print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
@@ -288,10 +486,35 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     mode_label = "live" if args.live else "paper"
-    print(f"[crypto-pair-run] mode          : {mode_label}")
-    print(f"[crypto-pair-run] run_id        : {manifest['run_id']}")
-    print(f"[crypto-pair-run] stopped_reason: {manifest['stopped_reason']}")
-    print(f"[crypto-pair-run] artifact_dir  : {manifest['artifact_dir']}")
+    print(f"{_CLI_PREFIX} mode          : {mode_label}")
+    print(f"{_CLI_PREFIX} run_id        : {manifest['run_id']}")
+    print(f"{_CLI_PREFIX} stopped_reason: {manifest['stopped_reason']}")
+    print(f"{_CLI_PREFIX} artifact_dir  : {manifest['artifact_dir']}")
+    print(
+        f"{_CLI_PREFIX} manifest_path : "
+        f"{manifest.get('artifacts', {}).get('manifest_path', 'unknown')}"
+    )
+    print(
+        f"{_CLI_PREFIX} run_summary   : "
+        f"{manifest.get('artifacts', {}).get('run_summary_path', 'unknown')}"
+    )
+    auto_report = manifest.get("auto_report")
+    if isinstance(auto_report, dict) and auto_report.get("enabled"):
+        if auto_report.get("executed"):
+            print(f"{_CLI_PREFIX} report_json   : {auto_report.get('summary_json')}")
+            print(
+                f"{_CLI_PREFIX} report_md     : "
+                f"{auto_report.get('summary_markdown')}"
+            )
+            print(
+                f"{_CLI_PREFIX} report_verdict: "
+                f"{auto_report.get('verdict', 'unknown')}"
+            )
+        else:
+            print(
+                f"{_CLI_PREFIX} auto_report   : skipped "
+                f"({auto_report.get('skipped_reason', 'unknown')})"
+            )
     return 0
 
 

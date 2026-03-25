@@ -402,6 +402,61 @@ status is:
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
 
+## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
+
+Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
+2026-03-23. The primary deliverables:
+
+- **Accumulation engine** (`packages/polymarket/crypto_pairs/accumulation_engine.py`):
+  YES + NO pair accumulation below pair-cost ceiling. Kill switch, daily loss
+  cap, max open pairs, max unpaired exposure window.
+- **Reference feed** (`packages/polymarket/crypto_pairs/reference_feed.py`):
+  BTC/ETH/SOL Binance WebSocket feed with safety state machine
+  (`connected_fresh`, `stale`, `disconnected`).
+- **Fair value** (`packages/polymarket/crypto_pairs/fair_value.py`):
+  Pair-cost calculation and threshold evaluation.
+- **Live execution** (`packages/polymarket/crypto_pairs/live_execution.py`):
+  Order routing and fill simulation (paper mode).
+- **Live runner** (`packages/polymarket/crypto_pairs/live_runner.py`):
+  Main run loop; emits Track 2 event objects; writes JSONL artifacts and
+  ClickHouse events on finalization.
+- **Event models** (`packages/polymarket/crypto_pairs/event_models.py`):
+  7 Track 2 event types, ClickHouse projection contract.
+- **ClickHouse sink** (`packages/polymarket/crypto_pairs/clickhouse_sink.py`):
+  Optional projection target; disabled by default; enabled with `--sink-enabled`.
+- **ClickHouse table** (`infra/clickhouse/initdb/26_crypto_pair_events.sql`):
+  `polytool.crypto_pair_events` — `ReplacingMergeTree`, `ORDER BY (run_id,
+  event_type, event_ts, event_id)`. `grafana_ro` SELECT grant already present.
+- **CLI**: `python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled`
+- **Reporting CLI**: `python -m polytool crypto-pair-report` (artifact analysis)
+- **Grafana dashboard** (`infra/grafana/dashboards/polyttool_crypto_pair_paper_soak.json`):
+  12 panels matching the paper-soak runbook. Auto-provisioned at
+  `docker compose up -d`. UID: `polytool-crypto-pair-paper-soak`.
+  Datasource: `ClickHouse` (UID `clickhouse-polytool`). Default range: `now-7d`.
+  Panels: Paper Soak Scorecard, Run Summary Funnel, Maker Fill Rate Floor,
+  Partial-Leg Incidence, Active Pairs, Pair Cost Distribution, Estimated Profit
+  Per Completed Pair, Net Profit Per Settlement, Cumulative Net PnL, Daily
+  Trade Count, Feed State Transition Counts, Recent Feed Safety Events.
+- **Paper soak runbook**: `docs/runbooks/CRYPTO_PAIR_PAPER_SOAK_RUNBOOK.md`
+- **Rubric spec**: `docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`
+- **Feature docs**: `docs/features/FEATURE-crypto-pair-runner-v0.md`,
+  `docs/features/FEATURE-crypto-pair-clickhouse-sink-v0.md`,
+  `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
+  `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
+
+The next operator action is the 24h paper soak:
+
+```powershell
+$env:CLICKHOUSE_PASSWORD = "polytool_admin"
+python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled
+```
+
+After the run finalizes, open the Grafana dashboard at
+`http://localhost:3000/d/polytool-crypto-pair-paper-soak` and apply the
+promote / rerun / reject rubric.
+
+---
+
 ## Historical checkpoint: 2026-03-05 Track A code complete
 
 Track A code is shipped and tested. Sprint-end validation was 1188 passing
