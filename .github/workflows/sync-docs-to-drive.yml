@@ -22,6 +22,8 @@ jobs:
       - name: Validate Google Drive secrets
         shell: bash
         run: |
+          set -euo pipefail
+
           if [ -z "${GDRIVE_CREDENTIALS}" ]; then
             echo "GDRIVE_CREDENTIALS missing or empty. Configure the repository secret before running Drive sync." >&2
             exit 1
@@ -33,6 +35,49 @@ jobs:
             exit 1
           fi
           echo "GDRIVE_FOLDER_ID present"
+
+          credentials_file="$(mktemp)"
+          trap 'rm -f "${credentials_file}"' EXIT
+
+          if ! printf '%s' "${GDRIVE_CREDENTIALS}" | base64 --decode > "${credentials_file}" 2>/dev/null; then
+            echo "GDRIVE_CREDENTIALS base64 decode failed. Store the service-account JSON as a base64-encoded repository secret." >&2
+            exit 1
+          fi
+          echo "GDRIVE_CREDENTIALS base64 decode passed"
+
+          python3 - "${credentials_file}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          credentials_path = pathlib.Path(sys.argv[1])
+          try:
+              payload = json.loads(credentials_path.read_text())
+          except json.JSONDecodeError:
+              print(
+                  "GDRIVE_CREDENTIALS JSON parse failed. Decoded secret is not valid JSON.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          required_keys = ("type", "client_email", "private_key", "project_id")
+          missing_keys = [key for key in required_keys if not payload.get(key)]
+          if missing_keys:
+              print(
+                  "GDRIVE_CREDENTIALS JSON validation failed. Missing required service-account keys: "
+                  + ", ".join(missing_keys),
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if payload.get("type") != "service_account":
+              print(
+                  "GDRIVE_CREDENTIALS JSON validation failed. type must be service_account.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
+          echo "GDRIVE_CREDENTIALS JSON parse passed"
 
       - name: Upload docs folder
         uses: adityak74/google-drive-upload-git-action@main
