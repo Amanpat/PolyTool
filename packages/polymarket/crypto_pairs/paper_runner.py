@@ -45,7 +45,12 @@ from .event_models import (
     build_events_from_paper_records,
 )
 from .position_store import CryptoPairPositionStore, iso_utc, utc_now
-from .reference_feed import BinanceFeed, FeedConnectionState, ReferencePriceSnapshot
+from .reference_feed import (
+    FeedConnectionState,
+    ReferencePriceSnapshot,
+    build_reference_feed,
+    normalize_reference_feed_provider,
+)
 
 
 DEFAULT_PAPER_ARTIFACTS_DIR = Path("artifacts/crypto_pairs/paper_runs")
@@ -119,6 +124,7 @@ class CryptoPairRunnerSettings:
     min_profit_threshold_usdc: Decimal = _OPERATOR_MIN_PROFIT_THRESHOLD_USDC
     symbol_filters: tuple[str, ...] = ()
     duration_filters: tuple[int, ...] = ()
+    reference_feed_provider: str = "binance"
     cycle_limit: Optional[int] = None
     heartbeat_interval_seconds: int = 0
     sink_flush_mode: str = "batch"
@@ -153,6 +159,11 @@ class CryptoPairRunnerSettings:
             self,
             "duration_filters",
             tuple(sorted({int(duration) for duration in self.duration_filters})),
+        )
+        object.__setattr__(
+            self,
+            "reference_feed_provider",
+            normalize_reference_feed_provider(self.reference_feed_provider),
         )
 
         if self.sink_flush_mode not in ("batch", "streaming"):
@@ -217,6 +228,7 @@ class CryptoPairRunnerSettings:
             min_profit_threshold_usdc=self.min_profit_threshold_usdc,
             symbol_filters=self.symbol_filters,
             duration_filters=self.duration_filters,
+            reference_feed_provider=self.reference_feed_provider,
             cycle_limit=self.cycle_limit,
             heartbeat_interval_seconds=self.heartbeat_interval_seconds,
             sink_flush_mode=self.sink_flush_mode,
@@ -234,6 +246,7 @@ class CryptoPairRunnerSettings:
             "min_profit_threshold_usdc": str(self.min_profit_threshold_usdc),
             "symbol_filters": list(self.symbol_filters),
             "duration_filters": list(self.duration_filters),
+            "reference_feed_provider": self.reference_feed_provider,
             "cycle_limit": self.cycle_limit,
             "heartbeat_interval_seconds": self.heartbeat_interval_seconds,
             "sink_flush_mode": self.sink_flush_mode,
@@ -301,6 +314,7 @@ def build_runner_settings(
         duration_filters=duration_filters
         if duration_filters is not None
         else tuple(payload.get("duration_filters", ())),
+        reference_feed_provider=payload.get("reference_feed_provider", "binance"),
         cycle_limit=cycle_limit if cycle_limit is not None else payload.get("cycle_limit"),
         heartbeat_interval_seconds=heartbeat_interval_seconds
         if heartbeat_interval_seconds is not None
@@ -516,7 +530,9 @@ class CryptoPairPaperRunner:
         self.settings = settings
         self.gamma_client = gamma_client
         self.clob_client = clob_client
-        self.reference_feed = reference_feed or BinanceFeed()
+        self.reference_feed = reference_feed or build_reference_feed(
+            settings.reference_feed_provider
+        )
         self._owns_reference_feed = reference_feed is None
         self.sink: CryptoPairClickHouseEventWriter = sink or DisabledCryptoPairClickHouseSink()
         self._feed_state_transitions: list[dict] = []

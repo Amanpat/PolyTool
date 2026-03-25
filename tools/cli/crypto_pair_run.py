@@ -23,6 +23,10 @@ from packages.polymarket.crypto_pairs.paper_runner import (
     CryptoPairPaperRunner,
     build_runner_settings,
 )
+from packages.polymarket.crypto_pairs.reference_feed import (
+    REFERENCE_FEED_PROVIDER_CHOICES,
+    normalize_reference_feed_provider,
+)
 from packages.polymarket.crypto_pairs.reporting import (
     CryptoPairReportError,
     build_report_artifact_paths,
@@ -106,6 +110,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--kill-switch",
         default=str(DEFAULT_KILL_SWITCH_PATH),
         help="Kill-switch file checked every cycle.",
+    )
+    parser.add_argument(
+        "--reference-feed-provider",
+        choices=REFERENCE_FEED_PROVIDER_CHOICES,
+        default=None,
+        help=(
+            "Reference price feed provider for paper mode. "
+            "Default: binance. Use coinbase when Binance is unavailable or "
+            "geo-restricted. auto opens both and prefers Binance when both are healthy."
+        ),
     )
     parser.add_argument(
         "--heartbeat-seconds",
@@ -275,6 +289,7 @@ def run_crypto_pair_runner(
     clickhouse_user: str = "polytool_admin",
     clickhouse_password: str = "",
     sink_flush_mode: str = "batch",
+    reference_feed_provider: Optional[str] = None,
     auto_report: bool = False,
     report_generator=generate_crypto_pair_paper_report,
 ) -> dict[str, Any]:
@@ -290,6 +305,18 @@ def run_crypto_pair_runner(
     # CLI-level sink_flush_mode overrides anything in the config file
     if sink_flush_mode != "batch":
         payload["sink_flush_mode"] = sink_flush_mode
+    if reference_feed_provider is not None:
+        payload["reference_feed_provider"] = reference_feed_provider
+
+    selected_reference_feed_provider = normalize_reference_feed_provider(
+        payload.get("reference_feed_provider", "binance")
+    )
+    payload["reference_feed_provider"] = selected_reference_feed_provider
+    if live and selected_reference_feed_provider != "binance":
+        raise ValueError(
+            "reference_feed_provider only applies to paper mode in v1; "
+            "live mode remains binance-only."
+        )
 
     default_output = DEFAULT_LIVE_ARTIFACTS_DIR if live else DEFAULT_PAPER_ARTIFACTS_DIR
     settings = build_runner_settings(
@@ -464,6 +491,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             clickhouse_user=args.clickhouse_user,
             clickhouse_password=ch_password,
             sink_flush_mode="streaming" if args.sink_streaming else "batch",
+            reference_feed_provider=args.reference_feed_provider,
             auto_report=args.auto_report and not args.live,
         )
     except ConfigLoadError as exc:

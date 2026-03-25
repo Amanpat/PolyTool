@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Optional
 from unittest.mock import MagicMock
 
+import pytest
+
+import packages.polymarket.crypto_pairs.paper_runner as paper_runner_module
 from packages.polymarket.clob import OrderBookTop
 from packages.polymarket.crypto_pairs.paper_runner import (
     CryptoPairPaperRunner,
@@ -16,7 +19,7 @@ from packages.polymarket.crypto_pairs.reference_feed import (
     FeedConnectionState,
     ReferencePriceSnapshot,
 )
-from tools.cli.crypto_pair_run import run_crypto_pair_runner
+from tools.cli.crypto_pair_run import build_parser, run_crypto_pair_runner
 
 
 def _make_mock_market(
@@ -63,7 +66,11 @@ def _make_clob_client(
     return client
 
 
-def _fresh_snapshot(symbol: str = "BTC") -> ReferencePriceSnapshot:
+def _fresh_snapshot(
+    symbol: str = "BTC",
+    *,
+    feed_source: str = "binance",
+) -> ReferencePriceSnapshot:
     return ReferencePriceSnapshot(
         symbol=symbol,
         price=60_000.0,
@@ -71,11 +78,15 @@ def _fresh_snapshot(symbol: str = "BTC") -> ReferencePriceSnapshot:
         connection_state=FeedConnectionState.CONNECTED,
         is_stale=False,
         stale_threshold_s=15.0,
-        feed_source="binance",
+        feed_source=feed_source,
     )
 
 
-def _stale_snapshot(symbol: str = "BTC") -> ReferencePriceSnapshot:
+def _stale_snapshot(
+    symbol: str = "BTC",
+    *,
+    feed_source: str = "binance",
+) -> ReferencePriceSnapshot:
     return ReferencePriceSnapshot(
         symbol=symbol,
         price=60_000.0,
@@ -83,7 +94,7 @@ def _stale_snapshot(symbol: str = "BTC") -> ReferencePriceSnapshot:
         connection_state=FeedConnectionState.CONNECTED,
         is_stale=True,
         stale_threshold_s=15.0,
-        feed_source="binance",
+        feed_source=feed_source,
     )
 
 
@@ -304,3 +315,99 @@ def test_operator_interrupt_finalizes_artifacts_cleanly(tmp_path: Path) -> None:
         event["event_type"] == "operator_interrupt"
         for event in runtime_events
     )
+
+
+def test_cli_help_includes_reference_feed_provider_flag() -> None:
+    help_text = build_parser().format_help()
+
+    assert "--reference-feed-provider" in help_text
+    assert "binance" in help_text
+    assert "coinbase" in help_text
+    assert "auto" in help_text
+
+
+def test_run_defaults_to_binance_reference_feed_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+    selected: dict[str, str] = {}
+
+    def _fake_build_reference_feed(provider: str):
+        selected["provider"] = provider
+        return StaticFeed(_fresh_snapshot(feed_source="binance"))
+
+    monkeypatch.setattr(paper_runner_module, "build_reference_feed", _fake_build_reference_feed)
+
+    manifest = run_crypto_pair_runner(
+        output_base=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+        gamma_client=gamma,
+        clob_client=clob,
+    )
+
+    config_snapshot = json.loads(
+        (Path(manifest["artifact_dir"]) / "config_snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert selected["provider"] == "binance"
+    assert config_snapshot["runner"]["reference_feed_provider"] == "binance"
+
+
+def test_run_allows_coinbase_reference_feed_provider_from_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+    selected: dict[str, str] = {}
+
+    def _fake_build_reference_feed(provider: str):
+        selected["provider"] = provider
+        return StaticFeed(_fresh_snapshot(feed_source="coinbase"))
+
+    monkeypatch.setattr(paper_runner_module, "build_reference_feed", _fake_build_reference_feed)
+
+    manifest = run_crypto_pair_runner(
+        output_base=tmp_path,
+        duration_seconds=0,
+        cycle_limit=1,
+        gamma_client=gamma,
+        clob_client=clob,
+        config_payload={"reference_feed_provider": "coinbase"},
+    )
+
+    config_snapshot = json.loads(
+        (Path(manifest["artifact_dir"]) / "config_snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert selected["provider"] == "coinbase"
+    assert config_snapshot["runner"]["reference_feed_provider"] == "coinbase"
+
+
+def test_run_rejects_unsupported_reference_feed_provider(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported reference_feed_provider"):
+        run_crypto_pair_runner(
+            output_base=tmp_path,
+            duration_seconds=0,
+            cycle_limit=1,
+            reference_feed_provider="kraken",
+        )
