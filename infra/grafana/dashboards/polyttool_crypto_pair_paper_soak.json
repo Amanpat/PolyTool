@@ -54,6 +54,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -120,6 +121,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -186,6 +188,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -252,6 +255,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -318,6 +322,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -396,6 +401,7 @@
           "placement": "bottom",
           "showLegend": true
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "orientation": "auto",
         "showValue": "auto",
         "tooltip": {
@@ -492,6 +498,7 @@
           "placement": "right",
           "showLegend": true
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
@@ -560,6 +567,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
@@ -651,6 +659,7 @@
           "placement": "right",
           "showLegend": true
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
@@ -743,6 +752,7 @@
           "placement": "bottom",
           "showLegend": true
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "tooltip": {
           "mode": "multi",
           "sort": "none"
@@ -835,6 +845,7 @@
           "placement": "bottom",
           "showLegend": true
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "tooltip": {
           "mode": "multi",
           "sort": "none"
@@ -903,6 +914,7 @@
           "reducer": ["sum"],
           "show": false
         },
+        "noDataText": "No Track 2 events yet. Causes: (1) sink disabled — rerun with --sink-enabled, (2) no eligible BTC/ETH/SOL 5m-15m markets — run crypto-pair-watch --watch, (3) Docker not running. Table: polytool.crypto_pair_events",
         "showHeader": true,
         "sortBy": []
       },
