@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-25 - Completed quick-022: Phase 1A first real paper soak — smoke soak ran cleanly, Binance HTTP 451 geo-restriction blocked all feed data, 24h soak intentionally skipped, rubric verdict RERUN
+Last activity: 2026-03-25 - Completed quick-023: Coinbase smoke soak rerun — Coinbase feed confirmed working, but BLOCKED: Polymarket has zero active BTC/ETH/SOL 5m/15m markets (market availability blocker, not feed blocker)
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -46,7 +46,7 @@ Last activity: 2026-03-25 - Completed quick-022: Phase 1A first real paper soak 
 - _streamed_transition_ids dedup uses composite key (not event_id) to match finalization list which reconstructs from raw transition dicts
 
 ### Blockers/Concerns
-None currently.
+- Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in.
 
 ### Quick Tasks Completed
 
@@ -73,3 +73,4 @@ None currently.
 | 020 | Wire paper runner into dormant ClickHouse Track 2 event sink: batch-at-finalization, soft-fail, sink_write_result in manifest, 5 tests, feature doc, dev log | 2026-03-23 | ba8da25 | [20-wire-paper-runner-into-dormant-event-sin](./quick/20-wire-paper-runner-into-dormant-event-sin/) |
 | 021 | Add incremental mid-run event emission to paper runner sink: streaming flush mode, write_event() + consecutive-fail guard, sink_flush_mode field, --sink-streaming CLI flag, 8 new offline tests, dedup guard for safety transitions | 2026-03-24 | ddca74b | [21-add-incremental-mid-run-event-emission-f](./quick/21-add-incremental-mid-run-event-emission-f/) |
 | 022 | Phase 1A first real paper soak: smoke soak ran cleanly but Binance HTTP 451 geo-restriction blocked all reference feed data; 24h soak intentionally skipped; rubric verdict RERUN; dev log + CURRENT_STATE.md blocker note | 2026-03-25 | e32cc0c | [22-execute-the-first-real-phase-1a-crypto-p](./quick/22-execute-the-first-real-phase-1a-crypto-p/) |
+| 023 | Coinbase smoke soak rerun: Coinbase feed confirmed working (--reference-feed-provider coinbase accepted), BLOCKED due to Polymarket having zero active BTC/ETH/SOL 5m/15m markets; blocker shifted from reference feed to market availability | 2026-03-25 | 1c73cec | [23-execute-the-coinbase-based-rerun-smoke-s](./quick/23-execute-the-coinbase-based-rerun-smoke-s/) |
