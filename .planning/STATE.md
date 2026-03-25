@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-25 - Completed quick-024: Market availability watcher operational — `crypto-pair-watch` command ships with one-shot and watch modes, deterministic artifacts, 20 offline tests. Run `python -m polytool crypto-pair-watch --watch --timeout 3600` to poll until markets rotate in.
+Last activity: 2026-03-25 - Completed quick-025: Grafana no-data diagnostics — confirmed zero-row root cause (infrastructure intact), added noDataText to all 12 dashboard panels, added operator remediation guide to feature doc. Market availability remains the sole blocker for Track 2 data.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -76,3 +76,4 @@ Last activity: 2026-03-25 - Completed quick-024: Market availability watcher ope
 | 022 | Phase 1A first real paper soak: smoke soak ran cleanly but Binance HTTP 451 geo-restriction blocked all reference feed data; 24h soak intentionally skipped; rubric verdict RERUN; dev log + CURRENT_STATE.md blocker note | 2026-03-25 | e32cc0c | [22-execute-the-first-real-phase-1a-crypto-p](./quick/22-execute-the-first-real-phase-1a-crypto-p/) |
 | 023 | Coinbase smoke soak rerun: Coinbase feed confirmed working (--reference-feed-provider coinbase accepted), BLOCKED due to Polymarket having zero active BTC/ETH/SOL 5m/15m markets; blocker shifted from reference feed to market availability | 2026-03-25 | 1c73cec | [23-execute-the-coinbase-based-rerun-smoke-s](./quick/23-execute-the-coinbase-based-rerun-smoke-s/) |
 | 024 | Market availability watcher for Track 2: crypto-pair-watch command with one-shot and watch modes, AvailabilitySummary, deterministic artifact bundle (watch_manifest.json, availability_summary.json, .md), 20 offline tests, feature doc, dev log | 2026-03-25 | 6c2c0e9 | [24-implement-track-2-market-availability-wa](./quick/24-implement-track-2-market-availability-wa/) |
+| 025 | Grafana no-data diagnostics: confirmed zero-row root cause (infra intact), added noDataText to all 12 dashboard panels, added operator remediation guide to FEATURE-crypto-pair-grafana-panels-v1.md | 2026-03-25 | ff31016 | [25-diagnose-track-2-grafana-dashboard-empti](./quick/25-diagnose-track-2-grafana-dashboard-empti/) |
