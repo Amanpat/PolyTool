@@ -67,6 +67,7 @@ crypto_pair_run_main = _command_entrypoint("tools.cli.crypto_pair_run")
 crypto_pair_backtest_main = _command_entrypoint("tools.cli.crypto_pair_backtest")
 crypto_pair_report_main = _command_entrypoint("tools.cli.crypto_pair_report")
 crypto_pair_watch_main = _command_entrypoint("tools.cli.crypto_pair_watch")
+crypto_pair_await_soak_main = _command_entrypoint("tools.cli.crypto_pair_await_soak")
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
 rag_query_main = _command_entrypoint("tools.cli.rag_query")
@@ -120,6 +121,7 @@ _COMMAND_HANDLER_NAMES = {
     "crypto-pair-backtest": "crypto_pair_backtest_main",
     "crypto-pair-report": "crypto_pair_report_main",
     "crypto-pair-watch": "crypto_pair_watch_main",
+    "crypto-pair-await-soak": "crypto_pair_await_soak_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -174,6 +176,7 @@ def print_usage() -> None:
     print("  crypto-pair-backtest  Replay historical/synthetic pair observations, emit eval artifacts")
     print("  crypto-pair-report    Summarize one completed paper run into rubric-backed markdown + JSON")
     print("  crypto-pair-watch     Check whether eligible BTC/ETH/SOL 5m/15m markets exist; poll with --watch")
+    print("  crypto-pair-await-soak Wait for eligible markets, then launch the standard Coinbase paper smoke soak")
     print("")
     print("--- SimTrader / Execution (Track A, gated) ----------------------------")
     print("  simtrader             Record/replay/shadow/live trading - run 'simtrader --help'")
