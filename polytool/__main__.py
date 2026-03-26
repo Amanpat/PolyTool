@@ -68,6 +68,9 @@ crypto_pair_backtest_main = _command_entrypoint("tools.cli.crypto_pair_backtest"
 crypto_pair_report_main = _command_entrypoint("tools.cli.crypto_pair_report")
 crypto_pair_watch_main = _command_entrypoint("tools.cli.crypto_pair_watch")
 crypto_pair_await_soak_main = _command_entrypoint("tools.cli.crypto_pair_await_soak")
+crypto_pair_seed_demo_events_main = _command_entrypoint(
+    "tools.cli.crypto_pair_seed_demo_events"
+)
 rag_index_main = _command_entrypoint("tools.cli.rag_index")
 rag_eval_main = _command_entrypoint("tools.cli.rag_eval")
 rag_query_main = _command_entrypoint("tools.cli.rag_query")
@@ -122,6 +125,7 @@ _COMMAND_HANDLER_NAMES = {
     "crypto-pair-report": "crypto_pair_report_main",
     "crypto-pair-watch": "crypto_pair_watch_main",
     "crypto-pair-await-soak": "crypto_pair_await_soak_main",
+    "crypto-pair-seed-demo-events": "crypto_pair_seed_demo_events_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -177,6 +181,7 @@ def print_usage() -> None:
     print("  crypto-pair-report    Summarize one completed paper run into rubric-backed markdown + JSON")
     print("  crypto-pair-watch     Check whether eligible BTC/ETH/SOL 5m/15m markets exist; poll with --watch")
     print("  crypto-pair-await-soak Wait for eligible markets, then launch the standard Coinbase paper smoke soak")
+    print("  crypto-pair-seed-demo-events Seed dev-only synthetic Track 2 rows into ClickHouse for dashboard checks")
     print("")
     print("--- SimTrader / Execution (Track A, gated) ----------------------------")
     print("  simtrader             Record/replay/shadow/live trading - run 'simtrader --help'")
