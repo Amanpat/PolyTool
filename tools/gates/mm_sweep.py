@@ -58,6 +58,7 @@ class TapeCandidate:
     parsed_events: int
     tracked_asset_count: int
     effective_events: int
+    bucket: str | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,9 @@ def discover_mm_sweep_tapes(
 
         meta = _read_json_object(tape_dir / "meta.json")
         prep_meta = _read_json_object(tape_dir / "prep_meta.json")
+        watch_meta = _read_json_object(tape_dir / "watch_meta.json")
+        market_meta = _read_json_object(tape_dir / "market_meta.json")
+        silver_meta = _read_json_object(tape_dir / "silver_meta.json")
         manifest_entry = manifest_index.get(tape_dir.name, {})
 
         candidate = _build_tape_candidate(
@@ -254,6 +258,9 @@ def discover_mm_sweep_tapes(
             events_path=events_path,
             meta=meta,
             prep_meta=prep_meta,
+            watch_meta=watch_meta,
+            market_meta=market_meta,
+            silver_meta=silver_meta,
             manifest_entry=manifest_entry,
             require_selected=True,
         )
@@ -283,6 +290,9 @@ def _load_benchmark_manifest_tapes(benchmark_manifest_path: Path) -> list[TapeCa
             events_path=events_path,
             meta=_read_json_object(tape_dir / "meta.json"),
             prep_meta=_read_json_object(tape_dir / "prep_meta.json"),
+            watch_meta=_read_json_object(tape_dir / "watch_meta.json"),
+            market_meta=_read_json_object(tape_dir / "market_meta.json"),
+            silver_meta=_read_json_object(tape_dir / "silver_meta.json"),
             manifest_entry={},
             require_selected=False,
             explicit_source=str(benchmark_manifest_path),
@@ -298,10 +308,17 @@ def _build_tape_candidate(
     events_path: Path,
     meta: dict[str, Any],
     prep_meta: dict[str, Any],
+    watch_meta: dict[str, Any] | None = None,
+    market_meta: dict[str, Any] | None = None,
+    silver_meta: dict[str, Any] | None = None,
     manifest_entry: dict[str, Any],
     require_selected: bool,
     explicit_source: str | None = None,
 ) -> TapeCandidate | None:
+    _watch = watch_meta or {}
+    _market = market_meta or {}
+    _silver = silver_meta or {}
+
     recorded_by = _first_text(
         meta.get("recorded_by"),
         prep_meta.get("recorded_by"),
@@ -312,12 +329,17 @@ def _build_tape_candidate(
         meta.get("regime"),
         prep_meta.get("final_regime"),
         prep_meta.get("regime"),
+        _watch.get("regime"),
+        _market.get("benchmark_bucket"),
+        _market.get("category"),
         manifest_entry.get("final_regime"),
         manifest_entry.get("regime"),
     )
     market_slug = _first_text(
         prep_meta.get("market_slug"),
         _extract_market_slug(meta),
+        _watch.get("market_slug"),
+        _market.get("slug"),
         manifest_entry.get("slug"),
         tape_dir.name,
     )
@@ -325,6 +347,10 @@ def _build_tape_candidate(
         prep_meta.get("yes_asset_id"),
         prep_meta.get("yes_token_id"),
         _extract_yes_asset_id(meta),
+        _watch.get("yes_asset_id"),
+        _watch.get("yes_token_id"),
+        _market.get("token_id"),
+        _silver.get("token_id"),
     )
 
     if yes_asset_id is None:
@@ -343,6 +369,13 @@ def _build_tape_candidate(
     ):
         return None
 
+    # Derive bucket from available metadata sources (benchmark manifest tapes only).
+    bucket = _first_text(
+        _watch.get("bucket"),
+        _market.get("benchmark_bucket"),
+        manifest_entry.get("bucket"),
+    )
+
     parsed_events, tracked_asset_count, effective_events = _count_effective_events(events_path)
     return TapeCandidate(
         tape_dir=tape_dir,
@@ -354,6 +387,7 @@ def _build_tape_candidate(
         parsed_events=parsed_events,
         tracked_asset_count=tracked_asset_count,
         effective_events=effective_events,
+        bucket=bucket,
     )
 
 
@@ -490,6 +524,7 @@ def _build_gate_payload(
                 "market_slug": outcome.tape.market_slug,
                 "recorded_by": outcome.tape.recorded_by,
                 "regime": outcome.tape.regime,
+                "bucket": outcome.tape.bucket,
                 "best_scenario_id": outcome.best_scenario_id,
                 "best_scenario_name": outcome.best_scenario_name,
                 "best_net_profit": (
@@ -504,7 +539,23 @@ def _build_gate_payload(
             }
         )
 
-    return {
+    # Build per-bucket diagnostics when bucket metadata is available.
+    bucket_breakdown: dict[str, dict[str, Any]] = {}
+    for outcome in outcomes:
+        bkt = outcome.tape.bucket
+        if bkt is None:
+            continue
+        entry = bucket_breakdown.setdefault(bkt, {"total": 0, "positive": 0, "pass_rate": 0.0})
+        entry["total"] += 1
+        if outcome.positive:
+            entry["positive"] += 1
+    for entry in bucket_breakdown.values():
+        entry["pass_rate"] = round(
+            (entry["positive"] / entry["total"]) if entry["total"] else 0.0,
+            4,
+        )
+
+    payload: dict[str, Any] = {
         "gate": "mm_sweep",
         "passed": passed,
         "tapes_total": tapes_total,
@@ -513,6 +564,9 @@ def _build_gate_payload(
         "best_scenarios": best_scenarios,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if bucket_breakdown:
+        payload["bucket_breakdown"] = bucket_breakdown
+    return payload
 
 
 def _write_gate_result(*, out_dir: Path, passed: bool, payload: dict[str, Any]) -> Path:
@@ -523,7 +577,67 @@ def _write_gate_result(*, out_dir: Path, passed: bool, payload: dict[str, Any]) 
     if opposite.exists():
         opposite.unlink()
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    _write_gate_markdown_summary(out_dir=out_dir, payload=payload)
     return path
+
+
+def _write_gate_markdown_summary(*, out_dir: Path, payload: dict[str, Any]) -> None:
+    """Write a human-readable Markdown summary alongside the gate JSON artifact."""
+    passed = payload.get("passed", False)
+    verdict = "PASS" if passed else "FAIL"
+    tapes_total = payload.get("tapes_total", 0)
+    tapes_positive = payload.get("tapes_positive", 0)
+    pass_rate = payload.get("pass_rate", 0.0)
+    generated_at = payload.get("generated_at", "")
+
+    lines = [
+        "# MM Sweep Gate Summary",
+        "",
+        f"**Verdict:** {verdict}",
+        f"**Generated:** {generated_at}",
+        f"**Positive tapes:** {tapes_positive}/{tapes_total} ({pass_rate:.1%})",
+        f"**Threshold:** 70.0%",
+        "",
+    ]
+
+    # Per-bucket breakdown section (present when tapes carry bucket metadata).
+    bucket_breakdown: dict[str, dict[str, Any]] = payload.get("bucket_breakdown", {})
+    if bucket_breakdown:
+        lines += [
+            "## Per-Bucket Breakdown",
+            "",
+            "| Bucket | Total | Positive | Pass Rate |",
+            "|--------|------:|--------:|----------:|",
+        ]
+        for bucket, entry in sorted(bucket_breakdown.items()):
+            bkt_pass_rate = entry.get("pass_rate", 0.0)
+            lines.append(
+                f"| {bucket} | {entry['total']} | {entry['positive']} | {bkt_pass_rate:.1%} |"
+            )
+        lines.append("")
+
+    # Per-tape detail section.
+    best_scenarios: list[dict[str, Any]] = payload.get("best_scenarios", [])
+    if best_scenarios:
+        lines += [
+            "## Per-Tape Results",
+            "",
+            "| Tape | Bucket | Best Scenario | Net PnL | Positive |",
+            "|------|--------|---------------|--------:|----------|",
+        ]
+        for scenario in best_scenarios:
+            tape_name = Path(scenario.get("tape_dir", "")).name or scenario.get("tape_dir", "-")
+            bucket = scenario.get("bucket") or "-"
+            best_scenario_name = scenario.get("best_scenario_name") or scenario.get("error") or "-"
+            net_pnl = scenario.get("best_net_profit") or "-"
+            positive_label = "YES" if scenario.get("positive") else "NO"
+            lines.append(
+                f"| {tape_name} | {bucket} | {best_scenario_name} | {net_pnl} | {positive_label} |"
+            )
+        lines.append("")
+
+    summary_path = out_dir / "gate_summary.md"
+    summary_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _clear_gate_artifacts(out_dir: Path) -> None:

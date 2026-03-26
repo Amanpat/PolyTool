@@ -10,6 +10,8 @@ from tools.gates.mm_sweep import (
     MMSweepResult,
     TapeCandidate,
     TapeSweepOutcome,
+    _build_gate_payload,
+    _build_tape_candidate,
     discover_mm_sweep_tapes,
     format_mm_sweep_summary,
     run_mm_sweep,
@@ -450,3 +452,301 @@ def test_cli_sweep_mm_passes_min_events_and_spread_multipliers(
     assert captured["spread_multipliers"] == (0.5, 1.0, 1.5, 2.0, 3.0)
     assert "stub-mm-summary" in captured_out.out
     assert NOT_RUN_REASON_SUFFIX in captured_out.err
+
+
+# ---------------------------------------------------------------------------
+# New tests: watch_meta.json, market_meta.json, bucket_breakdown, close CLI
+# ---------------------------------------------------------------------------
+
+
+def _make_events_file(tape_dir: Path, *, yes_id: str, no_id: str, count: int = 10) -> Path:
+    """Write a minimal events.jsonl for a tape dir."""
+    events_path = tape_dir / "events.jsonl"
+    rows = [
+        json.dumps(
+            {
+                "seq": i,
+                "asset_id": yes_id,
+                "event_type": "price_change",
+                "price_changes": [
+                    {"asset_id": yes_id, "price": "0.50"},
+                    {"asset_id": no_id, "price": "0.50"},
+                ],
+            }
+        )
+        for i in range(count)
+    ]
+    events_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return events_path
+
+
+def test_build_tape_candidate_reads_yes_asset_id_from_watch_meta(tmp_path: Path) -> None:
+    """_build_tape_candidate must extract yes_asset_id from watch_meta.json when
+    meta.json and prep_meta.json do not carry it."""
+    tape_dir = tmp_path / "doge-updown-5m-1774209300"
+    tape_dir.mkdir()
+    events_path = _make_events_file(
+        tape_dir,
+        yes_id="94093621017194142016089689998471999649872898131309934810269761269305659224070",
+        no_id="11899570848126135228924604216106261784526786677702690322120222904385223782723",
+    )
+    watch_meta = {
+        "market_slug": "doge-updown-5m-1774209300",
+        "yes_asset_id": "94093621017194142016089689998471999649872898131309934810269761269305659224070",
+        "no_asset_id": "11899570848126135228924604216106261784526786677702690322120222904385223782723",
+        "bucket": "new_market",
+        "regime": "new_market",
+    }
+    (tape_dir / "watch_meta.json").write_text(json.dumps(watch_meta), encoding="utf-8")
+
+    candidate = _build_tape_candidate(
+        tape_dir=tape_dir,
+        events_path=events_path,
+        meta={},
+        prep_meta={},
+        watch_meta=watch_meta,
+        market_meta={},
+        silver_meta={},
+        manifest_entry={},
+        require_selected=False,
+    )
+
+    assert candidate is not None
+    assert candidate.yes_asset_id == "94093621017194142016089689998471999649872898131309934810269761269305659224070"
+    assert candidate.market_slug == "doge-updown-5m-1774209300"
+    assert candidate.regime == "new_market"
+    assert candidate.bucket == "new_market"
+
+
+def test_build_tape_candidate_reads_yes_asset_id_from_market_meta(tmp_path: Path) -> None:
+    """_build_tape_candidate must extract token_id from market_meta.json (Silver tapes)
+    when meta.json and prep_meta.json do not carry a YES token."""
+    tape_dir = tmp_path / "5500958648222024" / "2026-03-15T10-00-00Z"
+    tape_dir.mkdir(parents=True)
+    yes_token_id = "5500958648222024490080262026563017618333773328581609432182941377205770769101"
+    events_path = _make_events_file(tape_dir, yes_id=yes_token_id, no_id="NO_TOKEN")
+    market_meta = {
+        "schema_version": "silver_market_meta_v1",
+        "slug": "israeli-parliament-dissolved-by-june-30",
+        "category": "politics",
+        "token_id": yes_token_id,
+        "benchmark_bucket": "politics",
+    }
+    (tape_dir / "market_meta.json").write_text(json.dumps(market_meta), encoding="utf-8")
+
+    candidate = _build_tape_candidate(
+        tape_dir=tape_dir,
+        events_path=events_path,
+        meta={},
+        prep_meta={},
+        watch_meta={},
+        market_meta=market_meta,
+        silver_meta={},
+        manifest_entry={},
+        require_selected=False,
+    )
+
+    assert candidate is not None
+    assert candidate.yes_asset_id == yes_token_id
+    assert candidate.market_slug == "israeli-parliament-dissolved-by-june-30"
+    assert candidate.bucket == "politics"
+
+
+def test_build_tape_candidate_reads_yes_asset_id_from_silver_meta(tmp_path: Path) -> None:
+    """_build_tape_candidate must extract token_id from silver_meta.json as last
+    fallback when no other source has the YES token."""
+    tape_dir = tmp_path / "silver-tape"
+    tape_dir.mkdir()
+    yes_token_id = "99999999999999999999999999999999999999999999999999999999999999999999999999999"
+    events_path = _make_events_file(tape_dir, yes_id=yes_token_id, no_id="NO_TOKEN")
+    silver_meta = {"token_id": yes_token_id}
+
+    candidate = _build_tape_candidate(
+        tape_dir=tape_dir,
+        events_path=events_path,
+        meta={},
+        prep_meta={},
+        watch_meta={},
+        market_meta={},
+        silver_meta=silver_meta,
+        manifest_entry={},
+        require_selected=False,
+    )
+
+    assert candidate is not None
+    assert candidate.yes_asset_id == yes_token_id
+
+
+def test_build_gate_payload_includes_bucket_breakdown() -> None:
+    """_build_gate_payload must emit bucket_breakdown when tapes carry bucket metadata."""
+
+    def _make_outcome(bucket: str, positive: bool) -> TapeSweepOutcome:
+        from decimal import Decimal
+
+        tape = TapeCandidate(
+            tape_dir=Path("/fake/tape"),
+            events_path=Path("/fake/tape/events.jsonl"),
+            market_slug="test-market",
+            yes_asset_id="YES_ID",
+            recorded_by=None,
+            regime=None,
+            parsed_events=100,
+            tracked_asset_count=1,
+            effective_events=100,
+            bucket=bucket,
+        )
+        return TapeSweepOutcome(
+            tape=tape,
+            status="RAN",
+            sweep_dir=None,
+            scenario_rows=[],
+            best_scenario_id="spread-x100",
+            best_scenario_name="spread-x100",
+            best_net_profit=Decimal("1.0") if positive else Decimal("-1.0"),
+            positive=positive,
+        )
+
+    outcomes = [
+        _make_outcome("crypto", positive=True),
+        _make_outcome("crypto", positive=True),
+        _make_outcome("crypto", positive=False),
+        _make_outcome("politics", positive=True),
+        _make_outcome("politics", positive=False),
+        _make_outcome("new_market", positive=False),
+    ]
+
+    payload = _build_gate_payload(outcomes=outcomes, threshold=0.70)
+
+    assert "bucket_breakdown" in payload
+    bd = payload["bucket_breakdown"]
+    assert bd["crypto"]["total"] == 3
+    assert bd["crypto"]["positive"] == 2
+    assert abs(bd["crypto"]["pass_rate"] - round(2 / 3, 4)) < 1e-6
+    assert bd["politics"]["total"] == 2
+    assert bd["politics"]["positive"] == 1
+    assert bd["new_market"]["total"] == 1
+    assert bd["new_market"]["positive"] == 0
+    # Overall pass_rate: 3/6 = 0.5
+    assert payload["pass_rate"] == pytest.approx(0.5, abs=1e-4)
+    assert payload["passed"] is False  # 0.5 < 0.70
+
+
+def test_build_gate_payload_no_bucket_breakdown_when_no_bucket_metadata() -> None:
+    """_build_gate_payload must omit bucket_breakdown when no tape has bucket metadata."""
+    from decimal import Decimal
+
+    tape = TapeCandidate(
+        tape_dir=Path("/fake/tape"),
+        events_path=Path("/fake/tape/events.jsonl"),
+        market_slug="test-market",
+        yes_asset_id="YES_ID",
+        recorded_by=None,
+        regime=None,
+        parsed_events=100,
+        tracked_asset_count=1,
+        effective_events=100,
+        # bucket=None (default)
+    )
+    outcome = TapeSweepOutcome(
+        tape=tape,
+        status="RAN",
+        sweep_dir=None,
+        scenario_rows=[],
+        best_scenario_id="spread-x100",
+        best_scenario_name="spread-x100",
+        best_net_profit=Decimal("1.0"),
+        positive=True,
+    )
+
+    payload = _build_gate_payload(outcomes=[outcome], threshold=0.70)
+
+    assert "bucket_breakdown" not in payload
+
+
+def test_close_mm_sweep_gate_cli_accepts_benchmark_manifest_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """close_mm_sweep_gate.main() must accept --benchmark-manifest and pass it to run_mm_sweep."""
+    import tools.gates.close_mm_sweep_gate as close_gate
+
+    benchmark_manifest = tmp_path / "benchmark_v1.tape_manifest"
+    benchmark_manifest.write_text("[]", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_mm_sweep(**kwargs: object) -> MMSweepResult:
+        captured.update(kwargs)
+        return MMSweepResult(
+            tapes=[],
+            outcomes=[],
+            gate_payload=None,
+            artifact_path=None,
+            threshold=0.70,
+            min_events=50,
+            not_run_reason="No eligible tapes found.",
+        )
+
+    # Patch in the close_gate module's namespace (that's where the name is bound
+    # via its top-level `from tools.gates.mm_sweep import ...` statement).
+    monkeypatch.setattr(close_gate, "run_mm_sweep", fake_run_mm_sweep)
+    monkeypatch.setattr(close_gate, "format_mm_sweep_summary", lambda result: "stub-summary")
+
+    rc = close_gate.main(
+        [
+            "--benchmark-manifest",
+            str(benchmark_manifest),
+            "--out",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert rc == 1  # gate_payload is None -> not-run -> error
+    assert captured.get("benchmark_manifest_path") == benchmark_manifest
+
+
+def test_write_gate_result_writes_markdown_summary(tmp_path: Path) -> None:
+    """_write_gate_result must create gate_summary.md alongside the gate JSON artifact."""
+    from tools.gates.mm_sweep import _write_gate_result
+
+    payload = {
+        "gate": "mm_sweep",
+        "passed": True,
+        "tapes_total": 3,
+        "tapes_positive": 3,
+        "pass_rate": 1.0,
+        "best_scenarios": [
+            {
+                "tape_dir": "artifacts/simtrader/tapes/demo-tape",
+                "market_slug": "demo-market",
+                "recorded_by": "prepare-gate2",
+                "regime": "sports",
+                "bucket": "sports",
+                "best_scenario_id": "spread-x100",
+                "best_scenario_name": "spread-x100",
+                "best_net_profit": "5.00",
+                "positive": True,
+                "scenario_count": 5,
+                "sweep_dir": None,
+                "error": None,
+            }
+        ],
+        "bucket_breakdown": {
+            "sports": {"total": 3, "positive": 3, "pass_rate": 1.0}
+        },
+        "generated_at": "2026-03-26T00:00:00+00:00",
+    }
+
+    out_dir = tmp_path / "out"
+    artifact_path = _write_gate_result(out_dir=out_dir, passed=True, payload=payload)
+
+    assert artifact_path.name == "gate_passed.json"
+    summary_path = out_dir / "gate_summary.md"
+    assert summary_path.exists(), "gate_summary.md must be written alongside gate JSON"
+    content = summary_path.read_text(encoding="utf-8")
+    assert "PASS" in content
+    assert "Per-Bucket Breakdown" in content
+    assert "sports" in content
+    assert "Per-Tape Results" in content
+    assert "demo-tape" in content

@@ -39,6 +39,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tapes-dir", default=str(DEFAULT_MM_SWEEP_TAPES_DIR), metavar="PATH")
     parser.add_argument("--out", default=str(DEFAULT_MM_SWEEP_OUT_DIR), metavar="PATH")
     parser.add_argument("--manifest", default=str(DEFAULT_GATE2_MANIFEST_PATH), metavar="PATH")
+    parser.add_argument(
+        "--benchmark-manifest",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to config/benchmark_v1.tape_manifest. "
+            "When provided, overrides --tapes-dir and --manifest and runs the sweep "
+            "against all 50 benchmark tapes."
+        ),
+    )
     parser.add_argument("--threshold", type=float, default=DEFAULT_MM_SWEEP_THRESHOLD, metavar="FLOAT")
     parser.add_argument(
         "--starting-cash",
@@ -83,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
             tapes_dir=Path(args.tapes_dir),
             out_dir=Path(args.out),
             manifest_path=Path(args.manifest),
+            benchmark_manifest_path=(
+                Path(args.benchmark_manifest) if args.benchmark_manifest else None
+            ),
             threshold=float(args.threshold),
             starting_cash=_parse_decimal(args.starting_cash, "starting_cash"),
             fee_rate_bps=_parse_decimal(args.fee_rate_bps, "fee_rate_bps"),
