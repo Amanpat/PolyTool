@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-25 - Completed quick-025: Grafana no-data diagnostics — confirmed zero-row root cause (infrastructure intact), added noDataText to all 12 dashboard panels, added operator remediation guide to feature doc. Market availability remains the sole blocker for Track 2 data.
+Last activity: 2026-03-26 - Completed phase-1B gate2+shadow packet: extended mm_sweep YES-asset-ID fallback chain (watch_meta/market_meta/silver_meta), added bucket diagnostics, --benchmark-manifest CLI flag, Gate 3 runbook, 7 new tests. Gate 2 tooling is now complete; Gate 2 verdict NOT YET RUN. 2648 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -45,6 +45,7 @@ Last activity: 2026-03-25 - Completed quick-025: Grafana no-data diagnostics —
 - RunSummaryEvent always in finalization write_events() batch because it requires the final run_summary dict not available until after run loop
 - _streamed_transition_ids dedup uses composite key (not event_id) to match finalization list which reconstructs from raw transition dicts
 - crypto-pair-watch: injectable _sleep_fn/_check_fn for offline testing; one-shot exits 0 always; watch exits 0/1 (found/timeout); --symbol/--duration reserved in v0
+- Phase 1B gate2 sweep: YES-asset-ID fallback chain is 5-level (prep_meta -> meta context -> watch_meta -> market_meta -> silver_meta); bucket_breakdown only in gate payload when bucket metadata present; monkeypatch must target importing module namespace not source module
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
