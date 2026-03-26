@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-26 - Completed phase-1B gate2+shadow packet: extended mm_sweep YES-asset-ID fallback chain (watch_meta/market_meta/silver_meta), added bucket diagnostics, --benchmark-manifest CLI flag, Gate 3 runbook, 7 new tests. Gate 2 tooling is now complete; Gate 2 verdict NOT YET RUN. 2648 tests passing.
+Last activity: 2026-03-26 - Completed quick-026: resolved SPEC-0012 v0/v1 authority conflict (market_maker_v1 declared canonical), fixed Gate 2 NOT_RUN semantics (min_eligible_tapes=50, exit 0), added mm_sweep_diagnostic.py per-tape root cause tool (TDD). Diagnostic confirms 41/50 tapes SKIPPED_TOO_SHORT, 9/50 RAN_ZERO_PROFIT/no_touch — corpus quality is the Gate 2 blocker. 2656 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -46,9 +46,12 @@ Last activity: 2026-03-26 - Completed phase-1B gate2+shadow packet: extended mm_
 - _streamed_transition_ids dedup uses composite key (not event_id) to match finalization list which reconstructs from raw transition dicts
 - crypto-pair-watch: injectable _sleep_fn/_check_fn for offline testing; one-shot exits 0 always; watch exits 0/1 (found/timeout); --symbol/--duration reserved in v0
 - Phase 1B gate2 sweep: YES-asset-ID fallback chain is 5-level (prep_meta -> meta context -> watch_meta -> market_meta -> silver_meta); bucket_breakdown only in gate payload when bucket metadata present; monkeypatch must target importing module namespace not source module
+- quick-026 Gate 2 NOT_RUN semantics: min_eligible_tapes=50 threshold; NOT_RUN = exit 0 (corpus gap is informational); FAILED = exit 1 (corpus ran but did not meet 70% threshold); market_maker_v1 is canonical Phase 1 strategy (SPEC-0012 updated)
+- quick-026 diagnostic fill_opportunity: when quote_count == -1 (no manifest data), assume quoted (treat as 1) so zero-profit no-fill tapes classify as no_touch not unknown
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
+- Track 1 Gate 2 corpus: 41/50 benchmark_v1 tapes have fewer than 50 effective events (SKIPPED_TOO_SHORT). Need 50 eligible tapes for valid Gate 2 verdict. Options: record longer Gold shadow tapes, or reconstruct Silver with pmxt+JB fills. `mm_sweep_diagnostic.py` provides per-tape breakdown.
 
 ### Quick Tasks Completed
 
@@ -78,3 +81,4 @@ Last activity: 2026-03-26 - Completed phase-1B gate2+shadow packet: extended mm_
 | 023 | Coinbase smoke soak rerun: Coinbase feed confirmed working (--reference-feed-provider coinbase accepted), BLOCKED due to Polymarket having zero active BTC/ETH/SOL 5m/15m markets; blocker shifted from reference feed to market availability | 2026-03-25 | 1c73cec | [23-execute-the-coinbase-based-rerun-smoke-s](./quick/23-execute-the-coinbase-based-rerun-smoke-s/) |
 | 024 | Market availability watcher for Track 2: crypto-pair-watch command with one-shot and watch modes, AvailabilitySummary, deterministic artifact bundle (watch_manifest.json, availability_summary.json, .md), 20 offline tests, feature doc, dev log | 2026-03-25 | 6c2c0e9 | [24-implement-track-2-market-availability-wa](./quick/24-implement-track-2-market-availability-wa/) |
 | 025 | Grafana no-data diagnostics: confirmed zero-row root cause (infra intact), added noDataText to all 12 dashboard panels, added operator remediation guide to FEATURE-crypto-pair-grafana-panels-v1.md | 2026-03-25 | ff31016 | [25-diagnose-track-2-grafana-dashboard-empti](./quick/25-diagnose-track-2-grafana-dashboard-empti/) |
+| 026 | Phase 1B recovery: resolved SPEC-0012 v0/v1 authority conflict, fixed Gate 2 NOT_RUN semantics (min_eligible_tapes=50, exit 0), added mm_sweep_diagnostic.py per-tape root cause tool (TDD RED+GREEN). Root cause: 41/50 tapes SKIPPED_TOO_SHORT, 9/50 RAN_ZERO_PROFIT/no_touch | 2026-03-26 | ca3dcb5 | [26-recover-phase-1b-after-failed-gate-2-res](./quick/26-recover-phase-1b-after-failed-gate-2-res/) |
