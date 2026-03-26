@@ -22,13 +22,22 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-26 (Phase 1B Gate 2 FAILED)
+## Status as of 2026-03-26 (Phase 1B — Gate 2 NOT_RUN, corpus insufficient)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
-and FAILED. The repo's current execution status is:
+and returned NOT_RUN (not FAILED). The gate code previously wrote
+`gate_failed.json` for sub-threshold corpora; this was incorrect per spec.
+The corpus problem and the strategy have been separated by the diagnostic.
+The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **FAILED** (2026-03-26) — 0/9 qualifying tapes positive (0.0%), threshold 70%. Artifact: `artifacts/gates/mm_sweep_gate/gate_failed.json`
+- Gate 2: **NOT_RUN** (2026-03-26) — 9/50 tapes meet min_events=50 threshold;
+  41 skipped as too short. Corpus insufficient for a valid Gate 2 verdict.
+  Root cause: benchmark tapes have insufficient effective_events. The 9
+  qualifying tapes all show RAN_ZERO_PROFIT / no_touch — the strategy does
+  quote but spreads are never crossed on these near_resolution silver tapes.
+  See dev log `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`
+  and `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md`.
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
@@ -438,39 +447,53 @@ Gate 2 sweep tooling is now complete. The following changes landed on
   prerequisites, safety invariants, shadow session commands, artifact checks,
   gate_passed.json authoring, abort criteria.
 
-**Gate 2 execution result (2026-03-26): FAILED**
+**Gate 2 execution result (2026-03-26): NOT_RUN — corpus insufficient**
 
 Gate 2 was run on 2026-03-26 against `config/benchmark_v1.tape_manifest`.
-Verdict: **FAILED** — 0/9 qualifying tapes positive (0.0%, threshold 70.0%).
-Artifacts written to `artifacts/gates/mm_sweep_gate/`.
+Verdict: **NOT_RUN** — only 9/50 tapes meet `min_events=50` threshold;
+41 tapes skipped as SKIPPED_TOO_SHORT. Gate requires at least 50 eligible
+tapes to compute a valid verdict. `gate_failed.json` has been cleared.
 
-Root causes:
-1. **Tape quality**: 41/50 benchmark tapes have `< 50 effective_events` and are
-   `SKIPPED_TOO_SHORT`. Only 9 tapes qualify (`tapes_total=9`), all from the
-   `near_resolution` Silver bucket. The Gold `new_market` tapes (xrp, sol, btc,
-   bnb, hype) all have 1–3 effective events after deduplication.
-2. **Zero fills**: All 9 qualifying `near_resolution` Silver tapes produced 0
-   fills. The market-maker strategy submitted quotes but no counterparty filled
-   them in the simulated book. Multiple `Insufficient position to reserve SELL
-   order` warnings logged; `best_net_profit = 0` for all 9 tapes, all 5 spread
-   multipliers.
+Diagnostic run on 2026-03-26 confirms:
+- 41/50 tapes: SKIPPED_TOO_SHORT (effective_events < 50)
+- 9/50 tapes: RAN_ZERO_PROFIT / no_touch — strategy does quote but spreads
+  are never crossed on these near_resolution Silver tapes
+- 0 fills across all 9 qualifying tapes
+- Fill opportunity classification: all 9 are "no_touch" (strategy quoted,
+  market never crossed the spread in replay)
 
-Code fix included in this run:
-- **`tools/gates/mm_sweep.py`** — added `asset_ids[0]` fallback to
-  `_extract_yes_asset_id()` for early shadow tapes (pre-`shadow_context`
-  format). One tape (`20260225T234032Z_shadow_97449340`) required this fix;
-  it was SKIPPED_TOO_SHORT anyway (14 events).
-- **`tests/test_mm_sweep_gate.py`** — 3 new tests for the `asset_ids` fallback.
+Root cause of NOT_RUN: the benchmark_v1 corpus consists primarily of
+short Silver tapes (reconstructed from price_2min only, no pmxt/JB fills)
+with insufficient event density. The 5 Gold new_market tapes have 1-3
+effective events each after deduplication.
+
+Code changes included in this session (2026-03-26):
+- **`tools/gates/mm_sweep.py`** — added `min_eligible_tapes` parameter
+  (default=50); NOT_RUN branch returns `gate_payload=None` and clears old
+  artifacts when eligible tape count is below threshold.
+- **`tools/gates/close_mm_sweep_gate.py`** — NOT_RUN exits 0 (not 1);
+  added `--min-eligible-tapes` CLI argument.
+- **`tools/cli/simtrader.py`** — NOT_RUN exits 0; added `--min-eligible-tapes`.
+- **`tools/gates/mm_sweep_diagnostic.py`** — new per-tape root cause diagnostic
+  tool. Run with `--benchmark-manifest config/benchmark_v1.tape_manifest`.
+- **`docs/specs/SPEC-0012`** — updated §2 to declare `market_maker_v1` as
+  canonical Phase 1 strategy (authority conflict resolved).
+- **`docs/ARCHITECTURE.md`** — updated 3 occurrences from `market_maker_v0`
+  to `market_maker_v1`.
 
 Gate 2 artifacts:
-- `artifacts/gates/mm_sweep_gate/gate_failed.json` — full verdict payload
-- `artifacts/gates/mm_sweep_gate/gate_summary.md` — per-bucket markdown table
+- `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md` — per-tape
+  breakdown (50 tapes: 41 SKIPPED_TOO_SHORT, 9 RAN_ZERO_PROFIT, all no_touch)
+- No `gate_failed.json` or `gate_passed.json` (NOT_RUN clears old artifacts)
 
 **Gate 3**: NOT RUN. Gate 2 must PASS first per spec.
 
-**Next action**: Investigate Gate 2 failure — fill mechanism analysis for
-near_resolution Silver tapes, and tape effective_events gap for Gold/Silver
-tapes. See dev log `docs/dev_logs/2026-03-26_phase1b_gate_execution.md`.
+**Next action**: Acquire longer, higher-quality tapes to meet the 50-tape
+eligible corpus requirement. Options: (a) lower `min_events` threshold with
+justification, (b) record longer Gold tapes via shadow mode, (c) reconstruct
+Silver tapes with pmxt+JB data for buckets that have historical coverage.
+See dev log `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`
+and `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md`.
 
 ## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
 
