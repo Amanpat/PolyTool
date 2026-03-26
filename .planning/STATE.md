@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-26 - Completed quick-026: resolved SPEC-0012 v0/v1 authority conflict (market_maker_v1 declared canonical), fixed Gate 2 NOT_RUN semantics (min_eligible_tapes=50, exit 0), added mm_sweep_diagnostic.py per-tape root cause tool (TDD). Diagnostic confirms 41/50 tapes SKIPPED_TOO_SHORT, 9/50 RAN_ZERO_PROFIT/no_touch — corpus quality is the Gate 2 blocker. 2656 tests passing.
+Last activity: 2026-03-26 - Completed quick-027: built corpus recovery tooling (SPEC-phase1b-corpus-recovery-v1.md, corpus_audit.py, 6 TDD tests). Audit run: 9/50 tapes qualify (all near_resolution Silver). Wrote shortage_report.md. Gate 2 rerun blocked until corpus_audit exits 0. Runbook: docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md. 2662 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -51,7 +51,7 @@ Last activity: 2026-03-26 - Completed quick-026: resolved SPEC-0012 v0/v1 author
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
-- Track 1 Gate 2 corpus: 41/50 benchmark_v1 tapes have fewer than 50 effective events (SKIPPED_TOO_SHORT). Need 50 eligible tapes for valid Gate 2 verdict. Options: record longer Gold shadow tapes, or reconstruct Silver with pmxt+JB fills. `mm_sweep_diagnostic.py` provides per-tape breakdown.
+- Track 1 Gate 2 corpus: recovery corpus has 9/50 qualifying tapes (all near_resolution Silver). 41 of the original benchmark_v1 tapes have <50 effective events. Recovery corpus tooling is now shipped (corpus_audit.py). Resolution: capture Gold shadow tapes per docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md. Shortage by bucket: sports=15, politics=10, crypto=10, new_market=5, near_resolution=1. Run corpus_audit.py after each batch; Gate 2 rerun unblocked when exit 0.
 
 ### Quick Tasks Completed
 
@@ -82,3 +82,4 @@ Last activity: 2026-03-26 - Completed quick-026: resolved SPEC-0012 v0/v1 author
 | 024 | Market availability watcher for Track 2: crypto-pair-watch command with one-shot and watch modes, AvailabilitySummary, deterministic artifact bundle (watch_manifest.json, availability_summary.json, .md), 20 offline tests, feature doc, dev log | 2026-03-25 | 6c2c0e9 | [24-implement-track-2-market-availability-wa](./quick/24-implement-track-2-market-availability-wa/) |
 | 025 | Grafana no-data diagnostics: confirmed zero-row root cause (infra intact), added noDataText to all 12 dashboard panels, added operator remediation guide to FEATURE-crypto-pair-grafana-panels-v1.md | 2026-03-25 | ff31016 | [25-diagnose-track-2-grafana-dashboard-empti](./quick/25-diagnose-track-2-grafana-dashboard-empti/) |
 | 026 | Phase 1B recovery: resolved SPEC-0012 v0/v1 authority conflict, fixed Gate 2 NOT_RUN semantics (min_eligible_tapes=50, exit 0), added mm_sweep_diagnostic.py per-tape root cause tool (TDD RED+GREEN). Root cause: 41/50 tapes SKIPPED_TOO_SHORT, 9/50 RAN_ZERO_PROFIT/no_touch | 2026-03-26 | ca3dcb5 | [26-recover-phase-1b-after-failed-gate-2-res](./quick/26-recover-phase-1b-after-failed-gate-2-res/) |
+| 027 | Corpus recovery tooling: SPEC-phase1b-corpus-recovery-v1, corpus_audit.py (scan/admit/quota/manifest), 6 TDD tests, corpus audit run (9/50 qualify, shortage_report.md), CORPUS_GOLD_CAPTURE_RUNBOOK.md, CURRENT_STATE.md + STATE.md updated | 2026-03-26 | 160a8d6 | [27-recover-phase-1b-corpus-recovery-spec-ta](./quick/27-recover-phase-1b-corpus-recovery-spec-ta/) |

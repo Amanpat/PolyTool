@@ -495,6 +495,55 @@ Silver tapes with pmxt+JB data for buckets that have historical coverage.
 See dev log `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`
 and `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md`.
 
+## Phase 1B — Corpus Recovery Tooling (2026-03-26)
+
+Recovery corpus tooling is now complete. The following changes landed on
+2026-03-26 as quick-027:
+
+- **`docs/specs/SPEC-phase1b-corpus-recovery-v1.md`** — Authoritative contract
+  for the recovery corpus. Defines admission rules (min_events=50, tier
+  preference Gold>Silver, 5-bucket quotas: politics=10, sports=15, crypto=10,
+  near_resolution=10, new_market=5), manifest versioning policy, Gate 2 rerun
+  preconditions, and success/failure artifact contracts. benchmark_v1 files
+  are explicitly preserved as immutable.
+
+- **`tools/gates/corpus_audit.py`** — Scans tape inventory across configurable
+  tape roots, applies admission rules, and writes either
+  `config/recovery_corpus_v1.tape_manifest` (exit 0, corpus qualified) or
+  `artifacts/corpus_audit/shortage_report.md` (exit 1, corpus insufficient).
+  CLI: `python tools/gates/corpus_audit.py --tape-roots <dir> --out-dir
+  artifacts/corpus_audit --manifest-out config/recovery_corpus_v1.tape_manifest`
+
+- **`tests/test_corpus_audit.py`** — 6 TDD tests covering all admission rule
+  paths: accepted tape, too_short rejection, no_bucket_label rejection, quota
+  cap enforcement, shortage report writing on insufficient corpus, manifest
+  writing on qualified corpus. All 6 pass; full suite 2662 passed.
+
+- **`artifacts/corpus_audit/shortage_report.md`** — Current shortage: 9/50
+  tapes qualify (all near_resolution Silver). Exact need per bucket:
+  crypto=10, near_resolution=1, new_market=5, politics=10, sports=15.
+
+- **`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`** — Step-by-step operator
+  guide: prerequisites, shortage check, shadow capture command (600s minimum,
+  market_maker_v1 strategy, --record-tape), post-capture validation,
+  resumability workflow, bucket targeting guide, stopping condition.
+
+**Gate 2 recovery path status (2026-03-26): corpus 9/50 — SHORTAGE**
+
+Recovery corpus audit: 137 tapes scanned, 9 accepted (all near_resolution
+Silver), 128 rejected (119 too_short, 9 no_bucket_label). All 5 buckets
+must be covered; only near_resolution has tapes (9/10). Gate 2 rerun
+is blocked until corpus_audit.py exits 0.
+
+**Next action**: Capture Gold shadow tapes using
+`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Highest-priority buckets:
+sports (need 15), politics (need 10), crypto (need 10), new_market (need 5),
+near_resolution (need 1). When corpus_audit exits 0, manifest is written and
+Gate 2 rerun is unblocked:
+`python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/mm_sweep_gate`
+
+benchmark_v1 files (tape_manifest, lock.json, audit.json) are unchanged.
+
 ## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
 
 Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
