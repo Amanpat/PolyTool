@@ -3,12 +3,12 @@ on:
   # Manual trigger exists for connector/sync verification when path filters do not fire.
   workflow_dispatch:
   push:
-    branches: [main, phase-1, phase-1A]
+    branches: [main, phase-1, phase-1B]
     paths:
-      - 'docs/**'
-      - 'claude.md'
-      - 'AGENTS.md'
-      - 'config/strategy_research_program.md'
+      - "docs/**"
+      - "claude.md"
+      - "AGENTS.md"
+      - "config/strategy_research_program.md"
 
 jobs:
   sync-to-drive:
