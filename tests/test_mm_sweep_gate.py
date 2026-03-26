@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tools.gates.mm_sweep import (
+    DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES,
     MMSweepResult,
     TapeCandidate,
     TapeSweepOutcome,
@@ -291,6 +292,7 @@ def test_run_mm_sweep_runs_five_spread_multiplier_scenarios(
         out_dir=out_dir,
         manifest_path=manifest_path,
         threshold=0.70,
+        min_eligible_tapes=3,
     )
 
     assert result.gate_payload is not None
@@ -443,7 +445,7 @@ def test_cli_sweep_mm_passes_min_events_and_spread_multipliers(
     )
 
     captured_out = capsys.readouterr()
-    assert rc == 1
+    assert rc == 0  # NOT_RUN is informational; sweep-mm exits 0
     assert captured["tapes_dir"] == tmp_path / "tapes"
     assert captured["out_dir"] == tmp_path / "out"
     assert captured["benchmark_manifest_path"] is None
@@ -702,7 +704,7 @@ def test_close_mm_sweep_gate_cli_accepts_benchmark_manifest_flag(
         ]
     )
 
-    assert rc == 1  # gate_payload is None -> not-run -> error
+    assert rc == 0  # gate_payload is None -> NOT_RUN -> exit 0 (informational, not a failure)
     assert captured.get("benchmark_manifest_path") == benchmark_manifest
 
 
@@ -781,3 +783,176 @@ def test_extract_yes_asset_id_fallback_to_asset_ids_list(tmp_path: Path) -> None
     # empty asset_ids must return None
     meta_empty = {"asset_ids": []}
     assert _extract_yes_asset_id(meta_empty) is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: min_eligible_tapes NOT_RUN path
+# ---------------------------------------------------------------------------
+
+
+class TestMinEligibleTapesNotRun:
+    """Tests for the NOT_RUN path when eligible_count < min_eligible_tapes."""
+
+    def test_not_run_when_eligible_below_threshold(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """run_mm_sweep must return NOT_RUN when fewer tapes than min_eligible_tapes qualify,
+        even if some tapes do meet the min_events threshold."""
+        import tools.gates.mm_sweep as mm_sweep
+
+        tapes_dir = tmp_path / "tapes"
+        tape_dirs = [
+            _write_tape_dir(
+                tapes_dir,
+                f"tape-{i:02d}",
+                market_slug=f"market-{i:02d}",
+                yes_id=f"YES_{i:02d}",
+                no_id=f"NO_{i:02d}",
+                event_count=120,  # Each tape has 60 effective_events (2 assets -> 120/2)
+            )
+            for i in range(5)
+        ]
+        manifest_path = tmp_path / "gate2_tape_manifest.json"
+        _write_manifest(manifest_path, tape_dirs)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # Write a stale gate artifact that should be cleared
+        (out_dir / "gate_failed.json").write_text('{"stale": true}\n', encoding="utf-8")
+
+        call_count = {"n": 0}
+
+        def fake_run_sweep(params, sweep_config):
+            call_count["n"] += 1
+            sweep_dir = params.artifacts_root / "sweeps" / params.sweep_id
+            sweep_dir.mkdir(parents=True, exist_ok=True)
+            return SimpleNamespace(
+                sweep_dir=sweep_dir,
+                summary={"scenarios": [
+                    {"scenario_id": "spread-x100", "scenario_name": "spread-x100", "net_profit": "0.00"},
+                ]},
+            )
+
+        monkeypatch.setattr(mm_sweep, "run_sweep", fake_run_sweep)
+
+        result = run_mm_sweep(
+            tapes_dir=tapes_dir,
+            out_dir=out_dir,
+            manifest_path=manifest_path,
+            threshold=0.70,
+            min_events=50,
+            min_eligible_tapes=10,  # Require 10 but only 5 tapes exist
+        )
+
+        assert result.gate_payload is None
+        assert result.artifact_path is None
+        assert result.not_run_reason is not None
+        assert "Corpus too small" in result.not_run_reason
+        assert "5/5" in result.not_run_reason  # eligible/total count shown
+        assert not (out_dir / "gate_failed.json").exists(), "stale artifact should be cleared"
+        assert not (out_dir / "gate_passed.json").exists()
+        # Sweep still ran for the 5 eligible tapes (they met min_events)
+        assert call_count["n"] == 5
+
+    def test_passes_when_eligible_meets_threshold(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """run_mm_sweep must proceed to _build_gate_payload when eligible count >= min_eligible_tapes."""
+        import tools.gates.mm_sweep as mm_sweep
+
+        tapes_dir = tmp_path / "tapes"
+        tape_dirs = [
+            _write_tape_dir(
+                tapes_dir,
+                f"tape-{i:02d}",
+                market_slug=f"market-{i:02d}",
+                yes_id=f"YES_{i:02d}",
+                no_id=f"NO_{i:02d}",
+                event_count=120,
+            )
+            for i in range(5)
+        ]
+        manifest_path = tmp_path / "gate2_tape_manifest.json"
+        _write_manifest(manifest_path, tape_dirs)
+        out_dir = tmp_path / "out"
+
+        def fake_run_sweep(params, sweep_config):
+            sweep_dir = params.artifacts_root / "sweeps" / params.sweep_id
+            sweep_dir.mkdir(parents=True, exist_ok=True)
+            return SimpleNamespace(
+                sweep_dir=sweep_dir,
+                summary={"scenarios": [
+                    {"scenario_id": "spread-x100", "scenario_name": "spread-x100", "net_profit": "1.00"},
+                ]},
+            )
+
+        monkeypatch.setattr(mm_sweep, "run_sweep", fake_run_sweep)
+
+        result = run_mm_sweep(
+            tapes_dir=tapes_dir,
+            out_dir=out_dir,
+            manifest_path=manifest_path,
+            threshold=0.70,
+            min_events=50,
+            min_eligible_tapes=5,  # Exactly 5 tapes meet threshold — should pass
+        )
+
+        assert result.gate_payload is not None, "gate_payload must be set when eligible count >= min_eligible_tapes"
+        assert result.not_run_reason is None
+        assert result.min_eligible_tapes == 5
+
+    def test_close_mm_sweep_gate_exits_0_on_not_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """close_mm_sweep_gate.main() must exit 0 when run_mm_sweep returns NOT_RUN."""
+        import tools.gates.close_mm_sweep_gate as close_gate
+
+        def fake_run_mm_sweep(**kwargs: object) -> MMSweepResult:
+            tape = TapeCandidate(
+                tape_dir=tmp_path / "tapes" / "short-tape",
+                events_path=tmp_path / "tapes" / "short-tape" / "events.jsonl",
+                market_slug="short-market",
+                yes_asset_id="YES_SHORT",
+                recorded_by=None,
+                regime=None,
+                parsed_events=10,
+                tracked_asset_count=1,
+                effective_events=10,
+            )
+            return MMSweepResult(
+                tapes=[tape],
+                outcomes=[],
+                gate_payload=None,
+                artifact_path=None,
+                threshold=0.70,
+                min_events=50,
+                min_eligible_tapes=DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES,
+                not_run_reason=(
+                    "Corpus too small: only 0/1 tapes meet --min-events=50 "
+                    "(need at least 50 eligible tapes to compute a valid Gate 2 verdict). "
+                    "1 tapes were skipped as SKIPPED_TOO_SHORT. "
+                    "Record or reconstruct longer tapes before rerunning Gate 2."
+                ),
+            )
+
+        monkeypatch.setattr(close_gate, "run_mm_sweep", fake_run_mm_sweep)
+        monkeypatch.setattr(close_gate, "format_mm_sweep_summary", lambda result: "stub-not-run-summary")
+
+        rc = close_gate.main(
+            [
+                "--tapes-dir", str(tmp_path / "tapes"),
+                "--out", str(tmp_path / "out"),
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert rc == 0, "NOT_RUN must exit 0 (corpus gap is informational, not a gate failure)"
+        assert "NOT_RUN:" in captured.err
+        assert "Corpus too small" in captured.err
+        assert "stub-not-run-summary" in captured.out

@@ -98,10 +98,10 @@ Track A is in-scope as an optional module and is never default-on.
 
 ```
 operator strategy (manual, explicit)
-  -> replay validation       (simtrader run --strategy market_maker_v0)
+  -> replay validation       (simtrader run --strategy market_maker_v1)
   -> scenario sweeps         (simtrader quickrun --sweep quick)
-  -> shadow                  (simtrader shadow --strategy market_maker_v0)
-  -> LiveRunner --dry-run    (simtrader live --strategy market_maker_v0 [default])
+  -> shadow                  (simtrader shadow --strategy market_maker_v1)
+  -> LiveRunner --dry-run    (simtrader live --strategy market_maker_v1 [default])
   -> optional capital stage  (manual operator enable only, --live)
 ```
 

@@ -36,16 +36,26 @@ conflicts with older planning language, this spec governs.
 
 ## 2. Canonical strategy and non-goals
 
-### Canonical Phase 1 strategy: `market_maker_v0`
+### Canonical Phase 1 strategy: `market_maker_v1`
 
-The Phase 1 mainline live strategy is **`market_maker_v0`** — a conservative
-two-sided market maker based on the Avellaneda-Stoikov quoting model.
+The Phase 1 mainline live strategy is **`market_maker_v1`** — a Logit
+Avellaneda-Stoikov market maker that operates in logit-probability space
+for binary prediction markets.
+
+> **Upgrade note:** `market_maker_v1` (Logit Avellaneda-Stoikov) replaced
+> `market_maker_v0` as the Phase 1 default on 2026-03-10. `market_maker_v0`
+> remains in the strategy registry but is no longer the Phase 1 mainline.
+> SPEC-0012 was not updated at that time; this section corrects the record.
+> See dev log `docs/dev_logs/2026-03-10_tracka_marketmaker_v1_default_wiring.md`
+> and `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`.
 
 Key properties:
-- Microprice input with rolling variance estimate
+- Logit-space quoting with logit Avellaneda-Stoikov spread formula
+- Realized variance estimate on logit-mid price differences
+- Trade-arrival proxy for kappa calibration
 - Resolution guard (no quoting near market close)
 - Bounded spreads and quote clamps for binary markets
-- Registered in `STRATEGY_REGISTRY` (`strategy/facade.py`)
+- Registered as `"market_maker_v1"` in `STRATEGY_REGISTRY` (`strategy/facade.py`)
 - Compatible with `simtrader run`, `simtrader quickrun`, `simtrader shadow`,
   and `simtrader live`
 
@@ -203,7 +213,7 @@ kill-switch state, daily loss progression, inventory skew.
 | Emergency stop (immediate) | `python -m polytool simtrader kill` |
 | Manual kill switch arm | `touch artifacts/kill_switch.txt` |
 | Gate status check | `python tools/gates/gate_status.py` |
-| Session dry-run (default) | `python -m polytool simtrader live --strategy market_maker_v0 ...` |
+| Session dry-run (default) | `python -m polytool simtrader live --strategy market_maker_v1 ...` |
 | Session live (explicit opt-in) | Add `--live` flag; requires `CONFIRM` |
 
 The kill switch is checked before every place/cancel action, even in dry-run
@@ -247,7 +257,7 @@ by invoking the subprocess CLI, not by importing strategy classes directly.
 
 **Run:**
 ```bash
-python -m polytool simtrader live --strategy market_maker_v0 --asset-id <TOKEN_ID>
+python -m polytool simtrader live --strategy market_maker_v1 --asset-id <TOKEN_ID>
 ```
 (Dry-run is the default; no `--live` flag for Stage 0.)
 
@@ -274,7 +284,7 @@ sign-off note.
 **Initial Stage 1 risk caps:**
 ```bash
 python -m polytool simtrader live --live \
-  --strategy market_maker_v0 --asset-id <TOKEN_ID> \
+  --strategy market_maker_v1 --asset-id <TOKEN_ID> \
   --max-position-usd 500 \
   --daily-loss-cap-usd 100 \
   --max-order-usd 200 \
@@ -363,5 +373,6 @@ gate closure scripts or operator, and are read-only once passed.
 - `docs/OPERATOR_QUICKSTART.md` — end-to-end operator guide
 - `docs/runbooks/LIVE_DEPLOYMENT_STAGE1.md` — Stage 1 deployment runbook
 - `docs/specs/SPEC-0011-live-execution-layer.md` — execution layer interfaces and gate model
-- `packages/polymarket/simtrader/strategies/market_maker_v0.py` — canonical strategy
+- `packages/polymarket/simtrader/strategies/market_maker_v1.py` — canonical strategy (Phase 1 mainline)
+- `packages/polymarket/simtrader/strategies/market_maker_v0.py` — legacy strategy (no longer mainline)
 - `tools/gates/` — gate closure scripts and shadow checklist

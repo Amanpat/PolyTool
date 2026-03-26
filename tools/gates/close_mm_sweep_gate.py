@@ -16,6 +16,7 @@ from tools.gates.mm_sweep import (
     DEFAULT_GATE2_MANIFEST_PATH,
     DEFAULT_MM_SWEEP_FEE_RATE_BPS,
     DEFAULT_MM_SWEEP_MARK_METHOD,
+    DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES,
     DEFAULT_MM_SWEEP_MIN_EVENTS,
     DEFAULT_MM_SWEEP_MULTIPLIERS,
     DEFAULT_MM_SWEEP_OUT_DIR,
@@ -76,6 +77,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--min-eligible-tapes",
+        type=int,
+        default=DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES,
+        metavar="COUNT",
+        help=(
+            "Minimum number of tapes that must meet --min-events to compute a Gate 2 "
+            f"verdict (default: {DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES}). "
+            "If fewer tapes qualify, result is NOT_RUN, not FAILED."
+        ),
+    )
+    parser.add_argument(
         "--spread-multipliers",
         type=float,
         nargs="+",
@@ -101,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             fee_rate_bps=_parse_decimal(args.fee_rate_bps, "fee_rate_bps"),
             mark_method=args.mark_method,
             min_events=int(args.min_events),
+            min_eligible_tapes=int(args.min_eligible_tapes),
             spread_multipliers=tuple(float(value) for value in args.spread_multipliers),
         )
     except Exception as exc:  # noqa: BLE001
@@ -109,8 +122,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(format_mm_sweep_summary(result))
     if result.gate_payload is None:
-        print(f"Error: {result.not_run_reason}", file=sys.stderr)
-        return 1
+        print(f"NOT_RUN: {result.not_run_reason}", file=sys.stderr)
+        return 0
     return 0 if result.gate_payload["passed"] else 1
 
 

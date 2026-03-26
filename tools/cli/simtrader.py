@@ -1405,6 +1405,7 @@ def _sweep_mm(args: argparse.Namespace) -> int:
             fee_rate_bps=fee_rate_bps,
             mark_method=args.mark_method,
             min_events=int(args.min_events),
+            min_eligible_tapes=int(args.min_eligible_tapes),
             spread_multipliers=tuple(float(value) for value in args.spread_multipliers),
         )
     except ValueError as exc:
@@ -1416,8 +1417,8 @@ def _sweep_mm(args: argparse.Namespace) -> int:
 
     print(format_mm_sweep_summary(result))
     if result.gate_payload is None:
-        print(f"Error: {result.not_run_reason}", file=sys.stderr)
-        return 1
+        print(f"NOT_RUN: {result.not_run_reason}", file=sys.stderr)
+        return 0
     return 0 if result.gate_payload["passed"] else 1
 
 
@@ -3519,6 +3520,17 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="COUNT",
         dest="min_events",
         help="Skip tapes with fewer than this many effective events (default: 50).",
+    )
+    mm_sweep_p.add_argument(
+        "--min-eligible-tapes",
+        type=int,
+        default=50,
+        metavar="COUNT",
+        dest="min_eligible_tapes",
+        help=(
+            "Minimum eligible tapes required for a Gate 2 verdict (default: 50). "
+            "If fewer qualify, result is NOT_RUN, not FAILED."
+        ),
     )
     mm_sweep_p.add_argument(
         "--spread-multipliers",

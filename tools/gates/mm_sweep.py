@@ -25,6 +25,7 @@ DEFAULT_GATE2_MANIFEST_PATH = _REPO_ROOT / "artifacts" / "gates" / "gate2_tape_m
 DEFAULT_MM_SWEEP_THRESHOLD = 0.70
 DEFAULT_MM_SWEEP_MARK_METHOD = "bid"
 DEFAULT_MM_SWEEP_MIN_EVENTS = 50
+DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES = 50  # Must match benchmark_v1 total tape count
 DEFAULT_MM_SWEEP_MULTIPLIERS: tuple[float, ...] = (0.50, 1.00, 1.50, 2.00, 3.00)
 DEFAULT_MM_SWEEP_BASE_CONFIG: dict[str, Any] = {
     "min_spread": 0.020,
@@ -86,6 +87,7 @@ class MMSweepResult:
     artifact_path: Path | None
     threshold: float
     min_events: int
+    min_eligible_tapes: int = DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES
     not_run_reason: str | None = None
 
 
@@ -100,6 +102,7 @@ def run_mm_sweep(
     fee_rate_bps: Decimal = DEFAULT_MM_SWEEP_FEE_RATE_BPS,
     mark_method: str = DEFAULT_MM_SWEEP_MARK_METHOD,
     min_events: int = DEFAULT_MM_SWEEP_MIN_EVENTS,
+    min_eligible_tapes: int = DEFAULT_MM_SWEEP_MIN_ELIGIBLE_TAPES,
     spread_multipliers: tuple[float, ...] = DEFAULT_MM_SWEEP_MULTIPLIERS,
 ) -> MMSweepResult:
     """Run the ``market_maker_v1`` sweep across all discovered candidate tapes."""
@@ -124,6 +127,7 @@ def run_mm_sweep(
             artifact_path=None,
             threshold=threshold,
             min_events=min_events,
+            min_eligible_tapes=min_eligible_tapes,
             not_run_reason=_NOT_RUN_REASON,
         )
 
@@ -210,7 +214,28 @@ def run_mm_sweep(
             artifact_path=None,
             threshold=threshold,
             min_events=min_events,
+            min_eligible_tapes=min_eligible_tapes,
             not_run_reason=_NOT_RUN_REASON,
+        )
+
+    if len(eligible_outcomes) < min_eligible_tapes:
+        _clear_gate_artifacts(out_dir)
+        not_run_msg = (
+            f"Corpus too small: only {len(eligible_outcomes)}/{len(tapes)} tapes meet "
+            f"--min-events={min_events} (need at least {min_eligible_tapes} eligible "
+            f"tapes to compute a valid Gate 2 verdict). "
+            f"{len(tapes) - len(eligible_outcomes)} tapes were skipped as SKIPPED_TOO_SHORT. "
+            "Record or reconstruct longer tapes before rerunning Gate 2."
+        )
+        return MMSweepResult(
+            tapes=tapes,
+            outcomes=outcomes,
+            gate_payload=None,
+            artifact_path=None,
+            threshold=threshold,
+            min_events=min_events,
+            min_eligible_tapes=min_eligible_tapes,
+            not_run_reason=not_run_msg,
         )
 
     payload = _build_gate_payload(outcomes=eligible_outcomes, threshold=threshold)
@@ -222,6 +247,7 @@ def run_mm_sweep(
         artifact_path=artifact_path,
         threshold=threshold,
         min_events=min_events,
+        min_eligible_tapes=min_eligible_tapes,
     )
 
 
