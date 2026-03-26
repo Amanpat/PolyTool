@@ -699,6 +699,16 @@ def _extract_yes_asset_id(meta: dict[str, Any]) -> str | None:
         )
         if context_value is not None:
             return context_value
+
+    # Fallback: early shadow tapes record asset_ids=[YES, NO] without shadow_context.
+    # YES is always first by tape-recording convention (confirmed by all later tapes
+    # that do have shadow_context and match asset_ids[0] == shadow_context.yes_token_id).
+    asset_ids = meta.get("asset_ids")
+    if isinstance(asset_ids, list) and asset_ids:
+        first = str(asset_ids[0]).strip()
+        if first:
+            return first
+
     return None
 
 

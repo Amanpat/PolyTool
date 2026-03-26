@@ -22,14 +22,14 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-26 (Phase 1B started)
+## Status as of 2026-03-26 (Phase 1B Gate 2 FAILED)
 
-Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 sweep tooling
-is now complete. The repo's current execution status is:
+Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
+and FAILED. The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: NOT YET RUN — tooling complete; run `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/benchmark_v1.tape_manifest`
-- Gate 3: NOT YET RUN — runbook exists at `docs/runbooks/GATE3_SHADOW_RUNBOOK.md`; requires Gate 2 PASS first
+- Gate 2: **FAILED** (2026-03-26) — 0/9 qualifying tapes positive (0.0%), threshold 70%. Artifact: `artifacts/gates/mm_sweep_gate/gate_failed.json`
+- Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
   files directly — no ClickHouse import step required. Silver tape reconstruction
@@ -438,30 +438,39 @@ Gate 2 sweep tooling is now complete. The following changes landed on
   prerequisites, safety invariants, shadow session commands, artifact checks,
   gate_passed.json authoring, abort criteria.
 
-**Next operator action (Gate 2):**
+**Gate 2 execution result (2026-03-26): FAILED**
 
-```bash
-python tools/gates/close_mm_sweep_gate.py \
-    --benchmark-manifest config/benchmark_v1.tape_manifest \
-    --out artifacts/gates/mm_sweep_gate
-python tools/gates/gate_status.py
-```
+Gate 2 was run on 2026-03-26 against `config/benchmark_v1.tape_manifest`.
+Verdict: **FAILED** — 0/9 qualifying tapes positive (0.0%, threshold 70.0%).
+Artifacts written to `artifacts/gates/mm_sweep_gate/`.
 
-Gate 2 passes when `tapes_positive / tapes_total >= 0.70` (35 of 50 tapes
-show net_profit > 0 at any of the 5 spread multipliers, after 200 bps fees,
-mark method = bid). Threshold must never be weakened.
+Root causes:
+1. **Tape quality**: 41/50 benchmark tapes have `< 50 effective_events` and are
+   `SKIPPED_TOO_SHORT`. Only 9 tapes qualify (`tapes_total=9`), all from the
+   `near_resolution` Silver bucket. The Gold `new_market` tapes (xrp, sol, btc,
+   bnb, hype) all have 1–3 effective events after deduplication.
+2. **Zero fills**: All 9 qualifying `near_resolution` Silver tapes produced 0
+   fills. The market-maker strategy submitted quotes but no counterparty filled
+   them in the simulated book. Multiple `Insufficient position to reserve SELL
+   order` warnings logged; `best_net_profit = 0` for all 9 tapes, all 5 spread
+   multipliers.
 
-**Next operator action (Gate 3, after Gate 2 PASS):**
+Code fix included in this run:
+- **`tools/gates/mm_sweep.py`** — added `asset_ids[0]` fallback to
+  `_extract_yes_asset_id()` for early shadow tapes (pre-`shadow_context`
+  format). One tape (`20260225T234032Z_shadow_97449340`) required this fix;
+  it was SKIPPED_TOO_SHORT anyway (14 events).
+- **`tests/test_mm_sweep_gate.py`** — 3 new tests for the `asset_ids` fallback.
 
-See `docs/runbooks/GATE3_SHADOW_RUNBOOK.md`. Run:
-```bash
-python -m polytool simtrader shadow \
-    --market <SLUG> \
-    --strategy market_maker_v1 \
-    --duration 300
-```
-Then manually write `artifacts/gates/shadow_gate/gate_passed.json` per the
-runbook and verify all four gates pass with `python tools/gates/gate_status.py`.
+Gate 2 artifacts:
+- `artifacts/gates/mm_sweep_gate/gate_failed.json` — full verdict payload
+- `artifacts/gates/mm_sweep_gate/gate_summary.md` — per-bucket markdown table
+
+**Gate 3**: NOT RUN. Gate 2 must PASS first per spec.
+
+**Next action**: Investigate Gate 2 failure — fill mechanism analysis for
+near_resolution Silver tapes, and tape effective_events gap for Gold/Silver
+tapes. See dev log `docs/dev_logs/2026-03-26_phase1b_gate_execution.md`.
 
 ## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
 

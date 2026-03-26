@@ -750,3 +750,34 @@ def test_write_gate_result_writes_markdown_summary(tmp_path: Path) -> None:
     assert "sports" in content
     assert "Per-Tape Results" in content
     assert "demo-tape" in content
+
+
+def test_extract_yes_asset_id_fallback_to_asset_ids_list(tmp_path: Path) -> None:
+    """_extract_yes_asset_id must return asset_ids[0] for early shadow tapes that
+    have no shadow_context, no yes_token_id, but do have asset_ids=[YES, NO]."""
+    from tools.gates.mm_sweep import _extract_yes_asset_id
+
+    yes_id = "97449340182256366014320155718265676486703217567849039806162053075113517266910"
+    no_id = "59259495934562596318644973716893809974860301509869285036503555129962149752635"
+
+    meta_early_shadow = {
+        "ws_url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+        "asset_ids": [yes_id, no_id],
+        "source": "websocket",
+        "started_at": "2026-02-25T23:40:32.259807+00:00",
+        "ended_at": "2026-02-25T23:43:33.160409+00:00",
+    }
+    result = _extract_yes_asset_id(meta_early_shadow)
+    assert result == yes_id, "asset_ids[0] must be returned as YES when no context fields exist"
+
+    # shadow_context must win over asset_ids when present
+    meta_with_context = {
+        "asset_ids": ["WRONG", "NO"],
+        "shadow_context": {"yes_token_id": "CORRECT", "no_token_id": "NO"},
+    }
+    result2 = _extract_yes_asset_id(meta_with_context)
+    assert result2 == "CORRECT", "shadow_context.yes_token_id must take priority over asset_ids"
+
+    # empty asset_ids must return None
+    meta_empty = {"asset_ids": []}
+    assert _extract_yes_asset_id(meta_empty) is None
