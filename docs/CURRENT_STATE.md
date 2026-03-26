@@ -22,14 +22,14 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-21
+## Status as of 2026-03-26 (Phase 1B started)
 
-Track A / SimTrader plumbing is implemented. The repo's current execution
-status is:
+Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 sweep tooling
+is now complete. The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: not passed yet; tooling is implemented and working
-- Gate 3: blocked behind Gate 2
+- Gate 2: NOT YET RUN — tooling complete; run `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/benchmark_v1.tape_manifest`
+- Gate 3: NOT YET RUN — runbook exists at `docs/runbooks/GATE3_SHADOW_RUNBOOK.md`; requires Gate 2 PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
   files directly — no ClickHouse import step required. Silver tape reconstruction
@@ -401,6 +401,67 @@ status is:
   the benchmark is closed and the next work can move to Gate 2 scenario sweep.
 - Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
   progression
+
+## Phase 1B — Gate 2 Benchmark Sweep Tooling Complete (2026-03-26)
+
+Gate 2 sweep tooling is now complete. The following changes landed on
+2026-03-26:
+
+- **`tools/gates/mm_sweep.py`** — extended `_build_tape_candidate` with full
+  metadata fallback chain for YES asset ID extraction:
+  `prep_meta.json` → `meta.json` context extraction → `watch_meta.json`
+  (`yes_asset_id`) → `market_meta.json` (`token_id`) → `silver_meta.json`
+  (`token_id`). Bucket derivation reads `watch_meta.bucket` or
+  `market_meta.benchmark_bucket`. All 50 benchmark_v1 tapes (Gold new_market
+  + Silver buckets) can now be swept without YES-token lookup failures.
+  Added `bucket` field to `TapeCandidate` dataclass.
+  Added `bucket_breakdown` dict to gate JSON payload when bucket metadata is
+  present.
+  Added `gate_summary.md` Markdown artifact alongside `gate_passed.json` /
+  `gate_failed.json`, with per-bucket table and per-tape verdict rows.
+
+- **`tools/gates/close_mm_sweep_gate.py`** — added `--benchmark-manifest`
+  flag. When passed, overrides `--tapes-dir` and `--manifest` and runs the
+  full 50-tape sweep. Command:
+  `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/benchmark_v1.tape_manifest --out artifacts/gates/mm_sweep_gate`
+
+- **`tests/test_mm_sweep_gate.py`** — 7 new tests covering `watch_meta`,
+  `market_meta`, `silver_meta` fallbacks, `bucket_breakdown` presence and
+  absence, CLI `--benchmark-manifest` flag, and Markdown summary writing.
+  12 total tests pass (0.43s); 0 failed.
+
+- **`docs/specs/SPEC-phase1b-gate2-shadow-packet.md`** — Phase 1B spec:
+  Gate 2 criteria (>= 70%), artifact contract (bucket_breakdown schema),
+  Gate 3 criteria and promotion path.
+
+- **`docs/runbooks/GATE3_SHADOW_RUNBOOK.md`** — full Gate 3 operator runbook:
+  prerequisites, safety invariants, shadow session commands, artifact checks,
+  gate_passed.json authoring, abort criteria.
+
+**Next operator action (Gate 2):**
+
+```bash
+python tools/gates/close_mm_sweep_gate.py \
+    --benchmark-manifest config/benchmark_v1.tape_manifest \
+    --out artifacts/gates/mm_sweep_gate
+python tools/gates/gate_status.py
+```
+
+Gate 2 passes when `tapes_positive / tapes_total >= 0.70` (35 of 50 tapes
+show net_profit > 0 at any of the 5 spread multipliers, after 200 bps fees,
+mark method = bid). Threshold must never be weakened.
+
+**Next operator action (Gate 3, after Gate 2 PASS):**
+
+See `docs/runbooks/GATE3_SHADOW_RUNBOOK.md`. Run:
+```bash
+python -m polytool simtrader shadow \
+    --market <SLUG> \
+    --strategy market_maker_v1 \
+    --duration 300
+```
+Then manually write `artifacts/gates/shadow_gate/gate_passed.json` per the
+runbook and verify all four gates pass with `python tools/gates/gate_status.py`.
 
 ## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
 
