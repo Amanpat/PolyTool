@@ -110,7 +110,9 @@
       "Bash(pipx list:*)",
       "Bash(scrapling install:*)",
       "Bash(rtk python:*)",
-      "mcp__ScraplingServer__get"
+      "mcp__ScraplingServer__get",
+      "Bash(wc -l packages/polymarket/crypto_pairs/*.py tools/cli/crypto_pair*.py)",
+      "Bash(rtk grep:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

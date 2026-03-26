@@ -389,7 +389,13 @@ class TestPlanNewMarketCapture:
 
 class TestCLI:
     def _make_markets_response(self, count: int, age_hours: float = 10.0) -> list[dict]:
-        return _make_markets(count, age_hours=age_hours)
+        """Generate fake markets with timestamps relative to now so CLI age-filter passes."""
+        now = datetime.now(timezone.utc)
+        return [
+            _market(f"market-{i}", age_hours, token_id=f"tok{i}", volume_24h=float(1000 - i),
+                    created_at=(now - timedelta(hours=age_hours)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            for i in range(count)
+        ]
 
     def test_cli_writes_targets_when_sufficient(self, tmp_path):
         out = tmp_path / "targets.json"

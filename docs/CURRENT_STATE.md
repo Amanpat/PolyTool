@@ -411,8 +411,11 @@ Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
   YES + NO pair accumulation below pair-cost ceiling. Kill switch, daily loss
   cap, max open pairs, max unpaired exposure window.
 - **Reference feed** (`packages/polymarket/crypto_pairs/reference_feed.py`):
-  BTC/ETH/SOL Binance WebSocket feed with safety state machine
-  (`connected_fresh`, `stale`, `disconnected`).
+  BTC/ETH/SOL price feed with injectable provider selection. Supports Binance
+  WebSocket (`BinanceFeed`), Coinbase WebSocket (`CoinbaseFeed`), and automatic
+  fallback (`AutoReferenceFeed`: Binance primary, Coinbase fallback). Provider
+  selected via `--reference-feed-provider binance|coinbase|auto`. Safety state
+  machine: `CONNECTED`, `DISCONNECTED`, `NEVER_CONNECTED`; stale threshold 15s.
 - **Fair value** (`packages/polymarket/crypto_pairs/fair_value.py`):
   Pair-cost calculation and threshold evaluation.
 - **Live execution** (`packages/polymarket/crypto_pairs/live_execution.py`):
@@ -444,30 +447,29 @@ Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
   `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
   `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
 
-**BLOCKER (2026-03-25): Binance HTTP 451 geo-restriction — paper soak cannot proceed.**
+**Blocker resolved (2026-03-26): Coinbase fallback feed implemented.**
 
-A smoke soak ran on 2026-03-25 (run ID `603e0ef17ff2`,
-`artifacts/crypto_pairs/paper_runs/2026-03-25/603e0ef17ff2/`).
-The runner completed cleanly (240 cycles, `stopped_reason=completed`,
-zero safety violations), but Binance returned HTTP 451 on every WebSocket
-connection attempt. The reference feed never delivered data: `markets_seen=0`,
-`opportunities_observed=0`, `order_intents_generated=0`. The `crypto-pair-report`
-rubric verdict is `RERUN PAPER SOAK` (evidence floor not met; no reject-band
-metric fired because no metric had data). The 24h soak was intentionally not run
-because it would produce an informationally identical zero-data outcome.
+A smoke soak on 2026-03-25 (run ID `603e0ef17ff2`) confirmed the Binance HTTP
+451 geo-restriction: `markets_seen=0`, zero opportunities. The Coinbase fallback
+feed was implemented 2026-03-26 and resolves this blocker.
 
-Unblocking requires one of:
-1. Implement Coinbase fallback feed in `reference_feed.py` (preferred — no geo-restriction).
-2. Run from a machine with unrestricted Binance access.
-3. Route via VPN (fragile for a 24h soak, not preferred).
+- `CoinbaseFeed` streams `BTC-USD`, `ETH-USD`, `SOL-USD` via Coinbase Advanced
+  Trade WebSocket (`wss://advanced-trade-api.coinbase.com/ws`).
+- `AutoReferenceFeed` wraps both feeds: uses Binance when usable, falls back to
+  Coinbase automatically.
+- CLI flag: `--reference-feed-provider binance|coinbase|auto` (default: `binance`).
+- 55 new offline tests in `tests/test_crypto_pair_reference_feed.py` — all passing.
+- No geo-restriction on Coinbase — unblocks the 24h paper soak on this machine.
 
-See dev log `docs/dev_logs/2026-03-25_phase1a_first_real_paper_soak.md`.
+See dev log `docs/dev_logs/2026-03-26_phase1a_coinbase_feed_fallback.md`.
 
-The next operator action (once feed access is resolved) is the 24h paper soak:
+The next operator action is the 24h paper soak using Coinbase or auto feed:
 
 ```powershell
 $env:CLICKHOUSE_PASSWORD = "polytool_admin"
-python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled
+python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled --reference-feed-provider coinbase
+# or auto (tries Binance first, falls back to Coinbase):
+python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled --reference-feed-provider auto
 ```
 
 After the run finalizes, open the Grafana dashboard at

@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: Optional[list[str]] = None, _reference_time: Optional[datetime] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -146,6 +146,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             required=args.required,
             record_duration_seconds=args.record_duration,
             max_age_hours=args.max_age_hours,
+            reference_time=_reference_time,
         )
     except Exception as exc:
         print(f"Error running new-market capture planner: {type(exc).__name__}: {exc}", file=sys.stderr)

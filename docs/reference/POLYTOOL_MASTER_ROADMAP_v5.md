@@ -886,10 +886,11 @@ current data assets. Paste at start of every new LLM session.
 > **Priority: HIGH. This is the quickest revenue path. Build standalone, no
 > SimTrader dependency.**
 
-- [ ] **Binance/Coinbase WebSocket price feed**
-      Real-time BTC/ETH/SOL price via WebSocket. This runs independently of
-      Polymarket — it's the reference price for determining when YES or NO
-      shares are cheap relative to true probability.
+- [x] **Binance/Coinbase WebSocket price feed** *(shipped 2026-03-26)*
+      `BinanceFeed`, `CoinbaseFeed`, and `AutoReferenceFeed` (primary + fallback)
+      in `packages/polymarket/crypto_pairs/reference_feed.py`. CLI flag:
+      `--reference-feed-provider binance|coinbase|auto`. 55 offline tests.
+      Coinbase fallback resolves Binance HTTP 451 geo-restriction blocker.
 
 - [ ] **Polymarket 5-min/15-min market discovery**
       Auto-discover active crypto up-or-down markets via Gamma API. Track

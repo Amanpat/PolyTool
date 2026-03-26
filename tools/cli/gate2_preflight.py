@@ -317,8 +317,11 @@ def scan_tapes_dir(tapes_dir: Path, *, max_size: float, buffer: float) -> list[T
 
 def build_corpus_summary(records: list[TapeRecord]) -> CorpusSummary:
     eligible_records = [record for record in records if record.eligible]
+    # Count all tapes (eligible or not) toward regime coverage, matching the
+    # tape_manifest semantics: an ineligible tape in a named regime still
+    # provides regime evidence for the corpus.
     regime_counts = {
-        regime: sum(1 for record in eligible_records if record.regime == regime)
+        regime: sum(1 for record in records if record.regime == regime)
         for regime in _REQUIRED_REGIMES
     }
     covered_regimes = tuple(regime for regime in _REQUIRED_REGIMES if regime_counts[regime] > 0)

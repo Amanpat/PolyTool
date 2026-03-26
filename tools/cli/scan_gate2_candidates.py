@@ -37,10 +37,10 @@ import argparse
 import json
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,9 @@ class CandidateResult:
     max_depth_yes: float    # peak best-ask size for first asset (YES)
     max_depth_no: float     # peak best-ask size for second asset (NO)
     source: str = "live"    # "live" or "tape"
+    # Optional enrichment fields (populated by enrich_live_candidate_context or scan_live_markets)
+    market_meta: Optional[dict] = field(default=None)
+    ranking_orderbook: Optional[dict] = field(default=None)
 
     @property
     def executable(self) -> bool:
@@ -561,6 +564,8 @@ _COL_STATUS = 6
 _COL_SCORE  = 6
 _COL_NEW    = 4
 _COL_REGIME = 10
+_COL_AGE    = 8
+_COL_REGSRC = 7
 
 
 def score_and_rank_candidates(
@@ -592,6 +597,13 @@ def score_and_rank_candidates(
 
     scored = []
     for r in results:
+        # Resolve market metadata: explicit dict wins, then fall back to per-candidate field
+        resolved_market = (market_meta or {}).get(r.slug)
+        if resolved_market is None and r.market_meta is not None:
+            resolved_market = r.market_meta
+        resolved_orderbook = (orderbooks or {}).get(r.slug)
+        if resolved_orderbook is None and r.ranking_orderbook is not None:
+            resolved_orderbook = r.ranking_orderbook
         scored.append(
             score_gate2_candidate(
                 r.slug,
@@ -601,9 +613,9 @@ def score_and_rank_candidates(
                 best_edge_raw=r.best_edge,
                 depth_yes=r.max_depth_yes,
                 depth_no=r.max_depth_no,
-                market=(market_meta or {}).get(r.slug),
+                market=resolved_market,
                 reward_config=(reward_configs or {}).get(r.slug),
-                orderbook=(orderbooks or {}).get(r.slug),
+                orderbook=resolved_orderbook,
                 source=r.source,
                 max_size=max_size,
                 buffer=buffer,
@@ -621,6 +633,8 @@ def _ranked_header_line() -> str:
         f"{'BestEdge':>{_COL_BEST_EDGE}} | "
         f"{'MaxDepth YES/NO':>{_COL_MAX_DEPTH}} | "
         f"{'New?':>{_COL_NEW}} | "
+        f"{'Age':>{_COL_AGE}} | "
+        f"{'RegSrc':>{_COL_REGSRC}} | "
         f"{'Regime':<{_COL_REGIME}}"
     )
 
@@ -663,7 +677,19 @@ def print_ranked_table(
             edge_val = "   N/A"
 
         depth_val = f"{s.depth_yes:.0f} / {s.depth_no:.0f}"
-        new_str = "Y" if s.is_new_market is True else ("N" if s.is_new_market is False else "?")
+        if s.is_new_market is True and s.age_hours is not None:
+            new_str = f"NEW {s.age_hours:.0f}h"
+        elif s.is_new_market is True:
+            new_str = "NEW"
+        elif s.is_new_market is False:
+            new_str = "N"
+        else:
+            new_str = "?"
+        if s.age_hours is not None:
+            age_str = f"{s.age_hours:.0f}h"
+        else:
+            age_str = "UNKNOWN"
+        regsrc_str = (getattr(s, "regime_source", None) or "?")[:_COL_REGSRC]
         regime_str = (s.regime or "?")[:_COL_REGIME]
         slug_col = s.slug[:_COL_SLUG]
 
@@ -675,6 +701,8 @@ def print_ranked_table(
             f"{edge_val:>{_COL_BEST_EDGE}} | "
             f"{depth_val:>{_COL_MAX_DEPTH}} | "
             f"{new_str:>{_COL_NEW}} | "
+            f"{age_str:>{_COL_AGE}} | "
+            f"{regsrc_str:>{_COL_REGSRC}} | "
             f"{regime_str:<{_COL_REGIME}}"
         )
 
@@ -862,6 +890,178 @@ def _build_tape_regime_meta(tapes_dir: Path) -> "dict[str, dict]":
 
 
 # ---------------------------------------------------------------------------
+# Live enrichment helper
+# ---------------------------------------------------------------------------
+
+
+def enrich_live_candidate_context(
+    candidates: list[CandidateResult],
+    *,
+    gamma_client: Any = None,
+    fetch_reward_config_fn: Any = None,
+) -> tuple[dict, dict, dict]:
+    """Fetch enriched metadata for a list of live CandidateResult objects.
+
+    Queries the Gamma API for market details and a reward config function for
+    each candidate's slug.  All errors are non-fatal: if either source fails
+    the function returns empty dicts so scoring can proceed without enrichment.
+
+    Args:
+        candidates:            List of CandidateResult from scan_live_markets.
+        gamma_client:          Optional pre-built GammaClient.  Created lazily
+                               when ``None``.
+        fetch_reward_config_fn: Callable(market_slug) -> dict | None.  When
+                               ``None``, the PolyTool reward-config helper is
+                               used if available.
+
+    Returns:
+        (market_meta, reward_configs, orderbooks) where each is a
+        ``{slug: ...}`` mapping.  Orderbooks are pulled from
+        ``CandidateResult.ranking_orderbook`` when present.
+    """
+    from datetime import datetime, timezone
+
+    if not candidates:
+        return {}, {}, {}
+
+    slugs = [c.slug for c in candidates]
+    market_meta: dict[str, dict] = {}
+    reward_configs: dict[str, dict] = {}
+    orderbooks: dict[str, dict] = {}
+
+    # Collect orderbooks from candidate objects
+    for c in candidates:
+        if c.ranking_orderbook is not None:
+            orderbooks[c.slug] = c.ranking_orderbook
+
+    # Fetch Gamma market metadata
+    try:
+        if gamma_client is None:
+            from packages.polymarket.gamma import GammaClient
+            gamma_client = GammaClient()
+        gamma_markets = gamma_client.get_markets_by_slugs(slugs)
+        for m in gamma_markets:
+            slug = str(getattr(m, "market_slug", "") or "").strip()
+            if not slug:
+                continue
+            raw = getattr(m, "raw_json", {}) or {}
+            # Normalize volume_24h: prefer volume24h key, fall back to None
+            vol_raw = raw.get("volume24h")
+            volume_24h: Optional[float] = None
+            if vol_raw is not None:
+                try:
+                    volume_24h = float(vol_raw)
+                except (TypeError, ValueError):
+                    pass
+            # Normalize created_at to ISO string
+            created_at_raw = raw.get("createdAt")
+            created_at_iso: Optional[str] = None
+            if created_at_raw is not None:
+                created_at_iso = str(created_at_raw)
+            entry: dict[str, Any] = {
+                "slug": slug,
+                "question": getattr(m, "question", raw.get("question", "")),
+                "category": getattr(m, "category", ""),
+                "subcategory": getattr(m, "subcategory", ""),
+                "tags": getattr(m, "tags", []),
+                "event_slug": getattr(m, "event_slug", ""),
+                "event_title": getattr(m, "event_title", ""),
+            }
+            if volume_24h is not None:
+                entry["volume_24h"] = volume_24h
+            if created_at_iso is not None:
+                entry["created_at"] = created_at_iso
+            market_meta[slug] = entry
+    except Exception as exc:
+        logger.warning("enrich_live_candidate_context: Gamma fetch failed: %s", exc)
+
+    # Fetch reward configs
+    if fetch_reward_config_fn is not None:
+        for slug in slugs:
+            try:
+                cfg = fetch_reward_config_fn(slug)
+                if cfg is not None:
+                    reward_configs[slug] = cfg
+            except Exception as exc:
+                logger.warning(
+                    "enrich_live_candidate_context: reward config fetch failed for %r: %s",
+                    slug,
+                    exc,
+                )
+
+    return market_meta, reward_configs, orderbooks
+
+
+# ---------------------------------------------------------------------------
+# JSON artifact output
+# ---------------------------------------------------------------------------
+
+RANKED_JSON_SCHEMA_VERSION = 1
+
+
+def write_ranked_json(
+    scores: list,
+    out_path: "str | Path",
+    *,
+    top: int,
+    mode: str,
+) -> int:
+    """Write ranked Gate2RankScore list to a JSON artifact file.
+
+    Args:
+        scores:    Sorted list of Gate2RankScore objects.
+        out_path:  Destination file path.  Parent directories are created.
+        top:       Maximum number of candidates to include.
+        mode:      "live" or "tape".
+
+    Returns:
+        Number of candidates written.
+    """
+    import datetime
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    candidates_slice = scores[:top]
+    candidates_out = []
+    for rank_idx, s in enumerate(candidates_slice, start=1):
+        entry: dict[str, Any] = {
+            "rank": rank_idx,
+            "slug": s.slug,
+            "gate2_status": s.gate2_status,
+            "rank_score": round(s.rank_score, 6),
+            "executable_ticks": s.executable_ticks,
+            "edge_ok_ticks": s.edge_ok_ticks,
+            "depth_ok_ticks": s.depth_ok_ticks,
+            "best_edge": s.best_edge,
+            "depth_yes": s.depth_yes,
+            "depth_no": s.depth_no,
+            "reward_apr_est": s.reward_apr_est,
+            "volume_24h": s.volume_24h,
+            "competition_score": s.competition_score,
+            "age_hours": s.age_hours,
+            "is_new_market": s.is_new_market,
+            "regime": s.regime,
+            "derived_regime": getattr(s, "derived_regime", None),
+            "regime_source": getattr(s, "regime_source", None),
+            "source": s.source,
+            "explanation": list(s.explanation),
+        }
+        candidates_out.append(entry)
+
+    artifact = {
+        "schema_version": RANKED_JSON_SCHEMA_VERSION,
+        "scan_mode": mode,
+        "total_candidates": len(scores),
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "candidates": candidates_out,
+    }
+
+    out_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    return len(candidates_out)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -944,6 +1144,35 @@ def build_parser() -> argparse.ArgumentParser:
             "For live mode, fetches enriched Gamma metadata; for tape mode, reads tape meta files."
         ),
     )
+    p.add_argument(
+        "--enrich",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch enriched market metadata (Gamma + reward config) for each live candidate. "
+            "Adds volume_24h, age_hours, regime, and reward APR to the ranked table. "
+            "No-op in tape mode."
+        ),
+    )
+    p.add_argument(
+        "--watchlist-out",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Write the top N market slugs (exact, untruncated) to FILE, one per line. "
+            "Parent directories are created automatically. "
+            "Useful for piping into watch-arb-candidates."
+        ),
+    )
+    p.add_argument(
+        "--ranked-json-out",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Write the ranked Gate2RankScore list to FILE as a JSON artifact. "
+            "Parent directories are created automatically."
+        ),
+    )
     return p
 
 
@@ -1009,6 +1238,20 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     ranked = rank_candidates(results)
 
+    # --- Optional enrichment (--enrich flag, live mode only) --------------------
+    enrich_market_meta: "dict[str, dict]" = {}
+    enrich_reward_configs: "dict[str, dict]" = {}
+    enrich_orderbooks: "dict[str, dict]" = {}
+    if getattr(args, "enrich", False) and mode == "live":
+        print(
+            f"[scan-gate2] --enrich: fetching Gamma metadata + reward configs for "
+            f"{len(ranked)} candidates …",
+            file=sys.stderr,
+        )
+        enrich_market_meta, enrich_reward_configs, enrich_orderbooks = (
+            enrich_live_candidate_context(ranked)
+        )
+
     # --- Regime-inventory discovery: filter and enrich by target regime ----------
     regime_meta: "dict[str, dict]" = {}
     if args.regime:
@@ -1060,9 +1303,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         signal_raw = ranked
 
+    # Merge enrich data with regime_meta (regime_meta wins if both present)
+    merged_market_meta: "dict[str, dict] | None" = None
+    if enrich_market_meta or regime_meta:
+        merged = {**enrich_market_meta, **regime_meta}
+        merged_market_meta = merged if merged else None
+
     ranked_scores = score_and_rank_candidates(
         signal_raw,
-        market_meta=regime_meta if regime_meta else None,
+        market_meta=merged_market_meta,
+        reward_configs=enrich_reward_configs if enrich_reward_configs else None,
+        orderbooks=enrich_orderbooks if enrich_orderbooks else None,
         max_size=max_size,
         buffer=gate2_buffer,
     )
@@ -1087,6 +1338,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(
             f"near_edge_threshold_used={capture_threshold:.4f}"
             f"  gate2_buffer_used={gate2_buffer:.4f}  threshold_source={threshold_source}"
+        )
+
+    # --- Watchlist export (--watchlist-out) ------------------------------------
+    if getattr(args, "watchlist_out", None):
+        watchlist_path = Path(args.watchlist_out)
+        watchlist_path.parent.mkdir(parents=True, exist_ok=True)
+        top_slugs = [s.slug for s in ranked_scores[:top]]
+        watchlist_path.write_text(
+            "".join(f"{slug}\n" for slug in top_slugs),
+            encoding="utf-8",
+        )
+        print(
+            f"[scan-gate2] Wrote {len(top_slugs)} exact slug(s) to {watchlist_path}",
+            file=sys.stderr,
+        )
+
+    # --- Ranked JSON export (--ranked-json-out) ---------------------------------
+    if getattr(args, "ranked_json_out", None):
+        ranked_json_path = Path(args.ranked_json_out)
+        written = write_ranked_json(ranked_scores, ranked_json_path, top=top, mode=mode)
+        print(
+            f"[scan-gate2] Wrote {written} ranked candidate(s) to {ranked_json_path}",
+            file=sys.stderr,
         )
 
     return 0

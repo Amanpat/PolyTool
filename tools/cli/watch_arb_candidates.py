@@ -77,6 +77,8 @@ class ResolvedWatch:
     slug: str
     yes_token_id: str
     no_token_id: str
+    regime: str = "unknown"
+    market_snapshot: Optional[dict] = field(default=None)
 
 
 @dataclass(frozen=True)
@@ -107,76 +109,128 @@ def _parse_watchlist_timestamp(text: str, *, field_name: str, row_number: int) -
     return parsed.astimezone(timezone.utc)
 
 
-def _parse_markets_arg(markets: Optional[str]) -> list[WatchTarget]:
-    """Parse direct --markets input into watch targets."""
+def _parse_markets_arg(markets: Optional[list[str]]) -> list[WatchTarget]:
+    """Parse direct --markets input into watch targets.
+
+    Accepts either space-separated tokens (from ``nargs="+"`` argparse) or
+    comma-separated slugs within a single token, or a mix of both.
+    """
     if not markets:
         return []
 
-    return [
-        WatchTarget(slug=slug.strip(), source="markets")
-        for slug in markets.split(",")
-        if slug.strip()
-    ]
+    slugs: list[str] = []
+    for token in markets:
+        for part in token.split(","):
+            part = part.strip()
+            if part:
+                slugs.append(part)
+
+    return [WatchTarget(slug=slug, source="markets") for slug in slugs]
 
 
 def _load_watchlist_file(path: str | Path, *, now: Optional[datetime] = None) -> list[WatchTarget]:
-    """Load report-to-watchlist JSON and return non-expired watch targets."""
+    """Load a watchlist file and return non-expired watch targets.
+
+    Two formats are supported:
+
+    * **JSON** (``*.json`` extension or content starting with ``{``/``[``):
+      A JSON object with a top-level ``watchlist`` array.  Each element must be
+      an object containing at least ``market_slug``.
+
+    * **Slug-per-line** (any other extension): one market slug per non-blank
+      line.  Blank lines are silently skipped.
+    """
     watchlist_path = Path(path)
     try:
-        payload = json.loads(watchlist_path.read_text(encoding="utf-8"))
+        raw_text = watchlist_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ValueError(f"watchlist file not found: {watchlist_path}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"watchlist file is not valid JSON: {watchlist_path}") from exc
 
-    if not isinstance(payload, dict):
-        raise ValueError("watchlist file must be a JSON object with a top-level 'watchlist' array.")
+    stripped = raw_text.strip()
+    if not stripped:
+        raise ValueError("watchlist file is empty")
 
-    watchlist = payload.get("watchlist")
-    if not isinstance(watchlist, list):
-        raise ValueError("watchlist file must include a top-level 'watchlist' array.")
+    # Determine format: JSON extension or content that looks like JSON.
+    suffix_lower = watchlist_path.suffix.lower()
+    looks_like_json = suffix_lower == ".json" or stripped.startswith(("{", "["))
 
-    now_utc = now or datetime.now(timezone.utc)
-    if now_utc.tzinfo is None:
-        now_utc = now_utc.replace(tzinfo=timezone.utc)
-    else:
-        now_utc = now_utc.astimezone(timezone.utc)
+    if looks_like_json:
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"watchlist file looks like JSON but is not valid JSON: {watchlist_path}"
+            ) from exc
 
-    targets: list[WatchTarget] = []
-    for row_number, item in enumerate(watchlist, start=1):
-        if not isinstance(item, dict):
-            raise ValueError(f"watchlist[{row_number}] must be an object.")
+        if not isinstance(payload, dict):
+            raise ValueError("watchlist file must be a JSON object with a top-level 'watchlist' array.")
 
-        slug_raw = item.get("market_slug")
-        if not isinstance(slug_raw, str) or not slug_raw.strip():
-            raise ValueError(f"watchlist[{row_number}] missing required 'market_slug'.")
+        watchlist = payload.get("watchlist")
+        if not isinstance(watchlist, list):
+            raise ValueError("watchlist file must include a top-level 'watchlist' array.")
 
-        slug = slug_raw.strip()
-        expiry_utc = item.get("expiry_utc")
-        if expiry_utc is not None:
-            expiry_dt = _parse_watchlist_timestamp(
-                expiry_utc,
-                field_name="expiry_utc",
-                row_number=row_number,
-            )
-            if expiry_dt <= now_utc:
-                logger.debug(
-                    "Skipping expired watchlist entry slug=%s expiry_utc=%s source=%s",
-                    slug,
+        now_utc = now or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        else:
+            now_utc = now_utc.astimezone(timezone.utc)
+
+        targets: list[WatchTarget] = []
+        for row_number, item in enumerate(watchlist, start=1):
+            if not isinstance(item, dict):
+                raise ValueError(f"watchlist[{row_number}] must be an object.")
+
+            slug_raw = item.get("market_slug")
+            if not isinstance(slug_raw, str) or not slug_raw.strip():
+                raise ValueError(f"watchlist[{row_number}] missing required 'market_slug'.")
+
+            slug = slug_raw.strip()
+            expiry_utc = item.get("expiry_utc")
+            if expiry_utc is not None:
+                expiry_dt = _parse_watchlist_timestamp(
                     expiry_utc,
-                    watchlist_path,
+                    field_name="expiry_utc",
+                    row_number=row_number,
                 )
-                continue
+                if expiry_dt <= now_utc:
+                    logger.debug(
+                        "Skipping expired watchlist entry slug=%s expiry_utc=%s source=%s",
+                        slug,
+                        expiry_utc,
+                        watchlist_path,
+                    )
+                    continue
 
-        metadata = {key: value for key, value in item.items() if key != "market_slug"}
+            metadata = {key: value for key, value in item.items() if key != "market_slug"}
+            targets.append(
+                WatchTarget(
+                    slug=slug,
+                    metadata=metadata,
+                    source=f"watchlist-file:{watchlist_path}",
+                )
+            )
+
+        return targets
+
+    # Slug-per-line format
+    targets = []
+    for line_number, line in enumerate(raw_text.splitlines(), start=1):
+        slug = line.strip()
+        if not slug:
+            continue
+        if "," in slug:
+            raise ValueError(
+                f"watchlist file line {line_number}: expected one market slug per non-blank line, "
+                f"but found a comma. Use a JSON watchlist for multiple slugs per entry, or put "
+                f"one slug per line."
+            )
         targets.append(
             WatchTarget(
                 slug=slug,
-                metadata=metadata,
+                metadata={},
                 source=f"watchlist-file:{watchlist_path}",
             )
         )
-
     return targets
 
 
@@ -266,8 +320,10 @@ def _collect_watch_targets(
 
     if not combined:
         raise ValueError(
-            "supply at least one non-expired market via --markets, --watchlist-file, "
-            "or --session-plan."
+            "supply at least one non-expired market via "
+            "--markets slug1 slug2 (space-separated) or "
+            '--markets "slug1,slug2" (comma-separated), '
+            "--watchlist-file, or --session-plan."
         )
 
     return combined
@@ -417,6 +473,7 @@ def _record_tape_for_market(
     from packages.polymarket.simtrader.tape.recorder import TapeRecorder
 
     tape_dir.mkdir(parents=True, exist_ok=True)
+    effective_regime = regime if regime is not None else resolved.regime
     watch_meta: dict[str, Any] = {
         "market_slug": resolved.slug,
         "yes_asset_id": resolved.yes_token_id,
@@ -425,8 +482,10 @@ def _record_tape_for_market(
         "near_edge_threshold_used": near_edge_threshold,
         "threshold_source": threshold_source,
     }
-    if regime is not None:
-        watch_meta["regime"] = regime
+    if effective_regime and effective_regime != "unknown":
+        watch_meta["regime"] = effective_regime
+    if resolved.market_snapshot is not None:
+        watch_meta["market_snapshot"] = resolved.market_snapshot
     (tape_dir / "watch_meta.json").write_text(
         json.dumps(watch_meta, indent=2), encoding="utf-8"
     )
@@ -470,6 +529,8 @@ class ArbWatcher:
         # Injectable for testing
         _fetch_fn: Optional[Callable] = None,
         _record_fn: Optional[Callable] = None,
+        _monotonic_fn: Optional[Callable] = None,
+        _sleep_fn: Optional[Callable] = None,
     ) -> None:
         self.resolved_markets = resolved_markets
         self.near_edge_threshold = near_edge_threshold
@@ -485,6 +546,8 @@ class ArbWatcher:
 
         self._fetch_fn = _fetch_fn or _fetch_books
         self._record_fn = _record_fn or _record_tape_for_market
+        self._monotonic_fn = _monotonic_fn or time.monotonic
+        self._sleep_fn = _sleep_fn or time.sleep
 
         # State tracking
         self._recording_slugs: set[str] = set()  # slugs currently being recorded
@@ -520,14 +583,25 @@ class ArbWatcher:
             print(f"    NO:  {r.no_token_id[:20]}...")
         print()
 
+        start_time = self._monotonic_fn()
         try:
             while not self._stop.is_set():
+                elapsed = self._monotonic_fn() - start_time
+                if elapsed >= self.duration_seconds:
+                    print("[watch-arb] Duration elapsed; stopping.")
+                    break
                 self._poll_round()
-                # Sleep in small increments so Ctrl+C is responsive
-                for _ in range(int(self.poll_interval * 4)):
-                    if self._stop.is_set():
+                # Sleep in small increments so Ctrl+C is responsive and
+                # duration exit is checked frequently.
+                remaining = self.duration_seconds - (self._monotonic_fn() - start_time)
+                sleep_budget = min(self.poll_interval, max(remaining, 0.0))
+                slept = 0.0
+                while slept < sleep_budget and not self._stop.is_set():
+                    chunk = min(0.25, sleep_budget - slept)
+                    if chunk <= 0:
                         break
-                    time.sleep(0.25)
+                    self._sleep_fn(chunk)
+                    slept += chunk
         except KeyboardInterrupt:
             print("\n[watch-arb] Stopped by operator.")
 
@@ -654,9 +728,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--markets",
-        metavar="SLUG[,SLUG...]",
+        nargs="+",
+        metavar="SLUG",
         help=(
-            "Comma-separated list of market slugs to watch. "
+            "One or more market slugs to watch. Can be space-separated "
+            "(--markets slug1 slug2) or comma-separated (--markets slug1,slug2). "
             "Can be used alone or alongside --watchlist-file or --session-plan."
         ),
     )
