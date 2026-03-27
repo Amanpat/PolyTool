@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-27 - Completed quick-030: Repo cleanup — fixed 26MB corrupted test (→22KB), added .claudeignore, split CURRENT_STATE.md (1072→644 lines), consolidated devlogs, patched pyproject.toml URLs+packages, added file size guard, migrated users.txt, updated README.
+Last activity: 2026-03-27 - Completed quick-031: Phase 1B market targeting hardening — TargetResolver accepts market slug/URL/event slug/URL for simtrader shadow, ranked child-market shortlist with skip reasons, 19 offline tests, 2685 passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
