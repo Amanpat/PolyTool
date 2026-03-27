@@ -1,0 +1,28 @@
+# Tests — only read when explicitly working on tests
+tests/
+
+# Dev logs — historical, never needed for coding
+docs/dev_logs/
+docs/devlog/
+
+# Archived docs — superseded
+docs/archive/
+docs/debug/
+docs/pdr/
+
+# Agent config dirs — GSD framework, not project code
+.claude/
+.gemini/
+.opencode/
+.planning/
+
+# Large generated/config files
+config/benchmark_v1.audit.json
+config/benchmark_v1_gap_fill.targets.json
+config/benchmark_v1_new_market_capture.targets.json
+
+# Services — legacy/placeholder, not active development
+services/
+
+# Feature docs — reference only, not needed for coding
+docs/features/
