@@ -5,29 +5,12 @@
 > live market-making bot. Roadmaps 0–5 are complete. The execution layer
 > (Track A) is code-complete. Three gates need closing before live capital.
 
-## Current Status (as of 2026-03-07)
+## Current Status (as of 2026-03-27)
 
-SimTrader can currently:
-
-- record live tapes and replay them deterministically
-- run sweeps, shadow sessions, and dry-run live sessions
-- rank Gate 2 candidates, record candidate tapes, run presweep eligibility
-  checks, watch bounded market lists for dislocations, and ingest a watchlist
-  JSON via `--watchlist-file`
-
-Current gate and operator status:
-
-| Component | Status | What it means |
-|---|---|---|
-| Gate 1 (Replay) | PASSED | Replay determinism artifact exists at `artifacts/gates/replay_gate/gate_passed.json` |
-| Gate 2 (Sweep) | NOT PASSED | Tooling is implemented and working, but no eligible tape has been captured yet |
-| Gate 3 (Shadow) | BLOCKED | Gate 3 remains blocked behind Gate 2 |
-| Gate 4 (Dry-Run Live) | PASSED | Dry-run live artifact exists at `artifacts/gates/dry_run_gate/gate_passed.json` |
-| Current blocker | EDGE SCARCITY | The watcher path produced no trigger/new tapes, and the recent acquisition cycle produced only ineligible tapes |
-| Current next step | BOUNDED LIVE TRIAL | Run bounded live dislocation trials for `binary_complement_arb` across 3-5 markets around a catalyst |
-| Opportunity Radar | DEFERRED | Keep broader monitoring deferred until after the first clean Gate 2 -> Gate 3 progression |
-| Stage 0 Paper Live | BLOCKED | Starts only after all four gates pass |
-| Stage 1 Live ($500) | BLOCKED | Needs all four gates, a clean Stage 0 run, and live infrastructure |
+> **Current Status (as of 2026-03-27):** Phase 1A (crypto pair bot) is
+> code-complete and awaiting 24-hour paper soak. Phase 1B (market maker
+> gate closure) is in active development — Gate 2 sweep tooling is complete,
+> Gate 2 verdict pending. See `docs/CURRENT_STATE.md` for full details.
 
 **For an end-to-end operator guide (research loop → RAG → SimTrader → Grafana), see [`docs/OPERATOR_QUICKSTART.md`](docs/OPERATOR_QUICKSTART.md).**
 
