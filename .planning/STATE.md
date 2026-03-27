@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-27 - Completed quick-029: Phase 1B gold capture campaign packet. Campaign spec, tightened runbook, capture_status.py helper (shortage table, exit 0/1), 4 tests, CURRENT_STATE.md updated to reflect no-gate-core-changes-needed status.
+Last activity: 2026-03-27 - Completed quick-030: Repo cleanup — fixed 26MB corrupted test (→22KB), added .claudeignore, split CURRENT_STATE.md (1072→644 lines), consolidated devlogs, patched pyproject.toml URLs+packages, added file size guard, migrated users.txt, updated README.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -85,3 +85,4 @@ Last activity: 2026-03-27 - Completed quick-029: Phase 1B gold capture campaign 
 | 027 | Corpus recovery tooling: SPEC-phase1b-corpus-recovery-v1, corpus_audit.py (scan/admit/quota/manifest), 6 TDD tests, corpus audit run (9/50 qualify, shortage_report.md), CORPUS_GOLD_CAPTURE_RUNBOOK.md, CURRENT_STATE.md + STATE.md updated | 2026-03-26 | 160a8d6 | [27-recover-phase-1b-corpus-recovery-spec-ta](./quick/27-recover-phase-1b-corpus-recovery-spec-ta/) |
 | 028 | Phase 1B residual shortage packet: salvaged 70-event politics tape via metadata injection (10/50), re-ran corpus_audit, wrote phase1b_residual_shortage_v1.md (definitive operator guide for live Gold capture), dev log, CURRENT_STATE.md + STATE.md updated | 2026-03-27 | 59f8e31 | [28-finish-phase-1b-execution-path-gold-capt](./quick/28-finish-phase-1b-execution-path-gold-capt/) |
 | 029 | Phase 1B gold capture campaign packet: campaign spec, runbook tightened, capture_status.py helper (exit 0/1), 4 tests, CURRENT_STATE.md updated | 2026-03-27 | be2a56b | [29-convert-phase-1b-to-clean-operator-captu](./quick/29-convert-phase-1b-to-clean-operator-captu/) |
+| 030 | Repo cleanup: fix 26MB corrupted test (→22KB), add .claudeignore, split CURRENT_STATE (1072→644 lines), consolidate devlogs, patch pyproject.toml, add file size guard, migrate users.txt, update README | 2026-03-27 | a53caed | [30-polytool-repo-cleanup-fix-corrupted-test](./quick/30-polytool-repo-cleanup-fix-corrupted-test/) |
