@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-27 - Completed quick-031: Phase 1B market targeting hardening — TargetResolver accepts market slug/URL/event slug/URL for simtrader shadow, ranked child-market shortlist with skip reasons, 19 offline tests, 2685 passing.
+Last activity: 2026-03-27 - Completed quick-032: Phase 1B candidate discovery upgrade — CandidateDiscovery module with bucket inference, shortage-aware scoring from 200-market pool, ranked output in quickrun --list-candidates, 27 new tests, 2712 passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -31,6 +31,7 @@ Last activity: 2026-03-27 - Completed quick-031: Phase 1B market targeting harde
 - Mark 5.0 category [x] when code ships even if runtime coverage is 0% (upstream data gap, not code defect)
 - Robust stats: sort-based median/trimmed-mean/p25/p75 with MAX_ROBUST_VALUES=500 cap; beat_close is required positional arg in _accumulate_segment_bucket
 - quickrun --list-candidates: exits before normal flow; warning (not error) when combined with --market
+- CandidateDiscovery: pool_size = min(max_candidates * 10, 200); shortage_boost weight=0.40 beats depth (0.30) and probe (0.20); hardcoded Phase 1B shortage constants updated manually after each capture batch
 - quickrun --exclude-market: repeatable; exclude_slugs persisted as list in quickrun_context for JSON serializability
 - SimTrader Studio: FastAPI + vanilla HTML+JS, optional dep group [studio], port 8765, subprocess-based command dispatch with allowlist
 - OnDemand engine: PortfolioLedger re-instantiated per get_state() call (snapshot pattern); ZERO_LATENCY broker for interactive sessions; session manager stored as closure in create_app()
@@ -87,3 +88,4 @@ Last activity: 2026-03-27 - Completed quick-031: Phase 1B market targeting harde
 | 029 | Phase 1B gold capture campaign packet: campaign spec, runbook tightened, capture_status.py helper (exit 0/1), 4 tests, CURRENT_STATE.md updated | 2026-03-27 | be2a56b | [29-convert-phase-1b-to-clean-operator-captu](./quick/29-convert-phase-1b-to-clean-operator-captu/) |
 | 030 | Repo cleanup: fix 26MB corrupted test (→22KB), add .claudeignore, split CURRENT_STATE (1072→644 lines), consolidate devlogs, patch pyproject.toml, add file size guard, migrate users.txt, update README | 2026-03-27 | a53caed | [30-polytool-repo-cleanup-fix-corrupted-test](./quick/30-polytool-repo-cleanup-fix-corrupted-test/) |
 | 031 | Harden Phase 1B market targeting: TargetResolver accepts market slug/URL/event slug/URL, ranked child-market shortlist with skip reasons, wired into simtrader shadow CLI, 19 offline tests | 2026-03-27 | 8a579c0 | [31-harden-phase-1b-market-targeting-accept-](./quick/31-harden-phase-1b-market-targeting-accept-/) |
+| 032 | Phase 1B candidate discovery upgrade: CandidateDiscovery module (bucket inference, shortage scoring, 200-market pool), wired into quickrun --list-candidates, 27 new offline tests, 2712 passing | 2026-03-27 | e5116b0 | [32-improve-phase-1b-candidate-discovery-bro](./quick/32-improve-phase-1b-candidate-discovery-bro/) |
