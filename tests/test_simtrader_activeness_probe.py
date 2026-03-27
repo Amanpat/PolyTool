@@ -582,6 +582,10 @@ class TestCLIActivenessProbeFlags:
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.side_effect = fake_auto_pick_many
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-probe", "question": "Will the probe work?"}
+        ]
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.45, best_ask=0.55, depth_total=None
         )
@@ -601,7 +605,11 @@ class TestCLIActivenessProbeFlags:
     # ------ probe stats shown in list-candidates output ------
 
     def test_list_candidates_shows_probe_stats(self, capsys):
-        """Probe stats appear in --list-candidates output when probe_results are attached."""
+        """Probe stats appear in --list-candidates output when probe_results are attached.
+
+        New output format (CandidateDiscovery):
+          [candidate N] probe    : 1/2 active, 3 updates
+        """
         from packages.polymarket.simtrader.activeness_probe import ProbeResult
 
         cand = _resolved("market-with-probe")
@@ -616,6 +624,10 @@ class TestCLIActivenessProbeFlags:
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.return_value = [cand]
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-with-probe", "question": "Will this market be active?"}
+        ]
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.45, best_ask=0.55, depth_total=None
         )
@@ -624,12 +636,10 @@ class TestCLIActivenessProbeFlags:
             ["--activeness-probe-seconds", "5"], mock_picker, capsys
         )
 
-        assert "YES probe" in out
+        # New format: "[candidate N] probe    : 1/2 active, 3 updates"
+        assert "probe" in out
+        assert "active" in out
         assert "3 updates" in out
-        assert "ACTIVE" in out
-        assert "NO probe" in out
-        assert "0 updates" in out
-        assert "inactive" in out
 
     def test_list_candidates_no_probe_stats_when_disabled(self, capsys):
         """Probe stats do NOT appear when probe is disabled (probe_results=None)."""

@@ -1607,76 +1607,59 @@ def _quickrun(args: argparse.Namespace) -> int:
 
     # -- List-candidates mode --------------------------------------------------
     # Only active when --list-candidates N > 0 and no explicit --market.
+    # Uses CandidateDiscovery to draw from a larger pool (up to 200 markets),
+    # infer buckets, apply shortage-aware scoring, and reject one-sided books.
+    #
+    # Phase 1B campaign shortage defaults (update after each capture batch):
+    _DEFAULT_SHORTAGE = {
+        "sports": 15,
+        "politics": 9,
+        "crypto": 10,
+        "new_market": 5,
+        "near_resolution": 1,
+        "other": 0,
+    }
     if list_candidates_n > 0 and not args.market:
+        from packages.polymarket.simtrader.candidate_discovery import CandidateDiscovery  # noqa: PLC0415
+
+        # pool_size: default 200 (capped at 200 here to avoid excessive API calls)
+        pool_size = min(getattr(args, "max_candidates", 20) * 10, 200)
+
+        discovery = CandidateDiscovery(picker, shortage=_DEFAULT_SHORTAGE)
+        collect_skips: list = []
+
         try:
-            candidates = picker.auto_pick_many(
+            results = discovery.rank(
                 n=list_candidates_n,
-                max_candidates=args.max_candidates,
-                allow_empty_book=args.allow_empty_book,
-                min_depth_size=min_depth_size,
-                top_n_levels=top_n_levels,
-                exclude_slugs=exclude_slugs_set if exclude_slugs_set else None,
+                pool_size=pool_size,
                 probe_config=probe_config,
+                collect_skips=collect_skips,
+                exclude_slugs=exclude_slugs_set if exclude_slugs_set else None,
             )
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
-        if not candidates:
+        if not results:
             print(
-                f"No valid candidates found in first {args.max_candidates} examined.",
+                f"No valid candidates found in pool of {pool_size} markets examined.",
                 file=sys.stderr,
             )
             return 1
 
-        for i, cand in enumerate(candidates, start=1):
-            # Validate both books to get depth stats for display.
-            c_yes = picker.validate_book(
-                cand.yes_token_id,
-                allow_empty=args.allow_empty_book,
-                min_depth_size=min_depth_size,
-                top_n_levels=top_n_levels,
-            )
-            c_no = picker.validate_book(
-                cand.no_token_id,
-                allow_empty=args.allow_empty_book,
-                min_depth_size=min_depth_size,
-                top_n_levels=top_n_levels,
-            )
-            yes_depth = (
-                f"{c_yes.depth_total:.1f}" if c_yes.depth_total is not None else "n/a"
-            )
-            no_depth = (
-                f"{c_no.depth_total:.1f}" if c_no.depth_total is not None else "n/a"
-            )
-            yes_bid = f"{c_yes.best_bid}" if c_yes.best_bid is not None else "n/a"
-            yes_ask = f"{c_yes.best_ask}" if c_yes.best_ask is not None else "n/a"
-            no_bid = f"{c_no.best_bid}" if c_no.best_bid is not None else "n/a"
-            no_ask = f"{c_no.best_ask}" if c_no.best_ask is not None else "n/a"
-            print(f"[candidate {i}] slug     : {cand.slug}")
-            print(f"[candidate {i}] question : {cand.question}")
-            print(
-                f"[candidate {i}] YES bid  : {yes_bid}  ask: {yes_ask}  depth: {yes_depth}"
-            )
-            print(
-                f"[candidate {i}] NO  bid  : {no_bid}  ask: {no_ask}  depth: {no_depth}"
-            )
-            # Show activeness probe stats if the probe was run.
-            if cand.probe_results:
-                for role, tid in (
-                    ("YES", cand.yes_token_id),
-                    ("NO", cand.no_token_id),
-                ):
-                    pr = cand.probe_results.get(tid)
-                    if pr is not None:
-                        status = "ACTIVE" if pr.active else "inactive"
-                        print(
-                            f"[candidate {i}] {role} probe : "
-                            f"{pr.updates} updates in {pr.probe_seconds:.1f}s"
-                            f" â€” {status}"
-                        )
+        for i, result in enumerate(results, start=1):
+            print(f"[candidate {i}] slug     : {result.slug}")
+            print(f"[candidate {i}] question : {result.question}")
+            print(f"[candidate {i}] bucket   : {result.bucket}")
+            print(f"[candidate {i}] score    : {result.score:.2f}")
+            print(f"[candidate {i}] why      : {result.rank_reason}")
+            yes_d = f"{result.yes_depth:.1f}" if result.yes_depth is not None else "n/a"
+            no_d = f"{result.no_depth:.1f}" if result.no_depth is not None else "n/a"
+            print(f"[candidate {i}] depth    : YES={yes_d}  NO={no_d}")
+            if result.probe_summary is not None:
+                print(f"[candidate {i}] probe    : {result.probe_summary}")
 
-        print(f"Listed {len(candidates)} candidates.")
+        print(f"Listed {len(results)} candidates.")
         return 0
 
     if list_candidates_n > 0 and args.market:

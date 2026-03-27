@@ -2027,6 +2027,11 @@ class TestListCandidates:
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.return_value = [cand1, cand2]
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-alpha", "question": "Will alpha happen?"},
+            {"slug": "market-beta", "question": "Will beta happen?"},
+        ]
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.45, best_ask=0.55, depth_total=None
         )
@@ -2046,6 +2051,10 @@ class TestListCandidates:
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.return_value = [cand1]
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-gamma", "question": "Will gamma happen?"},
+        ]
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.40, best_ask=0.60, depth_total=None
         )
@@ -2093,12 +2102,16 @@ class TestListCandidates:
         # Normal dry-run output present
         assert "dry_run=True" in out
 
-    def test_list_candidates_shows_depth_na_when_depth_disabled(self, capsys):
-        """depth_total=None is shown as 'n/a' in candidate output."""
+    def test_list_candidates_shows_depth_in_output(self, capsys):
+        """depth values appear in candidate output (shown as 0.0 when depth_total is None)."""
         cand1 = _make_resolved_market("market-delta", "Will delta happen?")
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.return_value = [cand1]
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-delta", "question": "Will delta happen?"},
+        ]
         # depth_total=None simulates min_depth_size=0 (depth check disabled)
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.45, best_ask=0.55, depth_total=None
@@ -2110,7 +2123,10 @@ class TestListCandidates:
             capsys,
         )
 
-        assert "n/a" in out
+        # CandidateDiscovery shows YES/NO depth; 0.0 when depth_total=None
+        assert "depth" in out
+        assert "YES=" in out
+        assert "NO=" in out
 
     def test_list_candidates_passes_exclude_slugs_to_auto_pick_many(self, capsys):
         """--list-candidates + --exclude-market forwards exclude_slugs to auto_pick_many."""
@@ -2124,6 +2140,10 @@ class TestListCandidates:
 
         mock_picker = MagicMock()
         mock_picker.auto_pick_many.side_effect = fake_auto_pick_many
+        # CandidateDiscovery.rank() calls fetch_markets_page to build the raw slug index
+        mock_picker._gamma.fetch_markets_page.return_value = [
+            {"slug": "market-epsilon", "question": "Will epsilon happen?"},
+        ]
         mock_picker.validate_book.return_value = MagicMock(
             valid=True, reason="ok", best_bid=0.45, best_ask=0.55, depth_total=None
         )
