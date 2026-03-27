@@ -2199,17 +2199,45 @@ def _shadow(args: argparse.Namespace) -> int:
         StrategyRunConfigError,
         _build_strategy,
     )
+    from packages.polymarket.simtrader.target_resolver import (
+        ChildMarketChoice,
+        TargetResolver,
+        TargetResolverError,
+    )
 
     # -- Resolve market ---------------------------------------------------------
     picker = MarketPicker(GammaClient(), ClobClient())
+    resolver = TargetResolver(GammaClient(), ClobClient())
 
     try:
-        resolved = picker.resolve_slug(args.market)
-        yes_val = picker.validate_book(resolved.yes_token_id, allow_empty=False)
-        no_val = picker.validate_book(resolved.no_token_id, allow_empty=False)
+        resolved = resolver.resolve_target(args.market)
+    except ChildMarketChoice as choice:
+        print(
+            f"Error: {args.market!r} is an event with multiple tradable markets. "
+            f"Rerun with one of these --market slugs:",
+            file=sys.stderr,
+        )
+        for c in choice.candidates:
+            print(
+                f"  [{c['rank']}] {c['slug']}  -- {c['question']}  "
+                f"(liquidity={c['liquidity']:.0f}, volume={c['volume']:.0f})",
+                file=sys.stderr,
+            )
+        if choice.skipped:
+            print("Skipped (not usable):", file=sys.stderr)
+            for s in choice.skipped:
+                print(f"  {s['slug']}: {s['reason']}", file=sys.stderr)
+        return 1
+    except TargetResolverError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    # MarketPickerError is no longer expected here but kept as safety net
     except MarketPickerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+
+    yes_val = picker.validate_book(resolved.yes_token_id, allow_empty=False)
+    no_val = picker.validate_book(resolved.no_token_id, allow_empty=False)
 
     yes_id = resolved.yes_token_id
     no_id = resolved.no_token_id
@@ -3969,7 +3997,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--market",
         required=True,
         metavar="SLUG",
-        help="Polymarket market slug to shadow-trade (e.g. 'will-x-happen-2026').",
+        help=(
+            "Polymarket market slug, market URL, event slug, or event URL.  "
+            "Examples: 'will-x-happen-2026', "
+            "'https://polymarket.com/market/will-x-happen-2026', "
+            "'https://polymarket.com/event/some-event-name'.  "
+            "Event inputs list child market options when multiple are available."
+        ),
     )
     shadow_p.add_argument(
         "--duration",
