@@ -113,8 +113,13 @@ python -m polytool simtrader shadow \
 - `--market <SLUG>`: Polymarket market slug (e.g., `will-btc-hit-100k-by-eoy`)
 - `--strategy market_maker_v1`: Use the canonical Phase 1 market maker
 - `--duration 600`: 10 minutes. Minimum recommended duration to accumulate
-  >= 50 effective events on any active market. Crypto up/down markets typically
-  reach 50+ events in under 5 minutes; extend to 900s for low-activity markets.
+  >= 50 effective events on any active market. **Important:** most Polymarket
+  markets record YES and NO token events in the same stream (2 asset IDs).
+  `effective_events = raw_events // n_asset_ids`, so binary markets need
+  **>= 100 raw events** to clear the 50 effective threshold. Crypto up/down
+  markets typically reach 100+ raw events in 5–10 minutes; extend to 900s
+  for low-activity markets. Check the `effective_events` column in the audit
+  output after capture to confirm.
 - `--record-tape`: Enables tape recording (writes `events.jsonl`, `meta.json`,
   `watch_meta.json` to the tape dir)
 - `--tape-dir ...`: Timestamped dir under `artifacts/simtrader/tapes/`
@@ -151,8 +156,12 @@ is accepted, its bucket count increments. If it appears under "rejected", check
 the `shortage_report.md` for the reject reason.
 
 Common reasons a new Gold tape may still be rejected:
-- `too_short`: Duration was too short (fewer than 50 effective events). Recapture
-  with longer `--duration`.
+- `too_short`: Tape has fewer than 50 effective events. For binary markets
+  (YES+NO token pair), `effective = raw_events // 2`, so you need **>= 100
+  raw events**. Recapture with longer `--duration` (900s+ for slow markets).
+  Run `python -c "from tools.gates.mm_sweep import _count_effective_events;
+  import pathlib; print(_count_effective_events(pathlib.Path('TAPE_DIR/events.jsonl')))"`
+  to check a tape's raw/asset/effective breakdown before auditing.
 - `no_bucket_label`: `watch_meta.json` is missing the `bucket` field. This should
   not happen for tapes captured with `--tape-dir` that encodes the bucket prefix,
   but you can add it manually to `watch_meta.json` if needed.

@@ -38,6 +38,11 @@ The repo's current execution status is:
   (current shortage), `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`
   (capture commands). Authoritative spec:
   `docs/specs/SPEC-phase1b-gold-capture-campaign.md`.
+  **Key capture constraint (confirmed 2026-03-27):** most Polymarket markets
+  record YES and NO tokens together — `effective_events = raw // 2`, so binary
+  market tapes need **>= 100 raw events** to qualify. Use `--duration 600`+
+  (900s for slow markets). Four candidate Gold tapes (2 sports / 2 politics)
+  were inspected and rejected as too_short (33–40 effective, not 50+).
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
