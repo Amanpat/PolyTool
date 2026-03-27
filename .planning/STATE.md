@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-27 - Completed quick-028: salvaged 1 politics Gold tape via metadata injection (corpus 9/50->10/50). Silver reconstruction exhausted; 40 tapes still needed via live Gold shadow captures. Wrote phase1b_residual_shortage_v1.md (definitive operator guide). 2662 tests passing.
+Last activity: 2026-03-27 - Completed quick-029: Phase 1B gold capture campaign packet. Campaign spec, tightened runbook, capture_status.py helper (shortage table, exit 0/1), 4 tests, CURRENT_STATE.md updated to reflect no-gate-core-changes-needed status.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -51,7 +51,7 @@ Last activity: 2026-03-27 - Completed quick-028: salvaged 1 politics Gold tape v
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
-- Track 1 Gate 2 corpus: recovery corpus has 10/50 qualifying tapes (1 politics Gold + 9 near_resolution Silver). Silver reconstruction exhausted. Resolution: capture Gold shadow tapes per docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md. Shortage by bucket: sports=15, politics=9, crypto=10, new_market=5, near_resolution=1. Definitive operator guide: artifacts/corpus_audit/phase1b_residual_shortage_v1.md. Run corpus_audit.py after each batch; Gate 2 rerun unblocked when exit 0.
+- Track 1 Gate 2 corpus: recovery corpus has 10/50 qualifying tapes. Silver reconstruction exhausted. No gate-core or strategy changes needed. Next action: live Gold shadow capture per campaign packet. Run `python tools/gates/capture_status.py` to see current shortage. Capture per `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Gate 2 rerun unblocked when corpus_audit.py exits 0. Shortage by bucket: sports=15, politics=9, crypto=10, new_market=5, near_resolution=1 (as of 2026-03-27).
 
 ### Quick Tasks Completed
 
@@ -84,3 +84,4 @@ Last activity: 2026-03-27 - Completed quick-028: salvaged 1 politics Gold tape v
 | 026 | Phase 1B recovery: resolved SPEC-0012 v0/v1 authority conflict, fixed Gate 2 NOT_RUN semantics (min_eligible_tapes=50, exit 0), added mm_sweep_diagnostic.py per-tape root cause tool (TDD RED+GREEN). Root cause: 41/50 tapes SKIPPED_TOO_SHORT, 9/50 RAN_ZERO_PROFIT/no_touch | 2026-03-26 | ca3dcb5 | [26-recover-phase-1b-after-failed-gate-2-res](./quick/26-recover-phase-1b-after-failed-gate-2-res/) |
 | 027 | Corpus recovery tooling: SPEC-phase1b-corpus-recovery-v1, corpus_audit.py (scan/admit/quota/manifest), 6 TDD tests, corpus audit run (9/50 qualify, shortage_report.md), CORPUS_GOLD_CAPTURE_RUNBOOK.md, CURRENT_STATE.md + STATE.md updated | 2026-03-26 | 160a8d6 | [27-recover-phase-1b-corpus-recovery-spec-ta](./quick/27-recover-phase-1b-corpus-recovery-spec-ta/) |
 | 028 | Phase 1B residual shortage packet: salvaged 70-event politics tape via metadata injection (10/50), re-ran corpus_audit, wrote phase1b_residual_shortage_v1.md (definitive operator guide for live Gold capture), dev log, CURRENT_STATE.md + STATE.md updated | 2026-03-27 | 59f8e31 | [28-finish-phase-1b-execution-path-gold-capt](./quick/28-finish-phase-1b-execution-path-gold-capt/) |
+| 029 | Phase 1B gold capture campaign packet: campaign spec, runbook tightened, capture_status.py helper (exit 0/1), 4 tests, CURRENT_STATE.md updated | 2026-03-27 | be2a56b | [29-convert-phase-1b-to-clean-operator-captu](./quick/29-convert-phase-1b-to-clean-operator-captu/) |

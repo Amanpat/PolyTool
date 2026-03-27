@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-27 (Phase 1B — Gate 2 NOT_RUN, corpus insufficient)
+## Status as of 2026-03-27 (Phase 1B — Gate 2 NOT_RUN, awaiting live Gold capture)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
 and returned NOT_RUN (not FAILED). The gate code previously wrote
@@ -31,13 +31,13 @@ The corpus problem and the strategy have been separated by the diagnostic.
 The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **NOT_RUN** (2026-03-27) — 10/50 tapes meet min_events=50 threshold;
-  41 skipped as too short. Corpus insufficient for a valid Gate 2 verdict.
-  Root cause: benchmark tapes have insufficient effective_events. The 9
-  qualifying tapes all show RAN_ZERO_PROFIT / no_touch — the strategy does
-  quote but spreads are never crossed on these near_resolution silver tapes.
-  See dev log `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`
-  and `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md`.
+- Gate 2: **NOT_RUN** (2026-03-27) — 10/50 tapes qualify (9 near_resolution
+  Silver + 1 politics Gold); 40 more needed via live Gold shadow capture.
+  No gate-core or strategy changes required. Capture campaign packet complete
+  as of 2026-03-27. Quick tools: `python tools/gates/capture_status.py`
+  (current shortage), `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`
+  (capture commands). Authoritative spec:
+  `docs/specs/SPEC-phase1b-gold-capture-campaign.md`.
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
