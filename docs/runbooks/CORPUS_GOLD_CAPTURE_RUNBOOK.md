@@ -1,8 +1,25 @@
 # Corpus Gold Tape Capture Runbook
 
-**Version:** v1.0
+**Version:** v1.1
 **Created:** 2026-03-26
+**Updated:** 2026-03-27
 **Status:** Active — use this when corpus_audit.py exits 1 (shortage)
+
+---
+
+## 0. Quick Status Check
+
+Before anything else, check the current shortage with one command:
+
+```
+python tools/gates/capture_status.py
+```
+
+This prints a compact table showing how many tapes each bucket still needs.
+Exit 0 means the corpus is already complete; exit 1 means capture is needed.
+
+For the authoritative campaign spec and campaign loop see:
+`docs/specs/SPEC-phase1b-gold-capture-campaign.md`
 
 ---
 
@@ -168,15 +185,18 @@ Map Polymarket market categories to the five corpus buckets:
 | `near_resolution`| Any market within 48h of its resolution date | Markets expiring within the next 2 days |
 | `new_market`     | Recently listed markets (< 7 days old) | Newly appeared markets on Polymarket front page |
 
-**Recommended capture priorities** (based on shortage_report.md as of 2026-03-26):
-1. `sports` (need 15): Best captured during evening/weekend when NHL, NBA, or
-   soccer matches are live (highest event activity).
-2. `politics` (need 10): US political markets or international elections.
-3. `crypto` (need 10): BTC/ETH/SOL 5m up/down pairs. Note: these markets rotate
-   daily on Polymarket. Use `crypto-pair-watch --watch` to detect when they
-   appear.
-4. `new_market` (need 5): Browse Polymarket for newly listed markets.
-5. `near_resolution` (need 1): Any market within 48h of resolution.
+**Recommended capture priorities:** Run `python tools/gates/capture_status.py`
+to see current counts — hard-coded numbers from any prior date will drift as
+tapes are captured. The tool shows exactly how many are needed per bucket.
+
+General priority guidance (capture the highest "Need" bucket first):
+1. `sports`: Best captured during evening/weekend when NHL, NBA, or soccer
+   matches are live (highest event activity).
+2. `politics`: US political markets or international elections.
+3. `crypto`: BTC/ETH/SOL 5m up/down pairs. Note: these markets rotate daily
+   on Polymarket. Use `crypto-pair-watch --watch` to detect when they appear.
+4. `new_market`: Browse Polymarket for newly listed markets.
+5. `near_resolution`: Any market within 48h of resolution.
 
 ---
 
@@ -225,7 +245,9 @@ Gate 3 to be PASSED first. Do not attempt live trading before these gates clear.
 
 ## Reference
 
-- Spec: `docs/specs/SPEC-phase1b-corpus-recovery-v1.md`
+- Campaign spec: `docs/specs/SPEC-phase1b-gold-capture-campaign.md`
+- Quick status: `tools/gates/capture_status.py`
+- Corpus contract spec: `docs/specs/SPEC-phase1b-corpus-recovery-v1.md`
 - Audit tool: `tools/gates/corpus_audit.py`
 - Shortage report: `artifacts/corpus_audit/shortage_report.md`
 - Gate 2 rerun: `tools/gates/close_mm_sweep_gate.py`
