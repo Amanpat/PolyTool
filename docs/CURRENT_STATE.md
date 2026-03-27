@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-26 (Phase 1B — Gate 2 NOT_RUN, corpus insufficient)
+## Status as of 2026-03-27 (Phase 1B — Gate 2 NOT_RUN, corpus insufficient)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
 and returned NOT_RUN (not FAILED). The gate code previously wrote
@@ -31,7 +31,7 @@ The corpus problem and the strategy have been separated by the diagnostic.
 The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **NOT_RUN** (2026-03-26) — 9/50 tapes meet min_events=50 threshold;
+- Gate 2: **NOT_RUN** (2026-03-27) — 10/50 tapes meet min_events=50 threshold;
   41 skipped as too short. Corpus insufficient for a valid Gate 2 verdict.
   Root cause: benchmark tapes have insufficient effective_events. The 9
   qualifying tapes all show RAN_ZERO_PROFIT / no_touch — the strategy does
@@ -450,7 +450,7 @@ Gate 2 sweep tooling is now complete. The following changes landed on
 **Gate 2 execution result (2026-03-26): NOT_RUN — corpus insufficient**
 
 Gate 2 was run on 2026-03-26 against `config/benchmark_v1.tape_manifest`.
-Verdict: **NOT_RUN** — only 9/50 tapes meet `min_events=50` threshold;
+Verdict: **NOT_RUN** — only 10/50 tapes meet `min_events=50` threshold;
 41 tapes skipped as SKIPPED_TOO_SHORT. Gate requires at least 50 eligible
 tapes to compute a valid verdict. `gate_failed.json` has been cleared.
 
@@ -519,26 +519,39 @@ Recovery corpus tooling is now complete. The following changes landed on
   cap enforcement, shortage report writing on insufficient corpus, manifest
   writing on qualified corpus. All 6 pass; full suite 2662 passed.
 
-- **`artifacts/corpus_audit/shortage_report.md`** — Current shortage: 9/50
-  tapes qualify (all near_resolution Silver). Exact need per bucket:
-  crypto=10, near_resolution=1, new_market=5, politics=10, sports=15.
+- **`artifacts/corpus_audit/shortage_report.md`** — Current shortage: 10/50
+  tapes qualify (1 politics Gold + 9 near_resolution Silver). Exact need per bucket:
+  crypto=10, near_resolution=1, new_market=5, politics=9, sports=15.
+
+- **`artifacts/corpus_audit/phase1b_residual_shortage_v1.md`** — Definitive
+  operator guide (quick-028): corpus state table, why live capture is the only path,
+  exact shadow capture commands per bucket (sports=15, politics=9, crypto=10,
+  new_market=5, near_resolution=1), resume instructions, Gate 2/3 command reference.
 
 - **`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`** — Step-by-step operator
   guide: prerequisites, shortage check, shadow capture command (600s minimum,
   market_maker_v1 strategy, --record-tape), post-capture validation,
   resumability workflow, bucket targeting guide, stopping condition.
 
-**Gate 2 recovery path status (2026-03-26): corpus 9/50 — SHORTAGE**
+**Gate 2 recovery path status (2026-03-27): corpus 10/50 — SHORTAGE**
 
-Recovery corpus audit: 137 tapes scanned, 9 accepted (all near_resolution
-Silver), 128 rejected (119 too_short, 9 no_bucket_label). All 5 buckets
-must be covered; only near_resolution has tapes (9/10). Gate 2 rerun
-is blocked until corpus_audit.py exits 0.
+Recovery corpus audit: 137 tapes scanned, 10 accepted (1 politics Gold +
+9 near_resolution Silver), 127 rejected. All 5 buckets must be covered.
+Gate 2 rerun is blocked until corpus_audit.py exits 0.
+
+quick-028 (2026-03-27): salvaged 1 politics Gold tape by injecting
+`market_meta.json` and `watch_meta.json` into
+`artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/`. Silver
+reconstruction is exhausted; all remaining 40 tapes require live Gold
+shadow captures.
+
+**Definitive shortage packet**: `artifacts/corpus_audit/phase1b_residual_shortage_v1.md`
+— exact capture commands per bucket, resume instructions, Gate 2/3 reference.
 
 **Next action**: Capture Gold shadow tapes using
-`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Highest-priority buckets:
-sports (need 15), politics (need 10), crypto (need 10), new_market (need 5),
-near_resolution (need 1). When corpus_audit exits 0, manifest is written and
+`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Remaining shortage:
+sports=15, politics=9, crypto=10, new_market=5, near_resolution=1
+(total 40 tapes). When corpus_audit exits 0, manifest is written and
 Gate 2 rerun is unblocked:
 `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/mm_sweep_gate`
 
