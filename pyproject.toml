@@ -61,8 +61,8 @@ all = [
 polytool = "polytool.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/polymarket/polytool"
-Documentation = "https://github.com/polymarket/polytool/tree/main/docs"
+Homepage = "https://github.com/Amanpat/PolyTool"
+Documentation = "https://github.com/Amanpat/PolyTool/tree/main/docs"
 
 [tool.setuptools]
 packages = [
@@ -79,6 +79,14 @@ packages = [
     "packages.polymarket.simtrader.orderbook",
     "packages.polymarket.simtrader.replay",
     "packages.polymarket.simtrader.broker",
+    "packages.polymarket.crypto_pairs",
+    "packages.polymarket.simtrader.batch",
+    "packages.polymarket.simtrader.execution",
+    "packages.polymarket.simtrader.portfolio",
+    "packages.polymarket.simtrader.shadow",
+    "packages.polymarket.simtrader.strategies",
+    "packages.polymarket.simtrader.strategy",
+    "packages.polymarket.simtrader.sweeps",
     "tools", "tools.cli", "tools.guard",
 ]
 
