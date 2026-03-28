@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-28 - Completed quick-038: Phase 1B truth sync and roadmap v5_1 checkbox update -- 6 checkboxes flipped to [x] (Rebuild CLAUDE.md, OPERATOR_SETUP_GUIDE.md, MarketMakerV1, benchmark_v1, Market Selection Engine, Discord alert system); CURRENT_STATE.md and CLAUDE.md drift reconciled; next-step pointer added; dev log written; 31 tests passing.
+Last activity: 2026-03-28 - Completed quick-040: Live execution wiring for crypto-pair bot via py-clob-client 0.34.6 (PolymarketClobOrderClient + ClobOrderClientConfig), trade_log.jsonl per-event logging, CLI env-var gate, Dockerfile.bot + docker-compose pair-bot-paper/pair-bot-live services; 6 new offline tests; 2734 passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -50,6 +50,8 @@ Last activity: 2026-03-28 - Completed quick-038: Phase 1B truth sync and roadmap
 - Phase 1B gate2 sweep: YES-asset-ID fallback chain is 5-level (prep_meta -> meta context -> watch_meta -> market_meta -> silver_meta); bucket_breakdown only in gate payload when bucket metadata present; monkeypatch must target importing module namespace not source module
 - quick-026 Gate 2 NOT_RUN semantics: min_eligible_tapes=50 threshold; NOT_RUN = exit 0 (corpus gap is informational); FAILED = exit 1 (corpus ran but did not meet 70% threshold); market_maker_v1 is canonical Phase 1 strategy (SPEC-0012 updated)
 - quick-026 diagnostic fill_opportunity: when quote_count == -1 (no manifest data), assume quoted (treat as 1) so zero-profit no-fill tapes classify as no_touch not unknown
+
+- quick-040 live execution: deferred import in PolymarketClobOrderClient._build_client() so paper/test paths never load py-clob-client; env vars PK/CLOB_API_KEY/CLOB_API_SECRET/CLOB_API_PASSPHRASE from .env.example (not POLYMARKET_PRIVATE_KEY); kill switch via volume bind-mount; separate Dockerfile.bot (python:3.12-slim) with [live,simtrader]; Docker profiles pair-bot/pair-bot-live absent from default docker compose up
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
@@ -96,3 +98,5 @@ Last activity: 2026-03-28 - Completed quick-038: Phase 1B truth sync and roadmap
 | 036 | Artifacts directory restructure: unified 53MB into artifacts/tapes/{gold,silver,shadow,crypto}/ hierarchy; updated 18 Python path constants; CLAUDE.md layout reference added; dev log written; 2717 passing | 2026-03-28 | 4a0da5d | [36-artifacts-directory-restructure-unified-](./quick/36-artifacts-directory-restructure-unified-/) |
 | 037 | Market Selection Engine: seven-factor scorer (category_edge/spread/volume/competition/reward_apr/adverse_selection/time_gaussian) + NegRisk penalty + longshot bonus; config.py, passes_gates(), SevenFactorScore, MarketScorer; market-scan CLI rewritten with --all/--include-failing/--skip-events/--max-fetch/--json; 11 new tests; 2728 passing | 2026-03-28 | d5b88e2 | [37-market-selection-engine-seven-factor-com](./quick/37-market-selection-engine-seven-factor-com/) |
 | 038 | Phase 1B truth sync -- roadmap v5_1 checkbox update: flipped 6 items to [x] (Rebuild CLAUDE.md, OPERATOR_SETUP_GUIDE.md, MarketMakerV1, benchmark_v1, Market Selection Engine, Discord alert system); reconciled CURRENT_STATE.md and CLAUDE.md drift from quick-036/037; added next-executable-step sentence; dev log written; 31 tests passing | 2026-03-28 | 970381c | [38-phase-1b-truth-sync-roadmap-checkbox-upd](./quick/38-phase-1b-truth-sync-roadmap-checkbox-upd/) |
+| 039 | Gold capture campaign plan for Phase 1B Gate 2: operator plan packet, capture campaign spec, updated CLAUDE.md Gold capture section | 2026-03-28 | d8ed034 | [39-gold-capture-campaign-plan-for-phase-1b-](./quick/39-gold-capture-campaign-plan-for-phase-1b-/) |
+| 040 | Live execution wiring for crypto-pair bot: PolymarketClobOrderClient via py-clob-client 0.34.6 (deferred import), trade_log.jsonl per-trade logging, CLI env-var gate, Dockerfile.bot + docker-compose pair-bot-paper/pair-bot-live services; 6 new offline tests; 2734 passing | 2026-03-28 | d1ec36c | [40-crypto-pair-bot-live-execution-wiring-an](./quick/40-crypto-pair-bot-live-execution-wiring-an/) |
