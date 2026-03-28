@@ -556,3 +556,209 @@ def rank_gate2_candidates(
         return (s.executable_ticks, s.rank_score, s.edge_ok_ticks, s.depth_ok_ticks)
 
     return sorted(scores, key=_key, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Seven-factor Market Selection Engine
+# (Gate2RankScore and MarketScore above are UNTOUCHED)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SevenFactorScore:
+    """Composite opportunity score for the seven-factor Market Selection Engine."""
+
+    market_slug: str
+    category: str
+    spread_score: float
+    volume_score: float
+    competition_score: float
+    reward_apr_score: float
+    adverse_selection_score: float
+    time_score: float
+    category_edge_score: float
+    longshot_bonus: float
+    composite: float
+    gate_passed: bool
+    gate_reason: str
+    neg_risk: bool
+
+
+class MarketScorer:
+    """Score a universe of Polymarket markets using the seven-factor model.
+
+    Args:
+        now: Reference datetime for days_to_resolution computation.
+             Defaults to UTC now. Pass a fixed value for deterministic tests.
+    """
+
+    def __init__(self, *, now: Optional[datetime] = None) -> None:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        self._now = now.astimezone(timezone.utc)
+
+    def score_universe(
+        self,
+        markets: list[dict],
+        *,
+        include_failing: bool = False,
+    ) -> list[SevenFactorScore]:
+        """Score all markets and return sorted descending by composite.
+
+        By default only gate-passed markets are returned.  Pass
+        ``include_failing=True`` to include gate-failed markets as well
+        (useful for diagnostics).  Duplicates by market_slug are
+        deduplicated — the entry with the highest composite is kept.
+        """
+        seen: dict[str, SevenFactorScore] = {}
+        for market in markets:
+            score = self._score_single(market)
+            if not include_failing and not score.gate_passed:
+                continue
+            slug = score.market_slug
+            if slug not in seen or score.composite > seen[slug].composite:
+                seen[slug] = score
+
+        return sorted(seen.values(), key=lambda s: s.composite, reverse=True)
+
+    def _score_single(self, market: dict) -> SevenFactorScore:
+        """Compute SevenFactorScore for a single market dict."""
+        from packages.polymarket.market_selection.config import (
+            FACTOR_WEIGHTS,
+            CATEGORY_EDGE,
+            CATEGORY_EDGE_DEFAULT,
+            ADVERSE_SELECTION_PRIOR,
+            ADVERSE_SELECTION_DEFAULT,
+            MAX_SPREAD_REFERENCE,
+            COMPETITION_SPREAD_THRESHOLD,
+            TARGET_REWARD_APR,
+            LONGSHOT_BONUS_MAX,
+            LONGSHOT_THRESHOLD,
+            TIME_SCORE_CENTER_DAYS,
+            NEGRISK_PENALTY,
+        )
+        from packages.polymarket.market_selection.filters import passes_gates
+        import math as _math
+
+        market_slug = str(market.get("slug") or market.get("market_slug") or "").strip()
+        category = str(market.get("category") or "Other").strip()
+
+        # ---- BBO data -------------------------------------------------------
+        best_bid = _coerce_float(market.get("best_bid"))
+        best_ask = _coerce_float(market.get("best_ask"))
+        has_bbo = best_bid is not None and best_ask is not None
+
+        # ---- spread_score ---------------------------------------------------
+        if has_bbo:
+            spread = best_ask - best_bid  # type: ignore[operator]
+            spread_score = min(spread / MAX_SPREAD_REFERENCE, 1.0)
+            spread_score = max(spread_score, 0.0)
+        else:
+            spread = None
+            spread_score = 0.0
+
+        # ---- volume_score ---------------------------------------------------
+        volume_24h = _coerce_float(market.get("volume_24h")) or 0.0
+        volume_score = _math.log10(max(volume_24h, 1)) / _math.log10(100_000)
+        volume_score = max(0.0, min(volume_score, 1.0))
+
+        # ---- competition_score ----------------------------------------------
+        bids = market.get("bids") or market.get("orderbook_bids") or []
+        if bids:
+            non_trivial_count = sum(
+                1
+                for level in bids
+                if isinstance(level, dict)
+                and (_coerce_float(level.get("price")) or 0.0)
+                * (_coerce_float(level.get("size")) or 0.0)
+                >= COMPETITION_SPREAD_THRESHOLD * 100
+            )
+            competition_score = 1.0 / (non_trivial_count + 1)
+        else:
+            competition_score = 0.5  # default when no orderbook data
+
+        # ---- reward_apr_score -----------------------------------------------
+        reward_rate = _coerce_float(market.get("reward_rate")) or 0.0
+        reward_apr_score = min(reward_rate * 365 / TARGET_REWARD_APR, 1.0)
+        reward_apr_score = max(reward_apr_score, 0.0)
+
+        # ---- adverse_selection_score ----------------------------------------
+        adverse_selection_score = ADVERSE_SELECTION_PRIOR.get(category, ADVERSE_SELECTION_DEFAULT)
+
+        # ---- time_score ------------------------------------------------------
+        end_date_raw = market.get("end_date_iso") or market.get("endDate")
+        days_to_resolution: Optional[float] = None
+        if end_date_raw is not None:
+            end_dt = _parse_datetime(end_date_raw)
+            if end_dt is not None:
+                days_to_resolution = (end_dt - self._now).total_seconds() / 86400.0
+
+        if days_to_resolution is not None:
+            sigma = TIME_SCORE_CENTER_DAYS
+            time_score = _math.exp(
+                -((days_to_resolution - TIME_SCORE_CENTER_DAYS) ** 2) / (2 * sigma ** 2)
+            )
+            time_score = max(0.0, min(time_score, 1.0))
+        else:
+            time_score = 0.5
+
+        # ---- category_edge_score --------------------------------------------
+        category_edge_score = CATEGORY_EDGE.get(category, CATEGORY_EDGE_DEFAULT)
+
+        # ---- longshot_bonus -------------------------------------------------
+        if has_bbo:
+            mid_price = (best_bid + best_ask) / 2.0  # type: ignore[operator]
+            if mid_price <= LONGSHOT_THRESHOLD:
+                longshot_bonus = LONGSHOT_BONUS_MAX * (1.0 - mid_price / LONGSHOT_THRESHOLD)
+            else:
+                longshot_bonus = 0.0
+        else:
+            longshot_bonus = 0.0
+
+        # ---- composite ------------------------------------------------------
+        composite = (
+            category_edge_score    * FACTOR_WEIGHTS["category_edge"]
+            + spread_score         * FACTOR_WEIGHTS["spread_opportunity"]
+            + volume_score         * FACTOR_WEIGHTS["volume"]
+            + competition_score    * FACTOR_WEIGHTS["competition"]
+            + reward_apr_score     * FACTOR_WEIGHTS["reward_apr"]
+            + adverse_selection_score * FACTOR_WEIGHTS["adverse_selection"]
+            + time_score           * FACTOR_WEIGHTS["time_to_resolution"]
+            + longshot_bonus
+        )
+
+        neg_risk = bool(market.get("neg_risk", False))
+        if neg_risk:
+            composite *= NEGRISK_PENALTY
+
+        composite = max(0.0, min(composite, 1.0))
+
+        # ---- gate check -----------------------------------------------------
+        accepting_orders = market.get("accepting_orders")
+        enable_order_book = market.get("enable_order_book")
+        gate_passed, gate_reason = passes_gates(
+            volume_24h=volume_24h,
+            spread=spread,
+            days_to_resolution=days_to_resolution,
+            accepting_orders=accepting_orders,
+            enable_order_book=enable_order_book,
+        )
+
+        return SevenFactorScore(
+            market_slug=market_slug,
+            category=category,
+            spread_score=spread_score,
+            volume_score=volume_score,
+            competition_score=competition_score,
+            reward_apr_score=reward_apr_score,
+            adverse_selection_score=adverse_selection_score,
+            time_score=time_score,
+            category_edge_score=category_edge_score,
+            longshot_bonus=longshot_bonus,
+            composite=composite,
+            gate_passed=gate_passed,
+            gate_reason=gate_reason,
+            neg_risk=neg_risk,
+        )

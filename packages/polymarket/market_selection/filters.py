@@ -5,6 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from packages.polymarket.market_selection.config import (
+    MIN_VOLUME_24H,
+    MIN_SPREAD,
+    MIN_DAYS_TO_RESOLUTION,
+)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,3 +78,34 @@ def passes_filters(market: dict, reward_config: dict) -> tuple[bool, str]:
 
     return True, ""
 
+
+# ---------------------------------------------------------------------------
+# Seven-factor gate check (new engine — passes_filters() is unchanged above)
+# ---------------------------------------------------------------------------
+
+
+def passes_gates(
+    *,
+    volume_24h: float,
+    spread: Optional[float],
+    days_to_resolution: Optional[float],
+    accepting_orders: Optional[bool],
+    enable_order_book: Optional[bool],
+) -> tuple[bool, str]:
+    """Hard gate checks for the seven-factor Market Selection Engine.
+
+    Returns (True, "") when all gates pass, or (False, reason) on first failure.
+
+    Uses constants from config.py — do NOT hardcode thresholds here.
+    """
+    if accepting_orders is False:
+        return False, "not_accepting_orders"
+    if enable_order_book is False:
+        return False, "orderbook_disabled"
+    if volume_24h < MIN_VOLUME_24H:
+        return False, f"volume_below_min ({volume_24h:.0f} < {MIN_VOLUME_24H})"
+    if spread is not None and spread < MIN_SPREAD:
+        return False, f"spread_below_min ({spread:.4f} < {MIN_SPREAD})"
+    if days_to_resolution is not None and days_to_resolution < MIN_DAYS_TO_RESOLUTION:
+        return False, f"resolving_soon ({days_to_resolution:.1f}d < {MIN_DAYS_TO_RESOLUTION}d)"
+    return True, ""
