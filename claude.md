@@ -141,6 +141,27 @@ When tasking Claude Code, assume the benchmark pipeline has produced the
 `config/benchmark_v1.tape_manifest`. The manifest, lock, and audit are finalized
 as of 2026-03-21. Do not reopen Phase 1 tasks.
 
+### Artifacts directory layout
+
+All artifacts are gitignored. The canonical layout (as of 2026-03-28) is:
+
+- `artifacts/tapes/gold/`       — live tape recorder output (Gold tier)
+- `artifacts/tapes/silver/`     — reconstructed Silver tapes
+- `artifacts/tapes/bronze/`     — Bronze (trade-level only) tapes
+- `artifacts/tapes/shadow/`     — shadow run tapes
+- `artifacts/tapes/crypto/`     — crypto pair new-market and paper-run tapes
+- `artifacts/gates/gate2_sweep/` — Gate 2 sweep results
+- `artifacts/gates/manifests/`  — gate manifests (gate2_tape_manifest.json)
+- `artifacts/benchmark/`        — benchmark closure run artifacts
+- `artifacts/simtrader/runs/`   — SimTrader replay runs
+- `artifacts/simtrader/sweeps/` — SimTrader sweep outputs
+- `artifacts/simtrader/ondemand_sessions/` — Studio OnDemand sessions
+- `artifacts/dossiers/users/`   — wallet/user dossier bundles
+- `artifacts/research/batch_runs/` — research batch run outputs
+- `artifacts/market_selection/` — market selection artifacts
+- `artifacts/watchlists/`       — market watchlist artifacts
+- `artifacts/debug/`            — probe outputs, loose debug files, corpus audits
+
 ## Validation Gates and Capital Stages
 
 ### Validation ladder
@@ -231,7 +252,14 @@ Use these as your starting mental model and verify before major changes:
 - `docs/ARCHITECTURE.md`
 - `docs/STRATEGY_PLAYBOOK.md`
 - `config/`
-- `artifacts/`
+- `artifacts/tapes/gold/`       — live Gold tapes
+- `artifacts/tapes/silver/`     — reconstructed Silver tapes
+- `artifacts/tapes/shadow/`     — shadow run tapes
+- `artifacts/tapes/crypto/`     — crypto pair tapes
+- `artifacts/gates/gate2_sweep/` — Gate 2 sweep results
+- `artifacts/gates/manifests/`  — gate manifests
+- `artifacts/benchmark/`        — benchmark closure artifacts
+- `artifacts/debug/`            — probe outputs and debug files
 - `infra/`
 - `tests/`
 - `tools/cli/`
