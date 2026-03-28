@@ -53,8 +53,11 @@ historical = [
 historical-import = [
     "pyarrow>=12.0.0",
 ]
+live = [
+    "py-clob-client>=0.17",
+]
 all = [
-    "polytool[rag,mcp,simtrader,studio,dev,historical,historical-import]",
+    "polytool[rag,mcp,simtrader,studio,dev,historical,historical-import,live]",
 ]
 
 [project.scripts]

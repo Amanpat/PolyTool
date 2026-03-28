@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json as _json
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -36,6 +38,19 @@ from .reference_feed import BinanceFeed
 DEFAULT_LIVE_ARTIFACTS_DIR = Path("artifacts/crypto_pairs/live_runs")
 
 _ZERO = Decimal("0")
+
+
+def _log_trade_event(run_dir: Any, event: dict) -> None:
+    """Append a trade event as a JSONL line to trade_log.jsonl in run_dir.
+
+    Thread-safety: file is opened/closed per call (append mode). Suitable for
+    the single-threaded live runner loop.
+    """
+    log_path = Path(run_dir) / "trade_log.jsonl"
+    entry = dict(event)
+    entry["logged_at"] = datetime.now(timezone.utc).isoformat()
+    with open(log_path, "a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(entry, default=str) + "\n")
 
 
 @dataclass(frozen=True)
