@@ -85,7 +85,7 @@ Each task was committed atomically:
 2. **Task 2: Update hardcoded paths in Python source** - `4a0da5d` (chore)
 3. **Task 3: Update CLAUDE.md and write dev log** - `c0be966` + `fcdc42e` (docs)
 
-**Plan metadata:** pending (final docs commit)
+**Plan metadata:** `bba5beb` (docs: complete plan)
 
 ## Files Created/Modified
 - `docs/dev_logs/2026-03-28_artifacts_restructure.md` - dev log for restructure
