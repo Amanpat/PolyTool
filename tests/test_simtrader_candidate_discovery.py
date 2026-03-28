@@ -510,3 +510,139 @@ class TestCandidateDiscoveryRank:
         assert dr.yes_depth == 100.0
         assert dr.no_depth == 80.0
         assert dr.probe_summary is None
+
+
+# ---------------------------------------------------------------------------
+# TestLoadLiveShortage tests
+# ---------------------------------------------------------------------------
+
+
+class TestLoadLiveShortage:
+    """Tests for load_live_shortage() function — all offline (mocked)."""
+
+    def test_live_path_returns_live_label_and_correct_dict(self):
+        """When compute_status returns tapes, source label should contain 'live'."""
+        from packages.polymarket.simtrader.candidate_discovery import load_live_shortage
+
+        fake_status = {
+            "total_have": 10,
+            "total_quota": 50,
+            "total_need": 40,
+            "complete": False,
+            "buckets": {
+                "sports": {"quota": 15, "have": 0, "need": 15, "gold": 0, "silver": 0},
+                "politics": {"quota": 10, "have": 1, "need": 9, "gold": 0, "silver": 1},
+                "crypto": {"quota": 10, "have": 0, "need": 10, "gold": 0, "silver": 0},
+                "new_market": {"quota": 5, "have": 0, "need": 5, "gold": 0, "silver": 0},
+                "near_resolution": {"quota": 10, "have": 9, "need": 1, "gold": 5, "silver": 4},
+            },
+        }
+
+        # Patch compute_status at its import path so the in-function import gets the mock
+        with patch("tools.gates.capture_status.compute_status", return_value=fake_status):
+            shortage, source = load_live_shortage()
+
+        assert "live" in source
+        assert "10 tapes scanned" in source
+        assert shortage["sports"] == 15
+        assert shortage["politics"] == 9
+        assert shortage["crypto"] == 10
+        assert shortage["new_market"] == 5
+        assert shortage["near_resolution"] == 1
+        assert shortage["other"] == 0
+
+    def test_fallback_no_tapes_found(self):
+        """When compute_status returns total_have=0 and total_need=0, use fallback."""
+        from packages.polymarket.simtrader.candidate_discovery import (
+            load_live_shortage,
+            _DEFAULT_SHORTAGE,
+        )
+
+        # Empty corpus: all buckets have need=quota since have=0, but total_need = sum of all quotas
+        # Actually per compute_status logic: need = max(0, quota - have), so total_need > 0 when
+        # tapes are missing. We need to simulate the specific condition total_have==0 and total_need==0
+        # which happens when all quotas are 0 (edge case).
+        # Per plan: mock returns total_have=0, total_need=0 (corpus completely empty AND quota=0).
+        fake_status = {
+            "total_have": 0,
+            "total_quota": 0,
+            "total_need": 0,
+            "complete": True,
+            "buckets": {},
+        }
+
+        with patch("tools.gates.capture_status.compute_status", return_value=fake_status):
+            shortage, source = load_live_shortage()
+
+        assert "no tapes found" in source
+        assert shortage == _DEFAULT_SHORTAGE
+
+    def test_fallback_import_error(self):
+        """When capture_status cannot be imported, return fallback with import error label."""
+        from packages.polymarket.simtrader.candidate_discovery import (
+            load_live_shortage,
+            _DEFAULT_SHORTAGE,
+        )
+
+        # Simulate ImportError by removing the module from sys.modules and blocking import
+        import sys as _sys
+
+        original_modules = {}
+        blocked_names = ["tools.gates.capture_status", "tools.gates.corpus_audit"]
+        for name in blocked_names:
+            original_modules[name] = _sys.modules.get(name)
+            _sys.modules[name] = None  # type: ignore[assignment]
+
+        try:
+            shortage, source = load_live_shortage()
+        finally:
+            for name, original in original_modules.items():
+                if original is None:
+                    _sys.modules.pop(name, None)
+                else:
+                    _sys.modules[name] = original
+
+        assert "import error" in source
+        assert shortage == _DEFAULT_SHORTAGE
+
+    def test_fallback_read_error(self):
+        """When compute_status raises an exception, return fallback with read error label."""
+        from packages.polymarket.simtrader.candidate_discovery import (
+            load_live_shortage,
+            _DEFAULT_SHORTAGE,
+        )
+
+        with patch(
+            "tools.gates.capture_status.compute_status",
+            side_effect=RuntimeError("disk read failure"),
+        ):
+            shortage, source = load_live_shortage()
+
+        assert "read error" in source
+        assert "disk read failure" in source
+        assert shortage == _DEFAULT_SHORTAGE
+
+    def test_shortage_ranking_changes_with_shortage_value(self):
+        """Higher-shortage bucket should outscore lower-shortage bucket with identical book inputs."""
+        from packages.polymarket.simtrader.candidate_discovery import score_for_capture
+
+        # Two identical markets except bucket
+        resolved = _make_resolved_market()
+        raw_meta = {}
+        yes_val = _make_book_val(depth_total=100.0, best_bid=0.45, best_ask=0.55)
+        no_val = _make_book_val(depth_total=100.0, best_bid=0.45, best_ask=0.55)
+
+        # High shortage for sports (15), zero shortage for other (0)
+        shortage_high = {"sports": 15, "other": 0}
+
+        score_high = score_for_capture(
+            resolved, raw_meta, shortage_high, yes_val, no_val, None, "sports"
+        )
+        score_zero = score_for_capture(
+            resolved, raw_meta, shortage_high, yes_val, no_val, None, "other"
+        )
+
+        assert score_high > score_zero, (
+            f"High-shortage bucket (score={score_high:.3f}) should beat "
+            f"zero-shortage bucket (score={score_zero:.3f})"
+        )
