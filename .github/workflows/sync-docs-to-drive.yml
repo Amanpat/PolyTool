@@ -1,14 +1,10 @@
 name: Sync Docs to Google Drive
 on:
-  # Manual trigger exists for connector/sync verification when path filters do not fire.
+  # Manual trigger exists for connector/sync verification.
   workflow_dispatch:
+  # Fires on every push to every branch — no paths filter intentional.
   push:
     branches: ['**']
-    paths:
-      - "docs/**"
-      - "claude.md"
-      - "AGENTS.md"
-      - "config/strategy_research_program.md"
 
 jobs:
   sync-to-drive:
