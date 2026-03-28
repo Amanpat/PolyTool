@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-28 - Completed quick-034: Google Drive sync workflow made branch-agnostic — branches: ['**'] replaces hardcoded list, branch-echo log step added, 2717 tests passing.
+Last activity: 2026-03-28 - Completed quick-035: Removed paths filter from Google Drive sync workflow — every push to every branch now triggers unconditionally, 2717 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -92,3 +92,4 @@ Last activity: 2026-03-28 - Completed quick-034: Google Drive sync workflow made
 | 032 | Phase 1B candidate discovery upgrade: CandidateDiscovery module (bucket inference, shortage scoring, 200-market pool), wired into quickrun --list-candidates, 27 new offline tests, 2712 passing | 2026-03-27 | e5116b0 | [32-improve-phase-1b-candidate-discovery-bro](./quick/32-improve-phase-1b-candidate-discovery-bro/) |
 | 033 | Dynamic shortage ranking: load_live_shortage() replaces hardcoded dicts, live corpus state auto-loaded from tape dirs via capture_status.compute_status(), 4-case fallback, source label in CLI output, 5 new offline tests, 2717 passing | 2026-03-28 | 759dc9f | [33-dynamic-shortage-ranking-for-phase-1b-ca](./quick/33-dynamic-shortage-ranking-for-phase-1b-ca/) |
 | 034 | Google Drive sync workflow branch-agnostic fix: branches: ['**'] replaces hardcoded list, branch-echo log step added (GITHUB_REF_NAME), YAML validated, 2717 passing | 2026-03-28 | adcf6b8 | [34-fix-google-drive-docs-sync-to-be-branch-](./quick/34-fix-google-drive-docs-sync-to-be-branch-/) |
+| 035 | Remove paths filter from Google Drive sync workflow: every push to any branch now triggers unconditionally, explanatory comment added, dev log, 2717 passing | 2026-03-28 | dc300e6 | [35-remove-paths-filter-from-google-drive-sy](./quick/35-remove-paths-filter-from-google-drive-sy/) |
