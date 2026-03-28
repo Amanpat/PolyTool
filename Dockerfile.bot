@@ -1,0 +1,33 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POLYTOOL_OUTPUT_DIR=/data/output \
+    POLYTOOL_KILL_SWITCH=/data/kill_switch/KILL
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -r botuser && useradd -r -g botuser botuser
+
+WORKDIR /app
+
+# Install dependencies first (layer caching)
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -e ".[live,simtrader]" \
+    && pip install --no-cache-dir py-clob-client
+
+# Copy full project and finalize install
+COPY . .
+RUN pip install --no-cache-dir -e ".[live,simtrader]"
+
+RUN chown -R botuser:botuser /app
+USER botuser
+
+ENTRYPOINT ["python", "-m", "polytool", "crypto-pair-run"]
+
+# Default: paper mode, 30 minutes, BTC
+CMD ["--duration-minutes", "30", "--symbol", "BTC", "--reference-feed-provider", "coinbase"]

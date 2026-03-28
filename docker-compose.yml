@@ -133,6 +133,49 @@ services:
     networks:
       - polytool
 
+  pair-bot-paper:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: polytool-pair-bot-paper
+    env_file:
+      - .env
+    command: [
+      "python", "-m", "polytool", "crypto-pair-run",
+      "--duration-hours", "24",
+      "--cycle-interval-seconds", "30",
+      "--output", "/data/paper",
+      "--kill-switch", "/data/paper/KILL_SWITCH",
+      "--reference-feed-provider", "coinbase"
+    ]
+    volumes:
+      - ./docker_data/paper:/data/paper
+    profiles:
+      - pair-bot
+    restart: "no"
+
+  pair-bot-live:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: polytool-pair-bot-live
+    env_file:
+      - .env
+    command: [
+      "python", "-m", "polytool", "crypto-pair-run",
+      "--live",
+      "--confirm", "CONFIRM",
+      "--duration-hours", "24",
+      "--cycle-interval-seconds", "30",
+      "--output", "/data/live",
+      "--kill-switch", "/data/live/KILL_SWITCH"
+    ]
+    volumes:
+      - ./docker_data/live:/data/live
+    profiles:
+      - pair-bot-live
+    restart: "no"
+
 volumes:
   clickhouse_data:
   grafana_data:
