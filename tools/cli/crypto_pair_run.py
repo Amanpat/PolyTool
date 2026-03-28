@@ -358,6 +358,28 @@ def run_crypto_pair_runner(
     )
     sink = build_clickhouse_sink(sink_config)
 
+    if live and execution_adapter is None:
+        from packages.polymarket.crypto_pairs.clob_order_client import (
+            ClobOrderClientConfig,
+            ClobOrderClientConfigError,
+            PolymarketClobOrderClient,
+        )
+        from packages.polymarket.crypto_pairs.live_execution import CryptoPairLiveExecutionAdapter
+        from packages.polymarket.simtrader.execution.kill_switch import FileBasedKillSwitch
+
+        try:
+            clob_cfg = ClobOrderClientConfig.from_env()
+            real_client = PolymarketClobOrderClient(clob_cfg)
+        except ClobOrderClientConfigError as exc:
+            raise ValueError(str(exc)) from exc
+        execution_adapter = CryptoPairLiveExecutionAdapter(
+            kill_switch=FileBasedKillSwitch(
+                kill_switch_path or Path(payload.get("kill_switch_path", DEFAULT_KILL_SWITCH_PATH))
+            ),
+            order_client=real_client,
+            live_enabled=True,
+        )
+
     if live:
         runner = CryptoPairLiveRunner(
             settings,

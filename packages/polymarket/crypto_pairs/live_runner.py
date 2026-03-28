@@ -412,6 +412,25 @@ class CryptoPairLiveRunner:
                 order_id=result.order_id,
                 reason=result.reason,
             )
+            _log_trade_event(
+                self.store.run_dir,
+                {
+                    "action": "place",
+                    "at": event_at,
+                    "cycle": cycle,
+                    "market_id": intent.market_id,
+                    "leg": leg,
+                    "token_id": token_id,
+                    "side": "BUY",
+                    "price": str(price),
+                    "size": str(intent.pair_size),
+                    "accepted": result.accepted,
+                    "submitted": result.submitted,
+                    "order_id": result.order_id,
+                    "reason": result.reason,
+                    "raw_response": result.raw_response,
+                },
+            )
 
     def _handle_disconnect_state(
         self,
@@ -440,4 +459,19 @@ class CryptoPairLiveRunner:
                 order_id=result.order_id,
                 submitted=result.submitted,
                 reason=result.reason,
+            )
+            _log_trade_event(
+                self.store.run_dir,
+                {
+                    "action": "cancel",
+                    "at": at,
+                    "cycle": cycle,
+                    "market_id": None,
+                    "leg": None,
+                    "order_id": result.order_id,
+                    "accepted": result.accepted,
+                    "submitted": result.submitted,
+                    "reason": result.reason,
+                    "raw_response": result.raw_response,
+                },
             )

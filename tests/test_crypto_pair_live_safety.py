@@ -138,6 +138,15 @@ def test_kill_switch_checked_before_live_cycle(tmp_path: Path) -> None:
     kill_switch_path = tmp_path / "kill_switch.txt"
     kill_switch_path.write_text("1", encoding="utf-8")
 
+    from packages.polymarket.crypto_pairs.live_execution import CryptoPairLiveExecutionAdapter
+    from packages.polymarket.simtrader.execution.kill_switch import FileBasedKillSwitch
+
+    execution_adapter = CryptoPairLiveExecutionAdapter(
+        kill_switch=FileBasedKillSwitch(kill_switch_path),
+        order_client=None,
+        live_enabled=False,
+    )
+
     manifest = run_crypto_pair_runner(
         live=True,
         confirm=LIVE_CONFIRMATION_TEXT,
@@ -153,6 +162,7 @@ def test_kill_switch_checked_before_live_cycle(tmp_path: Path) -> None:
             }
         ),
         reference_feed=SequenceFeed([_fresh_snapshot()]),
+        execution_adapter=execution_adapter,
     )
 
     run_dir = Path(manifest["artifact_dir"])
