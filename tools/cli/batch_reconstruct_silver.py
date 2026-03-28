@@ -41,7 +41,7 @@ Usage:
         --pmxt-root /data/raw/pmxt_archive \\
         --jon-root  /data/raw/jon_becker \\
         --benchmark-refresh \\
-        --gap-fill-out artifacts/silver/gap_fill_run.json
+        --gap-fill-out artifacts/tapes/silver/gap_fill_run.json
 """
 
 from __future__ import annotations

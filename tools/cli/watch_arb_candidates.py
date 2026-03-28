@@ -18,7 +18,7 @@ Usage
   python -m polytool watch-arb-candidates --markets slug1,slug2
 
   # Seed the watcher from a session pack (sets threshold from regime automatically):
-  python -m polytool watch-arb-candidates --session-plan artifacts/session_packs/pack.json
+  python -m polytool watch-arb-candidates --session-plan artifacts/debug/session_packs/pack.json
 
   # Seed the watcher from a report-derived watchlist file:
   python -m polytool watch-arb-candidates --watchlist-file artifacts/watchlist.json
@@ -57,7 +57,7 @@ _DEFAULT_NEAR_EDGE: float = 1.00   # near-edge trigger; strategy enters at < 0.9
 _DEFAULT_MIN_DEPTH: float = 50.0   # shares at best ask per leg (matches sane preset)
 _DEFAULT_POLL_INTERVAL: float = 30.0  # seconds between book polls per market
 _DEFAULT_DURATION: float = 300.0   # tape recording duration in seconds
-_DEFAULT_TAPES_BASE = Path("artifacts/simtrader/tapes")
+_DEFAULT_TAPES_BASE = Path("artifacts/tapes/gold")
 _DEFAULT_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 _DEFAULT_MAX_CONCURRENT: int = 2   # max simultaneously recording markets
 

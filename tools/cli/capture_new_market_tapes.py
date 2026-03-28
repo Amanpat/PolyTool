@@ -66,7 +66,7 @@ CAPTURE_MANIFEST_SCHEMA = "benchmark_new_market_capture_v1"
 CAPTURE_RUN_SCHEMA = "benchmark_new_market_capture_run_v1"
 
 _DEFAULT_TARGETS_PATH = Path("config/benchmark_v1_new_market_capture.targets.json")
-_DEFAULT_TAPES_ROOT = Path("artifacts/simtrader/tapes/new_market_capture")
+_DEFAULT_TAPES_ROOT = Path("artifacts/tapes/crypto/new_market_capture")
 
 
 # ---------------------------------------------------------------------------

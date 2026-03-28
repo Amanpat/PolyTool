@@ -18,9 +18,9 @@ from packages.polymarket.simtrader.sweeps.runner import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-DEFAULT_MM_SWEEP_TAPES_DIR = _REPO_ROOT / "artifacts" / "simtrader" / "tapes"
-DEFAULT_MM_SWEEP_OUT_DIR = _REPO_ROOT / "artifacts" / "gates" / "mm_sweep_gate"
-DEFAULT_GATE2_MANIFEST_PATH = _REPO_ROOT / "artifacts" / "gates" / "gate2_tape_manifest.json"
+DEFAULT_MM_SWEEP_TAPES_DIR = _REPO_ROOT / "artifacts" / "tapes" / "gold"
+DEFAULT_MM_SWEEP_OUT_DIR = _REPO_ROOT / "artifacts" / "gates" / "gate2_sweep"
+DEFAULT_GATE2_MANIFEST_PATH = _REPO_ROOT / "artifacts" / "gates" / "manifests" / "gate2_tape_manifest.json"
 
 DEFAULT_MM_SWEEP_THRESHOLD = 0.70
 DEFAULT_MM_SWEEP_MARK_METHOD = "bid"

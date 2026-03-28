@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TAPES_DIR = Path("artifacts/simtrader/tapes")
+_DEFAULT_TAPES_DIR = Path("artifacts/tapes/gold")
 _DEFAULT_MAX_SIZE = 50.0
 _DEFAULT_BUFFER = 0.01
 _REQUIRED_REGIMES = ("politics", "sports", "new_market")

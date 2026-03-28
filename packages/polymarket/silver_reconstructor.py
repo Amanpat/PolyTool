@@ -41,7 +41,7 @@ Usage::
         token_id="0xabc...",
         window_start=1700000000.0,
         window_end=1700007200.0,
-        out_dir=Path("artifacts/silver/0xabc/2023-11"),
+        out_dir=Path("artifacts/tapes/silver/0xabc/2023-11"),
     )
     print(result.reconstruction_confidence, result.warnings)
 """

@@ -53,7 +53,7 @@ from .reference_feed import (
 )
 
 
-DEFAULT_PAPER_ARTIFACTS_DIR = Path("artifacts/crypto_pairs/paper_runs")
+DEFAULT_PAPER_ARTIFACTS_DIR = Path("artifacts/tapes/crypto/paper_runs")
 DEFAULT_KILL_SWITCH_PATH = Path("artifacts/crypto_pairs/kill_switch.txt")
 
 _ZERO = Decimal("0")

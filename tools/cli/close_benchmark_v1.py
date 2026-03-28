@@ -899,7 +899,7 @@ def run_status() -> int:
         except Exception:
             print(f"  Latest run:           {latest.parent.name}  (unreadable)")
     else:
-        print(f"  Latest run:           none found under artifacts/benchmark_closure/")
+        print(f"  Latest run:           none found under artifacts/benchmark/")
 
     # Residual blockers from gap report
     gap_report = _read_gap_report(GAP_REPORT_PATH)

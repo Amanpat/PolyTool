@@ -38,8 +38,8 @@ _BUCKET_QUOTAS: dict[str, int] = {
 _TOTAL_QUOTA = sum(_BUCKET_QUOTAS.values())  # 50
 
 DEFAULT_TAPE_ROOTS: list[str] = [
-    "artifacts/simtrader/tapes",
-    "artifacts/silver",
+    "artifacts/tapes/gold",
+    "artifacts/tapes/silver",
     "artifacts/tapes",
 ]
 DEFAULT_OUT_DIR = "artifacts/corpus_audit"
@@ -143,7 +143,7 @@ def _detect_bucket(
 def _discover_tape_dirs(root: Path) -> list[Path]:
     """
     Discover all directories containing events.jsonl (or silver_events.jsonl)
-    under root, including nested structures like artifacts/silver/{id}/{timestamp}/.
+    under root, including nested structures like artifacts/tapes/silver/{id}/{timestamp}/.
     """
     if not root.exists() or not root.is_dir():
         return []
@@ -546,8 +546,8 @@ def _write_shortage_report(
         "2. After capturing tapes, re-run corpus_audit to update this report:",
         "   ```",
         "   python tools/gates/corpus_audit.py \\",
-        "       --tape-roots artifacts/simtrader/tapes \\",
-        "       --tape-roots artifacts/silver \\",
+        "       --tape-roots artifacts/tapes/gold \\",
+        "       --tape-roots artifacts/tapes/silver \\",
         "       --tape-roots artifacts/tapes \\",
         "       --out-dir artifacts/corpus_audit \\",
         "       --manifest-out config/recovery_corpus_v1.tape_manifest",
@@ -556,7 +556,7 @@ def _write_shortage_report(
         "   ```",
         "   python tools/gates/close_mm_sweep_gate.py \\",
         "       --benchmark-manifest config/recovery_corpus_v1.tape_manifest \\",
-        "       --out artifacts/gates/mm_sweep_gate",
+        "       --out artifacts/gates/gate2_sweep",
         "   ```",
         "",
         "Note: `config/recovery_corpus_v1.tape_manifest` is NOT written until corpus qualifies.",

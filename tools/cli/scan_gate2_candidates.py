@@ -14,7 +14,7 @@ Usage
   python -m polytool scan-gate2-candidates
 
   # Scan local tape directories:
-  python -m polytool scan-gate2-candidates --tapes-dir artifacts/simtrader/tapes
+  python -m polytool scan-gate2-candidates --tapes-dir artifacts/tapes/gold
 
   # Show all markets (not just those with signal):
   python -m polytool scan-gate2-candidates --all --top 50

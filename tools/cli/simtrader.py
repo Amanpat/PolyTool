@@ -1984,7 +1984,7 @@ def _quickrun(args: argparse.Namespace) -> int:
             f"(YES snapshot={yes_snapshot}  NO snapshot={no_snapshot})"
         )
         print(f"  Sweep dir : artifacts/simtrader/sweeps/{sweep_id}/")
-        print(f"  Tape dir  : artifacts/simtrader/tapes/{tape_id}/")
+        print(f"  Tape dir  : artifacts/tapes/gold/{tape_id}/")
         print()
         print("  LEADERBOARD (net_profit):")
         print(
@@ -2127,7 +2127,7 @@ def _quickrun(args: argparse.Namespace) -> int:
     )
     print(f"  Net profit : {net_profit}")
     print(f"  Run quality: {run_quality}")
-    print(f"  Tape dir   : artifacts/simtrader/tapes/{tape_id}/")
+    print(f"  Tape dir   : artifacts/tapes/gold/{tape_id}/")
     print(f"  Run dir    : artifacts/simtrader/runs/{run_id}/")
     print()
     print("Reproduce:")
@@ -2441,7 +2441,7 @@ def _shadow(args: argparse.Namespace) -> int:
     print(f"  Net profit : {net_profit}")
     print(f"  Run dir    : artifacts/simtrader/shadow_runs/{run_id}/")
     if tape_dir is not None:
-        print(f"  Tape dir   : artifacts/simtrader/tapes/{tape_dir.name}/")
+        print(f"  Tape dir   : artifacts/tapes/shadow/{tape_dir.name}/")
     print()
     print("Reproduce:")
     reproduce = (
@@ -2945,7 +2945,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Override tape output directory "
-            "(default: artifacts/simtrader/tapes/<timestamp>_<asset_prefix>/)."
+            "(default: artifacts/tapes/gold/<timestamp>_<asset_prefix>/)."
         ),
     )
     rec.add_argument(
@@ -3474,17 +3474,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_ARTIFACTS_DIR / "tapes"),
         metavar="PATH",
         dest="tapes_dir",
-        help="Directory containing recorded tape folders (default: artifacts/simtrader/tapes).",
+        help="Directory containing recorded tape folders (default: artifacts/tapes/gold).",
     )
     mm_sweep_p.add_argument(
         "--out",
-        default=str(Path("artifacts") / "gates" / "mm_sweep_gate"),
+        default=str(Path("artifacts") / "gates" / "gate2_sweep"),
         metavar="PATH",
         help="Output directory for mm_sweep gate artifacts and per-tape sweep runs.",
     )
     mm_sweep_p.add_argument(
         "--manifest",
-        default=str(Path("artifacts") / "gates" / "gate2_tape_manifest.json"),
+        default=str(Path("artifacts") / "gates" / "manifests" / "gate2_tape_manifest.json"),
         metavar="PATH",
         help="Optional gate2 tape manifest used as a regime/recorded_by fallback.",
     )
@@ -4073,7 +4073,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Disable concurrent tape recording.  "
             "By default the session is recorded to "
-            "artifacts/simtrader/tapes/<ts>_shadow_<token_prefix>/ "
+            "artifacts/tapes/shadow/<ts>_shadow_<token_prefix>/ "
             "(raw_ws.jsonl + events.jsonl + meta.json)."
         ),
     )

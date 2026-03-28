@@ -120,7 +120,7 @@ def _print_table(status: dict[str, Any]) -> None:
         print(
             "Run: python tools/gates/close_mm_sweep_gate.py"
             " --benchmark-manifest config/recovery_corpus_v1.tape_manifest"
-            " --out artifacts/gates/mm_sweep_gate"
+            " --out artifacts/gates/gate2_sweep"
         )
         return
 

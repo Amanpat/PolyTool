@@ -24,7 +24,7 @@ Usage
   python -m polytool prepare-gate2 --dry-run
 
   # Score pre-recorded tapes (skip scan and record):
-  python -m polytool prepare-gate2 --tapes-dir artifacts/simtrader/tapes
+  python -m polytool prepare-gate2 --tapes-dir artifacts/tapes/gold
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ _DEFAULT_TOP = 3
 _DEFAULT_DURATION = 300.0
 _DEFAULT_MAX_SIZE = 50.0
 _DEFAULT_BUFFER = 0.01
-_DEFAULT_TAPES_BASE = Path("artifacts/simtrader/tapes")
+_DEFAULT_TAPES_BASE = Path("artifacts/tapes/gold")
 _DEFAULT_CANDIDATES = 50
 
 _COL_SLUG = 44

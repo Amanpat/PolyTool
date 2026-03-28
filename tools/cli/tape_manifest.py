@@ -36,7 +36,7 @@ Usage
   python -m polytool tape-manifest
 
   # Scan a custom directory and write manifest:
-  python -m polytool tape-manifest --tapes-dir artifacts/simtrader/tapes
+  python -m polytool tape-manifest --tapes-dir artifacts/tapes/gold
 
   # Write manifest to a specific path:
   python -m polytool tape-manifest --out artifacts/gate2_tape_manifest.json
@@ -64,8 +64,8 @@ from packages.polymarket.market_selection.regime_policy import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TAPES_DIR = Path("artifacts/simtrader/tapes")
-_DEFAULT_OUT = Path("artifacts/gates/gate2_tape_manifest.json")
+_DEFAULT_TAPES_DIR = Path("artifacts/tapes/gold")
+_DEFAULT_OUT = Path("artifacts/gates/manifests/gate2_tape_manifest.json")
 _VALID_REGIMES = frozenset({"politics", "sports", "new_market", "unknown"})
 _DEFAULT_MAX_SIZE: float = 50.0
 _DEFAULT_BUFFER: float = 0.01

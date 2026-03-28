@@ -22,7 +22,7 @@ Usage:
         --window-end   "2024-01-01T02:00:00Z" \\
         --pmxt-root    /data/raw/pmxt_archive \\
         --jon-root     /data/raw/jon_becker \\
-        [--out-dir     artifacts/silver/<token>/2024-01] \\
+        [--out-dir     artifacts/tapes/silver/<token>/2024-01] \\
         [--dry-run]
 
     # Skip ClickHouse price_2min (offline mode):
@@ -149,7 +149,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Directory to write silver_events.jsonl and silver_meta.json. "
-            "Auto-generated under artifacts/silver/ if not specified. "
+            "Auto-generated under artifacts/tapes/silver/ if not specified. "
             "Ignored when --dry-run is set."
         ),
     )
@@ -200,14 +200,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _default_out_dir(token_id: str, window_start: float) -> Path:
-    """Generate a default output directory under artifacts/silver/."""
+    """Generate a default output directory under artifacts/tapes/silver/."""
     token_prefix = token_id[:8] if token_id else "unknown"
     try:
         dt = datetime.fromtimestamp(window_start, tz=timezone.utc)
         date_label = dt.strftime("%Y-%m-%dT%H%M%SZ")
     except Exception:
         date_label = str(int(window_start))
-    return Path("artifacts") / "silver" / token_prefix / date_label
+    return Path("artifacts") / "tapes" / "silver" / token_prefix / date_label
 
 
 def main(argv: Optional[List[str]] = None) -> int:

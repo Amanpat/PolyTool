@@ -34,7 +34,7 @@ Usage
 
   # Write pack to a specific file:
   python -m polytool make-session-pack --regime politics --markets slug1,slug2 \\
-      --output artifacts/session_packs/politics_2026-03-11.json
+      --output artifacts/debug/session_packs/politics_2026-03-11.json
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ from typing import Any, Optional
 
 _DEFAULT_DURATION: float = 300.0
 _DEFAULT_NEAR_EDGE_OVERRIDE: Optional[float] = None  # None means "use regime default"
-_DEFAULT_OUTPUT_DIR = Path("artifacts/session_packs")
+_DEFAULT_OUTPUT_DIR = Path("artifacts/debug/session_packs")
 
 # Valid regime choices for --regime
 _REGIME_CHOICES = ("politics", "sports", "new_market")

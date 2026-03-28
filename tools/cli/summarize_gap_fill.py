@@ -10,8 +10,8 @@ Loads a benchmark_gap_fill_run_v1 artifact and prints:
 No network access. No ClickHouse. No writes.
 
 Usage:
-    python -m polytool summarize-gap-fill --path artifacts/silver/.../gap_fill_run.json
-    python -m polytool summarize-gap-fill --path artifacts/silver/.../gap_fill_run.json --json
+    python -m polytool summarize-gap-fill --path artifacts/tapes/silver/.../gap_fill_run.json
+    python -m polytool summarize-gap-fill --path artifacts/tapes/silver/.../gap_fill_run.json --json
 """
 
 from __future__ import annotations

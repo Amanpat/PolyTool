@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Base artifact directory. Default: "
-            "artifacts/crypto_pairs/paper_runs in paper mode, "
+            "artifacts/tapes/crypto/paper_runs in paper mode, "
             "artifacts/crypto_pairs/live_runs in live mode."
         ),
     )
