@@ -1609,23 +1609,19 @@ def _quickrun(args: argparse.Namespace) -> int:
     # Only active when --list-candidates N > 0 and no explicit --market.
     # Uses CandidateDiscovery to draw from a larger pool (up to 200 markets),
     # infer buckets, apply shortage-aware scoring, and reject one-sided books.
-    #
-    # Phase 1B campaign shortage defaults (update after each capture batch):
-    _DEFAULT_SHORTAGE = {
-        "sports": 15,
-        "politics": 9,
-        "crypto": 10,
-        "new_market": 5,
-        "near_resolution": 1,
-        "other": 0,
-    }
     if list_candidates_n > 0 and not args.market:
-        from packages.polymarket.simtrader.candidate_discovery import CandidateDiscovery  # noqa: PLC0415
+        from packages.polymarket.simtrader.candidate_discovery import (  # noqa: PLC0415
+            CandidateDiscovery,
+            load_live_shortage,
+        )
+
+        # Load live corpus shortage from tape directories (falls back gracefully)
+        _live_shortage, _shortage_source = load_live_shortage()
 
         # pool_size: default 200 (capped at 200 here to avoid excessive API calls)
         pool_size = min(getattr(args, "max_candidates", 20) * 10, 200)
 
-        discovery = CandidateDiscovery(picker, shortage=_DEFAULT_SHORTAGE)
+        discovery = CandidateDiscovery(picker, shortage=_live_shortage)
         collect_skips: list = []
 
         try:
@@ -1659,6 +1655,7 @@ def _quickrun(args: argparse.Namespace) -> int:
             if result.probe_summary is not None:
                 print(f"[candidate {i}] probe    : {result.probe_summary}")
 
+        print(f"[shortage] source : {_shortage_source}")
         print(f"Listed {len(results)} candidates.")
         return 0
 

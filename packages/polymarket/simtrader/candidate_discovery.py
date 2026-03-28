@@ -9,6 +9,7 @@ Exports:
     DiscoveryResult     -- dataclass for one ranked candidate
     infer_bucket        -- pure function: raw_market dict -> bucket string
     score_for_capture   -- pure function: scores a candidate for tape capture
+    load_live_shortage  -- reads current corpus shortage from tape directories
 """
 
 from __future__ import annotations
@@ -51,6 +52,65 @@ _DEFAULT_SHORTAGE: dict[str, int] = {
     BUCKET_NEAR_RESOLUTION: 1,
     BUCKET_OTHER: 0,
 }
+
+# ---------------------------------------------------------------------------
+# Live shortage loader
+# ---------------------------------------------------------------------------
+
+
+def load_live_shortage(
+    tape_roots: Optional[list[str]] = None,
+) -> tuple[dict[str, int], str]:
+    """Load current corpus shortage from tape directories.
+
+    Returns (shortage_dict, source_label) where source_label is one of:
+      "live (N tapes scanned)"  -- compute_status ran and found tapes
+      "fallback (no tapes found)"  -- compute_status ran but found 0 tapes
+      "fallback (import error)"  -- capture_status module unavailable
+      "fallback (read error)"  -- unexpected exception during scan
+
+    The shortage_dict always has entries for all 6 buckets including "other".
+    Falls back to _DEFAULT_SHORTAGE on any failure.
+    """
+    try:
+        from tools.gates.capture_status import compute_status, _REPO_ROOT  # noqa: PLC0415
+        from tools.gates.corpus_audit import DEFAULT_TAPE_ROOTS  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+    except ImportError:
+        return dict(_DEFAULT_SHORTAGE), "fallback (import error)"
+
+    try:
+        # Build tape_roots path list the same way capture_status.main() does
+        root_strs = tape_roots if tape_roots is not None else DEFAULT_TAPE_ROOTS
+        resolved_roots = [
+            (Path(r) if Path(r).is_absolute() else _REPO_ROOT / r)
+            for r in root_strs
+        ]
+
+        status = compute_status(resolved_roots)
+
+        total_have = status.get("total_have", 0)
+        total_need = status.get("total_need", 0)
+
+        # Empty corpus — no tapes found at all
+        if total_have == 0 and total_need == 0:
+            return dict(_DEFAULT_SHORTAGE), "fallback (no tapes found)"
+
+        # Build result dict: need per bucket, "other" always 0
+        buckets_raw = status.get("buckets", {})
+        result: dict[str, int] = {}
+        for bucket in _DEFAULT_SHORTAGE.keys():
+            if bucket == BUCKET_OTHER:
+                result[bucket] = 0
+            else:
+                result[bucket] = int(buckets_raw.get(bucket, {}).get("need", 0))
+
+        n_tapes = total_have
+        return result, f"live ({n_tapes} tapes scanned)"
+
+    except Exception as exc:  # noqa: BLE001
+        return dict(_DEFAULT_SHORTAGE), f"fallback (read error: {exc})"
+
 
 # ---------------------------------------------------------------------------
 # Scoring weights
