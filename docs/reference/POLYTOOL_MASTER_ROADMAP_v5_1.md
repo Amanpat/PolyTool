@@ -875,7 +875,7 @@ Default paths (configurable):
 > **Priority: IMMEDIATE. Cannot trade without accounts. Cannot develop efficiently
 > without proper CLAUDE.md.**
 
-- [ ] **Rebuild CLAUDE.md**
+- [x] **Rebuild CLAUDE.md**
       Rewrite from 65 lines to comprehensive project context file. Include all items
       listed in the Context Management section above. This is the single highest-ROI
       task for development velocity. Do this before any code work.
@@ -912,7 +912,7 @@ Default paths (configurable):
       (4) Verify bot can run in dry-run mode
       This machine will host the live bot — it must be reliable.
 
-- [ ] **Write `docs/OPERATOR_SETUP_GUIDE.md`**
+- [x] **Write `docs/OPERATOR_SETUP_GUIDE.md`**
       Comprehensive guide covering: account setup, wallet architecture, fund flow
       (fiat → exchange → USDC → Polygon → Polymarket → trading → withdrawal),
       capital allocation rules (50% reinvest, 30% tax reserve, 20% compute),
@@ -994,7 +994,7 @@ Default paths (configurable):
       Gate: ≥70% of 50 tapes positive net PnL after fee model.
       Must also validate at realistic-retail latency (150ms, 70% fill rate).
 
-- [ ] **MarketMakerV1 — Logit A-S upgrade**
+- [x] **MarketMakerV1 — Logit A-S upgrade**
       Transform mid-price to log-odds: `x = ln(p/(1-p))`. Compute reservation
       price and spread in unbounded domain. Back-transform via sigmoid.
       κ calibrated via MLE on Jon-Becker 72M trades per category (DuckDB query).
@@ -1036,10 +1036,10 @@ Default paths (configurable):
 - [ ] **Parallel SimTrader — multiprocessing.Pool**
       Prerequisite for autoresearch and efficient sweeps.
 
-- [ ] **Benchmark tape set — benchmark_v1**
+- [x] **Benchmark tape set — benchmark_v1**
       50 tape manifest. Mix of Gold and Silver. Fixed for experiment series.
 
-- [ ] **Market Selection Engine**
+- [x] **Market Selection Engine**
       Scores all active markets every 2 hours using a seven-factor composite formula.
       Routes capital to the highest-edge opportunities regardless of raw volume.
 
@@ -1112,7 +1112,7 @@ Default paths (configurable):
 - [ ] **Grafana live-bot panels**
       Open orders, fill rate, inventory skew, daily PnL, kill switch status.
 
-- [ ] **Discord alert system — Phase 1 (outbound only)**
+- [x] **Discord alert system — Phase 1 (outbound only)**
       Webhook-based. Green/yellow/red. Fire within 30 seconds of event.
 
 ---
