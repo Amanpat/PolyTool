@@ -11,7 +11,7 @@ Claude Code should read this file first, then `docs/CURRENT_STATE.md`, then the 
 1. `docs/PLAN_OF_RECORD.md`
 2. `docs/ARCHITECTURE.md`
 3. `docs/STRATEGY_PLAYBOOK.md`
-4. `docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`
+4. `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md`
 5. `docs/CURRENT_STATE.md`
 6. Task-specific spec or feature doc
 
@@ -120,7 +120,7 @@ CLI entrypoint falling back to a wrong default.
 - Replay runner and BrokerSim.
 - Sweeps and local reports.
 - Shadow mode.
-- MarketMakerV0 and execution primitives including kill switch, rate limiter, risk manager, live executor, and live runner.
+- MarketMakerV0 and MarketMakerV1 (logit Avellaneda-Stoikov, canonical Phase 1 strategy) and execution primitives including kill switch, rate limiter, risk manager, live executor, and live runner.
 
 ### Benchmark pipeline
 - **benchmark_v1 is CLOSED as of 2026-03-21.**
@@ -135,11 +135,20 @@ CLI entrypoint falling back to a wrong default.
 - **Gate 2 scenario sweep is the next step (Phase 2 / Phase 1B).** Run
   `python tools/gates/close_sweep_gate.py` against `config/benchmark_v1.tape_manifest`.
   Gate 2 passes when ≥ 70% of tapes show positive net PnL after fees and realistic-retail
-  assumptions. Gate 2 is NOT passed yet.
+  assumptions. Gate 2 is NOT passed yet. Gate 2 is currently NOT_RUN (not FAILED): the
+  corpus has only 10/50 qualifying tapes. The immediate unblock is live Gold capture per
+  `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`.
 
 When tasking Claude Code, assume the benchmark pipeline has produced the
 `config/benchmark_v1.tape_manifest`. The manifest, lock, and audit are finalized
 as of 2026-03-21. Do not reopen Phase 1 tasks.
+
+### Market Selection Engine
+- Seven-factor composite scorer: category_edge (Jon-Becker 72.1M trades), spread_opportunity,
+  volume (log-scaled), competition, reward_apr, adverse_selection, time_gaussian.
+- NegRisk penalty (x0.85) and longshot bonus (+0.15 max) applied per market.
+- CLI: `python -m polytool market-scan --top 20`
+- Artifacts written to `artifacts/market_selection/YYYY-MM-DD.json`.
 
 ### Artifacts directory layout
 

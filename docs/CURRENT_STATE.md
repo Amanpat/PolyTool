@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-27 (Phase 1B — Gate 2 NOT_RUN, awaiting live Gold capture)
+## Status as of 2026-03-28 (Phase 1B — Gate 2 NOT_RUN, awaiting live Gold capture)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
 and returned NOT_RUN (not FAILED). The gate code previously wrote
@@ -43,6 +43,20 @@ The repo's current execution status is:
   market tapes need **>= 100 raw events** to qualify. Use `--duration 600`+
   (900s for slow markets). Four candidate Gold tapes (2 sports / 2 politics)
   were inspected and rejected as too_short (33–40 effective, not 50+).
+- **Artifacts directory restructure** (quick-036, 2026-03-28): All tapes unified under
+  `artifacts/tapes/{gold,silver,shadow,crypto}/` hierarchy. 18 Python path constants
+  updated. Canonical layout documented in CLAUDE.md. See dev log
+  `docs/dev_logs/2026-03-28_artifacts_restructure.md`.
+- **Market Selection Engine** (quick-037, 2026-03-28): Seven-factor scorer
+  (category_edge, spread_opportunity, volume, competition, reward_apr, adverse_selection,
+  time_gaussian) with NegRisk penalty and longshot bonus. CLI:
+  `python -m polytool market-scan`. Artifacts written to `artifacts/market_selection/`.
+  2728 tests passing. See dev log `docs/dev_logs/2026-03-28_market_selection_engine.md`.
+
+**Next executable step**: Run `python tools/gates/capture_status.py` to see current
+corpus shortage, then follow `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md` to capture
+live Gold tapes until the corpus reaches 50 qualifying tapes and Gate 2 can be re-run.
+
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
