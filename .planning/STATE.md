@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-28 - Completed quick-035: Removed paths filter from Google Drive sync workflow — every push to every branch now triggers unconditionally, 2717 tests passing.
+Last activity: 2026-03-28 - Completed quick-036: Artifacts directory restructure — unified artifacts/ into tapes/{gold,silver,shadow,crypto}/ hierarchy, updated 18 Python path constants, CLAUDE.md layout reference added, 2717 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -93,3 +93,4 @@ Last activity: 2026-03-28 - Completed quick-035: Removed paths filter from Googl
 | 033 | Dynamic shortage ranking: load_live_shortage() replaces hardcoded dicts, live corpus state auto-loaded from tape dirs via capture_status.compute_status(), 4-case fallback, source label in CLI output, 5 new offline tests, 2717 passing | 2026-03-28 | 759dc9f | [33-dynamic-shortage-ranking-for-phase-1b-ca](./quick/33-dynamic-shortage-ranking-for-phase-1b-ca/) |
 | 034 | Google Drive sync workflow branch-agnostic fix: branches: ['**'] replaces hardcoded list, branch-echo log step added (GITHUB_REF_NAME), YAML validated, 2717 passing | 2026-03-28 | adcf6b8 | [34-fix-google-drive-docs-sync-to-be-branch-](./quick/34-fix-google-drive-docs-sync-to-be-branch-/) |
 | 035 | Remove paths filter from Google Drive sync workflow: every push to any branch now triggers unconditionally, explanatory comment added, dev log, 2717 passing | 2026-03-28 | dc300e6 | [35-remove-paths-filter-from-google-drive-sy](./quick/35-remove-paths-filter-from-google-drive-sy/) |
+| 036 | Artifacts directory restructure: unified 53MB into artifacts/tapes/{gold,silver,shadow,crypto}/ hierarchy; updated 18 Python path constants; CLAUDE.md layout reference added; dev log written; 2717 passing | 2026-03-28 | 4a0da5d | [36-artifacts-directory-restructure-unified-](./quick/36-artifacts-directory-restructure-unified-/) |
