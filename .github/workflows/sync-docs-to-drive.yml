@@ -3,7 +3,7 @@ on:
   # Manual trigger exists for connector/sync verification when path filters do not fire.
   workflow_dispatch:
   push:
-    branches: [main, phase-1, phase-1B]
+    branches: ['**']
     paths:
       - "docs/**"
       - "claude.md"
@@ -18,6 +18,13 @@ jobs:
       GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show current branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Triggered by push to branch: ${GITHUB_REF_NAME}"
+          echo "Full ref: ${GITHUB_REF}"
 
       - name: Validate Google Drive secrets
         shell: bash
