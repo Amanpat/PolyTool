@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-28 - Completed quick-036: Artifacts directory restructure — unified artifacts/ into tapes/{gold,silver,shadow,crypto}/ hierarchy, updated 18 Python path constants, CLAUDE.md layout reference added, 2717 tests passing.
+Last activity: 2026-03-28 - Completed quick-037: Market Selection Engine — seven-factor composite scorer (category_edge + spread + volume + competition + reward_apr + adverse_selection + time_gaussian) with NegRisk penalty and longshot bonus, exposed via `python -m polytool market-scan`. config.py, passes_gates(), SevenFactorScore, MarketScorer all added; 2728 tests passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -94,3 +94,4 @@ Last activity: 2026-03-28 - Completed quick-036: Artifacts directory restructure
 | 034 | Google Drive sync workflow branch-agnostic fix: branches: ['**'] replaces hardcoded list, branch-echo log step added (GITHUB_REF_NAME), YAML validated, 2717 passing | 2026-03-28 | adcf6b8 | [34-fix-google-drive-docs-sync-to-be-branch-](./quick/34-fix-google-drive-docs-sync-to-be-branch-/) |
 | 035 | Remove paths filter from Google Drive sync workflow: every push to any branch now triggers unconditionally, explanatory comment added, dev log, 2717 passing | 2026-03-28 | dc300e6 | [35-remove-paths-filter-from-google-drive-sy](./quick/35-remove-paths-filter-from-google-drive-sy/) |
 | 036 | Artifacts directory restructure: unified 53MB into artifacts/tapes/{gold,silver,shadow,crypto}/ hierarchy; updated 18 Python path constants; CLAUDE.md layout reference added; dev log written; 2717 passing | 2026-03-28 | 4a0da5d | [36-artifacts-directory-restructure-unified-](./quick/36-artifacts-directory-restructure-unified-/) |
+| 037 | Market Selection Engine: seven-factor scorer (category_edge/spread/volume/competition/reward_apr/adverse_selection/time_gaussian) + NegRisk penalty + longshot bonus; config.py, passes_gates(), SevenFactorScore, MarketScorer; market-scan CLI rewritten with --all/--include-failing/--skip-events/--max-fetch/--json; 11 new tests; 2728 passing | 2026-03-28 | d5b88e2 | [37-market-selection-engine-seven-factor-com](./quick/37-market-selection-engine-seven-factor-com/) |
