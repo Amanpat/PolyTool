@@ -55,7 +55,7 @@ Last activity: 2026-03-28 - Completed quick-040: Live execution wiring for crypt
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
-- Track 1 Gate 2 corpus: recovery corpus has 10/50 qualifying tapes. Silver reconstruction exhausted. No gate-core or strategy changes needed. Next action: live Gold shadow capture per campaign packet. Run `python tools/gates/capture_status.py` to see current shortage. Capture per `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Gate 2 rerun unblocked when corpus_audit.py exits 0. Shortage by bucket: sports=15, politics=9, crypto=10, new_market=5, near_resolution=1 (as of 2026-03-27).
+- Track 1 Gate 2 corpus: 27/50 qualifying tapes after Gold capture campaign (quick-039, 2026-03-28). Shortage: crypto=10, sports=5, new_market=5, politics=3 (23 needed). Crypto bucket blocked — no active BTC/ETH/SOL pair markets on Polymarket. Run `python tools/gates/capture_status.py` for current counts. Capture per `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Gate 2 unblocks when corpus_audit exits 0.
 
 ### Quick Tasks Completed
 

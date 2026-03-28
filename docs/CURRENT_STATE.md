@@ -31,18 +31,19 @@ The corpus problem and the strategy have been separated by the diagnostic.
 The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **NOT_RUN** (2026-03-27) — 10/50 tapes qualify (9 near_resolution
-  Silver + 1 politics Gold); 40 more needed via live Gold shadow capture.
-  No gate-core or strategy changes required. Capture campaign packet complete
-  as of 2026-03-27. Quick tools: `python tools/gates/capture_status.py`
+- Gate 2: **NOT_RUN** (2026-03-28) — 27/50 tapes qualify after Gold capture campaign
+  (quick-039). Shortage: crypto=10, sports=5, new_market=5, politics=3 (23 total).
+  No gate-core or strategy changes required. Quick tools: `python tools/gates/capture_status.py`
   (current shortage), `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`
   (capture commands). Authoritative spec:
   `docs/specs/SPEC-phase1b-gold-capture-campaign.md`.
-  **Key capture constraint (confirmed 2026-03-27):** most Polymarket markets
-  record YES and NO tokens together — `effective_events = raw // 2`, so binary
-  market tapes need **>= 100 raw events** to qualify. Use `--duration 600`+
-  (900s for slow markets). Four candidate Gold tapes (2 sports / 2 politics)
-  were inspected and rejected as too_short (33–40 effective, not 50+).
+  **Path drift note:** shadow tapes land in `artifacts/tapes/shadow/` (canonical) after
+  quick-039 migration from `artifacts/simtrader/tapes/`. Default corpus audit roots now
+  pick them up without extra `--tape-roots` args.
+  **Crypto bucket blocked:** no active BTC/ETH/SOL 5m/15m pair markets on Polymarket
+  as of 2026-03-25. Use `python -m polytool crypto-pair-watch --one-shot` to check.
+  **Key capture constraint:** binary market tapes need **>= 100 raw events** to qualify
+  (effective_events = raw // 2). Use `--duration 600`+ (900s for slow markets).
 - **Artifacts directory restructure** (quick-036, 2026-03-28): All tapes unified under
   `artifacts/tapes/{gold,silver,shadow,crypto}/` hierarchy. 18 Python path constants
   updated. Canonical layout documented in CLAUDE.md. See dev log
@@ -53,9 +54,16 @@ The repo's current execution status is:
   `python -m polytool market-scan`. Artifacts written to `artifacts/market_selection/`.
   2728 tests passing. See dev log `docs/dev_logs/2026-03-28_market_selection_engine.md`.
 
-**Next executable step**: Run `python tools/gates/capture_status.py` to see current
-corpus shortage, then follow `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md` to capture
-live Gold tapes until the corpus reaches 50 qualifying tapes and Gate 2 can be re-run.
+- **Live execution wiring** (quick-040, 2026-03-28): `PolymarketClobOrderClient` via
+  py-clob-client 0.34.6 with deferred import; `_log_trade_event()` JSONL logging per
+  place/cancel; `Dockerfile.bot` + docker-compose `pair-bot-paper`/`pair-bot-live`
+  services under isolated profiles; 6 new offline tests; 2734 passing.
+  See dev log `docs/dev_logs/2026-03-28_crypto_pair_live_docker.md`.
+
+**Next executable step**: Capture remaining Gold tapes: crypto=10 (blocked on market
+availability), sports=5, new_market=5, politics=3. Run `python tools/gates/capture_status.py`
+to see current shortage, use `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md` for capture
+commands. Gate 2 unblocks when corpus_audit exits 0 (50/50 qualify).
 
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
