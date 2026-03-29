@@ -22,32 +22,33 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Status as of 2026-03-29 (Phase 1B — Gate 2 NOT_RUN, awaiting crypto Gold capture)
+## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
-and returned NOT_RUN (not FAILED). The gate code previously wrote
-`gate_failed.json` for sub-threshold corpora; this was incorrect per spec.
-The corpus problem and the strategy have been separated by the diagnostic.
-The repo's current execution status is:
+against the full 50-tape recovery corpus and FAILED. The corpus is complete
+(50/50 tapes qualify). The gate failure is a strategy profitability issue
+on low-frequency tapes, not a corpus gap. The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **NOT_RUN** (2026-03-29) — 40/50 tapes qualify after Gold capture waves 1+2
-  (quick-039 + quick-041). Shortage: crypto=10 only (sports, politics, new_market, and
-  near_resolution buckets are all complete). No gate-core or strategy changes required.
-  Quick tools: `python tools/gates/capture_status.py`
-  (current shortage), `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`
-  (capture commands). Authoritative spec:
-  `docs/specs/SPEC-phase1b-gold-capture-campaign.md`.
-  **Path drift note:** shadow tapes land in `artifacts/tapes/shadow/` (canonical) after
-  quick-039 migration from `artifacts/simtrader/tapes/`. Default corpus audit roots now
-  pick them up without extra `--tape-roots` args.
-  **Crypto bucket blocked:** no active BTC/ETH/SOL 5m/15m pair markets on Polymarket
-  as of 2026-03-29. Use `python -m polytool crypto-pair-watch --one-shot` to check.
-  **Key capture constraint:** binary market tapes need **>= 100 raw events** to qualify
-  (effective_events = raw // 2). Use `--duration 600`+ (900s for slow markets).
-  **Gold capture wave 2 (quick-041, 2026-03-29):** +13 tapes captured. Sports bucket
-  complete (15/15), politics bucket complete (10/10), new_market bucket complete (5/5).
-  See dev log `docs/dev_logs/2026-03-29_gold_capture_wave2.md`.
+- Gate 2: **FAILED** (2026-03-29) — 7/50 positive tapes (14%), gate threshold is 70%.
+  Corpus is complete (50/50): politics=10, sports=15, crypto=10, near_resolution=10,
+  new_market=5. Gate artifact: `artifacts/gates/mm_sweep_gate/gate_failed.json`.
+  Recovery corpus manifest: `config/recovery_corpus_v1.tape_manifest` (50 entries).
+  Sweep driver: `tools/gates/run_recovery_corpus_sweep.py`.
+  **Root cause:** silver tapes (10) produce zero fills — no tick density for MM orders.
+  Non-crypto shadow tapes (30) produce mostly negative or zero PnL on low-frequency
+  politics/sports markets. Crypto 5m shadow tapes (10) are 7/10 positive.
+  **Crypto-positive tapes:** btc-updown (4/5 positive), eth-updown (2/2 positive),
+  sol-updown (1/3 positive). PnL range: +$4.67 to +$297.25.
+  **Path forward options (documented in dev log):**
+  (1) Crypto-only corpus subset test: run sweep on 10 crypto tapes only (7/10 = 70%,
+  would pass threshold but requires spec change); (2) Strategy improvement for
+  low-frequency markets; (3) Focus on Track 2 (crypto pair bot) while Gate 2 research
+  continues in background. Authoritative dev log:
+  `docs/dev_logs/2026-03-29_crypto_watch_and_capture.md`.
+  **Path drift fix (quick-045):** Shadow tapes migrated from `artifacts/simtrader/tapes/`
+  to `artifacts/tapes/shadow/` canonical path. `config/recovery_corpus_v1.tape_manifest`
+  written with all 50 qualifying paths.
 - **Artifacts directory restructure** (quick-036, 2026-03-28): All tapes unified under
   `artifacts/tapes/{gold,silver,shadow,crypto}/` hierarchy. 18 Python path constants
   updated. Canonical layout documented in CLAUDE.md. See dev log
@@ -64,25 +65,28 @@ The repo's current execution status is:
   services under isolated profiles; 6 new offline tests; 2734 passing.
   See dev log `docs/dev_logs/2026-03-28_crypto_pair_live_docker.md`.
 
-**Next executable step**: Wait for crypto markets — POLICY = WAIT_FOR_CRYPTO (see
-`docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md`). The crypto=10 bucket
-is blocked because Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of
-2026-03-29. All other buckets are complete (40/50).
+**Next executable step**: Gate 2 FAILED (7/50 = 14%, need 70%). Three path-forward
+options are documented in `docs/dev_logs/2026-03-29_crypto_watch_and_capture.md`:
 
-Poll for market return:
-```
-python -m polytool crypto-pair-watch --one-shot  # check once
-python -m polytool crypto-pair-watch --watch     # poll continuously
-```
-When markets appear, capture 12-15 shadow sessions (per
-`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`) and verify with
-`python tools/gates/capture_status.py`. Gate 2 unblocks when `corpus_audit.py` exits 0 (50/50).
-Gate 2 command (when ready):
-`python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/gate2_sweep`
+1. **Crypto-only corpus subset** — Re-run sweep on 10 crypto 5m tapes only (7/10 = 70%).
+   Passes the threshold but requires a spec change to redefine Gate 2 scope. Requires
+   operator authorization (spec change = architectural decision).
+2. **Strategy improvement** — Improve market_maker_v1 profitability on low-frequency
+   politics/sports tapes. Research path; timeline uncertain.
+3. **Track 2 focus** — Run crypto pair bot (Track 2) independently while Gate 2
+   research continues. Track 2 does NOT wait for Gate 2 (CLAUDE.md rule: standalone).
 
-**Escalation deadline:** If crypto markets remain absent by 2026-04-12 (14 days), the operator
-must review the ADR escalation criteria for benchmark_v2. No AI agent should autonomously
-trigger benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
+Re-run sweep command (after any corpus/strategy change):
+```
+python tools/gates/run_recovery_corpus_sweep.py \
+  --manifest config/recovery_corpus_v1.tape_manifest \
+  --out artifacts/gates/mm_sweep_gate \
+  --threshold 0.70
+```
+
+**Escalation deadline:** ADR-benchmark-versioning-and-crypto-unavailability.md escalation
+criteria for benchmark_v2 remains at 2026-04-12. No AI agent should autonomously trigger
+benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
 
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
