@@ -75,6 +75,10 @@ class PairMarketState:
         fair_value_no: Fair probability for NO; ``None`` if not computed.
         feed_snapshot: Binance reference snapshot for freeze-gate check.
             ``None`` is treated as unusable (triggers FREEZE).
+        price_history: Rolling reference-feed prices, newest-last.  Empty
+            tuple means no history yet.  Used by evaluate_directional_entry().
+        cooldown_brackets: Market IDs already entered in this run window.
+            Used to enforce one entry per bracket.
     """
 
     symbol: str
@@ -91,6 +95,10 @@ class PairMarketState:
     fair_value_no: Optional[float] = None
 
     feed_snapshot: Optional[ReferencePriceSnapshot] = None
+
+    # New fields with defaults — all existing call sites stay valid.
+    price_history: tuple[float, ...] = field(default_factory=tuple)
+    cooldown_brackets: frozenset[str] = field(default_factory=frozenset)
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +335,242 @@ def _select_legs(
     if no_target_met:
         legs.append(LEG_NO)
     return tuple(legs)
+
+
+# ---------------------------------------------------------------------------
+# Momentum signal model
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MomentumSignal:
+    """Result of a momentum signal computation.
+
+    Attributes:
+        signal_direction: ``"UP"``, ``"DOWN"``, or ``"NONE"``.
+        price_change_pct: Fractional price change from baseline to current
+            (positive = price rose, negative = fell).
+        reference_price: Most recent price used for signal (price_history[-1]).
+        baseline_price: Oldest price in the window (price_history[0]).
+    """
+
+    signal_direction: str   # "UP" | "DOWN" | "NONE"
+    price_change_pct: float
+    reference_price: float
+    baseline_price: float
+
+
+def compute_momentum_signal(
+    price_history: list[float],
+    threshold: float,
+) -> MomentumSignal:
+    """Compute a directional momentum signal from a rolling price history.
+
+    Args:
+        price_history: List of prices in chronological order (newest-last).
+        threshold: Fractional threshold above which a signal fires (e.g. 0.003).
+
+    Returns:
+        :class:`MomentumSignal` with signal_direction in ``("UP", "DOWN", "NONE")``.
+    """
+    if len(price_history) < 2:
+        return MomentumSignal(
+            signal_direction="NONE",
+            price_change_pct=0.0,
+            reference_price=price_history[-1] if price_history else 0.0,
+            baseline_price=price_history[0] if price_history else 0.0,
+        )
+
+    baseline = price_history[0]
+    current = price_history[-1]
+
+    if baseline == 0.0:
+        return MomentumSignal(
+            signal_direction="NONE",
+            price_change_pct=0.0,
+            reference_price=current,
+            baseline_price=baseline,
+        )
+
+    pct_change = (current - baseline) / baseline
+
+    if pct_change >= threshold:
+        direction = "UP"
+    elif pct_change <= -threshold:
+        direction = "DOWN"
+    else:
+        direction = "NONE"
+
+    return MomentumSignal(
+        signal_direction=direction,
+        price_change_pct=pct_change,
+        reference_price=current,
+        baseline_price=baseline,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Directional entry engine (gabagool22-pattern)
+# ---------------------------------------------------------------------------
+
+
+def evaluate_directional_entry(
+    state: PairMarketState,
+    config: CryptoPairPaperModeConfig,
+) -> AccumulationIntent:
+    """Evaluate whether to enter a directional position for one pair market.
+
+    Replaces the old pair-cost gate with a momentum-driven directional signal.
+    Gabagool22's observed pattern: read BTC/ETH momentum, buy the FAVORITE leg
+    as taker when momentum fires, buy the HEDGE leg as a cheap maker limit.
+
+    Gate hierarchy:
+    1. Feed gate  — feed must be usable (FREEZE if not).
+    2. Quote gate — both YES/NO asks must be present (SKIP if not).
+    3. Momentum gate — abs(price_change) > threshold (SKIP with reason="no_momentum_signal").
+    4. Cooldown gate — bracket not already entered (SKIP with reason="bracket_cooldown").
+    5. Favorite price gate — favorite_ask <= max_favorite_entry (SKIP if too expensive).
+    6. Entry — return ACCUMULATE with favorite+hedge legs.
+
+    Pure function — no network calls, no side-effects.
+    """
+    rationale: dict[str, Any] = {
+        "symbol": state.symbol,
+        "duration_min": state.duration_min,
+        "market_id": state.market_id,
+        "feed_usable": False,
+        "hard_rule_passed": False,
+        "soft_rule_yes": None,
+        "soft_rule_no": None,
+    }
+
+    # ------------------------------------------------------------------ #
+    # Gate 1 — Feed gate (FREEZE on stale or disconnected)                #
+    # ------------------------------------------------------------------ #
+    feed_usable = _feed_is_usable(state.feed_snapshot)
+    rationale["feed_usable"] = feed_usable
+
+    if not feed_usable:
+        conn_state = (
+            state.feed_snapshot.connection_state.value
+            if state.feed_snapshot is not None
+            else "no_snapshot"
+        )
+        rationale["freeze_reason"] = f"feed_not_usable:{conn_state}"
+        return AccumulationIntent(
+            action=ACTION_FREEZE,
+            legs=(),
+            rationale=rationale,
+            projected_pair_cost=None,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=False,
+            soft_rule_no_passed=False,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Gate 2 — Quote availability                                          #
+    # ------------------------------------------------------------------ #
+    if state.yes_quote is None or state.no_quote is None:
+        missing = []
+        if state.yes_quote is None:
+            missing.append(LEG_YES)
+        if state.no_quote is None:
+            missing.append(LEG_NO)
+        rationale["skip_reason"] = f"missing_quotes:{','.join(missing)}"
+        return AccumulationIntent(
+            action=ACTION_SKIP,
+            legs=(),
+            rationale=rationale,
+            projected_pair_cost=None,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=False,
+            soft_rule_no_passed=False,
+        )
+
+    yes_ask = state.yes_quote.ask_price
+    no_ask = state.no_quote.ask_price
+    projected_pair_cost = yes_ask + no_ask
+
+    # ------------------------------------------------------------------ #
+    # Gate 3 — Momentum signal                                             #
+    # ------------------------------------------------------------------ #
+    price_history_list = list(state.price_history)
+    momentum = config.momentum
+    signal = compute_momentum_signal(price_history_list, momentum.momentum_threshold)
+    rationale["signal_direction"] = signal.signal_direction
+    rationale["price_change_pct"] = signal.price_change_pct
+    rationale["reference_price"] = signal.reference_price
+
+    if signal.signal_direction == "NONE":
+        rationale["skip_reason"] = "no_momentum_signal"
+        return AccumulationIntent(
+            action=ACTION_SKIP,
+            legs=(),
+            rationale=rationale,
+            projected_pair_cost=projected_pair_cost,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=False,
+            soft_rule_no_passed=False,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Gate 4 — Cooldown (one entry per bracket window)                     #
+    # ------------------------------------------------------------------ #
+    if state.market_id in state.cooldown_brackets:
+        rationale["skip_reason"] = "bracket_cooldown"
+        return AccumulationIntent(
+            action=ACTION_SKIP,
+            legs=(),
+            rationale=rationale,
+            projected_pair_cost=projected_pair_cost,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=False,
+            soft_rule_no_passed=False,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Gate 5 — Favorite selection and price check                          #
+    # ------------------------------------------------------------------ #
+    if signal.signal_direction == "UP":
+        favorite_leg = LEG_YES
+        hedge_leg = LEG_NO
+        favorite_ask = yes_ask
+    else:  # DOWN
+        favorite_leg = LEG_NO
+        hedge_leg = LEG_YES
+        favorite_ask = no_ask
+
+    hedge_price = momentum.max_hedge_price
+
+    rationale["favorite_leg"] = favorite_leg
+    rationale["hedge_leg"] = hedge_leg
+    rationale["favorite_price"] = float(favorite_ask)
+    rationale["hedge_price"] = hedge_price
+    rationale["favorite_leg_size_usdc"] = momentum.favorite_leg_size_usdc
+    rationale["hedge_leg_size_usdc"] = momentum.hedge_leg_size_usdc
+
+    if float(favorite_ask) > momentum.max_favorite_entry:
+        rationale["skip_reason"] = "favorite_too_expensive"
+        return AccumulationIntent(
+            action=ACTION_SKIP,
+            legs=(),
+            rationale=rationale,
+            projected_pair_cost=projected_pair_cost,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=(favorite_leg == LEG_NO),  # hedge leg is YES
+            soft_rule_no_passed=(favorite_leg == LEG_YES),  # hedge leg is NO
+        )
+
+    # ------------------------------------------------------------------ #
+    # Entry                                                                #
+    # ------------------------------------------------------------------ #
+    rationale["hard_rule_passed"] = True
+    return AccumulationIntent(
+        action=ACTION_ACCUMULATE,
+        legs=(favorite_leg, hedge_leg),
+        rationale=rationale,
+        projected_pair_cost=projected_pair_cost,
+        hard_rule_passed=True,
+        soft_rule_yes_passed=(favorite_leg == LEG_YES),
+        soft_rule_no_passed=(favorite_leg == LEG_NO),
+    )

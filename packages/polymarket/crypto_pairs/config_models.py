@@ -271,6 +271,92 @@ class CryptoPairSafetyConfig:
 
 
 @dataclass(frozen=True)
+class MomentumConfig:
+    """Directional momentum strategy parameters for Phase 1A crypto pair bot.
+
+    These parameters control the momentum signal and entry sizing for the
+    gabagool22-modeled directional strategy.
+    """
+
+    momentum_window_seconds: int = 30
+    momentum_threshold: float = 0.003   # 0.3% price change triggers a signal
+    max_favorite_entry: float = 0.75    # don't buy favorite leg above this price
+    max_hedge_price: float = 0.20       # max price for hedge leg limit order
+    favorite_leg_size_usdc: float = 8.0
+    hedge_leg_size_usdc: float = 2.0
+
+    def __post_init__(self) -> None:
+        momentum_window_seconds = _coerce_int(
+            self.momentum_window_seconds, "momentum.momentum_window_seconds"
+        )
+        if momentum_window_seconds <= 0:
+            raise CryptoPairPaperConfigError(
+                "momentum.momentum_window_seconds must be > 0"
+            )
+        object.__setattr__(self, "momentum_window_seconds", momentum_window_seconds)
+
+        for float_field, name in (
+            (self.momentum_threshold, "momentum.momentum_threshold"),
+            (self.max_favorite_entry, "momentum.max_favorite_entry"),
+            (self.max_hedge_price, "momentum.max_hedge_price"),
+            (self.favorite_leg_size_usdc, "momentum.favorite_leg_size_usdc"),
+            (self.hedge_leg_size_usdc, "momentum.hedge_leg_size_usdc"),
+        ):
+            try:
+                val = float(float_field)
+            except (TypeError, ValueError) as exc:
+                raise CryptoPairPaperConfigError(
+                    f"{name} must be a float-compatible value"
+                ) from exc
+            object.__setattr__(self, name.split(".")[-1], val)
+
+        if self.momentum_threshold <= 0:
+            raise CryptoPairPaperConfigError(
+                "momentum.momentum_threshold must be > 0"
+            )
+        if not (0 < self.max_favorite_entry < 1):
+            raise CryptoPairPaperConfigError(
+                "momentum.max_favorite_entry must be in (0, 1)"
+            )
+        if not (0 < self.max_hedge_price < 1):
+            raise CryptoPairPaperConfigError(
+                "momentum.max_hedge_price must be in (0, 1)"
+            )
+        if self.favorite_leg_size_usdc <= 0:
+            raise CryptoPairPaperConfigError(
+                "momentum.favorite_leg_size_usdc must be > 0"
+            )
+        if self.hedge_leg_size_usdc <= 0:
+            raise CryptoPairPaperConfigError(
+                "momentum.hedge_leg_size_usdc must be > 0"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "momentum_window_seconds": self.momentum_window_seconds,
+            "momentum_threshold": self.momentum_threshold,
+            "max_favorite_entry": self.max_favorite_entry,
+            "max_hedge_price": self.max_hedge_price,
+            "favorite_leg_size_usdc": self.favorite_leg_size_usdc,
+            "hedge_leg_size_usdc": self.hedge_leg_size_usdc,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any | None) -> "MomentumConfig":
+        if raw is None:
+            return cls()
+        data = _ensure_mapping(raw, "momentum")
+        return cls(
+            momentum_window_seconds=data.get("momentum_window_seconds", 30),
+            momentum_threshold=data.get("momentum_threshold", 0.003),
+            max_favorite_entry=data.get("max_favorite_entry", 0.75),
+            max_hedge_price=data.get("max_hedge_price", 0.20),
+            favorite_leg_size_usdc=data.get("favorite_leg_size_usdc", 8.0),
+            hedge_leg_size_usdc=data.get("hedge_leg_size_usdc", 2.0),
+        )
+
+
+@dataclass(frozen=True)
 class CryptoPairPaperModeConfig:
     """Phase 1A paper-mode config contract."""
 
@@ -284,6 +370,7 @@ class CryptoPairPaperModeConfig:
         default_factory=CryptoPairFeeAssumptionConfig
     )
     safety: CryptoPairSafetyConfig = field(default_factory=CryptoPairSafetyConfig)
+    momentum: MomentumConfig = field(default_factory=MomentumConfig)
 
     def __post_init__(self) -> None:
         filters = (
@@ -301,6 +388,11 @@ class CryptoPairPaperModeConfig:
             if isinstance(self.safety, Mapping)
             else self.safety
         )
+        momentum = (
+            MomentumConfig.from_dict(self.momentum)
+            if isinstance(self.momentum, Mapping)
+            else self.momentum
+        )
 
         if not isinstance(filters, CryptoPairFilterConfig):
             raise CryptoPairPaperConfigError("filters must be a CryptoPairFilterConfig")
@@ -309,6 +401,10 @@ class CryptoPairPaperModeConfig:
         if not isinstance(safety, CryptoPairSafetyConfig):
             raise CryptoPairPaperConfigError(
                 "safety must be a CryptoPairSafetyConfig"
+            )
+        if not isinstance(momentum, MomentumConfig):
+            raise CryptoPairPaperConfigError(
+                "momentum must be a MomentumConfig"
             )
 
         max_capital_per_market_usdc = _coerce_decimal(
@@ -356,6 +452,7 @@ class CryptoPairPaperModeConfig:
         object.__setattr__(self, "filters", filters)
         object.__setattr__(self, "fees", fees)
         object.__setattr__(self, "safety", safety)
+        object.__setattr__(self, "momentum", momentum)
         object.__setattr__(
             self,
             "max_capital_per_market_usdc",
@@ -384,6 +481,7 @@ class CryptoPairPaperModeConfig:
             "min_projected_profit": str(self.min_projected_profit),
             "fees": self.fees.to_dict(),
             "safety": self.safety.to_dict(),
+            "momentum": self.momentum.to_dict(),
         }
 
     @classmethod
@@ -404,4 +502,5 @@ class CryptoPairPaperModeConfig:
             min_projected_profit=data.get("min_projected_profit", "0.03"),
             fees=CryptoPairFeeAssumptionConfig.from_dict(data.get("fees")),
             safety=CryptoPairSafetyConfig.from_dict(data.get("safety")),
+            momentum=MomentumConfig.from_dict(data.get("momentum")),
         )
