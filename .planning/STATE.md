@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-052: live terminal dashboard added to paper mode runner (startup header, per-cycle market lines in verbose mode, stats every 10s, highlighted signals/intents) and duration timer bug fixed (wall-clock elapsed check); 2775 tests passing
+Last activity: 2026-03-29 — quick-053: resolved Phase 1A authority drift in CLAUDE.md, ROADMAP.md, CURRENT_STATE.md; directional momentum strategy now canonical in all docs; live deployment blockers documented; READY TO EXECUTE claim removed; 2775 tests passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -118,3 +118,4 @@ Last activity: 2026-03-29 — quick-052: live terminal dashboard added to paper 
 | 050 | Tape corpus integrity audit -- structural, semantic, cadence; verdict SAFE_TO_USE or CORPUS_REPAIR_NEEDED: 314 tapes scanned (gold=8, silver=118, shadow=181, crypto_new=7); 0 YES/NO token-ID mapping bugs; symmetric-BBO explains Phase 1A identical-values observation; cadence confirmed event-driven; tools/gates/tape_integrity_audit.py written; verdict SAFE_TO_USE | 2026-03-29 | 0ec1d55 | [50-tape-corpus-integrity-audit-structural-s](./quick/50-tape-corpus-integrity-audit-structural-s/) |
 | 051 | cycle_interval_seconds default 5→0.5 (float): paper_runner.py type+default+from_dict, CLI argparse type=float+help, tape_integrity_audit _get_runner_scan_cadence() updated to match float; asyncio.sleep path cast-free confirmed; 2767 passing | 2026-03-29 | e95565d | [51-change-cycle-interval-seconds-default-fr](./quick/51-change-cycle-interval-seconds-default-fr/) |
 | 052 | Live terminal dashboard + duration bug fix: startup header, per-cycle market lines (verbose mode), stats every 10s, highlighted signals/intents (unconditional); duration timer fixed to use wall-clock elapsed check instead of pre-computed cycle count; --verbose CLI flag; 8 new tests; 2775 passing | 2026-03-29 | c6f3909 | [52-add-live-terminal-dashboard-to-crypto-pa](./quick/52-add-live-terminal-dashboard-to-crypto-pa/) |
+| 053 | Phase 1A authority drift resolution: CLAUDE.md Track 2 goal updated to directional momentum (pair-cost thesis marked superseded); ROADMAP.md Phase 1A row corrected from 'Not yet started' to substantially built with pivot history; CURRENT_STATE.md READY TO EXECUTE replaced with BLOCKED + 5 deployment blockers listed; dev log with 6-row conflict matrix written; 2775 passing | 2026-03-29 | 9384efb | [53-resolve-phase-1a-authority-drift-in-docs](./quick/53-resolve-phase-1a-authority-drift-in-docs/) |
