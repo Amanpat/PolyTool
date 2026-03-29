@@ -616,9 +616,19 @@ benchmark_v1 files (tape_manifest, lock.json, audit.json) are unchanged.
 Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
 2026-03-23. The primary deliverables:
 
+**Strategy pivot history:** Original pair-cost accumulation thesis (quick-019)
+was replaced by per-leg target_bid gate in quick-046, then fully rebuilt as
+directional momentum strategy (quick-049) based on gabagool22 wallet analysis
+(quick-048). The accumulation_engine.py module now implements MomentumConfig and
+evaluate_directional_entry() rather than a pair-cost ceiling check.
+
 - **Accumulation engine** (`packages/polymarket/crypto_pairs/accumulation_engine.py`):
-  YES + NO pair accumulation below pair-cost ceiling. Kill switch, daily loss
-  cap, max open pairs, max unpaired exposure window.
+  Originally: YES + NO pair accumulation below pair-cost ceiling (pre-quick-046
+  behavior, now superseded). Current strategy: directional momentum entries via
+  evaluate_directional_entry() (quick-049). Favorite leg fills at ask <=
+  max_favorite_entry (0.75); hedge leg fills only if ask <= max_hedge_price (0.20).
+  Momentum trigger: 0.3% price move in 30s Coinbase reference window.
+  Kill switch, daily loss cap, max open pairs, max unpaired exposure window remain.
 - **Reference feed** (`packages/polymarket/crypto_pairs/reference_feed.py`):
   BTC/ETH/SOL price feed with injectable provider selection. Supports Binance
   WebSocket (`BinanceFeed`), Coinbase WebSocket (`CoinbaseFeed`), and automatic
@@ -656,14 +666,40 @@ Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
   `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
   `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
 
-**Track 2 paper soak: READY TO EXECUTE** (quick-047 audit, 2026-03-29).
+**Track 2 paper soak: BLOCKED — awaiting active markets and full soak**
+(status as of 2026-03-29, updated quick-053).
 
-BTC/ETH/SOL 5m markets confirmed active 2026-03-29 (quick-045). Quick-046
-strategy pivot (edge_buffer_per_leg gate) is in place as of 2026-03-29 with
-2755 tests passing. No code blockers.
+Quick-047 audit declared the pre-quick-049 strategy ready for paper soak.
+That status is superseded by the quick-049 pivot to directional momentum. The 10-min paper soak run in quick-049 returned 0
+intents because no active BTC/ETH/SOL 5m/15m markets exist on Polymarket as of
+2026-03-29 and static market prices did not clear the 0.3% momentum threshold.
+A full 24h soak with real momentum signals has not been run and the rubric has
+not been applied.
+
+BTC/ETH/SOL 5m markets were briefly confirmed active 2026-03-29 during Gate 2
+capture (quick-045); use `python -m polytool crypto-pair-watch --one-shot` to
+verify current availability before any run.
 
 Coinbase feed confirmed working (quick-023/026). Binance is geo-restricted per
 quick-022; use `--reference-feed-provider coinbase` for this machine.
+
+**Live deployment blockers (as of 2026-03-29):**
+1. No active BTC/ETH/SOL 5m/15m markets on Polymarket. Use
+   `python -m polytool crypto-pair-watch --one-shot` to check.
+2. No full paper soak with real momentum signals. Must complete a 24h soak
+   on a live market and pass the promote rubric
+   (`docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`) before considering live.
+3. Oracle mismatch concern: Polymarket's bracket resolution uses the Chainlink
+   oracle (on-chain), while the reference feed uses Coinbase WebSocket prices.
+   Divergence between the two sources on short 5m brackets has not been measured
+   or validated.
+4. Deployment environment: home internet latency assumptions from earlier
+   development are not confirmed adequate for maker-fill timing. EU VPS is
+   the likely deployment target; infra not yet set up.
+5. In-memory cooldown: `_entered_brackets` resets on runner restart.
+   Acceptable for paper mode; must be reviewed before live capital.
+
+(Command valid once blockers above are cleared.)
 
 Definitive 24h paper soak launch command:
 
