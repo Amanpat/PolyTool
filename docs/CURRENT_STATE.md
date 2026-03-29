@@ -90,6 +90,10 @@ benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
 
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
+- **Tape integrity audit** (quick-050, 2026-03-29): All 4 tape roots scanned
+  (314 tapes: gold=8, silver=118, shadow=181, crypto_new=7). Verdict: **SAFE_TO_USE**.
+  Zero YES/NO token-ID mapping bugs, zero quote-stream duplicates, zero structural
+  corruption. Details: `artifacts/debug/tape_integrity_audit_report.md`.
 - **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
   files directly — no ClickHouse import step required. Silver tape reconstruction
   from those files + 2-min price history → Gate 2 scenario sweep. ClickHouse
