@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 - Completed quick-043: Benchmark policy decision -- WAIT_FOR_CRYPTO. Wrote ADR (docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md), updated CURRENT_STATE.md next-step with escalation deadline 2026-04-12, added CLAUDE.md benchmark policy lock guardrail. No code/manifest changes. Policy: crypto absence is a scheduling gap not a regime change; benchmark_v2 requires operator authorization.
+Last activity: 2026-03-29 — quick-044 fix crypto pair bot price reading bug
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -104,3 +104,4 @@ Last activity: 2026-03-29 - Completed quick-043: Benchmark policy decision -- WA
 | 041 | Gold capture wave 2 for Phase 1B Gate 2: ~71 additional shadow sessions run; corpus advanced 27/50 -> 40/50 (+13: sports 15/15, politics 10/10, new_market 5/5 all complete); only crypto=10 remains (market availability blocked); decision MORE_GOLD_NEEDED | 2026-03-29 | 39d266f | [41-gold-capture-wave-2-sports-politics-new-](./quick/41-gold-capture-wave-2-sports-politics-new-/) |
 | 042 | Fix market_discovery.py to find active BTC/ETH/SOL 5m updown markets: targeted slug discovery via _generate_5m_slugs() + discover_updown_5m_markets() using fetch_markets_filtered(slugs=...); merged into discover_crypto_pair_markets() with use_targeted_for_5m=True default; 15 new offline tests; 2749 passing | 2026-03-29 | 4dabce0 | [42-fix-market-discovery-py-to-find-active-b](./quick/42-fix-market-discovery-py-to-find-active-b/) |
 | 043 | Benchmark policy decision -- WAIT_FOR_CRYPTO: wrote ADR (docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md), updated CURRENT_STATE.md next-step with escalation deadline 2026-04-12, added CLAUDE.md benchmark policy lock guardrail. No code/manifest changes. Policy: crypto absence is scheduling gap not regime change; benchmark_v2 requires operator authorization | 2026-03-29 | b72f37a | [43-benchmark-policy-decision-crypto-unavail](./quick/43-benchmark-policy-decision-crypto-unavail/) |
+| 044 | Fix crypto pair bot price reading bug: asks[0] was returning worst ask ($0.99) since Polymarket sorts asks DESC; fix uses min() across all ask levels; added DEBUG log in opportunity_scan.py; 4 new tests in test_clob.py; 2753 passing | 2026-03-29 | b257165 | [44-fix-crypto-pair-bot-price-reading-bug-ye](./quick/44-fix-crypto-pair-bot-price-reading-bug-ye/) |
