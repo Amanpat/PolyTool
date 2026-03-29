@@ -64,12 +64,25 @@ The repo's current execution status is:
   services under isolated profiles; 6 new offline tests; 2734 passing.
   See dev log `docs/dev_logs/2026-03-28_crypto_pair_live_docker.md`.
 
-**Next executable step**: Capture remaining 10 crypto Gold tapes (bucket blocked on market
-availability). Use `python -m polytool crypto-pair-watch --watch` to poll for BTC/ETH/SOL
-5m/15m binary pair markets. Once active, capture 12-15 sessions per
-`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md` and verify with
-`python tools/gates/capture_status.py`. Gate 2 unblocks when corpus_audit exits 0 (50/50).
-When ready: `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/gate2_sweep`.
+**Next executable step**: Wait for crypto markets — POLICY = WAIT_FOR_CRYPTO (see
+`docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md`). The crypto=10 bucket
+is blocked because Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of
+2026-03-29. All other buckets are complete (40/50).
+
+Poll for market return:
+```
+python -m polytool crypto-pair-watch --one-shot  # check once
+python -m polytool crypto-pair-watch --watch     # poll continuously
+```
+When markets appear, capture 12-15 shadow sessions (per
+`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`) and verify with
+`python tools/gates/capture_status.py`. Gate 2 unblocks when `corpus_audit.py` exits 0 (50/50).
+Gate 2 command (when ready):
+`python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/gate2_sweep`
+
+**Escalation deadline:** If crypto markets remain absent by 2026-04-12 (14 days), the operator
+must review the ADR escalation criteria for benchmark_v2. No AI agent should autonomously
+trigger benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
 
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
 - Gate 4: PASSED
