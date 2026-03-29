@@ -122,6 +122,44 @@ class StaticFeed:
         return self.snapshot
 
 
+class MomentumFeed:
+    """Feed that simulates a rising price to trigger an UP momentum signal.
+
+    Returns the base snapshot price for the first ``history_depth`` calls,
+    then returns a price that is ``rise_pct`` above the base. After
+    ``history_depth + 1`` calls the runner's internal price history deque
+    contains a move larger than the default 0.3% threshold.
+    """
+
+    def __init__(
+        self,
+        base_snapshot: ReferencePriceSnapshot,
+        *,
+        rise_pct: float = 0.01,
+        history_depth: int = 2,
+    ) -> None:
+        self._base = base_snapshot
+        self._rise_pct = rise_pct
+        self._history_depth = history_depth
+        self._call_count: int = 0
+
+    def connect(self) -> None:
+        return None
+
+    def disconnect(self) -> None:
+        return None
+
+    def get_snapshot(self, symbol: str) -> ReferencePriceSnapshot:
+        import dataclasses
+
+        self._call_count += 1
+        if self._call_count <= self._history_depth:
+            price = self._base.price
+        else:
+            price = self._base.price * (1.0 + self._rise_pct)
+        return dataclasses.replace(self._base, price=price)
+
+
 class _CyclingStaleFeed:
     """Returns fresh snapshot on first call, stale on subsequent calls."""
 
@@ -421,13 +459,19 @@ def test_feed_state_transition_emitted(tmp_path: Path) -> None:
 
 
 def test_deterministic_event_count(tmp_path: Path) -> None:
-    """One market, one intent run produces the exact expected event mix."""
+    """One market, 3-cycle run with MomentumFeed produces the exact expected event mix.
+
+    Cycles 1-2 seed price history at base price (NONE signal).
+    Cycle 3: +1% rise clears the 0.3% threshold -> UP signal -> intent generated.
+    yes_ask=0.72 < max_favorite_entry=0.75 -> favorite=YES fills.
+    no_ask=0.18 < max_hedge_price=0.20 -> hedge=NO fills (paired).
+    """
     market = _make_mock_market()
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.44),
-            "btc-5m-up-no": (None, 0.44),
+            "btc-5m-up-yes": (None, 0.72),
+            "btc-5m-up-no": (None, 0.18),
         }
     )
 
@@ -435,14 +479,16 @@ def test_deterministic_event_count(tmp_path: Path) -> None:
     settings = build_runner_settings(
         artifact_base_dir=tmp_path,
         duration_seconds=0,
-        cycle_limit=1,
+        cycle_limit=3,
+        config_payload={"paper_config": {"momentum": {"momentum_threshold": 0.003}}},
     )
     runner = CryptoPairPaperRunner(
         settings,
         gamma_client=gamma,
         clob_client=clob,
-        reference_feed=StaticFeed(_fresh_snapshot()),
+        reference_feed=MomentumFeed(_fresh_snapshot(), rise_pct=0.01, history_depth=2),
         sink=capture,
+        sleep_fn=lambda _: None,
     )
     runner.run()
 
@@ -450,13 +496,13 @@ def test_deterministic_event_count(tmp_path: Path) -> None:
     for event in capture.captured:
         by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
 
-    assert by_type.get(EVENT_TYPE_OPPORTUNITY_OBSERVED, 0) == 1
+    assert by_type.get(EVENT_TYPE_OPPORTUNITY_OBSERVED, 0) == 3
     assert by_type.get(EVENT_TYPE_INTENT_GENERATED, 0) == 1
     assert by_type.get(EVENT_TYPE_SIMULATED_FILL_RECORDED, 0) == 2
     assert by_type.get(EVENT_TYPE_PARTIAL_EXPOSURE_UPDATED, 0) == 1
     assert by_type.get(EVENT_TYPE_RUN_SUMMARY, 0) == 1
     assert by_type.get(EVENT_TYPE_SAFETY_STATE_TRANSITION, 0) == 0
-    assert sum(by_type.values()) == 6
+    assert sum(by_type.values()) == 8
 
 
 # ---------------------------------------------------------------------------
@@ -498,35 +544,44 @@ def test_batch_mode_default_unchanged(tmp_path: Path) -> None:
 
 
 def test_streaming_mode_emits_incrementally(tmp_path: Path) -> None:
-    """In streaming mode write_event() is called for each in-loop event."""
+    """In streaming mode write_event() is called for each in-loop event.
+
+    Uses 3 cycles + MomentumFeed so the UP signal fires on cycle 3:
+    - Cycles 1-2: seed price history at base price (NONE signal) -> 1 obs each
+    - Cycle 3: +1% rise clears 0.3% threshold -> UP -> intent + 2 fills + exposure
+    Total incremental write_event calls: 3 obs + 1 intent + 2 fills + 1 exposure = 7 >= 5.
+    """
     spy = _SpySink()
     market = _make_mock_market()
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.44),
-            "btc-5m-up-no": (None, 0.44),
+            "btc-5m-up-yes": (None, 0.72),
+            "btc-5m-up-no": (None, 0.18),
         }
     )
 
     settings = build_runner_settings(
         artifact_base_dir=tmp_path,
         duration_seconds=0,
-        cycle_limit=1,
-        config_payload={"sink_flush_mode": "streaming"},
+        cycle_limit=3,
+        config_payload={
+            "sink_flush_mode": "streaming",
+            "paper_config": {"momentum": {"momentum_threshold": 0.003}},
+        },
     )
     runner = CryptoPairPaperRunner(
         settings,
         gamma_client=gamma,
         clob_client=clob,
-        reference_feed=StaticFeed(_fresh_snapshot()),
+        reference_feed=MomentumFeed(_fresh_snapshot(), rise_pct=0.01, history_depth=2),
         sink=spy,
         sleep_fn=lambda _: None,
     )
     manifest = runner.run()
 
     assert manifest["stopped_reason"] == "completed"
-    # observation + intent + 2 fills + exposure = 5 minimum
+    # 3 obs + 1 intent + 2 fills + 1 exposure = 7 incremental events
     assert len(spy.write_event_calls) >= 5, (
         f"Expected >= 5 incremental write_event calls in streaming mode, "
         f"got {len(spy.write_event_calls)}"
