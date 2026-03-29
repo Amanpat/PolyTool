@@ -226,7 +226,14 @@ class ClobClient:
         asks = book.get("asks") or []
 
         best_bid = _extract_price(bids[0]) if bids else None
-        best_ask = _extract_price(asks[0]) if asks else None
+        best_ask = (
+            min(
+                (p for a in asks if (p := _extract_price(a)) is not None),
+                default=None,
+            )
+            if asks
+            else None
+        )
 
         return OrderBookTop(
             token_id=token_id,

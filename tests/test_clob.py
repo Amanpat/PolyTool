@@ -77,3 +77,66 @@ def test_get_prices_history_rejects_half_bounded_window():
             end_ts=None,
             fidelity=1,
         )
+
+
+class TestGetBestBidAsk:
+    """Unit tests for ClobClient.get_best_bid_ask() covering ask price ordering."""
+
+    def test_asks_sorted_desc_returns_min_ask(self, monkeypatch):
+        """Asks sorted DESC (worst first) — min() must pick the cheapest level."""
+        mock_book = {
+            "asks": [{"price": "0.99"}, {"price": "0.55"}, {"price": "0.54"}],
+            "bids": [{"price": "0.52"}, {"price": "0.50"}],
+        }
+        clob = ClobClient()
+        monkeypatch.setattr(clob, "fetch_book", lambda token_id: mock_book)
+
+        result = clob.get_best_bid_ask("tok-abc")
+
+        assert result is not None
+        assert result.best_ask == pytest.approx(0.54)
+        assert result.best_bid == pytest.approx(0.52)
+
+    def test_asks_sorted_asc_returns_min_ask(self, monkeypatch):
+        """Asks sorted ASC — min() still returns correct cheapest price."""
+        mock_book = {
+            "asks": [{"price": "0.54"}, {"price": "0.55"}, {"price": "0.99"}],
+            "bids": [{"price": "0.52"}],
+        }
+        clob = ClobClient()
+        monkeypatch.setattr(clob, "fetch_book", lambda token_id: mock_book)
+
+        result = clob.get_best_bid_ask("tok-def")
+
+        assert result is not None
+        assert result.best_ask == pytest.approx(0.54)
+
+    def test_empty_asks(self, monkeypatch):
+        """Empty asks list yields best_ask=None; bids still resolve."""
+        mock_book = {
+            "asks": [],
+            "bids": [{"price": "0.50"}],
+        }
+        clob = ClobClient()
+        monkeypatch.setattr(clob, "fetch_book", lambda token_id: mock_book)
+
+        result = clob.get_best_bid_ask("tok-ghi")
+
+        assert result is not None
+        assert result.best_ask is None
+        assert result.best_bid == pytest.approx(0.50)
+
+    def test_empty_bids(self, monkeypatch):
+        """Empty bids list yields best_bid=None; asks still resolve."""
+        mock_book = {
+            "asks": [{"price": "0.60"}],
+            "bids": [],
+        }
+        clob = ClobClient()
+        monkeypatch.setattr(clob, "fetch_book", lambda token_id: mock_book)
+
+        result = clob.get_best_bid_ask("tok-jkl")
+
+        assert result is not None
+        assert result.best_ask == pytest.approx(0.60)
+        assert result.best_bid is None

@@ -10,7 +10,10 @@ All computation is DRY-RUN — no orders are submitted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from .market_discovery import CryptoPairMarket
 
@@ -109,6 +112,13 @@ def compute_pair_opportunity(
     opp.yes_ask = yes_top.best_ask
     opp.no_ask = no_top.best_ask
     opp.paired_cost = round(opp.yes_ask + opp.no_ask, 6)
+    logger.debug(
+        "pair_price_check market=%s yes_ask=%.4f no_ask=%.4f sum=%.4f",
+        market.slug,
+        opp.yes_ask,
+        opp.no_ask,
+        opp.paired_cost,
+    )
     opp.gross_edge = round(PAIR_COST_THRESHOLD - opp.paired_cost, 6)
     opp.has_opportunity = opp.gross_edge > 0.0
 
