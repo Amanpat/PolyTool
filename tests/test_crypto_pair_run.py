@@ -12,8 +12,12 @@ import packages.polymarket.crypto_pairs.paper_runner as paper_runner_module
 from packages.polymarket.clob import OrderBookTop
 from packages.polymarket.crypto_pairs.paper_runner import (
     CryptoPairPaperRunner,
+    _dashboard_header,
+    _dashboard_market_line,
+    _dashboard_stats_line,
     build_runner_settings,
 )
+from packages.polymarket.crypto_pairs.opportunity_scan import PairOpportunity
 from packages.polymarket.crypto_pairs.position_store import CryptoPairPositionStore
 from packages.polymarket.crypto_pairs.reference_feed import (
     FeedConnectionState,
@@ -461,3 +465,186 @@ def test_run_rejects_unsupported_reference_feed_provider(tmp_path: Path) -> None
             cycle_limit=1,
             reference_feed_provider="kraken",
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 1 TDD tests — duration bug fix + dashboard module
+# ---------------------------------------------------------------------------
+
+
+class _AdvancingClock:
+    """Each call to __call__() advances the clock by ``step_seconds``."""
+
+    def __init__(self, start: datetime, step_seconds: float) -> None:
+        self._current = start
+        self._step = timedelta(seconds=step_seconds)
+
+    def __call__(self) -> datetime:
+        t = self._current
+        self._current += self._step
+        return t
+
+
+def test_duration_stops_on_elapsed_time(tmp_path: Path) -> None:
+    """Runner stops when wall-clock elapsed >= duration_seconds, even when cycle_limit > remaining."""
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+    start = datetime(2026, 3, 29, 20, 0, 0, tzinfo=timezone.utc)
+    # Each now_fn() call advances 2 seconds; duration_seconds=3 → stops after 2 cycles
+    # (elapsed reaches 4s after cycle 2 sleep check)
+    advancing_clock = _AdvancingClock(start, step_seconds=2.0)
+
+    settings = build_runner_settings(
+        config_payload={"cycle_interval_seconds": 0.5},
+        artifact_base_dir=tmp_path,
+        duration_seconds=3,
+        cycle_limit=20,
+    )
+    store = CryptoPairPositionStore(
+        mode="paper",
+        artifact_base_dir=tmp_path,
+        started_at=start,
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        store=store,
+        now_fn=advancing_clock,
+        sleep_fn=lambda _: None,
+    )
+
+    manifest = runner.run()
+    assert manifest["runner_result"]["cycles_completed"] < 20
+
+
+def test_duration_runs_all_cycles_when_fast(tmp_path: Path) -> None:
+    """Runner runs all 5 cycles when each cycle is 1s and duration is 30s."""
+    market = _make_mock_market()
+    gamma = _make_gamma_client([market])
+    clob = _make_clob_client(
+        {
+            "btc-5m-up-yes": (None, 0.47),
+            "btc-5m-up-no": (None, 0.48),
+        }
+    )
+    start = datetime(2026, 3, 29, 20, 0, 0, tzinfo=timezone.utc)
+    advancing_clock = _AdvancingClock(start, step_seconds=1.0)
+
+    settings = build_runner_settings(
+        config_payload={"cycle_interval_seconds": 0.5},
+        artifact_base_dir=tmp_path,
+        duration_seconds=30,
+        cycle_limit=5,
+    )
+    store = CryptoPairPositionStore(
+        mode="paper",
+        artifact_base_dir=tmp_path,
+        started_at=start,
+    )
+    runner = CryptoPairPaperRunner(
+        settings,
+        gamma_client=gamma,
+        clob_client=clob,
+        reference_feed=StaticFeed(_fresh_snapshot()),
+        store=store,
+        now_fn=advancing_clock,
+        sleep_fn=lambda _: None,
+    )
+
+    manifest = runner.run()
+    assert manifest["runner_result"]["cycles_completed"] == 5
+
+
+def _make_opportunity(
+    slug: str = "btc-5m-1234",
+    symbol: str = "BTC",
+    yes_ask: Optional[float] = 0.55,
+    no_ask: Optional[float] = 0.42,
+) -> PairOpportunity:
+    return PairOpportunity(
+        slug=slug,
+        symbol=symbol,
+        duration_min=5,
+        question=f"Will {symbol} be higher in 5 minutes?",
+        condition_id=f"cond-{slug}",
+        yes_token_id=f"{slug}-yes",
+        no_token_id=f"{slug}-no",
+        yes_ask=yes_ask,
+        no_ask=no_ask,
+        book_status="ok",
+        assumptions=[],
+    )
+
+
+def test_dashboard_header_format() -> None:
+    settings = build_runner_settings(
+        config_payload={},
+        duration_seconds=30,
+    )
+    header = _dashboard_header(settings, market_count=12, started_at_str="2026-03-29 20:29:33")
+    assert "=== Crypto Pair Bot" in header
+    assert "Markets found: 12" in header
+    assert "Started: 2026-03-29 20:29:33" in header
+    assert "\u2500" * 10 in header  # separator line present
+
+
+def test_dashboard_market_line_no_signal() -> None:
+    opp = _make_opportunity()
+    line = _dashboard_market_line(
+        ts="20:30:05",
+        opportunity=opp,
+        ref_price=66641.0,
+        price_change_pct=-0.0005,
+        signal_direction="NONE",
+        action="no_action",
+    )
+    assert "Signal: NONE" in line
+    assert ">>>" not in line
+
+
+def test_dashboard_market_line_signal() -> None:
+    opp = _make_opportunity()
+    line = _dashboard_market_line(
+        ts="20:30:05",
+        opportunity=opp,
+        ref_price=66641.0,
+        price_change_pct=0.005,
+        signal_direction="UP",
+        action="accumulate",
+    )
+    assert ">>> SIGNAL: UP" in line
+    assert "BUY YES" in line
+
+
+def test_dashboard_stats_line() -> None:
+    line = _dashboard_stats_line(
+        cycle=120,
+        observations=2848,
+        signals=0,
+        intents=0,
+        elapsed_seconds=150,
+        duration_seconds=900,
+    )
+    assert "Cycles: 120" in line
+    assert "Observations: 2848" in line
+    assert "Remaining: 12m 30s" in line
+
+
+def test_verbose_flag_parsed() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["--verbose"])
+    assert args.verbose is True
+
+
+def test_verbose_flag_default_false() -> None:
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.verbose is False

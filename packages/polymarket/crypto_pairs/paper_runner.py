@@ -561,6 +561,105 @@ def format_elapsed_runtime(elapsed_seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+def _dashboard_header(
+    settings: "CryptoPairRunnerSettings",
+    market_count: int,
+    started_at_str: str,
+) -> str:
+    symbols = sorted(set(settings.symbol_filters) if settings.symbol_filters else {"BTC", "ETH", "SOL"})
+    cycle_ms = settings.cycle_interval_seconds
+    threshold_pct: str = "?"
+    try:
+        threshold_pct = f"{settings.paper_config.momentum.momentum_threshold_pct * 100:.1f}%"
+    except Exception:
+        pass
+    lines = [
+        "=== Crypto Pair Bot — Paper Mode ===",
+        f"Symbols: {', '.join(symbols)} | Feed: {settings.reference_feed_provider} | Cycle: {cycle_ms}s | Threshold: {threshold_pct}",
+        f"Markets found: {market_count} | Started: {started_at_str}",
+        "\u2500" * 60,
+    ]
+    return "\n".join(lines)
+
+
+def _dashboard_market_line(
+    *,
+    ts: str,
+    opportunity: "PairOpportunity",
+    ref_price: Optional[float],
+    price_change_pct: Optional[float],
+    signal_direction: str,
+    action: str,
+) -> str:
+    yes_str = f"${opportunity.yes_ask:.2f}" if opportunity.yes_ask is not None else "N/A"
+    no_str = f"${opportunity.no_ask:.2f}" if opportunity.no_ask is not None else "N/A"
+    pair_str = "N/A"
+    if opportunity.yes_ask is not None and opportunity.no_ask is not None:
+        pair_str = f"${opportunity.yes_ask + opportunity.no_ask:.2f}"
+    ref_str = "N/A"
+    if ref_price is not None:
+        ref_str = f"${ref_price:,.0f}"
+    chg_str = "N/A"
+    if price_change_pct is not None:
+        sign = "+" if price_change_pct >= 0 else ""
+        chg_str = f"{sign}{price_change_pct * 100:.2f}%"
+    label = opportunity.slug
+    base = (
+        f"[{ts}] {label} | YES {yes_str} NO {no_str} | Pair {pair_str} | "
+        f"Ref {ref_str} | Chg {chg_str}"
+    )
+    if action == ACTION_ACCUMULATE and signal_direction != "NONE":
+        fav_side = "YES" if signal_direction == "UP" else "NO"
+        fav_price = opportunity.yes_ask if signal_direction == "UP" else opportunity.no_ask
+        fav_str = f"${fav_price:.2f}" if fav_price is not None else "N/A"
+        return f"{base} | >>> SIGNAL: {signal_direction} - BUY {fav_side} @ {fav_str} <<<"
+    return f"{base} | Signal: {signal_direction if signal_direction else 'NONE'}"
+
+
+def _dashboard_intent_line(*, ts: str, intent: Any) -> str:
+    fav_leg = getattr(intent, "favorite_leg", None) or "?"
+    hedge_leg = getattr(intent, "hedge_leg", None) or "?"
+    if fav_leg == LEG_YES:
+        fav_price = intent.intended_yes_price
+        hedge_price = intent.intended_no_price
+    else:
+        fav_price = intent.intended_no_price
+        hedge_price = intent.intended_yes_price
+    pair_cost = float(fav_price) + float(hedge_price)
+    fav_notional = float(fav_price) * float(intent.pair_size)
+    hedge_notional = float(hedge_price) * float(intent.pair_size)
+    return (
+        f"[{ts}] *** INTENT: {intent.slug} | "
+        f"FAV: {fav_leg} @ ${float(fav_price):.2f} (${fav_notional:.0f}) | "
+        f"HEDGE: {hedge_leg} @ ${float(hedge_price):.2f} (${hedge_notional:.0f}) | "
+        f"Pair cost: ${pair_cost:.2f} ***"
+    )
+
+
+def _fmt_duration(secs: int) -> str:
+    m, s = divmod(max(0, secs), 60)
+    if m:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
+def _dashboard_stats_line(
+    *,
+    cycle: int,
+    observations: int,
+    signals: int,
+    intents: int,
+    elapsed_seconds: int,
+    duration_seconds: int,
+) -> str:
+    remaining = max(0, duration_seconds - elapsed_seconds)
+    return (
+        f"[STATS] Cycles: {cycle} | Observations: {observations} | "
+        f"Signals: {signals} | Intents: {intents} | "
+        f"Duration: {_fmt_duration(elapsed_seconds)} | Remaining: {_fmt_duration(remaining)}"
+    )
+
+
 class CryptoPairPaperRunner:
     """Paper-mode crypto-pair runtime shell."""
 
@@ -580,6 +679,7 @@ class CryptoPairPaperRunner:
         discovery_fn=discover_crypto_pair_markets,
         scan_fn=scan_opportunities,
         rank_fn=rank_opportunities,
+        verbose: bool = False,
     ) -> None:
         self.settings = settings
         self.gamma_client = gamma_client
@@ -617,6 +717,11 @@ class CryptoPairPaperRunner:
             if settings.heartbeat_interval_seconds > 0
             else None
         )
+        # Dashboard state
+        self._verbose = verbose
+        self._dashboard_signal_count: int = 0
+        self._dashboard_last_stats_at: int = 0
+        self._dashboard_markets_found: int = 0
 
     def run(self) -> dict[str, Any]:
         self.store.write_config_snapshot(
@@ -641,6 +746,13 @@ class CryptoPairPaperRunner:
         if self._owns_reference_feed:
             self.reference_feed.connect()
             self.store.record_runtime_event("reference_feed_connect_called")
+
+        # Print startup dashboard header
+        started_at_str = iso_utc(self.store.started_at)[:19].replace("T", " ")
+        print(
+            _dashboard_header(self.settings, market_count=0, started_at_str=started_at_str),
+            flush=True,
+        )
 
         stopped_reason = _STOPPED_REASON_COMPLETED
         completed_cycles = 0
@@ -668,6 +780,7 @@ class CryptoPairPaperRunner:
                     break
 
                 pair_markets = self.discovery_fn(gamma_client=self.gamma_client)
+                self._dashboard_markets_found = len(pair_markets)
                 opportunities = self.scan_fn(pair_markets, clob_client=self.clob_client)
                 ranked = self.rank_fn(apply_market_filters(opportunities, self.settings))
 
@@ -679,6 +792,7 @@ class CryptoPairPaperRunner:
                     markets_considered=len(ranked),
                 )
 
+                self._dashboard_cycle_market_count = 0
                 for opportunity in ranked:
                     self._process_opportunity(opportunity, cycle=completed_cycles)
 
@@ -692,8 +806,29 @@ class CryptoPairPaperRunner:
                 )
                 self._emit_heartbeat_if_due(cycle=completed_cycles)
 
+                # Stats line every 10 seconds
+                _now_elapsed = int((self.now_fn() - self.store.started_at).total_seconds())
+                if _now_elapsed - self._dashboard_last_stats_at >= 10:
+                    self._dashboard_last_stats_at = _now_elapsed
+                    print(
+                        _dashboard_stats_line(
+                            cycle=completed_cycles,
+                            observations=len(self.store.observations),
+                            signals=self._dashboard_signal_count,
+                            intents=len(self.store.intents),
+                            elapsed_seconds=_now_elapsed,
+                            duration_seconds=self.settings.duration_seconds,
+                        ),
+                        flush=True,
+                    )
+
                 if cycle_index < total_cycles - 1:
                     self.sleep_fn(self.settings.cycle_interval_seconds)
+
+                # Wall-clock guard: stop if elapsed >= duration_seconds regardless of cycle count
+                _elapsed = (self.now_fn() - self.store.started_at).total_seconds()
+                if self.settings.duration_seconds > 0 and _elapsed >= self.settings.duration_seconds:
+                    break
         except KeyboardInterrupt:
             stopped_reason = _STOPPED_REASON_OPERATOR_INTERRUPT
             self.store.record_runtime_event(
@@ -973,6 +1108,32 @@ class CryptoPairPaperRunner:
         )
         accumulation = evaluate_directional_entry(state, self.settings.paper_config)
 
+        # Dashboard output — capture rationale before enrichment/early returns
+        _rationale = accumulation.rationale
+        _signal_dir = _rationale.get("signal_direction", "NONE") or "NONE"
+        _ref_price = _rationale.get("reference_price")
+        _price_chg = _rationale.get("price_change_pct")
+        _is_signal = accumulation.action == ACTION_ACCUMULATE and _signal_dir != "NONE"
+        if _is_signal:
+            self._dashboard_signal_count += 1
+        _ts = iso_utc(self.now_fn())[11:19]  # HH:MM:SS portion
+        # Limit verbose output to 8 unique markets per cycle
+        _show_verbose = self._verbose and getattr(self, "_dashboard_cycle_market_count", 0) < 8
+        if _show_verbose:
+            self._dashboard_cycle_market_count = getattr(self, "_dashboard_cycle_market_count", 0) + 1
+        if _show_verbose or _is_signal:
+            print(
+                _dashboard_market_line(
+                    ts=_ts,
+                    opportunity=opportunity,
+                    ref_price=_ref_price,
+                    price_change_pct=_price_chg,
+                    signal_direction=_signal_dir,
+                    action=accumulation.action,
+                ),
+                flush=True,
+            )
+
         # Enrich observation with momentum signal fields from rationale
         rationale = accumulation.rationale
         if hasattr(observation, "signal_direction"):
@@ -1100,6 +1261,11 @@ class CryptoPairPaperRunner:
         self._entered_brackets.add(state.market_id)
 
         self.store.record_intent(intent)
+        # Intent line always prints (intents are always important)
+        print(
+            _dashboard_intent_line(ts=_ts, intent=intent),
+            flush=True,
+        )
         if self.settings.sink_flush_mode == "streaming":
             _intent_evt = IntentGeneratedEvent.from_intent(intent, mode="paper")
             _intent_result = self.sink.write_event(_intent_evt)
