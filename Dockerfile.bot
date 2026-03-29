@@ -14,15 +14,14 @@ RUN groupadd -r botuser && useradd -r -g botuser botuser
 
 WORKDIR /app
 
-# Install dependencies first (layer caching)
+# Install py-clob-client first (cached layer — no source code needed)
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -e ".[live,simtrader]" \
     && pip install --no-cache-dir py-clob-client
 
-# Copy full project and finalize install
+# Copy full project, then install polytool with all deps
 COPY . .
-RUN pip install --no-cache-dir -e ".[live,simtrader]"
+RUN pip install --no-cache-dir ".[live,simtrader]"
 
 RUN chown -R botuser:botuser /app
 USER botuser

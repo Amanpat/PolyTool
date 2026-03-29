@@ -165,16 +165,14 @@ services:
       "python", "-m", "polytool", "crypto-pair-run",
       "--live",
       "--confirm", "CONFIRM",
-      "--duration-hours", "24",
+      "--duration-hours", "8",
       "--cycle-interval-seconds", "30",
       "--output", "/data/live",
       "--kill-switch", "/data/live/KILL_SWITCH"
     ]
     volumes:
       - ./docker_data/live:/data/live
-    profiles:
-      - pair-bot-live
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   clickhouse_data:
