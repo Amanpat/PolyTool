@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-28 - Completed quick-039: Gold capture campaign -- MORE_GOLD_NEEDED; corpus advanced from 10/50 to 27/50 qualifying tapes (10 sports + 6 politics + 1 near_resolution Gold captured); path drift fixed (96 tapes migrated to canonical artifacts/tapes/shadow/); 23 tapes still needed (crypto=10, sports=5, new_market=5, politics=3).
+Last activity: 2026-03-29 - Completed quick-041: Gold capture wave 2 -- MORE_GOLD_NEEDED; corpus advanced from 27/50 to 40/50 qualifying tapes (+13: sports bucket complete 15/15, politics bucket complete 10/10, new_market bucket complete 5/5); only crypto=10 remains (market availability blocked); Gate 2 unblocks when crypto markets return.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -55,7 +55,7 @@ Last activity: 2026-03-28 - Completed quick-039: Gold capture campaign -- MORE_G
 
 ### Blockers/Concerns
 - Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
-- Track 1 Gate 2 corpus: 27/50 qualifying tapes after Gold capture campaign (quick-039, 2026-03-28). Shortage: crypto=10, sports=5, new_market=5, politics=3 (23 needed). Crypto bucket blocked — no active BTC/ETH/SOL pair markets on Polymarket. Run `python tools/gates/capture_status.py` for current counts. Capture per `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Gate 2 unblocks when corpus_audit exits 0.
+- Track 1 Gate 2 corpus: 40/50 qualifying tapes after Gold capture waves 1+2 (quick-039 + quick-041, 2026-03-29). Shortage: crypto=10 only (sports/politics/new_market/near_resolution all complete). Crypto bucket blocked — no active BTC/ETH/SOL 5m/15m pair markets on Polymarket as of 2026-03-29. Use `python -m polytool crypto-pair-watch --watch` to poll. Gate 2 unblocks when corpus_audit exits 0 (50/50).
 
 ### Quick Tasks Completed
 
@@ -100,3 +100,4 @@ Last activity: 2026-03-28 - Completed quick-039: Gold capture campaign -- MORE_G
 | 038 | Phase 1B truth sync -- roadmap v5_1 checkbox update: flipped 6 items to [x] (Rebuild CLAUDE.md, OPERATOR_SETUP_GUIDE.md, MarketMakerV1, benchmark_v1, Market Selection Engine, Discord alert system); reconciled CURRENT_STATE.md and CLAUDE.md drift from quick-036/037; added next-executable-step sentence; dev log written; 31 tests passing | 2026-03-28 | 970381c | [38-phase-1b-truth-sync-roadmap-checkbox-upd](./quick/38-phase-1b-truth-sync-roadmap-checkbox-upd/) |
 | 039 | Gold capture campaign for Phase 1B Gate 2: ~96 shadow sessions run; corpus advanced 10/50 → 27/50 (10 sports + 6 politics + 1 near_resolution Gold); path drift fixed (96 tapes migrated to artifacts/tapes/shadow/); decision MORE_GOLD_NEEDED (23 needed) | 2026-03-28 | 756d2ac | [39-gold-capture-campaign-for-phase-1b-gate-](./quick/39-gold-capture-campaign-for-phase-1b-gate-/) |
 | 040 | Live execution wiring for crypto-pair bot: PolymarketClobOrderClient via py-clob-client 0.34.6 (deferred import), trade_log.jsonl per-trade logging, CLI env-var gate, Dockerfile.bot + docker-compose pair-bot-paper/pair-bot-live services; 6 new offline tests; 2734 passing | 2026-03-28 | d1ec36c | [40-crypto-pair-bot-live-execution-wiring-an](./quick/40-crypto-pair-bot-live-execution-wiring-an/) |
+| 041 | Gold capture wave 2 for Phase 1B Gate 2: ~71 additional shadow sessions run; corpus advanced 27/50 -> 40/50 (+13: sports 15/15, politics 10/10, new_market 5/5 all complete); only crypto=10 remains (market availability blocked); decision MORE_GOLD_NEEDED | 2026-03-29 | 39d266f | [41-gold-capture-wave-2-sports-politics-new-](./quick/41-gold-capture-wave-2-sports-politics-new-/) |
