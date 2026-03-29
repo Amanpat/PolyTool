@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-044 fix crypto pair bot price reading bug
+Last activity: 2026-03-29 — quick-045 crypto capture + Gate 2 FAILED (7/50, 14%)
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -53,10 +53,11 @@ Last activity: 2026-03-29 — quick-044 fix crypto pair bot price reading bug
 - quick-026 diagnostic fill_opportunity: when quote_count == -1 (no manifest data), assume quoted (treat as 1) so zero-profit no-fill tapes classify as no_touch not unknown
 
 - quick-040 live execution: deferred import in PolymarketClobOrderClient._build_client() so paper/test paths never load py-clob-client; env vars PK/CLOB_API_KEY/CLOB_API_SECRET/CLOB_API_PASSPHRASE from .env.example (not POLYMARKET_PRIVATE_KEY); kill switch via volume bind-mount; separate Dockerfile.bot (python:3.12-slim) with [live,simtrader]; Docker profiles pair-bot/pair-bot-live absent from default docker compose up
+- quick-045 Gate 2 FAILED: 7/50 positive (14%), corpus complete 50/50; silver tapes = zero fills (no tick density); non-crypto shadow = mostly negative on low-frequency markets; crypto 5m = 7/10 positive (btc 4/5, eth 2/2, sol 1/3); run_recovery_corpus_sweep.py created to handle list-format manifest; three path-forward options: crypto-only corpus subset (requires spec change + operator auth), strategy improvement, Track 2 focus
 
 ### Blockers/Concerns
-- Track 2 market availability: Polymarket has no active BTC/ETH/SOL 5m/15m binary pair markets as of 2026-03-25. Coinbase feed unblock is confirmed; waiting for market schedule to rotate these markets back in. Use `crypto-pair-watch --watch` to poll.
-- Track 1 Gate 2 corpus: 40/50 qualifying tapes after Gold capture waves 1+2 (quick-039 + quick-041, 2026-03-29). Shortage: crypto=10 only (sports/politics/new_market/near_resolution all complete). Crypto bucket blocked — no active BTC/ETH/SOL 5m/15m pair markets on Polymarket as of 2026-03-29. Use `python -m polytool crypto-pair-watch --watch` to poll. Gate 2 unblocks when corpus_audit exits 0 (50/50).
+- Track 1 Gate 2 FAILED: 7/50 positive (14%), threshold 70%. Corpus is complete at 50/50. Root cause: silver tapes zero fills, non-crypto shadow tapes negative on low-frequency markets, crypto 5m tapes 7/10 positive. Three path-forward options in dev log 2026-03-29_crypto_watch_and_capture.md: (1) crypto-only corpus subset test (requires spec change + operator auth), (2) strategy improvement research, (3) Track 2 focus while Gate 2 research continues. Gate 3 BLOCKED.
+- Track 2 market availability: BTC/ETH/SOL 5m markets were active 2026-03-29 (used for Gate 2 capture). Deploy crypto pair bot when ready.
 
 ### Quick Tasks Completed
 
@@ -105,3 +106,4 @@ Last activity: 2026-03-29 — quick-044 fix crypto pair bot price reading bug
 | 042 | Fix market_discovery.py to find active BTC/ETH/SOL 5m updown markets: targeted slug discovery via _generate_5m_slugs() + discover_updown_5m_markets() using fetch_markets_filtered(slugs=...); merged into discover_crypto_pair_markets() with use_targeted_for_5m=True default; 15 new offline tests; 2749 passing | 2026-03-29 | 4dabce0 | [42-fix-market-discovery-py-to-find-active-b](./quick/42-fix-market-discovery-py-to-find-active-b/) |
 | 043 | Benchmark policy decision -- WAIT_FOR_CRYPTO: wrote ADR (docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md), updated CURRENT_STATE.md next-step with escalation deadline 2026-04-12, added CLAUDE.md benchmark policy lock guardrail. No code/manifest changes. Policy: crypto absence is scheduling gap not regime change; benchmark_v2 requires operator authorization | 2026-03-29 | b72f37a | [43-benchmark-policy-decision-crypto-unavail](./quick/43-benchmark-policy-decision-crypto-unavail/) |
 | 044 | Fix crypto pair bot price reading bug: asks[0] was returning worst ask ($0.99) since Polymarket sorts asks DESC; fix uses min() across all ask levels; added DEBUG log in opportunity_scan.py; 4 new tests in test_clob.py; 2753 passing | 2026-03-29 | b257165 | [44-fix-crypto-pair-bot-price-reading-bug-ye](./quick/44-fix-crypto-pair-bot-price-reading-bug-ye/) |
+| 045 | Crypto capture + Gate 2 FAILED: crypto markets confirmed active 2026-03-29; 14 shadow sessions captured; path drift fix applied; corpus_audit exited 0 (50/50); created run_recovery_corpus_sweep.py (bypass manifest format mismatch); Gate 2 FAILED 7/50 = 14% (threshold 70%); gate_failed.json written; three path-forward options documented | 2026-03-29 | d3d7748 | [45-wait-for-crypto-execution-crypto-market-](./quick/45-wait-for-crypto-execution-crypto-market-/) |
