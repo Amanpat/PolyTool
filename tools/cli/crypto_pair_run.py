@@ -190,6 +190,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Allows Grafana visibility during long runs."
         ),
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help=(
+            "Show all market status lines every cycle. "
+            "Default (off): show only stats every 10s and any signals/intents."
+        ),
+    )
     return parser
 
 
@@ -292,6 +301,7 @@ def run_crypto_pair_runner(
     reference_feed_provider: Optional[str] = None,
     auto_report: bool = False,
     report_generator=generate_crypto_pair_paper_report,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -399,6 +409,7 @@ def run_crypto_pair_runner(
             execution_adapter=execution_adapter,
             sink=sink,
             heartbeat_callback=heartbeat_callback,
+            verbose=verbose,
         )
     manifest = runner.run()
 
@@ -515,6 +526,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             sink_flush_mode="streaming" if args.sink_streaming else "batch",
             reference_feed_provider=args.reference_feed_provider,
             auto_report=args.auto_report and not args.live,
+            verbose=args.verbose,
         )
     except ConfigLoadError as exc:
         print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
