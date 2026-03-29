@@ -102,6 +102,13 @@ class PaperOpportunityObservation:
     quote_age_seconds: int = 0
     source: str = "scanner"
     assumptions: tuple[str, ...] = ()
+    # Directional momentum fields (populated when evaluate_directional_entry fires)
+    reference_price: Optional[float] = None
+    price_change_pct: Optional[float] = None
+    signal_direction: str = "NONE"
+    favorite_side: Optional[str] = None
+    hedge_side: Optional[str] = None
+    entry_timing_seconds: Optional[int] = None
 
     def __post_init__(self) -> None:
         yes_quote_price = _coerce_decimal(self.yes_quote_price, "yes_quote_price")
@@ -160,6 +167,12 @@ class PaperOpportunityObservation:
             "quote_age_seconds": self.quote_age_seconds,
             "source": self.source,
             "assumptions": list(self.assumptions),
+            "reference_price": self.reference_price,
+            "price_change_pct": self.price_change_pct,
+            "signal_direction": self.signal_direction,
+            "favorite_side": self.favorite_side,
+            "hedge_side": self.hedge_side,
+            "entry_timing_seconds": self.entry_timing_seconds,
         }
 
 

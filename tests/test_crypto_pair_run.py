@@ -112,6 +112,44 @@ class StaticFeed:
         return self.snapshot
 
 
+class MomentumFeed:
+    """Feed that simulates a rising price to trigger an UP momentum signal.
+
+    Returns the base snapshot price for the first ``history_depth`` calls,
+    then returns a price that is ``rise_pct`` above the base. After
+    ``history_depth + 1`` calls the runner's internal price history deque
+    contains a move larger than the default 0.3% threshold.
+    """
+
+    def __init__(
+        self,
+        base_snapshot: ReferencePriceSnapshot,
+        *,
+        rise_pct: float = 0.01,
+        history_depth: int = 2,
+    ) -> None:
+        self._base = base_snapshot
+        self._rise_pct = rise_pct
+        self._history_depth = history_depth
+        self._call_count: int = 0
+
+    def connect(self) -> None:
+        return None
+
+    def disconnect(self) -> None:
+        return None
+
+    def get_snapshot(self, symbol: str) -> ReferencePriceSnapshot:
+        import dataclasses
+
+        self._call_count += 1
+        if self._call_count <= self._history_depth:
+            price = self._base.price
+        else:
+            price = self._base.price * (1.0 + self._rise_pct)
+        return dataclasses.replace(self._base, price=price)
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     return [
         json.loads(line)
@@ -121,22 +159,28 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 def test_paper_default_path_creates_jsonl_bundle(tmp_path: Path) -> None:
+    # Uses 3 cycles + MomentumFeed so the directional entry fires on cycle 3:
+    # Cycles 1-2 seed the price history at the base price; cycle 3 returns +1%
+    # which clears the 0.3% momentum threshold.
+    # yes_ask=0.72 < max_favorite_entry=0.75 -> favorite=YES fills.
+    # no_ask=0.18 < max_hedge_price=0.20 -> hedge=NO fills (paired).
     market = _make_mock_market()
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.44),
-            "btc-5m-up-no": (None, 0.44),
+            "btc-5m-up-yes": (None, 0.72),
+            "btc-5m-up-no": (None, 0.18),
         }
     )
 
     manifest = run_crypto_pair_runner(
         output_base=tmp_path,
         duration_seconds=0,
-        cycle_limit=1,
+        cycle_limit=3,
         gamma_client=gamma,
         clob_client=clob,
-        reference_feed=StaticFeed(_fresh_snapshot()),
+        reference_feed=MomentumFeed(_fresh_snapshot(), rise_pct=0.01, history_depth=2),
+        config_payload={"paper_config": {"momentum": {"momentum_threshold": 0.003}}},
     )
 
     run_dir = Path(manifest["artifact_dir"])
@@ -229,12 +273,15 @@ def test_duration_window_stops_after_expected_cycles(tmp_path: Path) -> None:
 
 
 def test_runner_emits_heartbeat_event_and_callback(tmp_path: Path) -> None:
+    # Uses 3 cycles + MomentumFeed so the directional entry fires on cycle 3
+    # (cycles 1-2 seed the baseline price history, cycle 3 is +1% = UP signal).
+    # yes_ask=0.72, no_ask=0.18 ensures both legs fill (hedge ask <= max_hedge_price).
     market = _make_mock_market()
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.44),
-            "btc-5m-up-no": (None, 0.44),
+            "btc-5m-up-yes": (None, 0.72),
+            "btc-5m-up-no": (None, 0.18),
         }
     )
     started_at = datetime(2026, 3, 23, 0, 0, tzinfo=timezone.utc)
@@ -250,14 +297,14 @@ def test_runner_emits_heartbeat_event_and_callback(tmp_path: Path) -> None:
         config_payload={"cycle_interval_seconds": 5},
         artifact_base_dir=tmp_path,
         duration_seconds=0,
-        cycle_limit=1,
+        cycle_limit=3,
         heartbeat_interval_seconds=60,
     )
     runner = CryptoPairPaperRunner(
         settings,
         gamma_client=gamma,
         clob_client=clob,
-        reference_feed=StaticFeed(_fresh_snapshot()),
+        reference_feed=MomentumFeed(_fresh_snapshot(), rise_pct=0.01, history_depth=2),
         store=store,
         heartbeat_callback=heartbeat_payloads.append,
         now_fn=lambda: current_time,
@@ -271,11 +318,14 @@ def test_runner_emits_heartbeat_event_and_callback(tmp_path: Path) -> None:
         event for event in runtime_events if event["event_type"] == "runner_heartbeat"
     ]
 
+    # Heartbeat fires after cycle 1 (elapsed=120s >= interval=60s, frozen clock).
+    # Cycle 1 records 1 observation but the momentum signal doesn't fire until cycle 3,
+    # so intents_generated and completed_pairs are 0 at heartbeat time.
     assert len(heartbeats) == 1
     assert heartbeat_payloads[0]["elapsed_runtime"] == "00:02:00"
     assert heartbeats[0]["payload"]["opportunities_observed"] == 1
-    assert heartbeats[0]["payload"]["intents_generated"] == 1
-    assert heartbeats[0]["payload"]["completed_pairs"] == 1
+    assert heartbeats[0]["payload"]["intents_generated"] == 0
+    assert heartbeats[0]["payload"]["completed_pairs"] == 0
     assert heartbeats[0]["payload"]["partial_exposure_count"] == 0
     assert heartbeats[0]["payload"]["latest_feed_states"] == {"BTC": "connected_fresh"}
     assert heartbeats[0]["payload"]["stale_symbols"] == []

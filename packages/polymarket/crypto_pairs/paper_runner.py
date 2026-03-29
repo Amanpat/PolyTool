@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from collections import deque
+from dataclasses import dataclass, field, replace as dataclass_replace
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Any, Callable, Optional, Protocol
@@ -17,6 +18,7 @@ from .accumulation_engine import (
     BestQuote,
     PairMarketState,
     evaluate_accumulation,
+    evaluate_directional_entry,
 )
 from .config_models import CryptoPairPaperModeConfig
 from .market_discovery import discover_crypto_pair_markets
@@ -416,6 +418,63 @@ class DeterministicPaperExecutionAdapter:
         return fills
 
 
+class DirectionalPaperExecutionAdapter:
+    """Paper fill simulator for directional (momentum) entries.
+
+    Favorite leg fills at current ask (taker). Hedge leg fills only if the
+    current ask is at or below config.momentum.max_hedge_price.
+    """
+
+    def __init__(self, max_hedge_price: float) -> None:
+        self._max_hedge_price = Decimal(str(max_hedge_price))
+
+    def simulate_fills(
+        self,
+        *,
+        intent,
+        selected_legs: tuple[str, ...],
+        filled_at: str,
+    ) -> list[PaperLegFill]:
+        fills: list[PaperLegFill] = []
+        for leg in selected_legs:
+            if leg == LEG_YES:
+                token_id = intent.yes_token_id
+                price = intent.intended_yes_price
+            else:
+                token_id = intent.no_token_id
+                price = intent.intended_no_price
+
+            # Hedge leg: only fill if the ask is at or below max_hedge_price
+            hedge_leg = LEG_NO if selected_legs[0] == LEG_YES else LEG_YES
+            if leg == hedge_leg and price > self._max_hedge_price:
+                continue  # hedge ask too high; maker limit not filled
+
+            notional = price * intent.pair_size
+            fee_adjustment = (
+                notional * (intent.maker_rebate_bps - intent.maker_fee_bps) / _ONE_BPS
+            ).quantize(Decimal("0.0001"))
+            fills.append(
+                PaperLegFill(
+                    fill_id=f"{intent.intent_id}-{leg.lower()}",
+                    run_id=intent.run_id,
+                    intent_id=intent.intent_id,
+                    market_id=intent.market_id,
+                    condition_id=intent.condition_id,
+                    slug=intent.slug,
+                    symbol=intent.symbol,
+                    duration_min=intent.duration_min,
+                    leg=leg,
+                    token_id=token_id,
+                    side="BUY",
+                    filled_at=filled_at,
+                    price=price,
+                    size=intent.pair_size,
+                    fee_adjustment_usdc=fee_adjustment,
+                )
+            )
+        return fills
+
+
 def classify_feed_state(snapshot: Optional[ReferencePriceSnapshot]) -> str:
     if snapshot is None:
         return "no_snapshot"
@@ -537,7 +596,9 @@ class CryptoPairPaperRunner:
             artifact_base_dir=settings.artifact_base_dir,
             sink=self.sink,
         )
-        self.execution_adapter = execution_adapter or DeterministicPaperExecutionAdapter()
+        self.execution_adapter = execution_adapter or DirectionalPaperExecutionAdapter(
+            max_hedge_price=settings.paper_config.momentum.max_hedge_price
+        )
         self.heartbeat_callback = heartbeat_callback
         self.now_fn = now_fn
         self.sleep_fn = sleep_fn
@@ -546,6 +607,11 @@ class CryptoPairPaperRunner:
         self.rank_fn = rank_fn
         self.kill_switch = FileBasedKillSwitch(settings.kill_switch_path)
         self._feed_states: dict[str, str] = {}
+        # Momentum state: rolling price buffers per symbol, one-entry-per-bracket cooldown
+        momentum_window = settings.paper_config.momentum.momentum_window_seconds
+        self._price_history: dict[str, deque] = {}
+        self._price_history_maxlen: int = max(2, momentum_window)
+        self._entered_brackets: set[str] = set()
         self._next_heartbeat_elapsed_seconds = (
             settings.heartbeat_interval_seconds
             if settings.heartbeat_interval_seconds > 0
@@ -819,17 +885,16 @@ class CryptoPairPaperRunner:
             run_id=self.store.run_id,
             observed_at=event_at,
         )
-        self.store.record_observation(observation)
-        if self.settings.sink_flush_mode == "streaming":
-            _obs_evt = OpportunityObservedEvent.from_observation(observation, mode="paper")
-            _obs_result = self.sink.write_event(_obs_evt)
-            if _obs_result.error:
-                import logging as _logging
-                _logging.getLogger(__name__).warning(
-                    "sink stream write failed (observation): %s", _obs_result.error
-                )
 
         snapshot = self.reference_feed.get_snapshot(opportunity.symbol)
+
+        # Update rolling price history for momentum signal computation
+        symbol_key = opportunity.symbol.upper()
+        if snapshot is not None and snapshot.price is not None and snapshot.is_usable:
+            if symbol_key not in self._price_history:
+                self._price_history[symbol_key] = deque(maxlen=self._price_history_maxlen)
+            self._price_history[symbol_key].append(snapshot.price)
+
         current_feed_state = classify_feed_state(snapshot)
         previous_feed_state = self._feed_states.get(opportunity.symbol)
         if previous_feed_state != current_feed_state:
@@ -883,6 +948,7 @@ class CryptoPairPaperRunner:
                         )
 
         yes_size, no_size = self.store.market_leg_sizes(observation.market_id)
+        symbol_key = opportunity.symbol.upper()
         state = PairMarketState(
             symbol=opportunity.symbol,
             duration_min=opportunity.duration_min,
@@ -902,8 +968,33 @@ class CryptoPairPaperRunner:
             fair_value_yes=None,
             fair_value_no=None,
             feed_snapshot=snapshot,
+            price_history=tuple(self._price_history.get(symbol_key, deque())),
+            cooldown_brackets=frozenset(self._entered_brackets),
         )
-        accumulation = evaluate_accumulation(state, self.settings.paper_config)
+        accumulation = evaluate_directional_entry(state, self.settings.paper_config)
+
+        # Enrich observation with momentum signal fields from rationale
+        rationale = accumulation.rationale
+        if hasattr(observation, "signal_direction"):
+            observation = dataclass_replace(
+                observation,
+                reference_price=rationale.get("reference_price"),
+                price_change_pct=rationale.get("price_change_pct"),
+                signal_direction=rationale.get("signal_direction", "NONE"),
+                favorite_side=rationale.get("favorite_leg"),
+                hedge_side=rationale.get("hedge_leg"),
+            )
+
+        self.store.record_observation(observation)
+        if self.settings.sink_flush_mode == "streaming":
+            _obs_evt = OpportunityObservedEvent.from_observation(observation, mode="paper")
+            _obs_result = self.sink.write_event(_obs_evt)
+            if _obs_result.error:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "sink stream write failed (observation): %s", _obs_result.error
+                )
+
         self.store.record_runtime_event(
             "accumulation_evaluated",
             at=event_at,
@@ -1004,6 +1095,9 @@ class CryptoPairPaperRunner:
                 block_reason="generate_order_intent_returned_none",
             )
             return
+
+        # Record bracket entry to enforce one-entry-per-bracket cooldown
+        self._entered_brackets.add(state.market_id)
 
         self.store.record_intent(intent)
         if self.settings.sink_flush_mode == "streaming":
