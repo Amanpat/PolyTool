@@ -57,7 +57,7 @@ attempts are still validated and logged with explicit reasons such as
 
 Paper bundles are written under:
 
-`artifacts/crypto_pairs/paper_runs/<YYYY-MM-DD>/<run_id>/`
+`artifacts/tapes/crypto/paper_runs/<YYYY-MM-DD>/<run_id>/`
 
 Primary files:
 

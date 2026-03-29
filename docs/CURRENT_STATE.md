@@ -652,34 +652,37 @@ Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
   `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
   `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
 
-**Blocker resolved (2026-03-26): Coinbase fallback feed implemented.**
+**Track 2 paper soak: READY TO EXECUTE** (quick-047 audit, 2026-03-29).
 
-A smoke soak on 2026-03-25 (run ID `603e0ef17ff2`) confirmed the Binance HTTP
-451 geo-restriction: `markets_seen=0`, zero opportunities. The Coinbase fallback
-feed was implemented 2026-03-26 and resolves this blocker.
+BTC/ETH/SOL 5m markets confirmed active 2026-03-29 (quick-045). Quick-046
+strategy pivot (edge_buffer_per_leg gate) is in place as of 2026-03-29 with
+2755 tests passing. No code blockers.
 
-- `CoinbaseFeed` streams `BTC-USD`, `ETH-USD`, `SOL-USD` via Coinbase Advanced
-  Trade WebSocket (`wss://advanced-trade-api.coinbase.com/ws`).
-- `AutoReferenceFeed` wraps both feeds: uses Binance when usable, falls back to
-  Coinbase automatically.
-- CLI flag: `--reference-feed-provider binance|coinbase|auto` (default: `binance`).
-- 55 new offline tests in `tests/test_crypto_pair_reference_feed.py` — all passing.
-- No geo-restriction on Coinbase — unblocks the 24h paper soak on this machine.
+Coinbase feed confirmed working (quick-023/026). Binance is geo-restricted per
+quick-022; use `--reference-feed-provider coinbase` for this machine.
 
-See dev log `docs/dev_logs/2026-03-26_phase1a_coinbase_feed_fallback.md`.
-
-The next operator action is the 24h paper soak using Coinbase or auto feed:
+Definitive 24h paper soak launch command:
 
 ```powershell
 $env:CLICKHOUSE_PASSWORD = "polytool_admin"
-python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled --reference-feed-provider coinbase
-# or auto (tries Binance first, falls back to Coinbase):
-python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled --reference-feed-provider auto
+python -m polytool crypto-pair-run `
+  --duration-hours 24 `
+  --cycle-interval-seconds 30 `
+  --reference-feed-provider coinbase `
+  --heartbeat-minutes 30 `
+  --auto-report `
+  --sink-enabled
 ```
 
-After the run finalizes, open the Grafana dashboard at
-`http://localhost:3000/d/polytool-crypto-pair-paper-soak` and apply the
-promote / rerun / reject rubric.
+Artifacts land in `artifacts/tapes/crypto/paper_runs/`. Runbook:
+`docs/runbooks/CRYPTO_PAIR_PAPER_SOAK_RUNBOOK.md`. After the run finalizes,
+open the Grafana dashboard at `http://localhost:3000/d/polytool-crypto-pair-paper-soak`
+and apply the promote / rerun / reject rubric from
+`docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`.
+
+Previous blocker records: Binance HTTP 451 geo-restriction unblocked via
+Coinbase fallback feed (quick-026, dev log
+`docs/dev_logs/2026-03-26_phase1a_coinbase_feed_fallback.md`).
 
 ---
 

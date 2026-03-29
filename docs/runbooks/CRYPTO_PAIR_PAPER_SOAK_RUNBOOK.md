@@ -70,6 +70,10 @@ Run the default paper shell across the full Track 2 market universe.
 ```powershell
 python -m polytool crypto-pair-run `
   --duration-seconds 86400 `
+  --cycle-interval-seconds 30 `
+  --reference-feed-provider coinbase `
+  --heartbeat-minutes 30 `
+  --auto-report `
   --sink-enabled
 ```
 
@@ -90,9 +94,32 @@ Default operator caps and thresholds in the current runner:
 - stale quote timeout: `15s`
 - max unpaired exposure window: `120s`
 
+**Strategy gate (updated quick-046):** Each leg must have ask_price <=
+target_bid, where target_bid = 0.5 - edge_buffer_per_leg (default 0.04,
+so target_bid = 0.46). Both legs meeting the target enables accumulation
+for that pair. A single-leg meeting the target enables completion of the
+open partial leg. This replaces the prior sum-cost threshold gate.
+
 Artifacts are written under:
 
-- `artifacts/crypto_pairs/paper_runs/<YYYY-MM-DD>/<run_id>/`
+- `artifacts/tapes/crypto/paper_runs/<YYYY-MM-DD>/<run_id>/`
+
+### Kill Switch
+
+To stop the run cleanly before the duration expires, create the kill switch
+file. The runner checks it every cycle and exits with stopped_reason=kill_switch.
+
+PowerShell:
+
+```powershell
+New-Item artifacts/crypto_pairs/kill_switch.txt -Force
+```
+
+Bash:
+
+```bash
+touch artifacts/crypto_pairs/kill_switch.txt
+```
 
 ---
 
@@ -103,7 +130,7 @@ Use artifacts, not Grafana, while the 24h soak is still running.
 Find the newest run directory:
 
 ```powershell
-$runDir = Get-ChildItem artifacts/crypto_pairs/paper_runs -Recurse -Directory |
+$runDir = Get-ChildItem artifacts/tapes/crypto/paper_runs -Recurse -Directory |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1 -ExpandProperty FullName
 $runDir
@@ -251,6 +278,10 @@ Rerun for `48h` if:
 ```powershell
 python -m polytool crypto-pair-run `
   --duration-seconds 172800 `
+  --cycle-interval-seconds 30 `
+  --reference-feed-provider coinbase `
+  --heartbeat-minutes 30 `
+  --auto-report `
   --sink-enabled
 ```
 
