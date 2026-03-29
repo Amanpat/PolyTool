@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-049: directional momentum strategy rebuild complete; MomentumConfig + evaluate_directional_entry wired into paper runner; 10-min soak run (949 obs, 0 intents — no price movement above 0.3% threshold, expected with no active markets); 2767 tests passing
+Last activity: 2026-03-29 — quick-051: cycle_interval_seconds default changed 5→0.5 (float); asyncio.sleep path confirmed cast-free; 2767 tests passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -116,3 +116,4 @@ Last activity: 2026-03-29 — quick-049: directional momentum strategy rebuild c
 | 048 | gabagool22 crypto pattern analysis: scan pipeline run (50 BTC/ETH 5m positions, 4000 trades), wallet confirmed as exclusive 5m pair trader; favorite tier CLV +0.087; avg pair cost $1.0274 (42% below $1.00); six crypto gap dimensions documented (pair cost, maker/taker, bracket timing, leg timing, sizing histogram, symbol/duration) with modification specs; zero pipeline code modified | 2026-03-29 | 1d54b10 | [48-analyze-gabagool22-crypto-trading-patter](./quick/48-analyze-gabagool22-crypto-trading-patter/) |
 | 049 | Gabagool22 strategy rebuild: replaced pair-cost accumulation gate with directional momentum strategy; MomentumConfig + evaluate_directional_entry (6 gates) + DirectionalPaperExecutionAdapter; rolling price history deque + cooldown brackets wired into paper runner; 6 new observation fields; 10-min soak 949 obs 0 intents (no price movement above 0.3% threshold, expected with no active markets); 12 TDD tests; 2767 passing | 2026-03-29 | 49d6e71 | [49-strategy-rebuild-gabagool22-pattern-dire](./quick/49-strategy-rebuild-gabagool22-pattern-dire/) |
 | 050 | Tape corpus integrity audit -- structural, semantic, cadence; verdict SAFE_TO_USE or CORPUS_REPAIR_NEEDED: 314 tapes scanned (gold=8, silver=118, shadow=181, crypto_new=7); 0 YES/NO token-ID mapping bugs; symmetric-BBO explains Phase 1A identical-values observation; cadence confirmed event-driven; tools/gates/tape_integrity_audit.py written; verdict SAFE_TO_USE | 2026-03-29 | 0ec1d55 | [50-tape-corpus-integrity-audit-structural-s](./quick/50-tape-corpus-integrity-audit-structural-s/) |
+| 051 | cycle_interval_seconds default 5→0.5 (float): paper_runner.py type+default+from_dict, CLI argparse type=float+help, tape_integrity_audit _get_runner_scan_cadence() updated to match float; asyncio.sleep path cast-free confirmed; 2767 passing | 2026-03-29 | TBD | [51-change-cycle-interval-seconds-default-fr](./quick/51-change-cycle-interval-seconds-default-fr/) |
