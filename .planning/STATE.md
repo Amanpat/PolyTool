@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-046 strategy pivot: per-leg target-bid gate, 2755 tests pass
+Last activity: 2026-03-29 — quick-047 docs audit: Track 2 paper mode READY TO EXECUTE, runbook stale paths corrected, 2755 tests pass
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-03-29 — quick-046 strategy pivot: per-leg target-bid gate,
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-047: Runbook stale path corrected: artifacts/crypto_pairs/paper_runs -> artifacts/tapes/crypto/paper_runs (post quick-036 restructure); definitive launch command uses coinbase/heartbeat/auto-report flags; Track 2 paper soak READY TO EXECUTE
 - quick-046: Replace target_pair_cost_threshold gate (always fired at >=0.99) with per-leg target_bid = 0.5 - edge_buffer_per_leg (default 0.46); fair value always falls back to 0.5 in paper mode (expected — PairOpportunity carries no threshold/remaining_seconds)
 - quick-042: Use fetch_markets_filtered(slugs=...) for targeted 5m updown market lookup; merge with bulk path via use_targeted_for_5m=True for backward compat
 - Chroma for vector store, SQLite FTS5 for lexical
@@ -109,3 +110,4 @@ Last activity: 2026-03-29 — quick-046 strategy pivot: per-leg target-bid gate,
 | 044 | Fix crypto pair bot price reading bug: asks[0] was returning worst ask ($0.99) since Polymarket sorts asks DESC; fix uses min() across all ask levels; added DEBUG log in opportunity_scan.py; 4 new tests in test_clob.py; 2753 passing | 2026-03-29 | b257165 | [44-fix-crypto-pair-bot-price-reading-bug-ye](./quick/44-fix-crypto-pair-bot-price-reading-bug-ye/) |
 | 045 | Crypto capture + Gate 2 FAILED: crypto markets confirmed active 2026-03-29; 14 shadow sessions captured; path drift fix applied; corpus_audit exited 0 (50/50); created run_recovery_corpus_sweep.py (bypass manifest format mismatch); Gate 2 FAILED 7/50 = 14% (threshold 70%); gate_failed.json written; three path-forward options documented | 2026-03-29 | d3d7748 | [45-wait-for-crypto-execution-crypto-market-](./quick/45-wait-for-crypto-execution-crypto-market-/) |
 | 046 | Strategy pivot: replaced broken pair-cost gate (sum>=0.99 always fired) with per-leg target_bid=0.5-edge_buffer_per_leg (default 0.46); new config fields edge_buffer_per_leg/max_pair_completion_pct/min_projected_profit; accumulation engine rewrite; event_models backward compat; 16 files, 2755 tests pass | 2026-03-29 | aa861dc | [46-strategy-pivot-async-leg-accumulation-ma](./quick/46-strategy-pivot-async-leg-accumulation-ma/) |
+| 047 | Track 2 paper mode readiness audit: stale runbook paths corrected (artifacts/crypto_pairs -> artifacts/tapes/crypto), coinbase/heartbeat/auto-report flags added, quick-046 pivot documented, kill switch section added, CURRENT_STATE.md updated to READY TO EXECUTE, definitive 24h launch command produced | 2026-03-29 | 1df80a7 | [47-track-2-paper-mode-readiness-audit-minim](./quick/47-track-2-paper-mode-readiness-audit-minim/) |
