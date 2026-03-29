@@ -138,10 +138,23 @@ CLI entrypoint falling back to a wrong default.
   assumptions. Gate 2 is NOT passed yet. Gate 2 is currently NOT_RUN (not FAILED): the
   corpus has only 10/50 qualifying tapes. The immediate unblock is live Gold capture per
   `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`.
+  **Crypto bucket blocked:** no active BTC/ETH/SOL 5m/15m pair markets on Polymarket
+  as of 2026-03-29. Use `python -m polytool crypto-pair-watch --one-shot` to check.
 
 When tasking Claude Code, assume the benchmark pipeline has produced the
 `config/benchmark_v1.tape_manifest`. The manifest, lock, and audit are finalized
 as of 2026-03-21. Do not reopen Phase 1 tasks.
+
+**Benchmark policy lock:** WAIT_FOR_CRYPTO is the current policy (ADR:
+`docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md`).
+Do NOT: modify `config/benchmark_v1.tape_manifest`, `config/benchmark_v1.lock.json`, or
+`config/benchmark_v1.audit.json`. Do NOT improvise around the crypto blocker by:
+- Lowering the `min_events=50` threshold
+- Relaxing the Gate 2 >= 70% pass condition
+- Substituting non-crypto tapes into the crypto bucket
+- Treating Gate 2 NOT_RUN as a gate failure
+- Autonomously triggering benchmark_v2
+Escalation deadline for benchmark_v2 consideration: **2026-04-12**. Human decision required.
 
 ### Market Selection Engine
 - Seven-factor composite scorer: category_edge (Jon-Becker 72.1M trades), spread_opportunity,
