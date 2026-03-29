@@ -4,7 +4,7 @@
 
 This guide covers deploying the crypto pair bot to any Linux host with Docker and
 Docker Compose. The bot runs as a non-root container (`botuser`) and writes all
-output to bind-mounted host directories under `docker_data/`.
+output to the repo's `artifacts/` directory via a bind mount.
 
 Two services are defined:
 
@@ -37,9 +37,22 @@ cd PolyTool
 cp .env.example .env
 # Edit .env and set POLYMARKET_PRIVATE_KEY=0x<your_hot_wallet_key>
 
-# Create output directories (git only tracks .gitkeep)
-mkdir -p docker_data/paper docker_data/live docker_data/kill_switch
+# artifacts/ is gitignored but must exist for the volume mount
+mkdir -p artifacts
 ```
+
+---
+
+## Output Paths
+
+The bot uses its built-in default paths, all under `artifacts/`. The Docker volume
+mount `./artifacts:/app/artifacts` makes these visible on the host at the same paths.
+
+| Mode | Host path |
+|---|---|
+| Paper runs | `artifacts/tapes/crypto/paper_runs/<run-id>/` |
+| Live runs | `artifacts/crypto_pairs/live_runs/<run-id>/` |
+| Kill switch | `artifacts/crypto_pairs/kill_switch.txt` |
 
 ---
 
@@ -53,7 +66,7 @@ errors before any live capital is committed.
 docker compose run --rm pair-bot-paper --duration-minutes 2
 
 # Check output
-ls -la docker_data/paper/
+ls -la artifacts/tapes/crypto/paper_runs/
 ```
 
 Expected: a timestamped run directory with `run_manifest.json`, `cycle_log.jsonl`,
@@ -71,16 +84,15 @@ docker compose up -d --build
 docker compose logs -f pair-bot-live
 
 # Check run output
-ls -la docker_data/live/
+ls -la artifacts/crypto_pairs/live_runs/
 
 # Stop (graceful shutdown)
 docker compose down
 ```
 
 The bot self-terminates after `--duration-hours 8` (default). Docker will restart
-it automatically (`restart: unless-stopped`) after each 8-hour cycle. To run
-continuously, this is intentional — each restart creates a fresh run directory
-with its own artifacts.
+it automatically (`restart: unless-stopped`) after each 8-hour cycle — each restart
+creates a fresh run directory with its own artifacts.
 
 ---
 
@@ -89,16 +101,15 @@ with its own artifacts.
 To immediately halt the bot without stopping the container:
 
 ```bash
-touch docker_data/live/KILL_SWITCH
+touch artifacts/crypto_pairs/kill_switch.txt
 ```
 
 The bot's kill-switch checker fires within the next cycle interval (default 30s)
 and exits cleanly. The container will then restart (per `unless-stopped`) unless
-you also run `docker compose down` or `docker compose stop pair-bot-live`.
+you also stop it:
 
-To halt permanently:
 ```bash
-touch docker_data/live/KILL_SWITCH
+touch artifacts/crypto_pairs/kill_switch.txt
 docker compose stop pair-bot-live
 ```
 
@@ -124,18 +135,19 @@ or creates API credentials automatically on startup.
 ## Output Layout
 
 ```
-docker_data/
-  live/
-    KILL_SWITCH          ← touch this to halt the bot
+artifacts/
+  tapes/crypto/paper_runs/
     <run-id>/
       run_manifest.json
       cycle_log.jsonl
-      trade_log.jsonl    ← every place/cancel event with timestamps
-      open_positions.json
-  paper/
-    <run-id>/
-      run_manifest.json
-      cycle_log.jsonl
+  crypto_pairs/
+    kill_switch.txt          ← touch this to halt the bot
+    live_runs/
+      <run-id>/
+        run_manifest.json
+        cycle_log.jsonl
+        trade_log.jsonl      ← every place/cancel event with timestamps
+        open_positions.json
 ```
 
 ---
@@ -145,6 +157,9 @@ docker_data/
 ```bash
 # Rebuild image after code changes
 docker compose build pair-bot-live
+
+# Tail logs
+docker compose logs -f pair-bot-live
 
 # View last 100 log lines
 docker compose logs --tail=100 pair-bot-live
@@ -164,5 +179,5 @@ docker image prune -f
 - Never commit `.env` to git. It is listed in `.gitignore`.
 - The container runs as non-root `botuser` — no sudo or host-level access.
 - The private key is passed via env var only, never written to disk inside the container.
-- `docker_data/live/` should be mode `700` on the host.
+- `artifacts/` should be mode `700` on the host.
 - Rotate the hot wallet key after any suspected compromise; it holds only trading capital, never main wallet funds.
