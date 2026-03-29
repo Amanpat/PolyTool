@@ -156,9 +156,8 @@ def _make_paper_obs():
         duration_min=5,
         yes_token_id="yes-tok",
         no_token_id="no-tok",
-        yes_quote_price="0.47",
-        no_quote_price="0.48",
-        target_pair_cost_threshold="0.97",
+        yes_quote_price="0.44",
+        no_quote_price="0.44",
         quote_age_seconds=0,
         assumptions=(),
     )
@@ -427,8 +426,8 @@ def test_deterministic_event_count(tmp_path: Path) -> None:
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.47),
-            "btc-5m-up-no": (None, 0.48),
+            "btc-5m-up-yes": (None, 0.44),
+            "btc-5m-up-no": (None, 0.44),
         }
     )
 
@@ -505,8 +504,8 @@ def test_streaming_mode_emits_incrementally(tmp_path: Path) -> None:
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.47),
-            "btc-5m-up-no": (None, 0.48),
+            "btc-5m-up-yes": (None, 0.44),
+            "btc-5m-up-no": (None, 0.44),
         }
     )
 
@@ -543,8 +542,8 @@ def test_streaming_mode_sink_failure_soft_fails(tmp_path: Path) -> None:
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.47),
-            "btc-5m-up-no": (None, 0.48),
+            "btc-5m-up-yes": (None, 0.44),
+            "btc-5m-up-no": (None, 0.44),
         }
     )
 

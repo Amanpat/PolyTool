@@ -29,7 +29,9 @@ def _config(**overrides) -> CryptoPairPaperModeConfig:
     payload = {
         "max_capital_per_market_usdc": "25",
         "max_open_paired_notional_usdc": "50",
-        "target_pair_cost_threshold": "0.97",
+        "edge_buffer_per_leg": "0.04",
+        "max_pair_completion_pct": "0.80",
+        "min_projected_profit": "0.03",
         "fees": {
             "maker_rebate_bps": "20",
             "maker_fee_bps": "0",
@@ -53,7 +55,6 @@ def _observation(
     market_id: str = "market-btc-5m",
     yes_quote_price: str = "0.47",
     no_quote_price: str = "0.48",
-    target_pair_cost_threshold: str = "0.97",
     quote_age_seconds: int = 4,
 ) -> PaperOpportunityObservation:
     return PaperOpportunityObservation(
@@ -69,7 +70,6 @@ def _observation(
         no_token_id="no-token",
         yes_quote_price=yes_quote_price,
         no_quote_price=no_quote_price,
-        target_pair_cost_threshold=target_pair_cost_threshold,
         quote_age_seconds=quote_age_seconds,
         assumptions=("modeled_pair_settlement", "maker_rebate_assumption"),
     )
@@ -103,9 +103,9 @@ def _fill(
     )
 
 
-def test_complete_paired_fill_below_threshold_end_to_end() -> None:
+def test_complete_paired_fill_end_to_end() -> None:
     config = _config()
-    observation = _observation(target_pair_cost_threshold=str(config.target_pair_cost_threshold))
+    observation = _observation()
 
     intent = generate_order_intent(
         observation,
@@ -148,7 +148,6 @@ def test_complete_paired_fill_below_threshold_end_to_end() -> None:
     assert settlement.net_pnl_usdc == Decimal("0.5190")
 
     assert len(market_rollups) == 1
-    assert market_rollups[0].threshold_pass_count == 1
     assert market_rollups[0].order_intents_generated == 1
     assert market_rollups[0].settled_pair_count == 1
     assert market_rollups[0].net_pnl_usdc == Decimal("0.5190")
@@ -170,7 +169,7 @@ def test_complete_paired_fill_below_threshold_end_to_end() -> None:
 
 def test_one_leg_only_partial_exposure() -> None:
     config = _config()
-    observation = _observation(target_pair_cost_threshold=str(config.target_pair_cost_threshold))
+    observation = _observation()
     intent = generate_order_intent(
         observation,
         config,
@@ -209,47 +208,42 @@ def test_one_leg_only_partial_exposure() -> None:
     assert run_summary.open_unpaired_notional_usdc == Decimal("4.70")
 
 
-def test_threshold_miss_blocks_intent_generation() -> None:
-    config = _config(target_pair_cost_threshold="0.96")
-    observation = _observation(
-        yes_quote_price="0.49",
-        no_quote_price="0.48",
-        target_pair_cost_threshold="0.96",
-    )
-
-    block_reason = get_order_intent_block_reason(
-        observation,
-        config,
-        pair_size="10",
-    )
-    intent = generate_order_intent(
-        observation,
-        config,
-        intent_id="intent-threshold-miss",
-        created_at="2026-03-23T12:00:01Z",
-        pair_size="10",
-    )
-    market_rollups = build_market_rollups([observation], [], [], [])
-    run_summary = build_run_summary(
+def test_filter_miss_blocks_intent_generation() -> None:
+    """Symbol filter miss returns filter_miss block reason."""
+    # default config only has BTC, ETH, SOL — use a SOL observation but override
+    # the filter to only allow ETH to force a miss
+    config = _config()
+    # Build an observation for a duration not in the config's default filters
+    obs = PaperOpportunityObservation(
+        opportunity_id="opp-filter",
         run_id="run-1",
-        generated_at="2026-03-23T12:01:00Z",
-        market_rollups=market_rollups,
+        observed_at="2026-03-23T12:00:00Z",
+        market_id="market-btc-5m",
+        condition_id="cond-1",
+        slug="btc-5m-up",
+        symbol="BTC",
+        duration_min=5,
+        yes_token_id="yes-token",
+        no_token_id="no-token",
+        yes_quote_price="0.47",
+        no_quote_price="0.48",
+        quote_age_seconds=4,
     )
-
-    assert block_reason == "threshold_miss"
-    assert intent is None
-    assert market_rollups[0].threshold_miss_count == 1
-    assert market_rollups[0].order_intents_generated == 0
-    assert run_summary.threshold_miss_count == 1
-    assert run_summary.order_intents_generated == 0
+    # Use a config that only allows ETH so BTC is filtered
+    config_eth_only = CryptoPairPaperModeConfig.from_dict({
+        "max_capital_per_market_usdc": "25",
+        "max_open_paired_notional_usdc": "50",
+        "filters": {"symbols": ["ETH"], "durations_min": [5]},
+    })
+    block_reason = get_order_intent_block_reason(obs, config_eth_only, pair_size="10")
+    assert block_reason == "filter_miss"
 
 
 def test_pair_settlement_accounting_is_independent_of_winning_leg_for_full_pair() -> None:
-    config = _config(target_pair_cost_threshold="0.98")
+    config = _config()
     observation = _observation(
         yes_quote_price="0.49",
         no_quote_price="0.48",
-        target_pair_cost_threshold="0.98",
     )
     intent = generate_order_intent(
         observation,
@@ -292,8 +286,8 @@ def test_pair_settlement_accounting_is_independent_of_winning_leg_for_full_pair(
             "unsupported symbol",
         ),
         (
-            {"target_pair_cost_threshold": "1.10"},
-            "target_pair_cost_threshold",
+            {"edge_buffer_per_leg": "0.6"},
+            "edge_buffer_per_leg",
         ),
         (
             {"fees": {"maker_rebate_bps": "20", "maker_fee_bps": "5"}},
@@ -311,3 +305,14 @@ def test_pair_settlement_accounting_is_independent_of_winning_leg_for_full_pair(
 def test_config_validation_rejects_bad_inputs(payload, match: str) -> None:
     with pytest.raises(CryptoPairPaperConfigError, match=match):
         CryptoPairPaperModeConfig.from_dict(payload)
+
+
+def test_legacy_target_pair_cost_threshold_key_silently_ignored() -> None:
+    """from_dict must not raise when legacy key is present."""
+    config = CryptoPairPaperModeConfig.from_dict({
+        "max_capital_per_market_usdc": "25",
+        "max_open_paired_notional_usdc": "50",
+        "target_pair_cost_threshold": "0.97",  # legacy key — must be silently ignored
+    })
+    assert hasattr(config, "edge_buffer_per_leg")
+    assert config.edge_buffer_per_leg == Decimal("0.04")

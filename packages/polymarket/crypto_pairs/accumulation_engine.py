@@ -9,13 +9,12 @@ Entry-rule hierarchy
                            Stale or disconnected → FREEZE.
 2. **Quote gate**:         Both YES and NO best-ask quotes must be present.
                            Missing quote(s) → SKIP.
-3. **Hard pair-cost rule**: YES_ask + NO_ask ≤ config.target_pair_cost_threshold.
-                           Pair too expensive → SKIP.
-4. **Soft fair-value rule**: Each leg is only included when its ask price is
-                             strictly below its fair-value estimate (leg is
-                             underpriced vs model).  No fair-value estimate
-                             available → soft rule passes (no filter applied).
-5. **Partial-pair logic**:  If one leg is already accumulated, focus on the
+3. **Target-bid gate**:    Each leg must have ask_price <= target_bid, where
+                           target_bid = 0.5 - edge_buffer_per_leg (default 0.46).
+                           At least one leg must meet the target; legs that do not
+                           meet the target are excluded.  If no leg meets the
+                           target, SKIP.
+4. **Partial-pair logic**:  If one leg is already accumulated, focus on the
                             missing leg rather than both.
 
 All monetary values use Python ``Decimal`` for precision consistency with the
@@ -109,10 +108,12 @@ class AccumulationIntent:
         rationale: Diagnostic flags; always populated regardless of action.
         projected_pair_cost: YES_ask + NO_ask at evaluation time.
             ``None`` when quotes are unavailable or feed is frozen.
-        hard_rule_passed: ``True`` when projected pair cost ≤ threshold.
-        soft_rule_yes_passed: ``True`` when YES ask < fair_value_yes, or when
-            no fair-value estimate is available (rule vacuously passes).
-        soft_rule_no_passed: Same as above for NO leg.
+        hard_rule_passed: ``True`` when at least one leg meets the target-bid.
+            Kept for API compatibility.
+        soft_rule_yes_passed: ``True`` when YES meets target_bid.
+            Kept for API compatibility.
+        soft_rule_no_passed: ``True`` when NO meets target_bid.
+            Kept for API compatibility.
     """
 
     action: str
@@ -222,16 +223,23 @@ def evaluate_accumulation(
     projected_pair_cost = yes_ask + no_ask
 
     # ------------------------------------------------------------------ #
-    # Gate 3 — Hard pair-cost rule                                         #
+    # Gate 3 — Target-bid gate (per-leg)                                   #
+    # Each leg meets the target when ask_price <= target_bid, where        #
+    # target_bid = 0.5 - edge_buffer_per_leg (default 0.46).               #
+    # At least one leg must meet the target; legs that miss are excluded.  #
     # ------------------------------------------------------------------ #
-    threshold = config.target_pair_cost_threshold
-    hard_rule_passed = projected_pair_cost <= threshold
-    rationale["hard_rule_passed"] = hard_rule_passed
-    rationale["projected_pair_cost"] = str(projected_pair_cost)
-    rationale["threshold"] = str(threshold)
+    target_bid = Decimal("0.5") - config.edge_buffer_per_leg
+    yes_target_met = yes_ask <= target_bid
+    no_target_met = no_ask <= target_bid
 
-    if not hard_rule_passed:
-        rationale["skip_reason"] = "hard_rule_failed"
+    rationale["projected_pair_cost"] = str(projected_pair_cost)
+    rationale["target_bid"] = str(target_bid)
+    rationale["yes_target_met"] = yes_target_met
+    rationale["no_target_met"] = no_target_met
+    rationale["hard_rule_passed"] = yes_target_met or no_target_met
+
+    if not yes_target_met and not no_target_met:
+        rationale["skip_reason"] = "no_leg_meets_target_bid"
         return AccumulationIntent(
             action=ACTION_SKIP,
             legs=(),
@@ -243,12 +251,6 @@ def evaluate_accumulation(
         )
 
     # ------------------------------------------------------------------ #
-    # Gate 4 — Soft fair-value rules (per leg)                             #
-    # ------------------------------------------------------------------ #
-    soft_yes = _soft_rule_passes(yes_ask, state.fair_value_yes, LEG_YES, rationale)
-    soft_no = _soft_rule_passes(no_ask, state.fair_value_no, LEG_NO, rationale)
-
-    # ------------------------------------------------------------------ #
     # Leg selection: partial-pair state awareness                          #
     # ------------------------------------------------------------------ #
     has_yes = state.yes_accumulated_size > _ZERO
@@ -256,18 +258,18 @@ def evaluate_accumulation(
     partial_state = _classify_partial_state(has_yes, has_no)
     rationale["partial_pair_state"] = partial_state
 
-    legs = _select_legs(partial_state, soft_yes, soft_no)
+    legs = _select_legs(partial_state, yes_target_met, no_target_met)
 
     if not legs:
-        rationale["skip_reason"] = "soft_rule_blocked_all_legs"
+        rationale["skip_reason"] = "no_leg_meets_target_bid"
         return AccumulationIntent(
             action=ACTION_SKIP,
             legs=(),
             rationale=rationale,
             projected_pair_cost=projected_pair_cost,
-            hard_rule_passed=True,
-            soft_rule_yes_passed=soft_yes,
-            soft_rule_no_passed=soft_no,
+            hard_rule_passed=False,
+            soft_rule_yes_passed=yes_target_met,
+            soft_rule_no_passed=no_target_met,
         )
 
     return AccumulationIntent(
@@ -276,8 +278,8 @@ def evaluate_accumulation(
         rationale=rationale,
         projected_pair_cost=projected_pair_cost,
         hard_rule_passed=True,
-        soft_rule_yes_passed=soft_yes,
-        soft_rule_no_passed=soft_no,
+        soft_rule_yes_passed=yes_target_met,
+        soft_rule_no_passed=no_target_met,
     )
 
 
@@ -292,34 +294,6 @@ def _feed_is_usable(snapshot: Optional[ReferencePriceSnapshot]) -> bool:
     return snapshot.is_usable
 
 
-def _soft_rule_passes(
-    ask_price: Decimal,
-    fair_prob: Optional[float],
-    leg: str,
-    rationale: dict[str, Any],
-) -> bool:
-    """Evaluate the soft fair-value rule for one leg.
-
-    Returns ``True`` (passes) when the ask price is strictly below the fair-
-    probability estimate.  If no fair-value estimate is available the rule
-    vacuously passes — the hard pair-cost rule is the only active gate.
-    """
-    key = f"soft_rule_{leg.lower()}"
-    if fair_prob is None:
-        rationale[key] = {"passed": True, "reason": "no_fair_value_estimate"}
-        return True
-
-    ask_float = float(ask_price)
-    passed = ask_float < fair_prob
-    rationale[key] = {
-        "passed": passed,
-        "ask": ask_float,
-        "fair_prob": fair_prob,
-        "reason": "underpriced" if passed else "overpriced",
-    }
-    return passed
-
-
 def _classify_partial_state(has_yes: bool, has_no: bool) -> str:
     if has_yes and has_no:
         return "both_legs"
@@ -332,24 +306,24 @@ def _classify_partial_state(has_yes: bool, has_no: bool) -> str:
 
 def _select_legs(
     partial_state: str,
-    soft_yes: bool,
-    soft_no: bool,
+    yes_target_met: bool,
+    no_target_met: bool,
 ) -> tuple[str, ...]:
-    """Select which legs to include based on partial-pair state and soft rules.
+    """Select which legs to include based on partial-pair state and target-bid.
 
     Priority logic:
     - ``yes_only``:  We already hold YES; complete the pair by focusing on NO.
     - ``no_only``:   We already hold NO; complete the pair by focusing on YES.
-    - ``none`` / ``both_legs``: Bid whichever legs pass the soft rule.
+    - ``none`` / ``both_legs``: Bid whichever legs meet the target-bid.
     """
     if partial_state == "yes_only":
-        return (LEG_NO,) if soft_no else ()
+        return (LEG_NO,) if no_target_met else ()
     if partial_state == "no_only":
-        return (LEG_YES,) if soft_yes else ()
+        return (LEG_YES,) if yes_target_met else ()
 
     legs = []
-    if soft_yes:
+    if yes_target_met:
         legs.append(LEG_YES)
-    if soft_no:
+    if no_target_met:
         legs.append(LEG_NO)
     return tuple(legs)

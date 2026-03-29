@@ -303,7 +303,7 @@ class BacktestHarness:
             skip_reason = rationale.get("skip_reason", "")
             if skip_reason.startswith("missing_quotes"):
                 result.quote_skips += 1
-            elif skip_reason == "hard_rule_failed":
+            elif skip_reason in ("hard_rule_failed", "no_leg_meets_target_bid"):
                 result.hard_rule_skips += 1
             elif skip_reason == "soft_rule_blocked_all_legs":
                 result.soft_rule_skips += 1

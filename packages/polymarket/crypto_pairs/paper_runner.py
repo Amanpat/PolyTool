@@ -61,7 +61,7 @@ _ONE_BPS = Decimal("10000")
 _OPERATOR_MAX_CAPITAL_PER_MARKET_USDC = Decimal("10")
 _OPERATOR_MAX_OPEN_PAIRS = 5
 _OPERATOR_DAILY_LOSS_CAP_USDC = Decimal("15")
-_OPERATOR_MAX_PAIR_COST = Decimal("0.97")
+_OPERATOR_MIN_EDGE_BUFFER_PER_LEG = Decimal("0.01")
 _OPERATOR_MIN_PROFIT_THRESHOLD_USDC = Decimal("0.03")
 _STOPPED_REASON_COMPLETED = "completed"
 _STOPPED_REASON_OPERATOR_INTERRUPT = "operator_interrupt"
@@ -94,7 +94,9 @@ def build_default_paper_mode_config() -> CryptoPairPaperModeConfig:
         {
             "max_capital_per_market_usdc": str(_OPERATOR_MAX_CAPITAL_PER_MARKET_USDC),
             "max_open_paired_notional_usdc": "50",
-            "target_pair_cost_threshold": str(_OPERATOR_MAX_PAIR_COST),
+            "edge_buffer_per_leg": "0.04",
+            "max_pair_completion_pct": "0.80",
+            "min_projected_profit": "0.03",
             "fees": {
                 "maker_rebate_bps": "20",
                 "maker_fee_bps": "0",
@@ -201,16 +203,9 @@ class CryptoPairRunnerSettings:
                 "v0 max_capital_per_market_usdc cannot exceed "
                 f"{_OPERATOR_MAX_CAPITAL_PER_MARKET_USDC}"
             )
-        if self.paper_config.target_pair_cost_threshold > _OPERATOR_MAX_PAIR_COST:
+        if self.paper_config.edge_buffer_per_leg < _OPERATOR_MIN_EDGE_BUFFER_PER_LEG:
             raise ValueError(
-                f"v0 target_pair_cost_threshold cannot exceed {_OPERATOR_MAX_PAIR_COST}"
-            )
-        if (
-            Decimal("1") - self.paper_config.target_pair_cost_threshold
-            < self.min_profit_threshold_usdc
-        ):
-            raise ValueError(
-                "paper_config.target_pair_cost_threshold violates the minimum profit threshold"
+                f"v0 edge_buffer_per_leg cannot be below {_OPERATOR_MIN_EDGE_BUFFER_PER_LEG}"
             )
 
     def with_artifact_base_dir(
@@ -274,7 +269,9 @@ def build_runner_settings(
                 "filters",
                 "max_capital_per_market_usdc",
                 "max_open_paired_notional_usdc",
-                "target_pair_cost_threshold",
+                "edge_buffer_per_leg",
+                "max_pair_completion_pct",
+                "min_projected_profit",
                 "fees",
                 "safety",
             )
@@ -467,7 +464,6 @@ def build_observation(
     opportunity: PairOpportunity,
     run_id: str,
     observed_at: str,
-    target_pair_cost_threshold: Decimal,
 ) -> PaperOpportunityObservation:
     return PaperOpportunityObservation(
         opportunity_id=f"opp-{run_id}-{opportunity.slug}",
@@ -482,7 +478,6 @@ def build_observation(
         no_token_id=opportunity.no_token_id,
         yes_quote_price=str(opportunity.yes_ask),
         no_quote_price=str(opportunity.no_ask),
-        target_pair_cost_threshold=str(target_pair_cost_threshold),
         quote_age_seconds=0,
         assumptions=tuple(opportunity.assumptions),
     )
@@ -823,7 +818,6 @@ class CryptoPairPaperRunner:
             opportunity=opportunity,
             run_id=self.store.run_id,
             observed_at=event_at,
-            target_pair_cost_threshold=self.settings.paper_config.target_pair_cost_threshold,
         )
         self.store.record_observation(observation)
         if self.settings.sink_flush_mode == "streaming":

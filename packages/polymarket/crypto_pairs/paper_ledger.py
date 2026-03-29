@@ -99,7 +99,6 @@ class PaperOpportunityObservation:
     no_token_id: str
     yes_quote_price: Decimal
     no_quote_price: Decimal
-    target_pair_cost_threshold: Decimal
     quote_age_seconds: int = 0
     source: str = "scanner"
     assumptions: tuple[str, ...] = ()
@@ -107,10 +106,6 @@ class PaperOpportunityObservation:
     def __post_init__(self) -> None:
         yes_quote_price = _coerce_decimal(self.yes_quote_price, "yes_quote_price")
         no_quote_price = _coerce_decimal(self.no_quote_price, "no_quote_price")
-        target_pair_cost_threshold = _coerce_decimal(
-            self.target_pair_cost_threshold,
-            "target_pair_cost_threshold",
-        )
         quote_age_seconds = _coerce_int(self.quote_age_seconds, "quote_age_seconds")
 
         for field_name, value in (
@@ -131,10 +126,6 @@ class PaperOpportunityObservation:
             raise PaperLedgerValidationError("yes_quote_price must be within [0, 1]")
         if no_quote_price < _ZERO or no_quote_price > _ONE:
             raise PaperLedgerValidationError("no_quote_price must be within [0, 1]")
-        if target_pair_cost_threshold <= _ZERO or target_pair_cost_threshold > _ONE:
-            raise PaperLedgerValidationError(
-                "target_pair_cost_threshold must be > 0 and <= 1"
-            )
         if quote_age_seconds < 0:
             raise PaperLedgerValidationError("quote_age_seconds must be >= 0")
 
@@ -142,21 +133,12 @@ class PaperOpportunityObservation:
         object.__setattr__(self, "symbol", self.symbol.upper())
         object.__setattr__(self, "yes_quote_price", yes_quote_price)
         object.__setattr__(self, "no_quote_price", no_quote_price)
-        object.__setattr__(self, "target_pair_cost_threshold", target_pair_cost_threshold)
         object.__setattr__(self, "quote_age_seconds", quote_age_seconds)
         object.__setattr__(self, "assumptions", _normalize_assumptions(self.assumptions))
 
     @property
     def paired_quote_cost(self) -> Decimal:
         return self.yes_quote_price + self.no_quote_price
-
-    @property
-    def threshold_edge_usdc(self) -> Decimal:
-        return self.target_pair_cost_threshold - self.paired_quote_cost
-
-    @property
-    def threshold_passed(self) -> bool:
-        return self.paired_quote_cost <= self.target_pair_cost_threshold
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -175,11 +157,6 @@ class PaperOpportunityObservation:
             "yes_quote_price": _serialize_decimal(self.yes_quote_price),
             "no_quote_price": _serialize_decimal(self.no_quote_price),
             "paired_quote_cost": _serialize_decimal(self.paired_quote_cost),
-            "target_pair_cost_threshold": _serialize_decimal(
-                self.target_pair_cost_threshold
-            ),
-            "threshold_edge_usdc": _serialize_decimal(self.threshold_edge_usdc),
-            "threshold_passed": self.threshold_passed,
             "quote_age_seconds": self.quote_age_seconds,
             "source": self.source,
             "assumptions": list(self.assumptions),
@@ -204,7 +181,6 @@ class PaperOrderIntent:
     pair_size: Decimal
     intended_yes_price: Decimal
     intended_no_price: Decimal
-    target_pair_cost_threshold: Decimal
     max_capital_per_market_usdc: Decimal
     max_open_paired_notional_usdc: Decimal
     maker_rebate_bps: Decimal
@@ -231,10 +207,6 @@ class PaperOrderIntent:
         pair_size = _coerce_decimal(self.pair_size, "pair_size")
         intended_yes_price = _coerce_decimal(self.intended_yes_price, "intended_yes_price")
         intended_no_price = _coerce_decimal(self.intended_no_price, "intended_no_price")
-        target_pair_cost_threshold = _coerce_decimal(
-            self.target_pair_cost_threshold,
-            "target_pair_cost_threshold",
-        )
         max_capital_per_market_usdc = _coerce_decimal(
             self.max_capital_per_market_usdc,
             "max_capital_per_market_usdc",
@@ -258,10 +230,6 @@ class PaperOrderIntent:
             raise PaperLedgerValidationError("intended_yes_price must be within [0, 1]")
         if intended_no_price < _ZERO or intended_no_price > _ONE:
             raise PaperLedgerValidationError("intended_no_price must be within [0, 1]")
-        if target_pair_cost_threshold <= _ZERO or target_pair_cost_threshold > _ONE:
-            raise PaperLedgerValidationError(
-                "target_pair_cost_threshold must be > 0 and <= 1"
-            )
         if max_capital_per_market_usdc <= _ZERO:
             raise PaperLedgerValidationError("max_capital_per_market_usdc must be > 0")
         if max_open_paired_notional_usdc <= _ZERO:
@@ -280,7 +248,6 @@ class PaperOrderIntent:
         object.__setattr__(self, "pair_size", pair_size)
         object.__setattr__(self, "intended_yes_price", intended_yes_price)
         object.__setattr__(self, "intended_no_price", intended_no_price)
-        object.__setattr__(self, "target_pair_cost_threshold", target_pair_cost_threshold)
         object.__setattr__(
             self,
             "max_capital_per_market_usdc",
@@ -330,9 +297,6 @@ class PaperOrderIntent:
             "intended_pair_cost": _serialize_decimal(self.intended_pair_cost),
             "intended_paired_notional_usdc": _serialize_decimal(
                 self.intended_paired_notional_usdc
-            ),
-            "target_pair_cost_threshold": _serialize_decimal(
-                self.target_pair_cost_threshold
             ),
             "max_capital_per_market_usdc": _serialize_decimal(
                 self.max_capital_per_market_usdc
@@ -989,8 +953,6 @@ def get_order_intent_block_reason(
 
     if not config.allows_market(observation.symbol, observation.duration_min):
         return "filter_miss"
-    if observation.paired_quote_cost > config.target_pair_cost_threshold:
-        return "threshold_miss"
     if (
         config.safety.require_fresh_quotes
         and observation.quote_age_seconds > config.safety.stale_quote_timeout_seconds
@@ -1070,7 +1032,6 @@ def generate_order_intent(
         pair_size=_coerce_decimal(pair_size, "pair_size"),
         intended_yes_price=observation.yes_quote_price,
         intended_no_price=observation.no_quote_price,
-        target_pair_cost_threshold=config.target_pair_cost_threshold,
         max_capital_per_market_usdc=config.max_capital_per_market_usdc,
         max_open_paired_notional_usdc=config.max_open_paired_notional_usdc,
         maker_rebate_bps=config.fees.maker_rebate_bps,
@@ -1408,14 +1369,8 @@ def build_market_rollups(
                 symbol=bucket["symbol"],
                 duration_min=bucket["duration_min"],
                 opportunities_observed=len(observations_list),
-                threshold_pass_count=sum(
-                    1 for observation in observations_list if observation.threshold_passed
-                ),
-                threshold_miss_count=sum(
-                    1
-                    for observation in observations_list
-                    if not observation.threshold_passed
-                ),
+                threshold_pass_count=len(observations_list),
+                threshold_miss_count=0,
                 order_intents_generated=len(intents_list),
                 paired_exposure_count=sum(
                     1 for exposure in exposures_list if exposure.paired_size > _ZERO

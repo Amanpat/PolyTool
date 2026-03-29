@@ -109,7 +109,9 @@ def _demo_config() -> CryptoPairPaperModeConfig:
         {
             "max_capital_per_market_usdc": "25",
             "max_open_paired_notional_usdc": "50",
-            "target_pair_cost_threshold": "0.97",
+            "edge_buffer_per_leg": "0.04",
+            "max_pair_completion_pct": "0.80",
+            "min_projected_profit": "0.03",
             "fees": {
                 "maker_rebate_bps": "20",
                 "maker_fee_bps": "0",
@@ -149,7 +151,6 @@ def _build_observation(
         no_token_id=f"{synthetic_key}-no",
         yes_quote_price=yes_quote_price,
         no_quote_price=no_quote_price,
-        target_pair_cost_threshold="0.97",
         quote_age_seconds=3,
         source=DEMO_SEED_SOURCE,
         assumptions=DEMO_SYNTHETIC_ASSUMPTIONS,

@@ -28,8 +28,8 @@ def _obs(
     symbol: str = "BTC",
     duration_min: int = 5,
     market_id: str = "mkt-btc-5m",
-    yes_ask: float | None = 0.47,
-    no_ask: float | None = 0.48,
+    yes_ask: float | None = 0.44,
+    no_ask: float | None = 0.44,
     underlying_price: float | None = None,
     threshold: float | None = None,
     remaining_seconds: float | None = None,
@@ -68,8 +68,8 @@ def test_observation_defaults() -> None:
         symbol="BTC",
         duration_min=5,
         market_id="mkt-btc-5m",
-        yes_ask=0.47,
-        no_ask=0.48,
+        yes_ask=0.44,
+        no_ask=0.44,
     )
     assert obs.feed_is_stale is False
     assert obs.underlying_price is None
@@ -109,7 +109,7 @@ def test_stale_feed_counts_as_feed_stale_skip() -> None:
 
 
 def test_missing_yes_quote_counts_as_quote_skip() -> None:
-    obs = _obs(yes_ask=None, no_ask=0.48)
+    obs = _obs(yes_ask=None, no_ask=0.44)
     result = _harness().run([obs])
     assert result.observations_total == 1
     assert result.quote_skips == 1
@@ -117,7 +117,7 @@ def test_missing_yes_quote_counts_as_quote_skip() -> None:
 
 
 def test_missing_no_quote_counts_as_quote_skip() -> None:
-    obs = _obs(yes_ask=0.47, no_ask=None)
+    obs = _obs(yes_ask=0.44, no_ask=None)
     result = _harness().run([obs])
     assert result.observations_total == 1
     assert result.quote_skips == 1
@@ -125,7 +125,7 @@ def test_missing_no_quote_counts_as_quote_skip() -> None:
 
 
 def test_hard_rule_exceeded_counts_as_hard_rule_skip() -> None:
-    # 0.51 + 0.51 = 1.02 > 0.97 threshold
+    # Both asks above target_bid=0.46 → no_leg_meets_target_bid → hard_rule_skip
     obs = _obs(yes_ask=0.51, no_ask=0.51)
     result = _harness().run([obs])
     assert result.observations_total == 1
@@ -133,33 +133,28 @@ def test_hard_rule_exceeded_counts_as_hard_rule_skip() -> None:
     assert result.intents_generated == 0
 
 
-def test_soft_rule_blocks_all_legs_counts_as_soft_rule_skip() -> None:
-    # Strategy: simulate yes_only partial state (yes_accumulated_size=1.0).
-    # In yes_only state the engine only evaluates the NO leg via soft rule.
-    # With S==K, fair_no ≈ 0.5.  Set no_ask=0.60 > 0.5 → NO soft rule fails.
-    # Set yes_ask=0.36 so pair_cost = 0.36 + 0.60 = 0.96 ≤ 0.97 (hard rule passes).
-    # Result: empty legs → soft_rule_blocked_all_legs → soft_rule_skip.
+def test_soft_rule_skips_always_zero_v1() -> None:
+    # The soft fair-value rule has been replaced by the per-leg target-bid gate.
+    # soft_rule_skips should always be 0 regardless of observations.
+    # A yes_only partial state where NO exceeds target_bid is now a hard_rule_skip.
     obs = BacktestObservation(
         symbol="BTC",
         duration_min=5,
         market_id="mkt-btc-5m",
-        yes_ask=0.36,
-        no_ask=0.60,
-        underlying_price=60000.0,
-        threshold=60000.0,   # S == K → p_yes ≈ 0.5, fair_no ≈ 0.5
-        remaining_seconds=300.0,
+        yes_ask=0.44,
+        no_ask=0.48,          # > target_bid=0.46 → NO excluded
         yes_accumulated_size=1.0,  # yes_only state → focus on NO only
     )
     result = _harness().run([obs])
     assert result.observations_total == 1
-    assert result.soft_rule_skips == 1
+    assert result.soft_rule_skips == 0
+    assert result.hard_rule_skips == 1
     assert result.intents_generated == 0
 
 
-def test_clean_observation_below_threshold_generates_intent() -> None:
-    # 0.47 + 0.48 = 0.95 < 0.97 → hard rule passes
-    # No fair values → soft rule vacuously passes
-    obs = _obs(yes_ask=0.47, no_ask=0.48)
+def test_clean_observation_below_target_bid_generates_intent() -> None:
+    # Both asks at 0.44 <= target_bid=0.46 → target-bid gate passes → ACCUMULATE
+    obs = _obs(yes_ask=0.44, no_ask=0.44)
     result = _harness().run([obs])
     assert result.observations_total == 1
     assert result.intents_generated == 1
@@ -169,54 +164,45 @@ def test_clean_observation_below_threshold_generates_intent() -> None:
 
 
 def test_completed_pair_both_legs_counted_in_completed_pairs_simulated() -> None:
-    # With no fair values, both legs pass soft rule → ACCUMULATE (YES, NO) → completed pair
-    obs = _obs(yes_ask=0.47, no_ask=0.48)
+    # Both legs at 0.44 <= target_bid=0.46 → ACCUMULATE (YES, NO) → completed pair
+    obs = _obs(yes_ask=0.44, no_ask=0.44)
     result = _harness().run([obs])
     assert result.completed_pairs_simulated == 1
     assert result.partial_leg_intents == 0
 
 
 def test_partial_leg_intent_counted_in_partial_leg_intents() -> None:
-    # Use S >> K so p_yes ~1.0, fair_yes ~0.995, fair_no ~0.005
-    # yes_ask=0.47 < 0.995 → passes
-    # no_ask=0.48 > 0.005 → FAILS soft rule for NO
-    # → legs=(YES,) → partial intent
-    obs = _obs(
-        yes_ask=0.47,
-        no_ask=0.48,
-        underlying_price=200000.0,  # BTC far above threshold
-        threshold=50000.0,          # threshold well below current price
-        remaining_seconds=300.0,
-    )
+    # YES at 0.44 meets target_bid=0.46; NO at 0.48 > 0.46 → NO excluded
+    # → legs=(YES,) only → partial intent
+    obs = _obs(yes_ask=0.44, no_ask=0.48)
     result = _harness().run([obs])
-    # yes passes soft (0.47 < ~0.995), no fails soft (0.48 > ~0.005)
-    # → ACCUMULATE with legs=(YES,) only
     assert result.intents_generated == 1
     assert result.partial_leg_intents == 1
     assert result.completed_pairs_simulated == 0
 
 
 def test_avg_pair_cost_correct_for_single_completed_pair() -> None:
-    obs = _obs(yes_ask=0.47, no_ask=0.48)
+    # Both at 0.44 → pair_cost = 0.88
+    obs = _obs(yes_ask=0.44, no_ask=0.44)
     result = _harness().run([obs])
     assert result.completed_pairs_simulated == 1
     assert result.avg_completed_pair_cost is not None
-    assert abs(result.avg_completed_pair_cost - 0.95) < 1e-9
+    assert abs(result.avg_completed_pair_cost - 0.88) < 1e-9
 
 
 def test_est_profit_correct_for_single_completed_pair() -> None:
-    obs = _obs(yes_ask=0.47, no_ask=0.48)
+    # Both at 0.44 → pair_cost = 0.88 → est_profit = 1.0 - 0.88 = 0.12
+    obs = _obs(yes_ask=0.44, no_ask=0.44)
     result = _harness().run([obs])
     assert result.est_profit_per_completed_pair is not None
-    # est_profit = 1.0 - 0.95 = 0.05
-    assert abs(result.est_profit_per_completed_pair - 0.05) < 1e-9
+    assert abs(result.est_profit_per_completed_pair - 0.12) < 1e-9
 
 
 def test_deterministic_repeated_run_same_input_same_output() -> None:
     observations = [
-        _obs(yes_ask=0.47, no_ask=0.48),
-        _obs(feed_is_stale=True),
-        _obs(yes_ask=0.51, no_ask=0.51),
+        _obs(yes_ask=0.44, no_ask=0.44),   # intent
+        _obs(feed_is_stale=True),            # feed_stale_skip
+        _obs(yes_ask=0.51, no_ask=0.51),    # hard_rule_skip (both > 0.46)
     ]
     h = _harness()
     result_a = h.run(observations)
@@ -231,7 +217,7 @@ def test_deterministic_repeated_run_same_input_same_output() -> None:
 
 def test_result_to_dict_is_json_serializable() -> None:
     observations = [
-        _obs(yes_ask=0.47, no_ask=0.48),
+        _obs(yes_ask=0.44, no_ask=0.44),
         _obs(feed_is_stale=True),
     ]
     result = _harness().run(observations)
@@ -251,11 +237,11 @@ def test_result_to_dict_is_json_serializable() -> None:
 
 def test_mixed_observations_correct_counts() -> None:
     observations = [
-        _obs(yes_ask=0.47, no_ask=0.48),          # intent
-        _obs(feed_is_stale=True),                   # feed_stale_skip
-        _obs(yes_ask=0.51, no_ask=0.51),            # hard_rule_skip (1.02 > 0.97)
-        _obs(yes_ask=None),                         # quote_skip
-        _obs(yes_ask=0.45, no_ask=0.49),            # intent (0.94 < 0.97)
+        _obs(yes_ask=0.44, no_ask=0.44),            # intent (both <= 0.46)
+        _obs(feed_is_stale=True),                    # feed_stale_skip
+        _obs(yes_ask=0.51, no_ask=0.51),             # hard_rule_skip (both > 0.46)
+        _obs(yes_ask=None),                          # quote_skip
+        _obs(yes_ask=0.44, no_ask=0.44),             # intent (both <= 0.46)
     ]
     result = _harness().run(observations)
     assert result.observations_total == 5
@@ -267,18 +253,19 @@ def test_mixed_observations_correct_counts() -> None:
 
 
 def test_avg_pair_cost_averages_multiple_completed_pairs() -> None:
+    # Both legs must be <= target_bid=0.46 for completed-pair count
     observations = [
-        _obs(yes_ask=0.40, no_ask=0.50),  # pair_cost=0.90
-        _obs(yes_ask=0.45, no_ask=0.50),  # pair_cost=0.95
+        _obs(yes_ask=0.40, no_ask=0.44),  # pair_cost=0.84; both <= 0.46
+        _obs(yes_ask=0.44, no_ask=0.42),  # pair_cost=0.86; both <= 0.46
     ]
     result = _harness().run(observations)
     assert result.completed_pairs_simulated == 2
-    expected_avg = (0.90 + 0.95) / 2
+    expected_avg = (0.84 + 0.86) / 2
     assert abs(result.avg_completed_pair_cost - expected_avg) < 1e-9
 
 
 def test_safety_skips_always_zero_v0() -> None:
-    obs = _obs(yes_ask=0.47, no_ask=0.48)
+    obs = _obs(yes_ask=0.44, no_ask=0.44)
     result = _harness().run([obs])
     assert result.safety_skips == 0
 
@@ -289,9 +276,9 @@ def test_run_id_is_string() -> None:
     assert len(result.run_id) > 0
 
 
-def test_config_snapshot_has_target_pair_cost_threshold() -> None:
+def test_config_snapshot_has_edge_buffer_per_leg() -> None:
     result = _harness().run([])
-    assert "target_pair_cost_threshold" in result.config_snapshot
+    assert "edge_buffer_per_leg" in result.config_snapshot
 
 
 def test_both_missing_quotes_counts_as_single_quote_skip() -> None:
@@ -301,16 +288,16 @@ def test_both_missing_quotes_counts_as_single_quote_skip() -> None:
 
 
 def test_fair_value_not_computed_when_params_missing() -> None:
-    # No threshold/remaining_seconds → soft rule vacuously passes both legs
-    obs = _obs(yes_ask=0.47, no_ask=0.48, underlying_price=60000.0)
+    # No threshold/remaining_seconds → fair values not computed; target-bid gate still applies
+    # Both asks at 0.44 <= target_bid=0.46 → both legs pass → completed pair
+    obs = _obs(yes_ask=0.44, no_ask=0.44, underlying_price=60000.0)
     result = _harness().run([obs])
-    # Both legs pass vacuously → completed pair
     assert result.completed_pairs_simulated == 1
 
 
-def test_hard_rule_at_exact_threshold_passes() -> None:
-    # default threshold is 0.97; 0.49 + 0.48 = 0.97 exactly → should pass
-    obs = _obs(yes_ask=0.49, no_ask=0.48)
+def test_hard_rule_at_exact_target_bid_passes() -> None:
+    # ask == target_bid=0.46 exactly → should pass (<=)
+    obs = _obs(yes_ask=0.46, no_ask=0.46)
     result = _harness().run([obs])
     assert result.hard_rule_skips == 0
     assert result.intents_generated == 1

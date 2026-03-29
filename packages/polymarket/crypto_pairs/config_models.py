@@ -277,7 +277,9 @@ class CryptoPairPaperModeConfig:
     filters: CryptoPairFilterConfig = field(default_factory=CryptoPairFilterConfig)
     max_capital_per_market_usdc: Decimal = Decimal("250")
     max_open_paired_notional_usdc: Decimal = Decimal("500")
-    target_pair_cost_threshold: Decimal = Decimal("0.99")
+    edge_buffer_per_leg: Decimal = Decimal("0.04")
+    max_pair_completion_pct: Decimal = Decimal("0.80")
+    min_projected_profit: Decimal = Decimal("0.03")
     fees: CryptoPairFeeAssumptionConfig = field(
         default_factory=CryptoPairFeeAssumptionConfig
     )
@@ -317,9 +319,17 @@ class CryptoPairPaperModeConfig:
             self.max_open_paired_notional_usdc,
             "max_open_paired_notional_usdc",
         )
-        target_pair_cost_threshold = _coerce_decimal(
-            self.target_pair_cost_threshold,
-            "target_pair_cost_threshold",
+        edge_buffer_per_leg = _coerce_decimal(
+            self.edge_buffer_per_leg,
+            "edge_buffer_per_leg",
+        )
+        max_pair_completion_pct = _coerce_decimal(
+            self.max_pair_completion_pct,
+            "max_pair_completion_pct",
+        )
+        min_projected_profit = _coerce_decimal(
+            self.min_projected_profit,
+            "min_projected_profit",
         )
 
         if max_capital_per_market_usdc <= 0:
@@ -332,10 +342,16 @@ class CryptoPairPaperModeConfig:
             raise CryptoPairPaperConfigError(
                 "max_capital_per_market_usdc cannot exceed max_open_paired_notional_usdc"
             )
-        if target_pair_cost_threshold <= 0 or target_pair_cost_threshold > 1:
+        if edge_buffer_per_leg < 0 or edge_buffer_per_leg >= Decimal("0.5"):
             raise CryptoPairPaperConfigError(
-                "target_pair_cost_threshold must be > 0 and <= 1"
+                "edge_buffer_per_leg must be >= 0 and < 0.5"
             )
+        if max_pair_completion_pct <= 0 or max_pair_completion_pct > 1:
+            raise CryptoPairPaperConfigError(
+                "max_pair_completion_pct must be > 0 and <= 1"
+            )
+        if min_projected_profit < 0:
+            raise CryptoPairPaperConfigError("min_projected_profit must be >= 0")
 
         object.__setattr__(self, "filters", filters)
         object.__setattr__(self, "fees", fees)
@@ -350,11 +366,9 @@ class CryptoPairPaperModeConfig:
             "max_open_paired_notional_usdc",
             max_open_paired_notional_usdc,
         )
-        object.__setattr__(
-            self,
-            "target_pair_cost_threshold",
-            target_pair_cost_threshold,
-        )
+        object.__setattr__(self, "edge_buffer_per_leg", edge_buffer_per_leg)
+        object.__setattr__(self, "max_pair_completion_pct", max_pair_completion_pct)
+        object.__setattr__(self, "min_projected_profit", min_projected_profit)
 
     def allows_market(self, symbol: str, duration_min: int) -> bool:
         return self.filters.matches(symbol, duration_min)
@@ -365,7 +379,9 @@ class CryptoPairPaperModeConfig:
             "filters": self.filters.to_dict(),
             "max_capital_per_market_usdc": str(self.max_capital_per_market_usdc),
             "max_open_paired_notional_usdc": str(self.max_open_paired_notional_usdc),
-            "target_pair_cost_threshold": str(self.target_pair_cost_threshold),
+            "edge_buffer_per_leg": str(self.edge_buffer_per_leg),
+            "max_pair_completion_pct": str(self.max_pair_completion_pct),
+            "min_projected_profit": str(self.min_projected_profit),
             "fees": self.fees.to_dict(),
             "safety": self.safety.to_dict(),
         }
@@ -375,6 +391,7 @@ class CryptoPairPaperModeConfig:
         if raw is None:
             return cls()
         data = _ensure_mapping(raw, "config")
+        # Silently ignore legacy target_pair_cost_threshold key for backward compat
         return cls(
             filters=CryptoPairFilterConfig.from_dict(data.get("filters")),
             max_capital_per_market_usdc=data.get("max_capital_per_market_usdc", "250"),
@@ -382,7 +399,9 @@ class CryptoPairPaperModeConfig:
                 "max_open_paired_notional_usdc",
                 "500",
             ),
-            target_pair_cost_threshold=data.get("target_pair_cost_threshold", "0.99"),
+            edge_buffer_per_leg=data.get("edge_buffer_per_leg", "0.04"),
+            max_pair_completion_pct=data.get("max_pair_completion_pct", "0.80"),
+            min_projected_profit=data.get("min_projected_profit", "0.03"),
             fees=CryptoPairFeeAssumptionConfig.from_dict(data.get("fees")),
             safety=CryptoPairSafetyConfig.from_dict(data.get("safety")),
         )

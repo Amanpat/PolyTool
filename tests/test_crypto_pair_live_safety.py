@@ -206,8 +206,8 @@ def test_live_disconnect_cancels_working_orders_and_requires_reconnect(tmp_path:
         gamma_client=_make_gamma_client([_make_mock_market()]),
         clob_client=_make_clob_client(
             {
-                "btc-5m-up-yes": (None, 0.47),
-                "btc-5m-up-no": (None, 0.48),
+                "btc-5m-up-yes": (None, 0.44),
+                "btc-5m-up-no": (None, 0.44),
             }
         ),
         reference_feed=SequenceFeed(

@@ -125,8 +125,8 @@ def test_paper_default_path_creates_jsonl_bundle(tmp_path: Path) -> None:
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.47),
-            "btc-5m-up-no": (None, 0.48),
+            "btc-5m-up-yes": (None, 0.44),
+            "btc-5m-up-no": (None, 0.44),
         }
     )
 
@@ -233,8 +233,8 @@ def test_runner_emits_heartbeat_event_and_callback(tmp_path: Path) -> None:
     gamma = _make_gamma_client([market])
     clob = _make_clob_client(
         {
-            "btc-5m-up-yes": (None, 0.47),
-            "btc-5m-up-no": (None, 0.48),
+            "btc-5m-up-yes": (None, 0.44),
+            "btc-5m-up-no": (None, 0.44),
         }
     )
     started_at = datetime(2026, 3, 23, 0, 0, tzinfo=timezone.utc)

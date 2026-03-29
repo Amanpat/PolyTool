@@ -39,7 +39,9 @@ def _config(**overrides) -> CryptoPairPaperModeConfig:
     payload = {
         "max_capital_per_market_usdc": "25",
         "max_open_paired_notional_usdc": "50",
-        "target_pair_cost_threshold": "0.97",
+        "edge_buffer_per_leg": "0.04",
+        "max_pair_completion_pct": "0.80",
+        "min_projected_profit": "0.03",
         "fees": {
             "maker_rebate_bps": "20",
             "maker_fee_bps": "0",
@@ -228,109 +230,133 @@ class TestQuoteGate:
 
 
 # ---------------------------------------------------------------------------
-# Gate 3 — Hard pair-cost rule
+# Gate 3 — Target-bid gate (per-leg, replaces hard pair-cost rule)
+# Default: target_bid = 0.5 - 0.04 = 0.46
 # ---------------------------------------------------------------------------
 
 
 class TestHardRule:
-    def test_skip_when_pair_cost_exceeds_threshold(self) -> None:
-        # 0.50 + 0.50 = 1.00 > 0.97
-        st = _state(yes_price="0.50", no_price="0.50")
+    def test_skip_when_no_leg_meets_target_bid(self) -> None:
+        # Both asks above target_bid=0.46
+        st = _state(yes_price="0.47", no_price="0.48")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_SKIP
         assert intent.hard_rule_passed is False
-        assert intent.rationale.get("skip_reason") == "hard_rule_failed"
+        assert intent.rationale.get("skip_reason") == "no_leg_meets_target_bid"
 
-    def test_projected_cost_is_populated_on_hard_failure(self) -> None:
-        st = _state(yes_price="0.50", no_price="0.50")
-        intent = evaluate_accumulation(st, _config())
-        assert intent.projected_pair_cost == Decimal("1.00")
-
-    def test_pass_when_pair_cost_equals_threshold(self) -> None:
-        # threshold = 0.97; 0.49 + 0.48 = 0.97 — should pass (<=)
-        st = _state(yes_price="0.49", no_price="0.48")
-        intent = evaluate_accumulation(st, _config())
-        assert intent.hard_rule_passed is True
-        # May still be SKIP if soft rule blocks, but hard rule passed
-        assert intent.action != ACTION_SKIP or intent.rationale.get("skip_reason") != "hard_rule_failed"
-
-    def test_pass_when_pair_cost_below_threshold(self) -> None:
+    def test_projected_cost_is_populated_when_quotes_present(self) -> None:
+        # Even when gate fails, projected_pair_cost is set
         st = _state(yes_price="0.47", no_price="0.48")
         intent = evaluate_accumulation(st, _config())
-        assert intent.hard_rule_passed is True
+        assert intent.projected_pair_cost == Decimal("0.95")
 
-    def test_custom_threshold_respected(self) -> None:
-        cfg = _config(target_pair_cost_threshold="0.90")
-        st = _state(yes_price="0.46", no_price="0.46")  # 0.92 > 0.90
+    def test_pass_when_both_legs_meet_target_bid(self) -> None:
+        # Both asks at 0.44 <= 0.46 target_bid
+        st = _state(yes_price="0.44", no_price="0.44")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.hard_rule_passed is True
+        assert intent.action == ACTION_ACCUMULATE
+
+    def test_pass_when_one_leg_meets_target_bid(self) -> None:
+        # YES meets (0.44 <= 0.46), NO does not (0.48 > 0.46)
+        st = _state(yes_price="0.44", no_price="0.48")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.hard_rule_passed is True
+        # Only YES leg should be included
+        assert LEG_YES in intent.legs
+        assert LEG_NO not in intent.legs
+
+    def test_target_bid_equals_boundary_passes(self) -> None:
+        # ask == target_bid exactly should pass (<=)
+        st = _state(yes_price="0.46", no_price="0.46")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.hard_rule_passed is True
+        assert intent.action == ACTION_ACCUMULATE
+
+    def test_custom_edge_buffer_respected(self) -> None:
+        # edge_buffer=0.10 → target_bid = 0.40; ask=0.44 > 0.40 → skip
+        cfg = _config(edge_buffer_per_leg="0.10")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, cfg)
         assert intent.action == ACTION_SKIP
         assert intent.hard_rule_passed is False
 
+    def test_rationale_records_target_bid(self) -> None:
+        st = _state(yes_price="0.44", no_price="0.44")
+        intent = evaluate_accumulation(st, _config())
+        assert "target_bid" in intent.rationale
+        assert intent.rationale["target_bid"] == "0.46"
+
+    def test_rationale_records_per_leg_target_met(self) -> None:
+        st = _state(yes_price="0.44", no_price="0.48")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.rationale["yes_target_met"] is True
+        assert intent.rationale["no_target_met"] is False
+
 
 # ---------------------------------------------------------------------------
-# Gate 4 — Soft fair-value rule
+# Per-leg target-bid exclusion (formerly "soft rule" tests)
+# The soft fair-value rule has been replaced by the per-leg target-bid gate.
+# Legs with ask > target_bid are excluded from the intent.
 # ---------------------------------------------------------------------------
 
 
 class TestSoftRule:
-    def test_vacuous_pass_when_no_fair_values(self) -> None:
-        """No fair-value estimates → soft rule vacuously passes both legs."""
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=None, fair_value_no=None)
-        intent = evaluate_accumulation(st, _config())
-        assert intent.soft_rule_yes_passed is True
-        assert intent.soft_rule_no_passed is True
-
-    def test_soft_yes_passes_when_ask_below_fair_value(self) -> None:
-        # ask=0.47 < fair=0.55 → passes
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=0.55, fair_value_no=0.55)
+    def test_soft_rule_yes_passed_true_when_yes_meets_target(self) -> None:
+        """soft_rule_yes_passed field reflects whether YES met the target-bid."""
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.soft_rule_yes_passed is True
 
-    def test_soft_yes_fails_when_ask_equals_fair_value(self) -> None:
-        # ask=0.55 == fair=0.55 → NOT strictly below → fails
-        st = _state(yes_price="0.55", no_price="0.40", fair_value_yes=0.55, fair_value_no=0.55)
+    def test_soft_rule_yes_passed_false_when_yes_misses_target(self) -> None:
+        """YES ask above target_bid → soft_rule_yes_passed is False."""
+        st = _state(yes_price="0.48", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.soft_rule_yes_passed is False
 
-    def test_soft_yes_fails_when_ask_above_fair_value(self) -> None:
-        # ask=0.60 > fair=0.55 → overpriced → fails
-        st = _state(yes_price="0.60", no_price="0.30", fair_value_yes=0.55, fair_value_no=0.55)
-        intent = evaluate_accumulation(st, _config())
-        assert intent.soft_rule_yes_passed is False
-
-    def test_soft_no_passes_when_ask_below_fair_value(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=0.55, fair_value_no=0.55)
+    def test_soft_rule_no_passed_true_when_no_meets_target(self) -> None:
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.soft_rule_no_passed is True
 
-    def test_skip_when_both_legs_blocked_by_soft_rule(self) -> None:
-        # Both asks above their fair values
-        st = _state(yes_price="0.60", no_price="0.30", fair_value_yes=0.50, fair_value_no=0.25)
+    def test_soft_rule_no_passed_false_when_no_misses_target(self) -> None:
+        st = _state(yes_price="0.44", no_price="0.48")
         intent = evaluate_accumulation(st, _config())
-        assert intent.action == ACTION_SKIP
-        assert intent.rationale.get("skip_reason") == "soft_rule_blocked_all_legs"
-        assert intent.hard_rule_passed is True
+        assert intent.soft_rule_no_passed is False
 
-    def test_rationale_records_soft_rule_details(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=0.55, fair_value_no=0.55)
-        intent = evaluate_accumulation(st, _config())
-        assert "soft_rule_yes" in intent.rationale
-        assert "soft_rule_no" in intent.rationale
-
-    def test_soft_rule_reason_underpriced_when_passes(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=0.55, fair_value_no=0.55)
-        intent = evaluate_accumulation(st, _config())
-        assert intent.rationale["soft_rule_yes"]["reason"] == "underpriced"
-
-    def test_soft_rule_reason_overpriced_when_fails(self) -> None:
-        st = _state(yes_price="0.60", no_price="0.30", fair_value_yes=0.55, fair_value_no=0.55)
-        intent = evaluate_accumulation(st, _config())
-        assert intent.rationale["soft_rule_yes"]["reason"] == "overpriced"
-
-    def test_vacuous_pass_recorded_in_rationale(self) -> None:
+    def test_skip_when_both_legs_miss_target_bid(self) -> None:
+        # Both asks above target_bid (0.46)
         st = _state(yes_price="0.47", no_price="0.48")
         intent = evaluate_accumulation(st, _config())
-        assert intent.rationale["soft_rule_yes"]["reason"] == "no_fair_value_estimate"
+        assert intent.action == ACTION_SKIP
+        assert intent.rationale.get("skip_reason") == "no_leg_meets_target_bid"
+        assert intent.hard_rule_passed is False
+
+    def test_only_yes_leg_included_when_no_misses_target(self) -> None:
+        # YES: 0.44 <= 0.46 (meets), NO: 0.48 > 0.46 (misses)
+        st = _state(yes_price="0.44", no_price="0.48")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.action == ACTION_ACCUMULATE
+        assert LEG_YES in intent.legs
+        assert LEG_NO not in intent.legs
+
+    def test_only_no_leg_included_when_yes_misses_target(self) -> None:
+        # YES: 0.48 > 0.46 (misses), NO: 0.44 <= 0.46 (meets)
+        st = _state(yes_price="0.48", no_price="0.44")
+        intent = evaluate_accumulation(st, _config())
+        assert intent.action == ACTION_ACCUMULATE
+        assert LEG_NO in intent.legs
+        assert LEG_YES not in intent.legs
+
+    def test_fair_value_fields_ignored_by_engine(self) -> None:
+        """fair_value_yes/no are still in PairMarketState but engine ignores them."""
+        # With asks at 0.44, both meet target regardless of fair_value fields
+        st = _state(yes_price="0.44", no_price="0.44", fair_value_yes=0.30, fair_value_no=0.30)
+        intent = evaluate_accumulation(st, _config())
+        # Engine does not use fair_value — both legs should still accumulate
+        assert intent.action == ACTION_ACCUMULATE
+        assert LEG_YES in intent.legs
+        assert LEG_NO in intent.legs
 
 
 # ---------------------------------------------------------------------------
@@ -340,53 +366,53 @@ class TestSoftRule:
 
 class TestAccumulateAction:
     def test_accumulate_when_all_gates_pass(self) -> None:
-        # 0.47 + 0.48 = 0.95 < 0.97; no fair values → vacuous pass
-        st = _state(yes_price="0.47", no_price="0.48")
+        # Both legs at 0.44 <= target_bid=0.46 → all gates pass
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
 
     def test_accumulate_includes_both_legs_when_no_partial(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert LEG_YES in intent.legs
         assert LEG_NO in intent.legs
 
     def test_projected_cost_is_populated_on_accumulate(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
-        assert intent.projected_pair_cost == Decimal("0.95")
+        assert intent.projected_pair_cost == Decimal("0.88")
 
-    def test_accumulate_only_yes_when_no_blocked_by_soft(self) -> None:
-        # YES underpriced; NO overpriced
-        st = _state(yes_price="0.47", no_price="0.48", fair_value_yes=0.55, fair_value_no=0.40)
+    def test_accumulate_only_yes_when_no_exceeds_target_bid(self) -> None:
+        # YES at 0.44 meets target; NO at 0.48 > target_bid=0.46 → excluded
+        st = _state(yes_price="0.44", no_price="0.48")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
         assert LEG_YES in intent.legs
         assert LEG_NO not in intent.legs
 
-    def test_accumulate_only_no_when_yes_blocked_by_soft(self) -> None:
-        # NO underpriced; YES overpriced
-        st = _state(yes_price="0.60", no_price="0.35", fair_value_yes=0.55, fair_value_no=0.40)
+    def test_accumulate_only_no_when_yes_exceeds_target_bid(self) -> None:
+        # NO at 0.44 meets target; YES at 0.48 > target_bid=0.46 → excluded
+        st = _state(yes_price="0.48", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
         assert LEG_NO in intent.legs
         assert LEG_YES not in intent.legs
 
     def test_to_dict_is_json_serializable(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         d = intent.to_dict()
         json.dumps(d)  # must not raise
 
     def test_to_dict_contains_expected_keys(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         d = intent.to_dict()
         for key in ("action", "legs", "rationale", "projected_pair_cost", "hard_rule_passed"):
             assert key in d
 
     def test_projected_cost_in_dict_is_string(self) -> None:
-        st = _state(yes_price="0.47", no_price="0.48")
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         d = intent.to_dict()
         assert isinstance(d["projected_pair_cost"], str)
@@ -400,7 +426,8 @@ class TestAccumulateAction:
 class TestPartialPairLogic:
     def test_yes_only_focuses_on_no_leg(self) -> None:
         """Already hold YES → focus on completing the pair by buying NO."""
-        st = _state(yes_accumulated="5", no_accumulated="0")
+        # NO at 0.44 meets target_bid=0.46; yes_only state → only NO eligible
+        st = _state(yes_price="0.44", no_price="0.44", yes_accumulated="5", no_accumulated="0")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
         assert intent.legs == (LEG_NO,)
@@ -408,7 +435,8 @@ class TestPartialPairLogic:
 
     def test_no_only_focuses_on_yes_leg(self) -> None:
         """Already hold NO → focus on completing the pair by buying YES."""
-        st = _state(yes_accumulated="0", no_accumulated="5")
+        # YES at 0.44 meets target_bid=0.46; no_only state → only YES eligible
+        st = _state(yes_price="0.44", no_price="0.44", yes_accumulated="0", no_accumulated="5")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
         assert intent.legs == (LEG_YES,)
@@ -416,49 +444,45 @@ class TestPartialPairLogic:
 
     def test_both_legs_accumulated_considers_all_legs(self) -> None:
         """Full pair already held — engine still evaluates fresh entry for more."""
-        st = _state(yes_accumulated="5", no_accumulated="5")
+        st = _state(yes_price="0.44", no_price="0.44", yes_accumulated="5", no_accumulated="5")
         intent = evaluate_accumulation(st, _config())
         assert intent.action == ACTION_ACCUMULATE
         assert LEG_YES in intent.legs
         assert LEG_NO in intent.legs
 
-    def test_yes_only_skip_when_soft_blocks_no(self) -> None:
-        """yes_only but NO leg is overpriced → soft rule blocks → SKIP."""
+    def test_yes_only_skip_when_no_misses_target_bid(self) -> None:
+        """yes_only but NO ask > target_bid → target-bid gate blocks NO → SKIP."""
+        # yes_only state: only NO leg is eligible; NO at 0.48 > 0.46 → SKIP
         st = _state(
             yes_accumulated="5",
             no_accumulated="0",
-            fair_value_yes=0.55,
-            fair_value_no=0.40,
-            yes_price="0.47",
-            no_price="0.48",  # 0.48 > 0.40 → NO overpriced
+            yes_price="0.44",
+            no_price="0.48",  # 0.48 > target_bid=0.46 → NO excluded
         )
         intent = evaluate_accumulation(st, _config())
-        # partial state is yes_only → only NO is eligible
-        # soft rule blocks NO → SKIP
+        # partial state is yes_only → only NO is eligible; NO misses target → SKIP
         assert intent.action == ACTION_SKIP
 
-    def test_no_only_skip_when_soft_blocks_yes(self) -> None:
-        """no_only but YES leg is overpriced → soft rule blocks → SKIP."""
+    def test_no_only_skip_when_yes_misses_target_bid(self) -> None:
+        """no_only but YES ask > target_bid → target-bid gate blocks YES → SKIP."""
+        # no_only state: only YES leg is eligible; YES at 0.48 > 0.46 → SKIP
         st = _state(
             yes_accumulated="0",
             no_accumulated="5",
-            fair_value_yes=0.40,
-            fair_value_no=0.55,
-            yes_price="0.48",  # 0.48 > 0.40 → YES overpriced
-            no_price="0.47",
+            yes_price="0.48",  # 0.48 > target_bid=0.46 → YES excluded
+            no_price="0.44",
         )
         intent = evaluate_accumulation(st, _config())
-        # partial state is no_only → only YES is eligible
-        # soft rule blocks YES → SKIP
+        # partial state is no_only → only YES is eligible; YES misses target → SKIP
         assert intent.action == ACTION_SKIP
 
     def test_partial_state_recorded_in_rationale(self) -> None:
-        st = _state(yes_accumulated="5", no_accumulated="0")
+        st = _state(yes_price="0.44", no_price="0.44", yes_accumulated="5", no_accumulated="0")
         intent = evaluate_accumulation(st, _config())
         assert intent.rationale["partial_pair_state"] == "yes_only"
 
     def test_no_partial_state_recorded_as_none(self) -> None:
-        st = _state()
+        st = _state(yes_price="0.44", no_price="0.44")
         intent = evaluate_accumulation(st, _config())
         assert intent.rationale["partial_pair_state"] == "none"
 

@@ -322,9 +322,9 @@ class OpportunityObservedEvent(CryptoPairEventBase):
     no_token_id: str
     yes_quote_price: Decimal
     no_quote_price: Decimal
-    target_pair_cost_threshold: Decimal
-    threshold_edge_usdc: Decimal
-    threshold_passed: bool
+    target_pair_cost_threshold: Optional[Decimal] = None
+    threshold_edge_usdc: Optional[Decimal] = None
+    threshold_passed: bool = False
     quote_age_seconds: int = 0
     assumptions: tuple[str, ...] = ()
 
@@ -350,11 +350,11 @@ class OpportunityObservedEvent(CryptoPairEventBase):
 
         yes_quote_price = _coerce_decimal(self.yes_quote_price, "yes_quote_price")
         no_quote_price = _coerce_decimal(self.no_quote_price, "no_quote_price")
-        target_pair_cost_threshold = _coerce_decimal(
+        target_pair_cost_threshold = _coerce_optional_decimal(
             self.target_pair_cost_threshold,
             "target_pair_cost_threshold",
         )
-        threshold_edge_usdc = _coerce_decimal(
+        threshold_edge_usdc = _coerce_optional_decimal(
             self.threshold_edge_usdc,
             "threshold_edge_usdc",
         )
@@ -401,9 +401,6 @@ class OpportunityObservedEvent(CryptoPairEventBase):
             no_token_id=observation.no_token_id,
             yes_quote_price=observation.yes_quote_price,
             no_quote_price=observation.no_quote_price,
-            target_pair_cost_threshold=observation.target_pair_cost_threshold,
-            threshold_edge_usdc=observation.threshold_edge_usdc,
-            threshold_passed=observation.threshold_passed,
             quote_age_seconds=observation.quote_age_seconds,
             assumptions=observation.assumptions,
         )
@@ -454,8 +451,8 @@ class IntentGeneratedEvent(CryptoPairEventBase):
     pair_size: Decimal
     intended_yes_price: Decimal
     intended_no_price: Decimal
-    target_pair_cost_threshold: Decimal
     intended_paired_notional_usdc: Decimal
+    target_pair_cost_threshold: Optional[Decimal] = None
     max_capital_per_market_usdc: Decimal
     max_open_paired_notional_usdc: Decimal
     maker_rebate_bps: Decimal
@@ -499,7 +496,7 @@ class IntentGeneratedEvent(CryptoPairEventBase):
         object.__setattr__(
             self,
             "target_pair_cost_threshold",
-            _coerce_decimal(
+            _coerce_optional_decimal(
                 self.target_pair_cost_threshold,
                 "target_pair_cost_threshold",
             ),
@@ -592,7 +589,6 @@ class IntentGeneratedEvent(CryptoPairEventBase):
             pair_size=intent.pair_size,
             intended_yes_price=intent.intended_yes_price,
             intended_no_price=intent.intended_no_price,
-            target_pair_cost_threshold=intent.target_pair_cost_threshold,
             intended_paired_notional_usdc=intent.intended_paired_notional_usdc,
             max_capital_per_market_usdc=intent.max_capital_per_market_usdc,
             max_open_paired_notional_usdc=intent.max_open_paired_notional_usdc,

@@ -184,7 +184,7 @@ def _write_artifacts(
         if r["est_profit_per_completed_pair"] is not None
         else "N/A"
     )
-    threshold = r.get("config_snapshot", {}).get("target_pair_cost_threshold", "N/A")
+    threshold = r.get("config_snapshot", {}).get("edge_buffer_per_leg", "N/A")
 
     lines = [
         "# Crypto Pair Backtest Report",
@@ -212,7 +212,7 @@ def _write_artifacts(
         "",
         f"| Parameter | Value |",
         f"| --------- | ----- |",
-        f"| target_pair_cost_threshold | {threshold} |",
+        f"| edge_buffer_per_leg | {threshold} |",
         "",
         "---",
         "",

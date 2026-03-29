@@ -229,7 +229,6 @@ class CryptoPairLiveRunner:
             opportunity=opportunity,
             run_id=self.store.run_id,
             observed_at=event_at,
-            target_pair_cost_threshold=self.settings.paper_config.target_pair_cost_threshold,
         )
         self.store.record_observation(observation)
 
