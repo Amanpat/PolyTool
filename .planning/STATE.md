@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-048: gabagool22 scan complete; 100% BTC/ETH 5m positions; favorite tier CLV +0.087; six crypto gap dimensions documented; artifact: artifacts/debug/gabagool22_crypto_gap_report.md
+Last activity: 2026-03-29 — quick-050: tape corpus integrity audit complete; 314 tapes scanned (gold=8, silver=118, shadow=181, crypto_new=7); verdict SAFE_TO_USE; 0 YES/NO token-ID mapping bugs; symmetric-BBO guard explains Phase 1A identical values observation; artifact: artifacts/debug/tape_integrity_audit_report.md
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-03-29 — quick-048: gabagool22 scan complete; 100% BTC/ETH 
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-050: Tape corpus integrity audit SAFE_TO_USE; 314 tapes, 0 token-ID mapping bugs, 0 quote-stream duplicates; Phase 1A identical values = symmetric 50/50 binary pricing (expected); script tools/gates/tape_integrity_audit.py
 - quick-047: Runbook stale path corrected: artifacts/crypto_pairs/paper_runs -> artifacts/tapes/crypto/paper_runs (post quick-036 restructure); definitive launch command uses coinbase/heartbeat/auto-report flags; Track 2 paper soak READY TO EXECUTE
 - quick-046: Replace target_pair_cost_threshold gate (always fired at >=0.99) with per-leg target_bid = 0.5 - edge_buffer_per_leg (default 0.46); fair value always falls back to 0.5 in paper mode (expected — PairOpportunity carries no threshold/remaining_seconds)
 - quick-042: Use fetch_markets_filtered(slugs=...) for targeted 5m updown market lookup; merge with bulk path via use_targeted_for_5m=True for backward compat
