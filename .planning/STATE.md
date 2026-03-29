@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 - Completed quick-041: Gold capture wave 2 -- MORE_GOLD_NEEDED; corpus advanced from 27/50 to 40/50 qualifying tapes (+13: sports bucket complete 15/15, politics bucket complete 10/10, new_market bucket complete 5/5); only crypto=10 remains (market availability blocked); Gate 2 unblocks when crypto markets return.
+Last activity: 2026-03-29 - Completed quick-042: Fix market_discovery.py for 5m BTC/ETH/SOL updown slug discovery; added _generate_5m_slugs() + discover_updown_5m_markets() via targeted fetch_markets_filtered(slugs=...) lookup; merged into discover_crypto_pair_markets() with use_targeted_for_5m=True default; 15 new offline tests, 2749 total passing.
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-03-29 - Completed quick-041: Gold capture wave 2 -- MORE_GOL
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-042: Use fetch_markets_filtered(slugs=...) for targeted 5m updown market lookup; merge with bulk path via use_targeted_for_5m=True for backward compat
 - Chroma for vector store, SQLite FTS5 for lexical
 - RRF k=60 (standard paper value) for fusion
 - SHA256-based deterministic IDs
