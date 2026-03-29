@@ -11,6 +11,7 @@ DRY-RUN ONLY — no orders are placed here.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -112,10 +113,116 @@ def _resolve_yes_no_tokens(
 # Discovery
 # ---------------------------------------------------------------------------
 
+_DEFAULT_SYMBOLS = ["btc", "eth", "sol"]
+_BUCKET_SECONDS = 300  # 5-minute window size
+
+
+def _generate_5m_slugs(
+    symbols: list[str] | None = None,
+    lookahead_slots: int = 3,
+) -> list[str]:
+    """Generate expected slug strings for current + upcoming 5-min windows.
+
+    Args:
+        symbols: List of lowercase symbol prefixes (default: btc, eth, sol).
+        lookahead_slots: Number of future 5-min buckets beyond the current one.
+
+    Returns:
+        List of market slugs e.g. ['btc-updown-5m-1774764600', ...].
+    """
+    if symbols is None:
+        symbols = _DEFAULT_SYMBOLS
+    current_bucket = (int(time.time()) // _BUCKET_SECONDS) * _BUCKET_SECONDS
+    slugs: list[str] = []
+    for offset in range(lookahead_slots + 1):
+        bucket = current_bucket + offset * _BUCKET_SECONDS
+        for sym in symbols:
+            slugs.append(f"{sym}-updown-5m-{bucket}")
+    return slugs
+
+
+def discover_updown_5m_markets(
+    gamma_client=None,
+    lookahead_slots: int = 3,
+) -> list[CryptoPairMarket]:
+    """Discover active 5-minute BTC/ETH/SOL updown markets using targeted slug lookup.
+
+    Unlike discover_crypto_pair_markets() which paginates bulk market lists,
+    this function generates expected slug patterns for the current time window
+    and fetches them directly — more reliable for short-lived 5m markets.
+
+    Args:
+        gamma_client: ``GammaClient`` instance; creates a default one if None.
+        lookahead_slots: Number of future 5-min buckets beyond the current one.
+
+    Returns:
+        List of :class:`CryptoPairMarket` with YES/NO token IDs resolved,
+        filtered to markets that are active, accepting orders, and have
+        exactly two CLOB tokens.
+    """
+    if gamma_client is None:
+        from packages.polymarket.gamma import GammaClient
+        gamma_client = GammaClient()
+
+    slugs = _generate_5m_slugs(lookahead_slots=lookahead_slots)
+    markets = gamma_client.fetch_markets_filtered(slugs=slugs)
+
+    pairs: list[CryptoPairMarket] = []
+
+    for market in markets:
+        if len(market.clob_token_ids) != 2:
+            continue
+        if not market.active:
+            continue
+        if market.accepting_orders is False:
+            continue
+
+        search_text = f"{market.question} {market.market_slug}"
+
+        symbol = _detect_symbol(search_text)
+        if symbol is None:
+            continue
+
+        duration = _detect_duration(search_text)
+        if duration is None:
+            continue
+
+        yes_token_id, no_token_id = _resolve_yes_no_tokens(
+            market.clob_token_ids, market.outcomes
+        )
+        if not yes_token_id or not no_token_id:
+            continue
+
+        end_date: Optional[str] = None
+        if market.end_date_iso is not None:
+            if isinstance(market.end_date_iso, datetime):
+                end_date = market.end_date_iso.isoformat()
+            else:
+                end_date = str(market.end_date_iso)
+
+        pairs.append(
+            CryptoPairMarket(
+                slug=market.market_slug,
+                condition_id=market.condition_id,
+                question=market.question,
+                symbol=symbol,
+                duration_min=duration,
+                yes_token_id=yes_token_id,
+                no_token_id=no_token_id,
+                end_date_iso=end_date,
+                active=market.active,
+                accepting_orders=market.accepting_orders,
+            )
+        )
+
+    return pairs
+
+
 def discover_crypto_pair_markets(
     gamma_client=None,
     max_pages: int = 5,
     page_size: int = 100,
+    use_targeted_for_5m: bool = True,
 ) -> list[CryptoPairMarket]:
     """Discover active BTC/ETH/SOL 5m/15m binary markets from Gamma API.
 
@@ -123,6 +230,9 @@ def discover_crypto_pair_markets(
         gamma_client: ``GammaClient`` instance; creates a default one if None.
         max_pages: Maximum pagination pages to fetch (limits network usage).
         page_size: Markets per page.
+        use_targeted_for_5m: When True (default), also calls
+            ``discover_updown_5m_markets()`` to find 5-min updown markets via
+            targeted slug lookup.  Results are merged and deduped by slug.
 
     Returns:
         List of :class:`CryptoPairMarket` with YES/NO token IDs resolved,
@@ -190,5 +300,13 @@ def discover_crypto_pair_markets(
                 accepting_orders=market.accepting_orders,
             )
         )
+
+    if use_targeted_for_5m:
+        targeted = discover_updown_5m_markets(gamma_client=gamma_client)
+        existing_slugs = {p.slug for p in pairs}
+        for pair in targeted:
+            if pair.slug not in existing_slugs:
+                pairs.append(pair)
+                existing_slugs.add(pair.slug)
 
     return pairs
