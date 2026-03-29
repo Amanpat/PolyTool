@@ -580,7 +580,7 @@ def _compute_cadence(shadow_root: Path, sample_n: int) -> Optional[CadenceStats]
     )
 
 
-def _get_runner_scan_cadence() -> Optional[int]:
+def _get_runner_scan_cadence() -> Optional[float]:
     """Read cycle_interval_seconds default from paper_runner.py (CryptoPairRunnerSettings)."""
     # The default is defined in paper_runner.py as a dataclass field
     runner_path = _REPO_ROOT / "packages/polymarket/crypto_pairs/paper_runner.py"
@@ -589,14 +589,14 @@ def _get_runner_scan_cadence() -> Optional[int]:
     try:
         text = runner_path.read_text(encoding="utf-8")
         for line in text.splitlines():
-            # Match: "    cycle_interval_seconds: int = 5"
+            # Match: "    cycle_interval_seconds: float = 0.5"
             stripped = line.strip()
-            if "cycle_interval_seconds" in stripped and "int" in stripped and "=" in stripped:
+            if "cycle_interval_seconds" in stripped and ("float" in stripped or "int" in stripped) and "=" in stripped:
                 parts = stripped.split("=")
                 if len(parts) >= 2:
                     val_str = parts[-1].strip().rstrip(",").rstrip()
                     try:
-                        return int(val_str)
+                        return float(val_str)
                     except ValueError:
                         pass
     except Exception:

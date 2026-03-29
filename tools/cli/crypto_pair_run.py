@@ -78,9 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--cycle-interval-seconds",
-        type=int,
+        type=float,
         default=None,
-        help="Override cycle interval seconds (default from config or 5).",
+        help="Override cycle interval seconds (default from config or 0.5).",
     )
     parser.add_argument(
         "--symbol",
@@ -270,7 +270,7 @@ def run_crypto_pair_runner(
     config_path: Optional[str] = None,
     config_payload: Optional[dict[str, Any]] = None,
     duration_seconds: int = 30,
-    cycle_interval_seconds: Optional[int] = None,
+    cycle_interval_seconds: Optional[float] = None,
     symbol_filters: Optional[tuple[str, ...]] = None,
     duration_filters: Optional[tuple[int, ...]] = None,
     output_base: Optional[Path] = None,

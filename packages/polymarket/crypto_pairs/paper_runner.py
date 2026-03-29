@@ -122,7 +122,7 @@ class CryptoPairRunnerSettings:
     artifact_base_dir: Path = DEFAULT_PAPER_ARTIFACTS_DIR
     kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH
     duration_seconds: int = 30
-    cycle_interval_seconds: int = 5
+    cycle_interval_seconds: float = 0.5
     max_open_pairs: int = _OPERATOR_MAX_OPEN_PAIRS
     daily_loss_cap_usdc: Decimal = _OPERATOR_DAILY_LOSS_CAP_USDC
     min_profit_threshold_usdc: Decimal = _OPERATOR_MIN_PROFIT_THRESHOLD_USDC
@@ -297,7 +297,7 @@ def build_runner_settings(
         duration_seconds=duration_seconds
         if duration_seconds is not None
         else int(payload.get("duration_seconds", 30)),
-        cycle_interval_seconds=int(payload.get("cycle_interval_seconds", 5)),
+        cycle_interval_seconds=float(payload.get("cycle_interval_seconds", 0.5)),
         max_open_pairs=int(payload.get("max_open_pairs", _OPERATOR_MAX_OPEN_PAIRS)),
         daily_loss_cap_usdc=payload.get(
             "daily_loss_cap_usdc",
