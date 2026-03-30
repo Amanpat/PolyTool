@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-29 — quick-053: resolved Phase 1A authority drift in CLAUDE.md, ROADMAP.md, CURRENT_STATE.md; directional momentum strategy now canonical in all docs; live deployment blockers documented; READY TO EXECUTE claim removed; 2775 tests passing
+Last activity: 2026-03-30 — quick-054: WebSocket CLOB feed migration for crypto pair bot; ClobStreamClient with daemon thread + lock; REST fallback with 5s staleness guard; --use-ws-clob CLI flag; 12 new tests; 2787 tests passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-03-29 — quick-053: resolved Phase 1A authority drift in CL
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-054: ClobStreamClient uses raw websocket.WebSocket() (not WebSocketApp) matching TapeRecorder; 5s staleness guard; live mode explicitly gated by 'not live' pending order-timing review; token subscriptions deferred to first cycle (market slugs not known at startup)
 - quick-050: Tape corpus integrity audit SAFE_TO_USE; 314 tapes, 0 token-ID mapping bugs, 0 quote-stream duplicates; Phase 1A identical values = symmetric 50/50 binary pricing (expected); script tools/gates/tape_integrity_audit.py
 - quick-049: Directional momentum strategy uses first/last price in rolling deque for pct calc; cooldown in-memory _entered_brackets (resets on restart, acceptable for paper); hedge fills ONLY if ask <= max_hedge_price=0.20; observation enriched via dataclasses.replace() after intent known; history_depth=2 seeds 2 base prices then cycle 3 fires +1% signal
 - quick-047: Runbook stale path corrected: artifacts/crypto_pairs/paper_runs -> artifacts/tapes/crypto/paper_runs (post quick-036 restructure); definitive launch command uses coinbase/heartbeat/auto-report flags; Track 2 paper soak READY TO EXECUTE
@@ -119,3 +120,4 @@ Last activity: 2026-03-29 — quick-053: resolved Phase 1A authority drift in CL
 | 051 | cycle_interval_seconds default 5→0.5 (float): paper_runner.py type+default+from_dict, CLI argparse type=float+help, tape_integrity_audit _get_runner_scan_cadence() updated to match float; asyncio.sleep path cast-free confirmed; 2767 passing | 2026-03-29 | e95565d | [51-change-cycle-interval-seconds-default-fr](./quick/51-change-cycle-interval-seconds-default-fr/) |
 | 052 | Live terminal dashboard + duration bug fix: startup header, per-cycle market lines (verbose mode), stats every 10s, highlighted signals/intents (unconditional); duration timer fixed to use wall-clock elapsed check instead of pre-computed cycle count; --verbose CLI flag; 8 new tests; 2775 passing | 2026-03-29 | c6f3909 | [52-add-live-terminal-dashboard-to-crypto-pa](./quick/52-add-live-terminal-dashboard-to-crypto-pa/) |
 | 053 | Phase 1A authority drift resolution: CLAUDE.md Track 2 goal updated to directional momentum (pair-cost thesis marked superseded); ROADMAP.md Phase 1A row corrected from 'Not yet started' to substantially built with pivot history; CURRENT_STATE.md READY TO EXECUTE replaced with BLOCKED + 5 deployment blockers listed; dev log with 6-row conflict matrix written; 2775 passing | 2026-03-29 | 9384efb | [53-resolve-phase-1a-authority-drift-in-docs](./quick/53-resolve-phase-1a-authority-drift-in-docs/) |
+| 054 | WebSocket CLOB feed migration for crypto pair bot: ClobStreamClient (daemon thread + lock + staleness guard); _event_source + _time_fn injection for offline tests; get_best_bid_ask_from_stream() on ClobClient; PairOpportunity clob_source/clob_age_ms/clob_snapshot_ready fields; paper runner lifecycle wiring; --use-ws-clob / --no-use-ws-clob CLI flags; 12 TDD tests; REST fallback preserved; 2787 passing | 2026-03-30 | d1d94fe | [54-websocket-clob-feed-migration-for-crypto](./quick/54-websocket-clob-feed-migration-for-crypto/) |
