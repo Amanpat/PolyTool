@@ -199,6 +199,21 @@ def build_parser() -> argparse.ArgumentParser:
             "Default (off): show only stats every 10s and any signals/intents."
         ),
     )
+    parser.add_argument(
+        "--use-ws-clob",
+        action="store_true",
+        default=True,
+        help=(
+            "Use persistent WebSocket CLOB feed instead of REST polling for orderbook reads. "
+            "Enabled by default in paper mode. Use --no-use-ws-clob to revert to REST-only mode."
+        ),
+    )
+    parser.add_argument(
+        "--no-use-ws-clob",
+        dest="use_ws_clob",
+        action="store_false",
+        help="Disable WS CLOB feed; use REST polling for orderbook reads.",
+    )
     return parser
 
 
@@ -302,6 +317,7 @@ def run_crypto_pair_runner(
     auto_report: bool = False,
     report_generator=generate_crypto_pair_paper_report,
     verbose: bool = False,
+    use_ws_clob: bool = True,
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -390,6 +406,11 @@ def run_crypto_pair_runner(
             live_enabled=True,
         )
 
+    clob_stream = None
+    if use_ws_clob and not live:
+        from packages.polymarket.crypto_pairs.clob_stream import ClobStreamClient
+        clob_stream = ClobStreamClient()
+
     if live:
         runner = CryptoPairLiveRunner(
             settings,
@@ -410,6 +431,7 @@ def run_crypto_pair_runner(
             sink=sink,
             heartbeat_callback=heartbeat_callback,
             verbose=verbose,
+            clob_stream=clob_stream,
         )
     manifest = runner.run()
 
@@ -527,6 +549,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             reference_feed_provider=args.reference_feed_provider,
             auto_report=args.auto_report and not args.live,
             verbose=args.verbose,
+            use_ws_clob=args.use_ws_clob,
         )
     except ConfigLoadError as exc:
         print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)

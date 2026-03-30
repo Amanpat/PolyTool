@@ -65,6 +65,11 @@ class PairOpportunity:
         default_factory=lambda: list(_STATIC_ASSUMPTIONS)
     )
 
+    # CLOB source metadata (added in quick-054 WS migration)
+    clob_source: str = "rest"          # "ws" | "rest"
+    clob_age_ms: int = -1              # -1 when REST (age unknown); ms when WS
+    clob_snapshot_ready: bool = False  # True when both tokens had fresh WS books
+
 
 # ---------------------------------------------------------------------------
 # Core computation
@@ -73,12 +78,18 @@ class PairOpportunity:
 def compute_pair_opportunity(
     market: CryptoPairMarket,
     clob_client=None,
+    stream=None,  # ClobStreamClient or None
 ) -> PairOpportunity:
     """Fetch live best-ask prices for YES and NO, then compute pair metrics.
+
+    When ``stream`` is provided and both tokens are ready in the WS book, reads
+    prices from the in-memory book instead of making REST calls.  Falls back to
+    REST automatically when stream is None or either token is not yet ready.
 
     Args:
         market: Discovered market with both token IDs.
         clob_client: ``ClobClient`` instance; creates a default one if None.
+        stream: Optional ``ClobStreamClient`` for WS-based price reads.
 
     Returns:
         :class:`PairOpportunity` with ``has_opportunity=True`` when
@@ -98,8 +109,24 @@ def compute_pair_opportunity(
         from packages.polymarket.clob import ClobClient
         clob_client = ClobClient()
 
-    yes_top = clob_client.get_best_bid_ask(market.yes_token_id)
-    no_top = clob_client.get_best_bid_ask(market.no_token_id)
+    if (
+        stream is not None
+        and stream.is_ready(market.yes_token_id)
+        and stream.is_ready(market.no_token_id)
+    ):
+        yes_top = clob_client.get_best_bid_ask_from_stream(market.yes_token_id, stream)
+        no_top = clob_client.get_best_bid_ask_from_stream(market.no_token_id, stream)
+        clob_source = "ws"
+        yes_age_ms = stream.get_book_age_ms(market.yes_token_id)
+        no_age_ms = stream.get_book_age_ms(market.no_token_id)
+        clob_age_ms = max(yes_age_ms, no_age_ms)
+        clob_snapshot_ready = True
+    else:
+        yes_top = clob_client.get_best_bid_ask(market.yes_token_id)
+        no_top = clob_client.get_best_bid_ask(market.no_token_id)
+        clob_source = "rest"
+        clob_age_ms = -1
+        clob_snapshot_ready = False
 
     if yes_top is None or yes_top.best_ask is None:
         opp.book_status = "missing_yes"
@@ -121,6 +148,9 @@ def compute_pair_opportunity(
     )
     opp.gross_edge = round(PAIR_COST_THRESHOLD - opp.paired_cost, 6)
     opp.has_opportunity = opp.gross_edge > 0.0
+    opp.clob_source = clob_source
+    opp.clob_age_ms = clob_age_ms
+    opp.clob_snapshot_ready = clob_snapshot_ready
 
     return opp
 
@@ -128,12 +158,14 @@ def compute_pair_opportunity(
 def scan_opportunities(
     pair_markets: list[CryptoPairMarket],
     clob_client=None,
+    stream=None,  # ClobStreamClient or None
 ) -> list[PairOpportunity]:
     """Compute pair opportunities for all discovered markets.
 
     Args:
         pair_markets: Markets to evaluate (from :func:`discover_crypto_pair_markets`).
         clob_client: Shared ``ClobClient`` instance (created once if None).
+        stream: Optional ``ClobStreamClient`` for WS-based price reads.
 
     Returns:
         One :class:`PairOpportunity` per input market, in input order.
@@ -143,7 +175,7 @@ def scan_opportunities(
         clob_client = ClobClient()
 
     return [
-        compute_pair_opportunity(m, clob_client=clob_client)
+        compute_pair_opportunity(m, clob_client=clob_client, stream=stream)
         for m in pair_markets
     ]
 

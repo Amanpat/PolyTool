@@ -680,10 +680,12 @@ class CryptoPairPaperRunner:
         scan_fn=scan_opportunities,
         rank_fn=rank_opportunities,
         verbose: bool = False,
+        clob_stream: Any = None,
     ) -> None:
         self.settings = settings
         self.gamma_client = gamma_client
         self.clob_client = clob_client
+        self.clob_stream = clob_stream
         self.reference_feed = reference_feed or build_reference_feed(
             settings.reference_feed_provider
         )
@@ -747,6 +749,12 @@ class CryptoPairPaperRunner:
             self.reference_feed.connect()
             self.store.record_runtime_event("reference_feed_connect_called")
 
+        if self.clob_stream is not None:
+            self.clob_stream.start()
+            self.store.record_runtime_event("clob_stream_start_called")
+            # Bootstrap token subscriptions on first cycle (deferred until markets are known)
+            self._clob_stream_bootstrapped = False
+
         # Print startup dashboard header
         started_at_str = iso_utc(self.store.started_at)[:19].replace("T", " ")
         print(
@@ -781,7 +789,15 @@ class CryptoPairPaperRunner:
 
                 pair_markets = self.discovery_fn(gamma_client=self.gamma_client)
                 self._dashboard_markets_found = len(pair_markets)
-                opportunities = self.scan_fn(pair_markets, clob_client=self.clob_client)
+
+                # Subscribe all token IDs on the first cycle once markets are known
+                if self.clob_stream is not None and not getattr(self, "_clob_stream_bootstrapped", True):
+                    for m in pair_markets:
+                        self.clob_stream.subscribe(m.yes_token_id)
+                        self.clob_stream.subscribe(m.no_token_id)
+                    self._clob_stream_bootstrapped = True
+
+                opportunities = self.scan_fn(pair_markets, clob_client=self.clob_client, stream=self.clob_stream)
                 ranked = self.rank_fn(apply_market_filters(opportunities, self.settings))
 
                 self.store.record_runtime_event(
@@ -840,6 +856,9 @@ class CryptoPairPaperRunner:
             if self._owns_reference_feed:
                 self.reference_feed.disconnect()
                 self.store.record_runtime_event("reference_feed_disconnect_called")
+            if self.clob_stream is not None:
+                self.clob_stream.stop()
+                self.store.record_runtime_event("clob_stream_stopped")
 
         rollups = build_market_rollups(
             self.store.observations,

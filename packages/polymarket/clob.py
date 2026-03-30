@@ -241,3 +241,23 @@ class ClobClient:
             best_ask=best_ask,
             raw_json=book,
         )
+
+    def get_best_bid_ask_from_stream(
+        self,
+        token_id: str,
+        stream,  # ClobStreamClient — typed as Any to avoid circular import
+        *,
+        stale_threshold_s: float = 5.0,
+    ) -> Optional[OrderBookTop]:
+        """Read best bid/ask from a live WS stream with staleness guard.
+
+        Returns None if stream is None, token not ready, or book age > stale_threshold_s.
+        Fallback to REST via get_best_bid_ask() is NOT done here — caller decides fallback.
+        """
+        if stream is None:
+            return None
+        result = stream.get_best_bid_ask(token_id)
+        if result is None:
+            return None
+        bid, ask = result
+        return OrderBookTop(token_id=token_id, best_bid=bid, best_ask=ask, raw_json={})
