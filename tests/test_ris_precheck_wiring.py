@@ -618,9 +618,9 @@ class TestRunPrecheckPopulatesEnrichedFields:
 
 class TestEnrichedPrecheckLedger:
     def test_ledger_schema_version_bumped(self):
-        """LEDGER_SCHEMA_VERSION is 'precheck_ledger_v1'."""
+        """LEDGER_SCHEMA_VERSION is 'precheck_ledger_v2' (bumped in Phase 2)."""
         from packages.research.synthesis.precheck_ledger import LEDGER_SCHEMA_VERSION
-        assert LEDGER_SCHEMA_VERSION == "precheck_ledger_v1"
+        assert LEDGER_SCHEMA_VERSION == "precheck_ledger_v2"
 
     def test_append_precheck_includes_enriched_fields(self, tmp_path):
         """Appended JSONL line contains precheck_id, reason_code, evidence_gap, review_horizon."""
@@ -650,7 +650,7 @@ class TestEnrichedPrecheckLedger:
         assert data["reason_code"] == "STRONG_SUPPORT"
 
     def test_append_precheck_schema_version_is_v1(self, tmp_path):
-        """Appended entries have schema_version='precheck_ledger_v1'."""
+        """Appended entries have schema_version='precheck_ledger_v2' (bumped in Phase 2)."""
         from packages.research.synthesis.precheck import PrecheckResult
         from packages.research.synthesis.precheck_ledger import append_precheck
         ledger = tmp_path / "schema_v1.jsonl"
@@ -665,7 +665,7 @@ class TestEnrichedPrecheckLedger:
         )
         append_precheck(r, ledger_path=ledger)
         data = json.loads(ledger.read_text().strip())
-        assert data["schema_version"] == "precheck_ledger_v1"
+        assert data["schema_version"] == "precheck_ledger_v2"
 
     def test_v0_ledger_entries_still_readable(self, tmp_path):
         """list_prechecks() can read v0 entries without error (missing fields default to None)."""

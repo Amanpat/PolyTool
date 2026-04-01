@@ -265,9 +265,10 @@ class TestResearchPrecheckCLI:
 
     def test_main_returns_1_without_idea(self):
         from tools.cli.research_precheck import main
-        with pytest.raises(SystemExit) as exc_info:
-            main([])
-        assert exc_info.value.code != 0
+        # With subcommand refactor, main([]) prints help and returns 1
+        # (no SystemExit; argparse subparsers don't error on missing subcommand).
+        rc = main([])
+        assert rc == 1
 
     def test_main_writes_to_custom_ledger(self, tmp_path):
         from tools.cli.research_precheck import main

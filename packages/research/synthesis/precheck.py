@@ -56,6 +56,12 @@ class PrecheckResult:
     reason_code: str = ""
     evidence_gap: str = ""
     review_horizon: str = ""
+    # Lifecycle fields (v2 schema) — NOT populated by run_precheck().
+    # For downstream hydration from ledger history only.
+    was_overridden: bool = False
+    override_reason: str = ""
+    outcome_label: str = ""
+    outcome_date: str = ""
 
 
 def build_precheck_prompt(idea: str) -> str:
