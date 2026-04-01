@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-01 — Completed quick task 260401-n1w: RIS ingestion pipeline integration (extractors, IngestPipeline, retriever, research-ingest CLI, seed fixtures, 12 new tests, 2934 passing)
+Last activity: 2026-04-01 — Completed quick task 260401-n1s: RIS precheck wiring -- find_contradictions/check_stale_evidence wired to KnowledgeStore+freshness; precheck ledger v1; 35 TDD tests; feature doc + dev log written; 97 tests passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-04-01 — Completed quick task 260401-n1w: RIS ingestion pip
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260401-n1s: find_contradictions() intentionally broad (no semantic filtering -- returns ALL CONTRADICTS-related claims as candidates); ks._conn direct access for source_documents (no public API yet); TYPE_CHECKING guard for KnowledgeStore import; lifecycle fields (was_overridden/override_reason/outcome_label/outcome_date) deferred to future precheck-lifecycle task
 - quick-260401-m8y: ManualProvider zero-dependency default (all dims=3, total=12, ACCEPT); OllamaProvider via stdlib urllib.request only; precheck ledger mirrors hypothesis registry JSONL pattern; find_contradictions/check_stale_evidence are stubs pointing to query_index(); cloud providers deferred to RIS v2 with ValueError
 - quick-054: ClobStreamClient uses raw websocket.WebSocket() (not WebSocketApp) matching TapeRecorder; 5s staleness guard; live mode explicitly gated by 'not live' pending order-timing review; token subscriptions deferred to first cycle (market slugs not known at startup)
 - quick-050: Tape corpus integrity audit SAFE_TO_USE; 314 tapes, 0 token-ID mapping bugs, 0 quote-stream duplicates; Phase 1A identical values = symmetric 50/50 binary pricing (expected); script tools/gates/tape_integrity_audit.py
