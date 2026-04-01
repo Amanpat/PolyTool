@@ -747,6 +747,43 @@ extraction or scraper evaluation.
 This is a data-plane addition. It does not change live trading, SimTrader, gates,
 or benchmark artifacts.
 
+## RIS Phase 2 — Corpus Seeding and Extractor Benchmark (quick-260401-nzz, 2026-04-01)
+
+Manifest-driven batch seeder and extractor benchmark harness added to the RIS v1 pipeline.
+
+**New modules:**
+- `packages/research/ingestion/seed.py` — `SeedEntry`, `SeedManifest`, `SeedResult`,
+  `load_seed_manifest()`, `run_seed()`. Seeds knowledge store from JSON manifest with stable
+  deterministic IDs and authoritative `source_family` tagging.
+- `packages/research/ingestion/benchmark.py` — `ExtractorMetric`, `BenchmarkResult`,
+  `run_extractor_benchmark()`. Compares extractor outputs on a fixture set, writes
+  `benchmark_results.json` artifact.
+
+**Extended modules:**
+- `packages/research/ingestion/extractors.py` — added `MarkdownExtractor` (delegates to
+  PlainTextExtractor), `StubPDFExtractor` (raises NotImplementedError; docling/marker/pymupdf4llm),
+  `StubDocxExtractor` (raises NotImplementedError; python-docx), `EXTRACTOR_REGISTRY`,
+  `get_extractor()` factory.
+- `packages/research/ingestion/__init__.py` — exports all new symbols.
+
+**New CLIs:**
+- `python -m polytool research-seed --manifest config/seed_manifest.json --db :memory: --no-eval`
+- `python -m polytool research-benchmark --fixtures-dir tests/fixtures/ris_seed_corpus --extractors plain_text,markdown --json`
+
+**Seed manifest:** `config/seed_manifest.json` — 11 entries (8 RAGfiles + 3 roadmap docs),
+all `source_family="book_foundational"` (null half-life). Smoke test confirmed 11/11 ingested.
+
+**Tests:** 52 new tests (18 seed + 34 extractor/benchmark). 3012 total passing, 0 failed.
+
+**Fixture:** `tests/fixtures/ris_seed_corpus/sample_structured.pdf.txt` (prediction market fee
+structures reference text for benchmark determinism).
+
+**Not changed:** live execution, SimTrader, OMS, risk manager, ClickHouse schema, gate files,
+benchmark manifests. PDF/DOCX extraction remains stubbed — no external lib added.
+
+See `docs/features/FEATURE-ris-v2-seed-and-benchmark.md` and
+`docs/dev_logs/2026-04-01_ris_phase2_seed_and_extractor_benchmark.md`.
+
 ## RIS Phase 2 — Operator Feedback Loop and Richer Query Integration (260401-o1q, 2026-04-01)
 
 Lifecycle event recording, enriched knowledge store queries, and CLI subcommands added.
