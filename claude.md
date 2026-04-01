@@ -53,20 +53,32 @@ The repo is in the Phase 0 / Phase 1 era described by Roadmap V5:
 ## Triple-Track Strategy Model
 
 ### Track 1 — Market Maker
+
 - Long-term revenue engine.
 - Avellaneda-Stoikov style quoting and inventory control.
 - Depends on tape quality, calibration, Gate 2, Gate 3, then staged live rollout.
 
 ### Track 2 — Crypto Pair Bot (Phase 1A — Standalone)
+
 - Fastest path to first dollar.
 - 5m / 15m BTC, ETH, SOL up/down markets.
-- Goal: accumulate YES and NO below total pair cost of $1.00 using maker orders.
+- Current strategy: directional momentum entries based on gabagool22 pattern
+  analysis (quick-049). Favorite leg (direction side) fills at ask <=
+  max_favorite_entry (0.75); hedge leg fills only at ask <= max_hedge_price (0.20).
+  Pair-cost accumulation (original thesis) was superseded in quick-046/049.
+  See dev logs 2026-03-29_gabagool22_crypto_analysis.md and
+  2026-03-29_gabagool_strategy_rebuild.md.
+- **Live deployment BLOCKED**: no active BTC/ETH/SOL 5m/15m markets on
+  Polymarket as of 2026-03-29; full paper soak with real signals not yet run;
+  oracle mismatch concern (Coinbase reference feed vs Chainlink on-chain
+  settlement oracle); EU VPS likely required for deployment latency assumptions.
 - **STANDALONE — does NOT wait for Gate 2 or Gate 3.** This track can be built and deployed
   independently of SimTrader benchmark validation. Phase 1A in v5 framing.
 - Phase 1B is market-maker gate closure: Gate 2 scenario sweep against benchmark_v1 manifest,
   then Gate 3 shadow, then staged live deployment.
 
 ### Track 3 — Sports Directional Model
+
 - Medium-term model-driven track.
 - Uses freely available sports data and probability modeling.
 - Needs paper prediction track record before capital deployment.
@@ -76,12 +88,15 @@ Do not collapse all roadmap effort into one track. Maintain optionality.
 ## North-Star Architecture
 
 ### Core rule
+
 All business logic belongs in the Python core library. CLI commands wrap the core for developer speed. FastAPI, scheduling, dashboards, and future orchestration are thin layers around working core logic.
 
 ### Database one-sentence rule
+
 **ClickHouse handles all live streaming writes. DuckDB handles all historical Parquet reads. They do not replace each other.**
 
 ### ClickHouse authentication rule
+
 All CLI entrypoints that touch ClickHouse MUST read credentials from the
 `CLICKHOUSE_PASSWORD` environment variable with fail-fast behavior:
 `if not ch_password: sys.exit(1)`. Never use a hardcoded fallback like
@@ -97,6 +112,7 @@ CLI entrypoint falling back to a wrong default.
   `close_benchmark_v1.main()`), not from memory.
 
 ### Layer roles
+
 - **Python core**: scanners, RAG, SimTrader, strategy logic, execution logic, research evaluation.
 - **CLI**: fastest test/debug interface and should never go away.
 - **FastAPI wrapper**: thin HTTP layer for automation later; no business logic should live here.
@@ -106,6 +122,7 @@ CLI entrypoint falling back to a wrong default.
 ## What Is Already Built (high-confidence current state)
 
 ### Research pipeline
+
 - ClickHouse schema and ingest pipeline for Polymarket data.
 - Grafana dashboards for trades, detectors, PnL, and arbitrage feasibility.
 - `scan` CLI and trust artifact emission.
@@ -115,6 +132,7 @@ CLI entrypoint falling back to a wrong default.
 - `wallet-scan`, `alpha-distill`, hypothesis registry, local RAG, and LLM bundle tooling.
 
 ### SimTrader stack
+
 - Tape recorder.
 - L2 book reconstruction.
 - Replay runner and BrokerSim.
@@ -123,6 +141,7 @@ CLI entrypoint falling back to a wrong default.
 - MarketMakerV0 and MarketMakerV1 (logit Avellaneda-Stoikov, canonical Phase 1 strategy) and execution primitives including kill switch, rate limiter, risk manager, live executor, and live runner.
 
 ### Benchmark pipeline
+
 - **benchmark_v1 is CLOSED as of 2026-03-21.**
 - `config/benchmark_v1.tape_manifest`, `config/benchmark_v1.lock.json`, and
   `config/benchmark_v1.audit.json` all exist and are validated.
@@ -149,14 +168,16 @@ as of 2026-03-21. Do not reopen Phase 1 tasks.
 `docs/specs/ADR-benchmark-versioning-and-crypto-unavailability.md`).
 Do NOT: modify `config/benchmark_v1.tape_manifest`, `config/benchmark_v1.lock.json`, or
 `config/benchmark_v1.audit.json`. Do NOT improvise around the crypto blocker by:
+
 - Lowering the `min_events=50` threshold
 - Relaxing the Gate 2 >= 70% pass condition
 - Substituting non-crypto tapes into the crypto bucket
 - Treating Gate 2 NOT_RUN as a gate failure
 - Autonomously triggering benchmark_v2
-Escalation deadline for benchmark_v2 consideration: **2026-04-12**. Human decision required.
+  Escalation deadline for benchmark_v2 consideration: **2026-04-12**. Human decision required.
 
 ### Market Selection Engine
+
 - Seven-factor composite scorer: category_edge (Jon-Becker 72.1M trades), spread_opportunity,
   volume (log-scaled), competition, reward_apr, adverse_selection, time_gaussian.
 - NegRisk penalty (x0.85) and longshot bonus (+0.15 max) applied per market.
@@ -167,37 +188,40 @@ Escalation deadline for benchmark_v2 consideration: **2026-04-12**. Human decisi
 
 All artifacts are gitignored. The canonical layout (as of 2026-03-28) is:
 
-- `artifacts/tapes/gold/`       — live tape recorder output (Gold tier)
-- `artifacts/tapes/silver/`     — reconstructed Silver tapes
-- `artifacts/tapes/bronze/`     — Bronze (trade-level only) tapes
-- `artifacts/tapes/shadow/`     — shadow run tapes
-- `artifacts/tapes/crypto/`     — crypto pair new-market and paper-run tapes
+- `artifacts/tapes/gold/` — live tape recorder output (Gold tier)
+- `artifacts/tapes/silver/` — reconstructed Silver tapes
+- `artifacts/tapes/bronze/` — Bronze (trade-level only) tapes
+- `artifacts/tapes/shadow/` — shadow run tapes
+- `artifacts/tapes/crypto/` — crypto pair new-market and paper-run tapes
 - `artifacts/gates/gate2_sweep/` — Gate 2 sweep results
-- `artifacts/gates/manifests/`  — gate manifests (gate2_tape_manifest.json)
-- `artifacts/benchmark/`        — benchmark closure run artifacts
-- `artifacts/simtrader/runs/`   — SimTrader replay runs
+- `artifacts/gates/manifests/` — gate manifests (gate2_tape_manifest.json)
+- `artifacts/benchmark/` — benchmark closure run artifacts
+- `artifacts/simtrader/runs/` — SimTrader replay runs
 - `artifacts/simtrader/sweeps/` — SimTrader sweep outputs
 - `artifacts/simtrader/ondemand_sessions/` — Studio OnDemand sessions
-- `artifacts/dossiers/users/`   — wallet/user dossier bundles
+- `artifacts/dossiers/users/` — wallet/user dossier bundles
 - `artifacts/research/batch_runs/` — research batch run outputs
 - `artifacts/market_selection/` — market selection artifacts
-- `artifacts/watchlists/`       — market watchlist artifacts
-- `artifacts/debug/`            — probe outputs, loose debug files, corpus audits
+- `artifacts/watchlists/` — market watchlist artifacts
+- `artifacts/debug/` — probe outputs, loose debug files, corpus audits
 
 ## Validation Gates and Capital Stages
 
 ### Validation ladder
+
 - **L1**: multi-tape replay. Strategy must show positive net PnL across a broad tape set.
 - **L2**: scenario sweep under realistic latency / fill assumptions.
 - **L3 / Gate 3**: live shadow against real markets using simulated fills only.
 
 ### Market-maker gate language
+
 - **Gate 2**: parameter sweep on benchmark set. Current roadmap target is at least 70% positive net PnL after fees and realistic-retail assumptions.
 - **Gate 3**: shadow run. Shadow PnL should stay within 25% of replay prediction.
 - **Stage 0**: paper live dry-run.
 - **Stage 1+**: live capital progression.
 
 ### Operating policy for Claude Code
+
 Do not weaken validation language in code or docs. If a feature changes gate definitions, validation metrics, or promotion criteria, update the governing docs first.
 
 ## Tape Tiers
@@ -211,6 +235,7 @@ Every tape-driven result should preserve tier metadata. Do not treat Bronze or c
 ## Human-in-the-Loop Rules
 
 ### Fully autonomous
+
 - candidate discovery,
 - wallet scans,
 - alpha distillation,
@@ -221,6 +246,7 @@ Every tape-driven result should preserve tier metadata. Do not treat Bronze or c
 - kill-switch triggers on risk breaches.
 
 ### Human approval required
+
 - promoting a strategy to live capital,
 - capital stage increases,
 - review-state strategy decisions,
@@ -228,6 +254,7 @@ Every tape-driven result should preserve tier metadata. Do not treat Bronze or c
 - anything marked low-confidence by evaluation.
 
 ### Human only
+
 - private keys,
 - funding / moving capital,
 - infrastructure secrets,
@@ -239,10 +266,12 @@ If a task touches these areas, Claude Code should stop and ask for operator dire
 ## Repo Working Conventions
 
 ### Branch policy
+
 - Stay on the `phase-1` branch until Phase 1 is complete.
 - Do not create new branches unless the user explicitly changes this rule.
 
 ### Documentation policy
+
 - New documentation goes under `docs/`, not scattered across the repo.
 - `docs/specs/` contains specification docs and is effectively read-only unless the task explicitly says to revise a spec.
 - `docs/features/` describes implemented features.
@@ -250,6 +279,7 @@ If a task touches these areas, Claude Code should stop and ask for operator dire
 - `docs/CURRENT_STATE.md` should be updated after meaningful work, not allowed to drift.
 
 ### File / artifact naming
+
 - Dev logs: `docs/dev_logs/YYYY-MM-DD_<slug>.md`
 - Specs: `docs/specs/SPEC-xxxx-<slug>.md`
 - Feature docs: `docs/features/<feature>.md`
@@ -257,12 +287,14 @@ If a task touches these areas, Claude Code should stop and ask for operator dire
 - Benchmark manifests and strategy research config belong under `config/`
 
 ### Code placement
+
 - Core logic: library modules / packages, not thin wrappers.
 - CLI entrypoints: under the CLI area (`tools/cli/` or equivalent current command module structure).
 - Tests: under `tests/`.
 - Infra config: under `infra/`.
 
 ### Expected high-value paths
+
 Use these as your starting mental model and verify before major changes:
 
 - `docs/`
@@ -274,14 +306,14 @@ Use these as your starting mental model and verify before major changes:
 - `docs/ARCHITECTURE.md`
 - `docs/STRATEGY_PLAYBOOK.md`
 - `config/`
-- `artifacts/tapes/gold/`       — live Gold tapes
-- `artifacts/tapes/silver/`     — reconstructed Silver tapes
-- `artifacts/tapes/shadow/`     — shadow run tapes
-- `artifacts/tapes/crypto/`     — crypto pair tapes
+- `artifacts/tapes/gold/` — live Gold tapes
+- `artifacts/tapes/silver/` — reconstructed Silver tapes
+- `artifacts/tapes/shadow/` — shadow run tapes
+- `artifacts/tapes/crypto/` — crypto pair tapes
 - `artifacts/gates/gate2_sweep/` — Gate 2 sweep results
-- `artifacts/gates/manifests/`  — gate manifests
-- `artifacts/benchmark/`        — benchmark closure artifacts
-- `artifacts/debug/`            — probe outputs and debug files
+- `artifacts/gates/manifests/` — gate manifests
+- `artifacts/benchmark/` — benchmark closure artifacts
+- `artifacts/debug/` — probe outputs and debug files
 - `infra/`
 - `tests/`
 - `tools/cli/`
@@ -300,6 +332,7 @@ If a path differs in the actual repo, inspect and adapt — do not force the rep
 - For strategy or replay changes, validate both logic correctness and friction realism.
 
 ### What to test by feature type
+
 - **CLI feature**: argument parsing, expected outputs, smoke path.
 - **Replay / SimTrader**: deterministic state transitions, fills, fee handling, latency assumptions, invariants.
 - **Execution layer**: dry-run safety, rate limiting, kill-switch behavior, inventory/risk checks.
@@ -315,6 +348,7 @@ flags, or subcommand structure from this file alone — they may have changed
 since this doc was last updated. A 2-second check prevents 20-minute debugging.
 
 ### Research / dossier workflows
+
 - `scan`
 - `wallet-scan`
 - `alpha-distill`
@@ -322,6 +356,7 @@ since this doc was last updated. A 2-second check prevents 20-minute debugging.
 - `candidate-scan`
 
 ### Tape / benchmark workflows
+
 - `fetch-price-2min`
 - `batch-reconstruct-silver`
 - `benchmark-manifest`
@@ -331,12 +366,15 @@ since this doc was last updated. A 2-second check prevents 20-minute debugging.
 - tape recorder / replay / sweep commands in the SimTrader toolchain
 
 ### Registry / validation workflows
+
 - hypothesis registry commands: register, status, experiment-init, experiment-run, validate, diff, summary
 
 ### Planned but not yet implemented
+
 These commands appear in the roadmap but **do not exist in the repo yet**.
 Do not try to call them or build features that depend on them without
 implementing them first:
+
 - `polytool autoresearch import-results` (Phase 4 deliverable)
 - `polytool strategy-codify` (Phase 4 deliverable)
 - Any `/api/` FastAPI endpoint (Phase 3 deliverable)
@@ -382,11 +420,13 @@ python -m pytest tests/ -x -q --tb=short   # No regressions; stop at first failu
 ```
 
 If infrastructure was touched:
+
 ```bash
 docker compose ps                      # All services healthy
 ```
 
 If ClickHouse tables were modified:
+
 ```bash
 curl "http://localhost:8123/?query=SELECT%%201"   # ClickHouse responds
 ```
@@ -405,9 +445,11 @@ Report exact counts: "142 passed, 0 failed, 3 skipped."
 7. Run targeted tests and report exact results.
 
 ### When repo state is unclear
+
 Do not guess. Inspect the actual repo, existing dev logs, or the current-state doc before editing.
 
 ### When roadmap and code differ
+
 Prefer the document priority order. If the roadmap wants something but the higher-priority docs or implemented safety policy differ, stop and surface the mismatch.
 
 ## Don’t-Do List
@@ -436,3 +478,22 @@ A good Claude Code session in PolyTool should usually leave behind:
 - any needed doc update under `docs/`,
 - explicit open questions or blockers,
 - no secrets, no undocumented behavior changes, and no silent scope creep.
+
+## Codex Review Policy
+
+This project uses the codex-plugin-cc plugin for automated code review via OpenAI Codex. Reviews are file-path driven, not discretionary.
+
+- Mandatory — run /codex:adversarial-review before committing:
+  Any file in execution/, kill_switch.py, risk_manager.py, rate_limiter.py,
+  pair_engine.py, reference_feed.py, any code touching py_clob_client order placement, EIP-712 signing, or best bid/ask price extraction logic.
+- Recommended — run /codex:review --background, log result:
+  Strategy files, SimTrader core (broker_sim, replay_runner, tape_recorder),
+  WebSocket connection/reconnection, ClickHouse write paths, market_discovery.py, autoresearch engine files.
+- Skip — no review: Docs, config, tests, Grafana JSON, CLI formatting, artifacts.
+
+Rules:
+
+- Prefer --background to avoid blocking the session.
+- If 5+ mandatory files changed, batch: /codex:adversarial-review --base main --background
+- Do NOT use /codex:rescue unless the work packet explicitly delegates a task to Codex.
+- Include a one-line Codex review summary in the dev log (tier, issues found, issues addressed).

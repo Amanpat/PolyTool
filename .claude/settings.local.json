@@ -120,7 +120,11 @@
       "Bash(do echo:*)",
       "Read(//d/Coding Projects/Polymarket/PolyTool/**)",
       "Read(//d/Coding Projects/Polymarket/PolyTool/$d/**)",
-      "Bash(do)"
+      "Bash(do)",
+      "mcp__ScraplingServer__stealthy_fetch",
+      "Bash(gh api:*)",
+      "mcp__ScraplingServer__fetch",
+      "Bash(curl -s -X POST \"https://api.thegraph.com/subgraphs/name/polymarket/polymarket-matic\" -H \"Content-Type: application/json\" -d '{\"\"\"\"query\"\"\"\": \"\"\"\"{ _meta { block { number } } }\"\"\"\"}')"
     ]
   },
   "enableAllProjectMcpServers": true,
