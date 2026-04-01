@@ -1,0 +1,7 @@
+Wallet 0xabc123 Analysis - gabagool22 Pattern Study
+
+The wallet 0xabc123 (gabagool22) trades exclusively on 5-minute BTC/ETH pair
+markets. Position sizing follows a consistent pattern: $50-100 per leg, with
+a preference for the YES side when momentum indicators show upward movement.
+Analysis period: 2025-12 through 2026-03. Total observed positions: 50.
+Win rate on favorite leg: 68%. Average holding period: 4.2 minutes.
