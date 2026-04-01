@@ -730,3 +730,19 @@ Coinbase fallback feed (quick-026, dev log
 ---
 
 > **Historical details** (pre-Phase-1 implementation records) moved to `docs/archive/CURRENT_STATE_HISTORY.md`.
+
+## RIS v1 Data Foundation (quick-055, 2026-04-01)
+
+Lightweight SQLite persistence layer for `external_knowledge` RAG partition shipped.
+Modules: `packages/polymarket/rag/knowledge_store.py`, `packages/polymarket/rag/freshness.py`.
+Config: `config/freshness_decay.json`. Tests: `tests/test_knowledge_store.py`.
+
+**Authority conflict (unresolved):** Roadmap v5.1 LLM Policy allows Tier 1 free
+cloud APIs (DeepSeek V3/R1, Gemini 2.5 Flash). PLAN_OF_RECORD Section 0 states
+"Current toolchain policy remains no external LLM API calls." The knowledge store
+includes a provider abstraction (`_llm_provider`) but cloud execution is disabled
+by default. Operator decision required before enabling cloud LLM calls for claim
+extraction or scraper evaluation.
+
+This is a data-plane addition. It does not change live trading, SimTrader, gates,
+or benchmark artifacts.
