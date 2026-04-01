@@ -9,6 +9,11 @@ from packages.research.ingestion.extractors import (
     Extractor,
     ExtractedDocument,
     PlainTextExtractor,
+    MarkdownExtractor,
+    StubPDFExtractor,
+    StubDocxExtractor,
+    EXTRACTOR_REGISTRY,
+    get_extractor,
 )
 from packages.research.ingestion.pipeline import IngestPipeline, IngestResult
 from packages.research.ingestion.seed import (
@@ -18,12 +23,22 @@ from packages.research.ingestion.seed import (
     load_seed_manifest,
     run_seed,
 )
+from packages.research.ingestion.benchmark import (
+    BenchmarkResult,
+    ExtractorMetric,
+    run_extractor_benchmark,
+)
 
 __all__ = [
     # Extractors
     "Extractor",
     "ExtractedDocument",
     "PlainTextExtractor",
+    "MarkdownExtractor",
+    "StubPDFExtractor",
+    "StubDocxExtractor",
+    "EXTRACTOR_REGISTRY",
+    "get_extractor",
     # Pipeline
     "IngestPipeline",
     "IngestResult",
@@ -33,4 +48,8 @@ __all__ = [
     "SeedResult",
     "load_seed_manifest",
     "run_seed",
+    # Benchmark
+    "BenchmarkResult",
+    "ExtractorMetric",
+    "run_extractor_benchmark",
 ]

@@ -1,0 +1,34 @@
+Prediction Market Fee Structures: A Comparative Analysis
+
+Abstract
+
+Prediction markets charge fees to sustain platform operations and incentivize liquidity
+provision. Understanding fee structures is essential for modeling net profitability in
+market-making and directional strategies.
+
+1. Introduction
+
+Polymarket charges a maker fee of 0% and a taker fee of approximately 2% of gross profit
+on successful positions. This asymmetric structure favors passive liquidity provision
+and penalizes market orders that cross the spread.
+
+2. Fee Model Implications
+
+For a binary market with a true probability p, a market maker quoting bid b and ask a
+realizes gross PnL on each filled order. After the 2% gross-profit fee, net PnL is:
+
+    net_pnl = gross_pnl * (1 - fee_rate)
+
+where fee_rate = 0.02 for taker fills. The fee is charged only on winning positions,
+making the effective fee rate dependent on the strategy's win rate.
+
+3. Calibration Notes
+
+Empirical analysis of the Jon-Becker dataset (72M+ trades) shows that the mean
+taker fee paid per trade at Polymarket is approximately 1.8-2.1% of gross profit,
+consistent with the published 2% rate applied to winning fills only.
+
+4. Conclusions
+
+Market makers benefit from the zero maker fee structure. Directional strategies
+must account for the gross-profit fee when computing edge thresholds.

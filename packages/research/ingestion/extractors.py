@@ -169,3 +169,93 @@ class PlainTextExtractor(Extractor):
             publish_date=publish_date,
             metadata=metadata,
         )
+
+
+# ---------------------------------------------------------------------------
+# MarkdownExtractor
+# ---------------------------------------------------------------------------
+
+
+class MarkdownExtractor(Extractor):
+    """Extract Markdown files into ExtractedDocument.
+
+    Delegates entirely to PlainTextExtractor — Markdown files are plain text
+    and the H1-title extraction already works correctly there.  This class
+    exists so callers can request ``get_extractor('markdown')`` and get an
+    explicitly named extractor rather than the generic PlainTextExtractor.
+    """
+
+    def __init__(self) -> None:
+        self._delegate = PlainTextExtractor()
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        return self._delegate.extract(source, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Stub extractors (not-yet-implemented; raise NotImplementedError)
+# ---------------------------------------------------------------------------
+
+
+class StubPDFExtractor(Extractor):
+    """Stub PDF extractor — raises NotImplementedError until a real library is wired.
+
+    When a PDF extraction library is chosen (docling, marker, or pymupdf4llm),
+    replace this class body with the real implementation.
+    """
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        raise NotImplementedError(
+            "PDF extraction requires an external library. "
+            "Install and configure one of: docling, marker, pymupdf4llm. "
+            "Replace StubPDFExtractor with a real implementation once chosen."
+        )
+
+
+class StubDocxExtractor(Extractor):
+    """Stub DOCX extractor — raises NotImplementedError until python-docx is wired.
+
+    When DOCX support is needed, install python-docx and replace this class body
+    with a real implementation.
+    """
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        raise NotImplementedError(
+            "DOCX extraction requires python-docx. "
+            "Install it (pip install python-docx) and replace StubDocxExtractor "
+            "with a real implementation."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Extractor registry and factory
+# ---------------------------------------------------------------------------
+
+EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
+    "plain_text": PlainTextExtractor,
+    "markdown": MarkdownExtractor,
+    "pdf": StubPDFExtractor,
+    "docx": StubDocxExtractor,
+}
+
+
+def get_extractor(name: str) -> Extractor:
+    """Return an instantiated extractor for *name*.
+
+    Parameters
+    ----------
+    name:
+        Key in ``EXTRACTOR_REGISTRY`` (e.g. ``"plain_text"``, ``"markdown"``).
+
+    Returns
+    -------
+    Extractor
+        A new instance of the requested extractor class.
+
+    Raises
+    ------
+    KeyError
+        If *name* is not in ``EXTRACTOR_REGISTRY``.
+    """
+    cls = EXTRACTOR_REGISTRY[name]
+    return cls()
