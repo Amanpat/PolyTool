@@ -77,6 +77,8 @@ rag_query_main = _command_entrypoint("tools.cli.rag_query")
 rag_run_main = _command_entrypoint("tools.cli.rag_run")
 scan_main = _command_entrypoint("tools.cli.scan")
 simtrader_main = _command_entrypoint("tools.cli.simtrader")
+research_eval_main = _command_entrypoint("tools.cli.research_eval")
+research_precheck_main = _command_entrypoint("tools.cli.research_precheck")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -126,6 +128,8 @@ _COMMAND_HANDLER_NAMES = {
     "crypto-pair-watch": "crypto_pair_watch_main",
     "crypto-pair-await-soak": "crypto_pair_await_soak_main",
     "crypto-pair-seed-demo-events": "crypto_pair_seed_demo_events_main",
+    "research-eval": "research_eval_main",
+    "research-precheck": "research_precheck_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -173,6 +177,10 @@ def print_usage() -> None:
     print("  cache-source          Cache a trusted web source for RAG indexing")
     print("  llm-bundle            Build an LLM evidence bundle from dossier + RAG excerpts")
     print("  llm-save              Save an LLM report run into the private KB")
+    print("")
+    print("--- Research Intelligence (RIS v1) --------------------------------------")
+    print("  research-eval         Evaluate a document through the RIS quality gate")
+    print("  research-precheck     Pre-development check: GO / CAUTION / STOP recommendation")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
