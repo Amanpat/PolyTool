@@ -151,6 +151,60 @@ included as an integration point for future claim extraction, but it defaults to
 or scraper evaluation, the operator must explicitly resolve this conflict and update
 either PLAN_OF_RECORD or ROADMAP v5.1 to reflect the agreed policy.
 
+## Ingestion Pipeline (quick-260401-n1w)
+
+**Shipped:** quick-260401-n1w (2026-04-01)
+
+### New Modules
+
+| Module | Purpose |
+|--------|---------|
+| `packages/research/ingestion/extractors.py` | `Extractor` ABC + `PlainTextExtractor` |
+| `packages/research/ingestion/pipeline.py` | `IngestPipeline` orchestrating extract -> hard-stop -> eval-gate -> store |
+| `packages/research/ingestion/retriever.py` | `query_knowledge_store` + `format_provenance` helpers |
+| `tools/cli/research_ingest.py` | `research-ingest` CLI entrypoint |
+
+### Architecture
+
+```
+source (file or text)
+  -> PlainTextExtractor.extract()
+  -> check_hard_stops()            [always runs; rejects empty/garbage docs]
+  -> DocumentEvaluator.evaluate()  [optional; skip with --no-eval]
+  -> KnowledgeStore.add_source_document()
+  -> IngestResult (doc_id, chunk_count, gate_decision, rejected)
+```
+
+### CLI Usage
+
+```bash
+# Ingest a Markdown research doc (skip eval gate)
+python -m polytool research-ingest --file path/to/paper.md --no-eval
+
+# Ingest with JSON output
+python -m polytool research-ingest --file path/to/paper.md --no-eval --json
+
+# Ingest with eval gate (ManualProvider default -- always ACCEPT)
+python -m polytool research-ingest --file path/to/paper.md
+
+# Ingest raw inline text
+python -m polytool research-ingest --text "Body text here..." --title "My Doc" --no-eval
+
+# Use custom source type (affects freshness decay)
+python -m polytool research-ingest --file analysis.txt --source-type dossier --no-eval
+```
+
+### Architecture Notes
+
+- **No Chroma integration**: retriever.py queries the SQLite `derived_claims` table
+  directly. The knowledge store remains a separate data plane from the Chroma/FTS5
+  hybrid retrieval pipeline. Chroma integration is a follow-up task.
+- **No automatic claim extraction**: the pipeline stores `source_documents` only.
+  `derived_claims` must be created manually or by a future claim-extraction plan.
+  (Authority conflict between Roadmap v5.1 and PLAN_OF_RECORD blocks LLM extraction.)
+- **Hard-stop always runs**: `check_hard_stops()` is unconditional; `--no-eval` only
+  skips the LLM scoring gate.
+
 ## Next Steps
 
 1. **Seed Jon-Becker findings.** Roadmap v5.1 Phase 1 describes seeding the

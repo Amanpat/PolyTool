@@ -79,6 +79,7 @@ scan_main = _command_entrypoint("tools.cli.scan")
 simtrader_main = _command_entrypoint("tools.cli.simtrader")
 research_eval_main = _command_entrypoint("tools.cli.research_eval")
 research_precheck_main = _command_entrypoint("tools.cli.research_precheck")
+research_ingest_main = _command_entrypoint("tools.cli.research_ingest")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -130,6 +131,7 @@ _COMMAND_HANDLER_NAMES = {
     "crypto-pair-seed-demo-events": "crypto_pair_seed_demo_events_main",
     "research-eval": "research_eval_main",
     "research-precheck": "research_precheck_main",
+    "research-ingest": "research_ingest_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -181,6 +183,7 @@ def print_usage() -> None:
     print("--- Research Intelligence (RIS v1) --------------------------------------")
     print("  research-eval         Evaluate a document through the RIS quality gate")
     print("  research-precheck     Pre-development check: GO / CAUTION / STOP recommendation")
+    print("  research-ingest       Ingest a document into the RIS knowledge store")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
