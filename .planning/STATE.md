@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-03-30 — quick-054: WebSocket CLOB feed migration for crypto pair bot; ClobStreamClient with daemon thread + lock; REST fallback with 5s staleness guard; --use-ws-clob CLI flag; 12 new tests; 2787 tests passing
+Last activity: 2026-04-01 — Completed quick task 260401-m8q: Implement the RIS v1 data foundation for external_knowledge
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -121,3 +121,4 @@ Last activity: 2026-03-30 — quick-054: WebSocket CLOB feed migration for crypt
 | 052 | Live terminal dashboard + duration bug fix: startup header, per-cycle market lines (verbose mode), stats every 10s, highlighted signals/intents (unconditional); duration timer fixed to use wall-clock elapsed check instead of pre-computed cycle count; --verbose CLI flag; 8 new tests; 2775 passing | 2026-03-29 | c6f3909 | [52-add-live-terminal-dashboard-to-crypto-pa](./quick/52-add-live-terminal-dashboard-to-crypto-pa/) |
 | 053 | Phase 1A authority drift resolution: CLAUDE.md Track 2 goal updated to directional momentum (pair-cost thesis marked superseded); ROADMAP.md Phase 1A row corrected from 'Not yet started' to substantially built with pivot history; CURRENT_STATE.md READY TO EXECUTE replaced with BLOCKED + 5 deployment blockers listed; dev log with 6-row conflict matrix written; 2775 passing | 2026-03-29 | 9384efb | [53-resolve-phase-1a-authority-drift-in-docs](./quick/53-resolve-phase-1a-authority-drift-in-docs/) |
 | 054 | WebSocket CLOB feed migration for crypto pair bot: ClobStreamClient (daemon thread + lock + staleness guard); _event_source + _time_fn injection for offline tests; get_best_bid_ask_from_stream() on ClobClient; PairOpportunity clob_source/clob_age_ms/clob_snapshot_ready fields; paper runner lifecycle wiring; --use-ws-clob / --no-use-ws-clob CLI flags; 12 TDD tests; REST fallback preserved; 2787 passing | 2026-03-30 | d1d94fe | [54-websocket-clob-feed-migration-for-crypto](./quick/54-websocket-clob-feed-migration-for-crypto/) |
+| 260401-m8q | RIS v1 data foundation: KnowledgeStore (SQLite, 4-table schema), freshness decay (11 source families, half-life exponential, floor=0.3), retrieval helpers (lifecycle filter, contradiction downranking, provenance), CURRENT_STATE authority conflict note; 38 new tests; 2825 passing | 2026-04-01 | 54aff4e | [260401-m8q-implement-the-ris-v1-data-foundation-for](./quick/260401-m8q-implement-the-ris-v1-data-foundation-for/) |
