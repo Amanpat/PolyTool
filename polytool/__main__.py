@@ -80,6 +80,8 @@ simtrader_main = _command_entrypoint("tools.cli.simtrader")
 research_eval_main = _command_entrypoint("tools.cli.research_eval")
 research_precheck_main = _command_entrypoint("tools.cli.research_precheck")
 research_ingest_main = _command_entrypoint("tools.cli.research_ingest")
+research_seed_main = _command_entrypoint("tools.cli.research_seed")
+research_benchmark_main = _command_entrypoint("tools.cli.research_benchmark")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -132,6 +134,8 @@ _COMMAND_HANDLER_NAMES = {
     "research-eval": "research_eval_main",
     "research-precheck": "research_precheck_main",
     "research-ingest": "research_ingest_main",
+    "research-seed": "research_seed_main",
+    "research-benchmark": "research_benchmark_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -180,10 +184,12 @@ def print_usage() -> None:
     print("  llm-bundle            Build an LLM evidence bundle from dossier + RAG excerpts")
     print("  llm-save              Save an LLM report run into the private KB")
     print("")
-    print("--- Research Intelligence (RIS v1) --------------------------------------")
+    print("--- Research Intelligence (RIS v1/v2) -----------------------------------")
     print("  research-eval         Evaluate a document through the RIS quality gate")
     print("  research-precheck     Pre-development check: GO / CAUTION / STOP recommendation")
     print("  research-ingest       Ingest a document into the RIS knowledge store")
+    print("  research-seed         Seed the RIS knowledge store from a manifest")
+    print("  research-benchmark    Compare extractor outputs on a fixture set")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")

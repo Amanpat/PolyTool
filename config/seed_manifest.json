@@ -1,0 +1,105 @@
+{
+  "version": "1",
+  "description": "RIS Phase 2 seed corpus: docs/reference/ canonical reference documents ingested with stable IDs and source_family tags matching freshness_decay.json families.",
+  "entries": [
+    {
+      "path": "docs/reference/RAGfiles/RIS_OVERVIEW.md",
+      "title": "RIS Overview",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "architecture", "overview"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_01_INGESTION_ACADEMIC.md",
+      "title": "RIS Ingestion: Academic Sources",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "ingestion", "academic"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_02_INGESTION_SOCIAL.md",
+      "title": "RIS Ingestion: Social Sources",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "ingestion", "social"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_03_EVALUATION_GATE.md",
+      "title": "RIS Evaluation Gate",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "evaluation", "gate"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_04_KNOWLEDGE_STORE.md",
+      "title": "RIS Knowledge Store",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "knowledge-store", "sqlite"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_05_SYNTHESIS_ENGINE.md",
+      "title": "RIS Synthesis Engine",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "synthesis"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_06_INFRASTRUCTURE.md",
+      "title": "RIS Infrastructure",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "infrastructure"]
+    },
+    {
+      "path": "docs/reference/RAGfiles/RIS_07_INTEGRATION.md",
+      "title": "RIS Integration",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["ris", "integration"]
+    },
+    {
+      "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md",
+      "title": "PolyTool Master Roadmap v4.2",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2025-12-01T00:00:00+00:00",
+      "tags": ["roadmap", "strategy"]
+    },
+    {
+      "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md",
+      "title": "PolyTool Master Roadmap v5",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-02-01T00:00:00+00:00",
+      "tags": ["roadmap", "strategy"]
+    },
+    {
+      "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md",
+      "title": "PolyTool Master Roadmap v5.1",
+      "source_type": "book",
+      "source_family": "book_foundational",
+      "author": "PolyTool Team",
+      "publish_date": "2026-03-01T00:00:00+00:00",
+      "tags": ["roadmap", "strategy"]
+    }
+  ]
+}
