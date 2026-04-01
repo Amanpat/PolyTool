@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "decay_floor": 0.3,
+  "source_families": {
+    "academic_foundational": null,
+    "book_foundational": null,
+    "academic_empirical": 18,
+    "preprint": 12,
+    "github": 12,
+    "blog": 9,
+    "reddit": 6,
+    "twitter": 6,
+    "youtube": 6,
+    "wallet_analysis": 6,
+    "news": 3
+  },
+  "_comment": "half_life_months: null = no decay (timeless). Floor = minimum modifier value."
+}
