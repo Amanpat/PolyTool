@@ -1,6 +1,10 @@
 """RIS v1 synthesis — append-only JSONL precheck ledger.
 
 Replicates the JSONL pattern from packages/research/hypotheses/registry.py.
+
+Schema versions:
+- precheck_ledger_v0: original schema (no enriched fields)
+- precheck_ledger_v1: adds precheck_id, reason_code, evidence_gap, review_horizon
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from packages.research.synthesis.precheck import PrecheckResult
 
-LEDGER_SCHEMA_VERSION = "precheck_ledger_v0"
+LEDGER_SCHEMA_VERSION = "precheck_ledger_v1"
 DEFAULT_LEDGER_PATH = Path("artifacts/research/prechecks/precheck_ledger.jsonl")
 
 
@@ -49,6 +53,13 @@ def append_precheck(result: "PrecheckResult", ledger_path: Path | None = None) -
 
     Creates parent directories and the file if they do not exist.
 
+    Schema version: precheck_ledger_v1 (adds precheck_id, reason_code,
+    evidence_gap, review_horizon to the event dict).
+
+    v0 entries written before the schema bump are still readable by
+    list_prechecks() -- missing fields will simply be absent from the
+    returned dict (callers should use .get() with a default).
+
     Args:
         result: The PrecheckResult to persist.
         ledger_path: Path to the JSONL ledger file. Defaults to DEFAULT_LEDGER_PATH.
@@ -68,6 +79,11 @@ def append_precheck(result: "PrecheckResult", ledger_path: Path | None = None) -
         "stale_warning": result.stale_warning,
         "timestamp": result.timestamp,
         "provider_used": result.provider_used,
+        # Enriched fields (v1)
+        "precheck_id": result.precheck_id,
+        "reason_code": result.reason_code,
+        "evidence_gap": result.evidence_gap,
+        "review_horizon": result.review_horizon,
         "written_at": _iso_utc(_utcnow()),
     }
 
@@ -78,6 +94,9 @@ def append_precheck(result: "PrecheckResult", ledger_path: Path | None = None) -
 
 def list_prechecks(ledger_path: Path | None = None) -> list[dict]:
     """Read all precheck entries from the ledger.
+
+    Returns raw dicts from JSONL. v0 entries (missing enriched fields) are
+    returned as-is; callers should use .get() with a default for new fields.
 
     Args:
         ledger_path: Path to the JSONL ledger file. Defaults to DEFAULT_LEDGER_PATH.

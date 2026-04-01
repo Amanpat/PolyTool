@@ -86,6 +86,11 @@ def main(argv: list) -> int:
             "stale_warning": result.stale_warning,
             "timestamp": result.timestamp,
             "provider_used": result.provider_used,
+            # Enriched fields (v1)
+            "precheck_id": result.precheck_id,
+            "reason_code": result.reason_code,
+            "evidence_gap": result.evidence_gap,
+            "review_horizon": result.review_horizon,
         }
         print(json.dumps(output, indent=2))
     else:

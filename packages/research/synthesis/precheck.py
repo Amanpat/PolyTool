@@ -11,7 +11,10 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from packages.polymarket.rag.knowledge_store import KnowledgeStore
 
 
 def _utcnow() -> datetime:
@@ -28,6 +31,14 @@ def _stable_id(text: str) -> str:
     return digest[:12]
 
 
+# Mapping from recommendation to reason_code
+_REASON_CODE_MAP = {
+    "GO": "STRONG_SUPPORT",
+    "CAUTION": "MIXED_EVIDENCE",
+    "STOP": "FUNDAMENTAL_BLOCKER",
+}
+
+
 @dataclass
 class PrecheckResult:
     """Result of a pre-development check on an idea or hypothesis."""
@@ -40,6 +51,11 @@ class PrecheckResult:
     provider_used: str
     stale_warning: bool = False
     raw_response: str = ""
+    # Enriched fields (v1 schema)
+    precheck_id: str = ""
+    reason_code: str = ""
+    evidence_gap: str = ""
+    review_horizon: str = ""
 
 
 def build_precheck_prompt(idea: str) -> str:
@@ -148,33 +164,132 @@ def parse_precheck_response(raw_json: str, idea: str, model_name: str) -> Preche
     )
 
 
-def check_stale_evidence(result: PrecheckResult) -> PrecheckResult:
+def find_contradictions(
+    idea: str,
+    knowledge_store: Optional["KnowledgeStore"] = None,
+) -> list:
+    """Find claims that may contradict the idea using KnowledgeStore relations.
+
+    If knowledge_store is None, returns [] (backward compat — no KS dependency).
+
+    When a knowledge_store is provided: queries all active claims and returns
+    the claim_text of any claim that has at least one CONTRADICTS relation
+    (either as source or target). This is intentionally broad — the idea text
+    is NOT used for semantic filtering (that requires embeddings, out of scope).
+    The precheck prompt asks the LLM to evaluate relevance.
+
+    Args:
+        idea: The idea text being evaluated. Not used for filtering currently.
+        knowledge_store: Optional KnowledgeStore instance. Pass None to use
+            the backward-compatible stub behavior (returns []).
+
+    Returns:
+        list[str]: Contradicting claim texts. Empty list if no KS or no contradictions.
+    """
+    if knowledge_store is None:
+        return []
+
+    ks = knowledge_store
+
+    # Get all active claims (no freshness needed — we want all candidates)
+    claims = ks.query_claims(apply_freshness=False)
+
+    contradicting_texts: list[str] = []
+    seen: set[str] = set()
+
+    for claim in claims:
+        claim_id = claim["id"]
+        claim_text = claim["claim_text"]
+        # Check if this claim has any CONTRADICTS relation (as source or target)
+        relations = ks.get_relations(claim_id, relation_type="CONTRADICTS")
+        if relations and claim_text not in seen:
+            contradicting_texts.append(claim_text)
+            seen.add(claim_text)
+
+    return contradicting_texts
+
+
+def check_stale_evidence(
+    result: PrecheckResult,
+    knowledge_store: Optional["KnowledgeStore"] = None,
+) -> PrecheckResult:
     """Check whether the evidence references are stale and set stale_warning.
 
-    Currently a stub. Returns result unchanged.
+    If knowledge_store is None, returns result unchanged (backward compat).
 
-    TODO: Wire to RAG query to check document dates. If all cited sources are
-    pre-2023 or no sources found, set stale_warning=True.
+    When a knowledge_store is provided: queries all source_documents and
+    computes freshness_modifier for each. If ALL documents have
+    freshness_modifier < 0.5, creates a new PrecheckResult with
+    stale_warning=True. If no source documents exist, returns result unchanged.
+
+    Args:
+        result: The PrecheckResult to check.
+        knowledge_store: Optional KnowledgeStore instance. Pass None to use
+            the backward-compatible passthrough behavior.
+
+    Returns:
+        PrecheckResult with stale_warning set appropriately.
     """
+    if knowledge_store is None:
+        return result
+
+    from packages.polymarket.rag.freshness import compute_freshness_modifier
+
+    ks = knowledge_store
+
+    # Query all source documents
+    rows = ks._conn.execute(
+        "SELECT source_family, published_at FROM source_documents"
+    ).fetchall()
+
+    if not rows:
+        # No source documents — no data = no penalty
+        return result
+
+    # Check if ALL documents are stale (freshness_modifier < 0.5)
+    all_stale = True
+    for row in rows:
+        source_family = row[0] or "unknown"
+        published_at_str = row[1]
+
+        published_at: Optional[datetime] = None
+        if published_at_str:
+            try:
+                published_at = datetime.fromisoformat(published_at_str)
+            except ValueError:
+                published_at = None
+
+        modifier = compute_freshness_modifier(source_family, published_at)
+        if modifier >= 0.5:
+            all_stale = False
+            break
+
+    if all_stale:
+        # Return a new PrecheckResult with stale_warning=True
+        return PrecheckResult(
+            recommendation=result.recommendation,
+            idea=result.idea,
+            supporting_evidence=result.supporting_evidence,
+            contradicting_evidence=result.contradicting_evidence,
+            risk_factors=result.risk_factors,
+            timestamp=result.timestamp,
+            provider_used=result.provider_used,
+            stale_warning=True,
+            raw_response=result.raw_response,
+            precheck_id=result.precheck_id,
+            reason_code=result.reason_code,
+            evidence_gap=result.evidence_gap,
+            review_horizon=result.review_horizon,
+        )
+
     return result
-
-
-def find_contradictions(idea: str) -> list:
-    """Find documents that may contradict the idea using semantic search.
-
-    Currently a stub. Returns empty list.
-
-    TODO: Wire to packages/polymarket/rag/query.py query_index() to find
-    documents that may contradict the idea. Use semantic similarity search,
-    then LLM to classify support vs contradiction.
-    """
-    return []
 
 
 def run_precheck(
     idea: str,
     provider_name: str = "manual",
     ledger_path: Optional[Path] = None,
+    knowledge_store: Optional["KnowledgeStore"] = None,
     **kwargs,
 ) -> PrecheckResult:
     """Run a precheck on an idea and return GO/CAUTION/STOP recommendation.
@@ -184,18 +299,22 @@ def run_precheck(
     2. Get provider (default: ManualProvider).
     3. Call provider.score() using a synthetic EvalDocument.
     4. Parse response into PrecheckResult (fall back to CAUTION on ManualProvider).
-    5. Check stale evidence (stub).
-    6. Append to ledger if ledger_path is not None.
-    7. Return result.
+    5. Merge contradictions from KnowledgeStore (if provided).
+    6. Check stale evidence using KnowledgeStore (if provided).
+    7. Populate enriched fields: precheck_id, reason_code, evidence_gap, review_horizon.
+    8. Append to ledger if ledger_path is not None.
+    9. Return result.
 
     Args:
         idea: The idea or concept to precheck.
         provider_name: Provider to use for evaluation (default: "manual").
         ledger_path: Path to JSONL ledger. Pass None to skip ledger write.
+        knowledge_store: Optional KnowledgeStore for contradiction detection
+            and stale evidence checking. Pass None to use stub behavior.
         **kwargs: Passed to get_provider().
 
     Returns:
-        PrecheckResult with GO/CAUTION/STOP recommendation.
+        PrecheckResult with GO/CAUTION/STOP recommendation and enriched fields.
     """
     from packages.research.evaluation.types import EvalDocument
     from packages.research.evaluation.providers import get_provider
@@ -245,11 +364,66 @@ def run_precheck(
             raw_response=raw_response,
         )
 
-    # If ManualProvider gave us a valid evaluation JSON but no precheck fields,
-    # the parse will return CAUTION with manual fallback message — that is correct.
+    # Merge contradictions from KnowledgeStore (if provided)
+    ks_contradictions = find_contradictions(idea, knowledge_store=knowledge_store)
+    if ks_contradictions:
+        # Append and deduplicate (preserve order)
+        existing = set(result.contradicting_evidence)
+        merged = list(result.contradicting_evidence)
+        for c in ks_contradictions:
+            if c not in existing:
+                merged.append(c)
+                existing.add(c)
+        result = PrecheckResult(
+            recommendation=result.recommendation,
+            idea=result.idea,
+            supporting_evidence=result.supporting_evidence,
+            contradicting_evidence=merged,
+            risk_factors=result.risk_factors,
+            timestamp=result.timestamp,
+            provider_used=result.provider_used,
+            stale_warning=result.stale_warning,
+            raw_response=result.raw_response,
+        )
 
-    # Stale evidence check (stub for now)
-    result = check_stale_evidence(result)
+    # Check stale evidence using KnowledgeStore (if provided)
+    result = check_stale_evidence(result, knowledge_store=knowledge_store)
+
+    # Populate enriched fields
+    precheck_id = _stable_id(idea)
+    reason_code = _REASON_CODE_MAP.get(result.recommendation, "MIXED_EVIDENCE")
+
+    # evidence_gap: set when contradicting_evidence is empty and recommendation != GO
+    if not result.contradicting_evidence and result.recommendation != "GO":
+        evidence_gap = (
+            "No contradicting evidence found -- manual review recommended"
+        )
+    else:
+        evidence_gap = ""
+
+    # review_horizon: based on recommendation severity
+    _review_horizon_map = {
+        "CAUTION": "7d",
+        "STOP": "30d",
+        "GO": "",
+    }
+    review_horizon = _review_horizon_map.get(result.recommendation, "")
+
+    result = PrecheckResult(
+        recommendation=result.recommendation,
+        idea=result.idea,
+        supporting_evidence=result.supporting_evidence,
+        contradicting_evidence=result.contradicting_evidence,
+        risk_factors=result.risk_factors,
+        timestamp=result.timestamp,
+        provider_used=result.provider_used,
+        stale_warning=result.stale_warning,
+        raw_response=result.raw_response,
+        precheck_id=precheck_id,
+        reason_code=reason_code,
+        evidence_gap=evidence_gap,
+        review_horizon=review_horizon,
+    )
 
     # Append to ledger unless explicitly skipped
     if ledger_path is not None:
