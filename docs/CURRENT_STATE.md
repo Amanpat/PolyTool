@@ -746,3 +746,39 @@ extraction or scraper evaluation.
 
 This is a data-plane addition. It does not change live trading, SimTrader, gates,
 or benchmark artifacts.
+
+## RIS Phase 2 — Operator Feedback Loop and Richer Query Integration (260401-o1q, 2026-04-01)
+
+Lifecycle event recording, enriched knowledge store queries, and CLI subcommands added.
+
+**Ledger schema v2** (`packages/research/synthesis/precheck_ledger.py`):
+- Schema bumped to `precheck_ledger_v2`. Old v0/v1 entries remain readable.
+- `append_override(precheck_id, override_reason, ledger_path)` — records `event_type="override"`
+- `append_outcome(precheck_id, outcome_label, outcome_date, ledger_path)` — records `event_type="outcome"`, labels: `successful/failed/partial/not_tried`
+- `get_precheck_history(precheck_id, ledger_path)` — all events for a precheck ID sorted ascending
+- `list_prechecks_by_window(start_iso, end_iso, ledger_path)` — events within a time window
+
+**PrecheckResult lifecycle fields** (`packages/research/synthesis/precheck.py`):
+- Added `was_overridden`, `override_reason`, `outcome_label`, `outcome_date` with defaults.
+- Not populated by `run_precheck()` — for downstream hydration from ledger history.
+
+**Enriched query output** (`packages/research/ingestion/retriever.py`):
+- `query_knowledge_store_enriched()` — returns claims augmented with `provenance_docs`,
+  `contradiction_summary`, `is_contradicted`, `staleness_note`, `lifecycle`
+- `format_enriched_report()` — structured multi-line report string per claim
+
+**CLI subcommands** (`tools/cli/research_precheck.py`):
+- Refactored to argparse subparsers: `run` (backward compat), `override`, `outcome`, `history`, `inspect`
+- Backward compat: `research-precheck --idea "..."` (no subcommand) still works
+
+CLI usage examples:
+```
+python -m polytool research-precheck --idea "test"  # backward compat
+python -m polytool research-precheck run --idea "test" --no-ledger
+python -m polytool research-precheck override --precheck-id abc123 --reason "changed approach"
+python -m polytool research-precheck outcome --precheck-id abc123 --label successful
+python -m polytool research-precheck history --precheck-id abc123 --json
+python -m polytool research-precheck inspect --top-k 5
+```
+
+Tests: 26 new offline tests in `tests/test_ris_phase2_operator_loop.py`. 3012 total passing.
