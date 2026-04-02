@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,6 +35,8 @@ from packages.polymarket.rag.chunker import chunk_text
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+_log = logging.getLogger(__name__)
 
 EXTRACTOR_ID = "heuristic_v1"
 
@@ -538,9 +542,11 @@ def build_intra_doc_relations(
             try:
                 store.add_relation(cid_i, cid_j, relation_type)
                 relation_count += 1
-            except Exception:
-                # In case of duplicate constraint or other DB error, skip
-                pass
+            except sqlite3.IntegrityError:
+                _log.debug(
+                    "Constraint violation for relation %s->%s (%s), skipping",
+                    cid_i, cid_j, relation_type,
+                )
 
     return relation_count
 
