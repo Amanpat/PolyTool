@@ -5,6 +5,10 @@ Usage:
   python -m polytool research-ingest --file path/to/doc.md --json
   python -m polytool research-ingest --text "Document body..." --title "My Doc" --no-eval
   python -m polytool research-ingest --file path/to/doc.md --source-type dossier --author "analyst"
+
+  # Phase 4 external-source adapter path:
+  python -m polytool research-ingest --from-adapter tests/fixtures/ris_external_sources/arxiv_sample.json --source-family academic --no-eval --json
+  python -m polytool research-ingest --from-adapter github_repo.json --source-family github --cache-dir artifacts/research/raw_source_cache/ --no-eval
 """
 
 from __future__ import annotations
@@ -36,6 +40,11 @@ def main(argv: list) -> int:
         "--text", metavar="TEXT",
         help="Inline document body to ingest (requires --title).",
     )
+    input_group.add_argument(
+        "--from-adapter", metavar="JSON_PATH",
+        dest="from_adapter",
+        help="Ingest from a raw-source JSON file via the adapter path (requires --source-family).",
+    )
     parser.add_argument(
         "--title", metavar="TEXT",
         help="Document title (required with --text; optional override with --file).",
@@ -62,6 +71,19 @@ def main(argv: list) -> int:
         help="Evaluation provider (default: manual; only used when eval is active).",
     )
     parser.add_argument(
+        "--source-family", metavar="FAMILY",
+        dest="source_family",
+        choices=["academic", "github", "blog", "news"],
+        help="Source family for --from-adapter path (academic/github/blog/news).",
+    )
+    parser.add_argument(
+        "--cache-dir", metavar="PATH",
+        dest="cache_dir",
+        default=None,
+        help="Directory for raw-source cache (default: artifacts/research/raw_source_cache/). "
+             "Only used with --from-adapter.",
+    )
+    parser.add_argument(
         "--json", dest="output_json", action="store_true",
         help="Output raw JSON instead of human-readable text.",
     )
@@ -73,8 +95,8 @@ def main(argv: list) -> int:
     args = parser.parse_args(argv)
 
     # Validate input arguments
-    if args.file is None and args.text is None:
-        print("Error: --file or --text is required.", file=sys.stderr)
+    if args.file is None and args.text is None and args.from_adapter is None:
+        print("Error: --file, --text, or --from-adapter is required.", file=sys.stderr)
         return 1
 
     if args.text is not None and not args.title:
@@ -85,6 +107,15 @@ def main(argv: list) -> int:
         file_path = Path(args.file)
         if not file_path.exists():
             print(f"Error: file not found: {args.file}", file=sys.stderr)
+            return 1
+
+    if args.from_adapter is not None:
+        adapter_path = Path(args.from_adapter)
+        if not adapter_path.exists():
+            print(f"Error: adapter JSON file not found: {args.from_adapter}", file=sys.stderr)
+            return 1
+        if not args.source_family:
+            print("Error: --source-family is required when using --from-adapter.", file=sys.stderr)
             return 1
 
     store = None
@@ -108,20 +139,36 @@ def main(argv: list) -> int:
 
         pipeline = IngestPipeline(store=store, evaluator=evaluator)
 
-        # Determine source and kwargs
-        ingest_kwargs: dict = {
-            "source_type": args.source_type,
-            "author": args.author,
-        }
-        if args.title:
-            ingest_kwargs["title"] = args.title
+        if args.from_adapter:
+            # Phase 4 adapter path: load raw JSON -> ingest via adapter
+            from packages.research.ingestion.source_cache import RawSourceCache
 
-        if args.file:
-            source = Path(args.file)
+            adapter_path = Path(args.from_adapter)
+            raw_source = json.loads(adapter_path.read_text(encoding="utf-8"))
+
+            cache_dir = args.cache_dir or "artifacts/research/raw_source_cache"
+            raw_cache = RawSourceCache(Path(cache_dir))
+
+            result = pipeline.ingest_external(
+                raw_source,
+                args.source_family,
+                cache=raw_cache,
+            )
         else:
-            source = args.text  # type: ignore[assignment]
+            # Standard file/text path
+            ingest_kwargs: dict = {
+                "source_type": args.source_type,
+                "author": args.author,
+            }
+            if args.title:
+                ingest_kwargs["title"] = args.title
 
-        result = pipeline.ingest(source, **ingest_kwargs)
+            if args.file:
+                source = Path(args.file)
+            else:
+                source = args.text  # type: ignore[assignment]
+
+            result = pipeline.ingest(source, **ingest_kwargs)
 
     except Exception as exc:
         print(f"Error: ingestion failed: {exc}", file=sys.stderr)
@@ -161,7 +208,14 @@ def main(argv: list) -> int:
             print(f"Rejected | reason={result.reject_reason}")
         else:
             # Determine title for display
-            display_title = args.title or (Path(args.file).stem if args.file else "inline")
+            if args.title:
+                display_title = args.title
+            elif args.file:
+                display_title = Path(args.file).stem
+            elif args.from_adapter:
+                display_title = Path(args.from_adapter).stem
+            else:
+                display_title = "inline"
             short_id = result.doc_id[:12] + "..." if result.doc_id else "(none)"
             print(
                 f"Ingested: {display_title} | doc_id={short_id} "
