@@ -1,0 +1,8 @@
+{
+  "url": "https://arxiv.org/abs/2301.12345",
+  "title": "Prediction Market Microstructure and Informed Trading",
+  "abstract": "We study prediction market microstructure with a focus on informed trading patterns. Using a dataset of 10,000 markets, we apply regression analysis to model adverse selection. The DOI for this work is 10.1234/pm.2023.001 and the arXiv identifier is arXiv:2301.12345. Our sample size is 1.2M contracts with p-value < 0.001 for all key results.",
+  "authors": ["A. Smith", "B. Jones", "C. Williams"],
+  "published_date": "2023-01-15",
+  "body_text": "We study prediction market microstructure with a focus on informed trading patterns.\n\n## Introduction\n\nPrediction markets have been shown to aggregate information effectively. Our methodology applies regression to estimate price impact. The arXiv:2301.12345 paper extends prior work on market microstructure.\n\n## Data\n\nDataset covers 2021-2023, sample size N=1,200,000. Contains DOI 10.1234/pm.2023.001 for citation. p-value < 0.001 across all hypothesis tests. Confidence interval: [0.23, 0.31]. Experiment design uses control group of random traders.\n\n## Methodology\n\nWe use regression with SSRN:3456789 as a companion working paper. Dataset spans multiple prediction market venues including Polymarket.\n\n## Results\n\nInformed traders earn 3.2% above market baseline. Methodology validated on holdout dataset."
+}

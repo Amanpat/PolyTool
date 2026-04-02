@@ -1,0 +1,9 @@
+{
+  "repo_url": "https://github.com/polymarket/py-clob-client",
+  "readme_text": "# py-clob-client\n\nPython client for Polymarket CLOB (Central Limit Order Book).\n\n## Installation\n\n```bash\npip install py-clob-client\n```\n\n## Usage\n\n```python\nfrom py_clob_client.client import ClobClient\nclient = ClobClient(host='https://clob.polymarket.com', key=pk, chain_id=137)\n```\n\n## License\n\nMIT License. See LICENSE file for details.\n\n## Contributing\n\nPull requests welcome. Please add tests for new functionality.",
+  "description": "Python client for Polymarket CLOB",
+  "stars": 142,
+  "forks": 38,
+  "license": "MIT",
+  "last_commit_date": "2026-03-15"
+}

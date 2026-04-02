@@ -1,0 +1,329 @@
+"""RIS Phase 4 — source adapters.
+
+Provides the SourceAdapter ABC and three concrete adapter implementations:
+- AcademicAdapter: arXiv, SSRN, book/preprint sources
+- GithubAdapter: GitHub repository sources
+- BlogNewsAdapter: Blog posts and news articles
+
+Each adapter:
+1. Normalizes metadata via normalize.py
+2. Caches the raw payload if a RawSourceCache is provided
+3. Returns an ExtractedDocument ready for the ingestion pipeline
+
+ADAPTER_REGISTRY maps source_family -> adapter class.
+get_adapter(family) returns a fresh adapter instance.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Optional
+
+from packages.research.ingestion.extractors import ExtractedDocument
+from packages.research.ingestion.normalize import (
+    NormalizedMetadata,
+    normalize_metadata,
+    canonicalize_url,
+    _infer_source_type,
+    _NEWS_DOMAINS,
+)
+from packages.research.ingestion.source_cache import RawSourceCache, make_source_id
+
+if TYPE_CHECKING:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# SourceAdapter ABC
+# ---------------------------------------------------------------------------
+
+
+class SourceAdapter(ABC):
+    """Abstract base class for external-source adapters.
+
+    An adapter converts a raw source dict (as produced by a scraper or
+    loaded from a fixture) into an ExtractedDocument.  Optionally caches
+    the raw payload on disk before any processing.
+    """
+
+    @abstractmethod
+    def adapt(
+        self,
+        raw_source: dict,
+        cache: Optional[RawSourceCache] = None,
+    ) -> ExtractedDocument:
+        """Convert *raw_source* to an ExtractedDocument.
+
+        Parameters
+        ----------
+        raw_source:
+            The original source dict. Structure is family-specific.
+        cache:
+            If provided, the raw payload is written to disk before any
+            processing.
+
+        Returns
+        -------
+        ExtractedDocument
+        """
+        ...
+
+    def _cache_if_provided(
+        self,
+        raw_source: dict,
+        source_id: str,
+        source_family: str,
+        cache: Optional[RawSourceCache],
+    ) -> None:
+        if cache is not None:
+            cache.cache_raw(source_id, raw_source, source_family)
+
+
+# ---------------------------------------------------------------------------
+# AcademicAdapter
+# ---------------------------------------------------------------------------
+
+
+class AcademicAdapter(SourceAdapter):
+    """Adapter for academic/preprint sources (arXiv, SSRN, book).
+
+    Expected raw_source keys:
+    - url (str): Paper URL
+    - title (str): Paper title
+    - abstract (str): Paper abstract
+    - authors (list[str], optional): Author list
+    - published_date (str, optional): ISO-8601 date
+    - body_text (str, optional): Full paper body if available
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache: Optional[RawSourceCache] = None,
+    ) -> ExtractedDocument:
+        url = raw_source.get("url", "")
+        title = raw_source.get("title", "Unknown Paper")
+        abstract = raw_source.get("abstract", "")
+        body_text = raw_source.get("body_text", "")
+        authors = raw_source.get("authors", [])
+        published_date = raw_source.get("published_date", None)
+
+        # Build body: prefer body_text, fall back to abstract
+        body = body_text if body_text else abstract
+        if not body:
+            body = title  # last-resort fallback
+
+        # Normalize metadata
+        meta: NormalizedMetadata = normalize_metadata(raw_source, "academic")
+
+        # Build source_id from canonical URL for cache keying
+        canonical_url = meta.canonical_url or url
+        source_id = make_source_id(canonical_url) if canonical_url else make_source_id(title)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, "academic", cache)
+
+        # Build author string
+        if isinstance(authors, list):
+            author = ", ".join(str(a) for a in authors) if authors else "unknown"
+        else:
+            author = str(authors) if authors else "unknown"
+
+        metadata = {
+            "canonical_ids": meta.canonical_ids,
+            "source_type": meta.source_type,
+            "publisher": meta.publisher,
+            "abstract": abstract[:500] if abstract else "",
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=canonical_url or url or "internal://academic",
+            source_family="academic",
+            author=author,
+            publish_date=published_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# GithubAdapter
+# ---------------------------------------------------------------------------
+
+
+class GithubAdapter(SourceAdapter):
+    """Adapter for GitHub repository sources.
+
+    Expected raw_source keys:
+    - repo_url (str): Full repository URL
+    - readme_text (str): README content
+    - description (str, optional): Repository description
+    - stars (int, optional): Star count
+    - forks (int, optional): Fork count
+    - license (str, optional): License name
+    - last_commit_date (str, optional): ISO date of last commit
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache: Optional[RawSourceCache] = None,
+    ) -> ExtractedDocument:
+        repo_url = raw_source.get("repo_url", "")
+        readme_text = raw_source.get("readme_text", "")
+        description = raw_source.get("description", "")
+        stars = raw_source.get("stars", None)
+        forks = raw_source.get("forks", None)
+        license_name = raw_source.get("license", None)
+        last_commit_date = raw_source.get("last_commit_date", None)
+
+        # Normalize metadata
+        meta: NormalizedMetadata = normalize_metadata(raw_source, "github")
+
+        canonical_url = meta.canonical_url or repo_url
+        source_id = make_source_id(canonical_url) if canonical_url else make_source_id(repo_url)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, "github", cache)
+
+        # Build title from URL: last two path segments (owner/repo)
+        if canonical_url:
+            parts = canonical_url.rstrip("/").split("/")
+            title = "/".join(parts[-2:]) if len(parts) >= 2 else canonical_url
+        else:
+            title = description or repo_url
+
+        # Body: readme + description
+        body_parts = []
+        if readme_text:
+            body_parts.append(readme_text)
+        if description:
+            body_parts.append(f"\nDescription: {description}")
+        body = "\n\n".join(body_parts) if body_parts else description or repo_url
+
+        # commit_recency: last_commit_date as string
+        commit_recency = last_commit_date
+
+        metadata = {
+            "canonical_ids": meta.canonical_ids,
+            "source_type": "github",
+            "stars": stars,
+            "forks": forks,
+            "license": license_name,
+            "commit_recency": commit_recency,
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=canonical_url or repo_url or "internal://github",
+            source_family="github",
+            author="unknown",
+            publish_date=last_commit_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# BlogNewsAdapter
+# ---------------------------------------------------------------------------
+
+
+class BlogNewsAdapter(SourceAdapter):
+    """Adapter for blog posts and news articles.
+
+    Expected raw_source keys:
+    - url (str): Article URL
+    - title (str): Article title
+    - body_text (str): Full article body
+    - author (str, optional): Author name
+    - published_date (str, optional): ISO-8601 date
+    - publisher (str, optional): Publisher name
+
+    Source-type heuristic: if the URL host matches a known news domain ->
+    source_type="news"; otherwise source_type="blog".
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache: Optional[RawSourceCache] = None,
+    ) -> ExtractedDocument:
+        from urllib.parse import urlparse
+
+        url = raw_source.get("url", "")
+        title = raw_source.get("title", "")
+        body_text = raw_source.get("body_text", "")
+        author = raw_source.get("author", "unknown") or "unknown"
+        published_date = raw_source.get("published_date", None)
+        publisher = raw_source.get("publisher", None)
+
+        # Determine source_type via news-domain heuristic
+        try:
+            host = urlparse(url.lower()).netloc.lstrip("www.")
+        except Exception:
+            host = ""
+        is_news = any(nd in host for nd in _NEWS_DOMAINS)
+        source_type = "news" if is_news else "blog"
+        source_family = source_type  # "news" or "blog" are both valid source_families
+
+        # Normalize metadata
+        meta: NormalizedMetadata = normalize_metadata(raw_source, source_family)
+
+        canonical_url = meta.canonical_url or url
+        source_id = make_source_id(canonical_url) if canonical_url else make_source_id(title)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, source_family, cache)
+
+        body = body_text or title
+
+        metadata = {
+            "canonical_ids": meta.canonical_ids,
+            "source_type": source_type,
+            "publisher": publisher,
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=canonical_url or url or "internal://blog",
+            source_family=source_family,
+            author=author,
+            publish_date=published_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Registry and factory
+# ---------------------------------------------------------------------------
+
+ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
+    "academic": AcademicAdapter,
+    "github": GithubAdapter,
+    "blog": BlogNewsAdapter,
+    "news": BlogNewsAdapter,
+}
+
+
+def get_adapter(family: str) -> SourceAdapter:
+    """Return a fresh adapter instance for *family*.
+
+    Parameters
+    ----------
+    family:
+        Source-family key (e.g. "academic", "github", "blog", "news").
+
+    Returns
+    -------
+    SourceAdapter
+
+    Raises
+    ------
+    KeyError
+        If *family* is not in ADAPTER_REGISTRY.
+    """
+    cls = ADAPTER_REGISTRY[family]
+    return cls()
