@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-02 — Completed quick task 260402-m6p: RIS Phase 3 real extractor integration and corpus backfill — StructuredMarkdownExtractor (section/header/table/code metadata), real PDFExtractor/DocxExtractor with optional-dep fallback, benchmark quality proxies (section_count/header_count/table_count/code_block_count), seed manifest v3 (structured_markdown on all 11 entries), --reseed CLI flag; 42 new tests; 3110 total passing
+Last activity: 2026-04-02 — Completed quick task 260402-m6t: RIS Phase 3 evaluation gate hardening — per-family deterministic feature extraction (academic/github/blog/forum_social), SHA256 + shingle near-dup detection (Jaccard 0.85), JSONL eval artifact persistence, enhanced calibration analytics (family-level gate distribution, hard-stop cause breakdowns, dedup stats), SOURCE_FAMILY_OFFSETS hook (empty, data-driven); 47 new tests; 3111 total passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-04-02 — Completed quick task 260402-m6p: RIS Phase 3 real 
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260402-m6t: LLM scoring retained as primary quality signal; feature extraction adds deterministic layer before it; SOURCE_FAMILY_OFFSETS empty until >= 50 artifacts span >= 3 families; 0.85 Jaccard threshold not yet calibrated; artifact persistence opt-in via constructor (backward compatible)
 - quick-260402-m6p: StructuredMarkdownExtractor preserves body unchanged, structural data in metadata only; pdfplumber/python-docx are optional deps checked at extract() call-time; StubPDFExtractor/StubDocxExtractor retained but removed from registry; reseed uses DELETE-before-ingest via store._conn (same pattern as source_family UPDATE); .md auto-detect -> structured_markdown (not plain_text)
 - quick-260402-ivi: source_family=book_foundational retained for reclassified entries (null half-life unchanged); evidence_tier values tier_1_internal vs tier_2_superseded; domain assignment in compute_family_drift() uses keyword heuristic on idea text (best-effort, Phase 3 should add source_family to precheck events); override_rate = override_count / total_prechecks; overrepresented_in_stop threshold STOP > 50% of domain total
 - quick-260402-ivb: three-way RRF via reciprocal_rank_fusion_multi() over sidecar (unified ranked list more useful); keyword substring filter over semantic search for KS claims (structured claims, embedding overhead unjustified); evidence-mode as opt-in flag (uniform default output format)
