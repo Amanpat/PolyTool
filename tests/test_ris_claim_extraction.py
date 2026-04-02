@@ -86,6 +86,27 @@ The strategy achieves positive expected value with statistical confidence above 
 Market analysis reveals strong predictive power in the order flow signals.
 """
 
+RELATION_SUPPORTS_DOC = """\
+## Market Momentum
+
+The market momentum algorithm detects strong patterns in order flow data signals across multiple exchanges.
+Statistical analysis confirms that market momentum patterns generate consistent order flow data signals.
+"""
+
+RELATION_CONTRADICTS_DOC = """\
+## Contradicting Evidence
+
+The market momentum algorithm detects strong patterns in order flow data signals across exchanges.
+The market momentum algorithm does not detect reliable patterns in order flow data signals.
+"""
+
+RELATION_NO_MATCH_DOC = """\
+## Disjoint Topics
+
+The cryptocurrency exchange processes thousands of transactions every single second continuously.
+Weather patterns indicate significant rainfall amounts expected throughout the coming spring season.
+"""
+
 FIXTURE_MARKDOWN_SPARSE = """\
 # Sparse Doc
 
@@ -390,7 +411,8 @@ class TestExtractClaimsFromDocument:
         ).fetchall()
         assert len(rows) >= 1
         row = dict(rows[0])
-        assert row["excerpt"] is not None and len(row["excerpt"]) > 0
+        assert row["excerpt"] is not None
+        assert 0 < len(row["excerpt"]) <= 500
         assert row["location"] is not None
         # Location must be valid JSON with required keys
         loc = json.loads(row["location"])
@@ -398,6 +420,40 @@ class TestExtractClaimsFromDocument:
         assert "start_word" in loc
         assert "end_word" in loc
         assert "document_id" in loc
+        assert loc["document_id"] == doc_id
+        # section_heading must be present as a string (may be empty if no preceding heading)
+        assert "section_heading" in loc
+        assert isinstance(loc["section_heading"], str)
+
+    def test_idempotent_extraction_evidence_not_doubled(self, tmp_path):
+        """Running extraction twice does not double evidence rows per claim."""
+        def _count_evidence(store, claim_id):
+            return store._conn.execute(
+                "SELECT COUNT(*) as c FROM claim_evidence WHERE claim_id = ?",
+                (claim_id,),
+            ).fetchone()["c"]
+
+        store = _make_store()
+        doc_id, _ = _add_doc_with_file(
+            store, tmp_path, FIXTURE_MARKDOWN, filename="idempotent_ev.md"
+        )
+
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert len(claim_ids) >= 1
+
+        counts_before = {cid: _count_evidence(store, cid) for cid in claim_ids}
+
+        # Second extraction — same doc, same store
+        extract_claims_from_document(store, doc_id)
+
+        counts_after = {cid: _count_evidence(store, cid) for cid in claim_ids}
+
+        # Evidence rows must not have grown (EXISTS check in extractor prevents doubling)
+        for cid in claim_ids:
+            assert counts_after[cid] == counts_before[cid], (
+                f"Evidence rows doubled for claim {cid}: "
+                f"before={counts_before[cid]}, after={counts_after[cid]}"
+            )
 
     def test_notes_json_has_extraction_context(self, tmp_path):
         store = _make_store()
@@ -481,45 +537,84 @@ def adjust_inventory(position, limit):
 
 class TestBuildIntraDocRelations:
     def test_supports_relation_between_shared_term_claims(self, tmp_path):
-        """Claims sharing 3+ key terms get a SUPPORTS relation."""
+        """Claims sharing 3+ key terms get exactly one SUPPORTS relation."""
         store = _make_store()
-        doc_id, _ = _add_doc_with_file(store, tmp_path, FIXTURE_MARKDOWN)
+        doc_id, _ = _add_doc_with_file(
+            store, tmp_path, RELATION_SUPPORTS_DOC, filename="supports_doc.md"
+        )
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert len(claim_ids) == 2, (
+            f"Expected exactly 2 claims from RELATION_SUPPORTS_DOC, got {len(claim_ids)}"
+        )
+
+        count = build_intra_doc_relations(store, claim_ids)
+        assert count == 1
+
+        relations = store.get_relations(claim_ids[0])
+        assert len(relations) == 1
+        rel = relations[0]
+        assert rel["relation_type"] == "SUPPORTS"
+        assert rel["source_claim_id"] in claim_ids
+        assert rel["target_claim_id"] in claim_ids
+
+    def test_contradicts_relation_for_negation_pair(self, tmp_path):
+        """A claim with negation + a positive claim sharing key terms get CONTRADICTS."""
+        store = _make_store()
+        doc_id, _ = _add_doc_with_file(
+            store, tmp_path, RELATION_CONTRADICTS_DOC, filename="contradicts_doc.md"
+        )
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert len(claim_ids) == 2, (
+            f"Expected exactly 2 claims from RELATION_CONTRADICTS_DOC, got {len(claim_ids)}"
+        )
+
+        count = build_intra_doc_relations(store, claim_ids)
+        assert count == 1
+
+        relations = store.get_relations(claim_ids[0], relation_type="CONTRADICTS")
+        assert len(relations) == 1
+        rel = relations[0]
+        assert rel["relation_type"] == "CONTRADICTS"
+        assert rel["source_claim_id"] in claim_ids
+        assert rel["target_claim_id"] in claim_ids
+
+    def test_no_relation_when_insufficient_shared_terms(self, tmp_path):
+        """Claims without 3+ shared key terms produce no relations."""
+        store = _make_store()
+        doc_id, _ = _add_doc_with_file(
+            store, tmp_path, RELATION_NO_MATCH_DOC, filename="no_match_doc.md"
+        )
         claim_ids = extract_claims_from_document(store, doc_id)
         assert len(claim_ids) >= 2
 
         count = build_intra_doc_relations(store, claim_ids)
-        # With the full fixture markdown, some claims share terms -> relations created
-        # We just verify the function runs and returns a non-negative count
-        assert count >= 0
+        assert count == 0
 
-    def test_contradicts_relation_for_negation_pair(self, tmp_path):
-        """A claim with negation + a positive claim sharing key terms get CONTRADICTS."""
-        contradiction_doc = """\
-## Analysis Section
+    def test_relation_idempotent_on_rerun(self, tmp_path):
+        """Each call to build_intra_doc_relations inserts new rows (no UNIQUE constraint).
 
-The market momentum algorithm detects strong patterns in order flow data signals.
-Statistical analysis confirms that momentum patterns generate consistent trading signals.
-
-## Counter Evidence
-
-The market momentum algorithm does not detect reliable patterns without additional data.
-"""
+        Known limitation: claim_relations has no UNIQUE constraint on
+        (source_claim_id, target_claim_id, relation_type), so running
+        build_intra_doc_relations twice inserts duplicate rows. Each run
+        returns count == 1 (the number of new inserts in that run).
+        This is a schema-level concern tracked for a future ticket.
+        """
         store = _make_store()
         doc_id, _ = _add_doc_with_file(
-            store, tmp_path, contradiction_doc, filename="contradiction.md"
+            store, tmp_path, RELATION_SUPPORTS_DOC, filename="idempotent_doc.md"
         )
         claim_ids = extract_claims_from_document(store, doc_id)
+        assert len(claim_ids) == 2
 
-        if len(claim_ids) >= 2:
-            count = build_intra_doc_relations(store, claim_ids)
-            # Check if any CONTRADICTS relations were created
-            all_relations = []
-            for cid in claim_ids:
-                rels = store.get_relations(cid, relation_type="CONTRADICTS")
-                all_relations.extend(rels)
-            # We should have at least one CONTRADICTS (or test doc structure may not trigger)
-            # The test verifies the function completes without error
-            assert count >= 0
+        count1 = build_intra_doc_relations(store, claim_ids)
+        assert count1 == 1
+
+        count2 = build_intra_doc_relations(store, claim_ids)
+        assert count2 == 1  # second run also inserts 1 row (no dedup)
+
+        # Total rows in DB after 2 runs = 2 (both rows present, no UNIQUE constraint)
+        all_relations = store.get_relations(claim_ids[0])
+        assert len(all_relations) == 2
 
     def test_returns_zero_for_single_claim(self, tmp_path):
         """No relations possible with only one claim."""
@@ -563,7 +658,9 @@ class TestExtractAndLink:
         assert "relations_created" in result
         assert "claim_ids" in result
         assert result["doc_id"] == doc_id
-        assert result["claims_extracted"] >= 0
+        assert result["claims_extracted"] >= 3, (
+            f"Expected >= 3 claims from FIXTURE_MARKDOWN, got {result['claims_extracted']}"
+        )
         assert result["relations_created"] >= 0
         assert isinstance(result["claim_ids"], list)
 
