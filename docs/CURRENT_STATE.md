@@ -989,3 +989,37 @@ Tests: 49 new offline tests in `tests/test_ris_phase4_source_acquisition.py`.
 
 See `docs/features/FEATURE-ris-phase4-source-acquisition.md` and
 `docs/dev_logs/2026-04-02_ris_phase4_source_acquisition.md`.
+
+## RIS Phase 4 — Claim Extraction and Evidence Linking (quick-260402-ogq, 2026-04-02)
+
+Heuristic claim extraction pipeline that populates `derived_claims`, `claim_evidence`,
+and `claim_relations` tables from already-ingested source documents. No LLM calls.
+
+**New modules:**
+- `packages/research/ingestion/claim_extractor.py` — `HeuristicClaimExtractor`,
+  `extract_claims_from_document()`, `build_intra_doc_relations()`, `extract_and_link()`
+- `tools/cli/research_extract_claims.py` — `research-extract-claims` CLI
+
+**Key design decisions:**
+- Idempotent via `_deterministic_created_at()`: claim IDs are stable across re-runs
+  by deriving `created_at` from `SHA-256(doc_id + sentence + chunk_id + extractor_id)`
+- Empirical regex requires 3+ digit numbers (`\b\d{3,}\b`) to avoid 2-digit numbers
+  (e.g., "20 bps") stealing priority from normative keyword classification
+- Evidence deduplication: checks for existing `(claim_id, source_document_id)` before
+  inserting (KnowledgeStore `add_evidence()` has no INSERT OR IGNORE)
+- `post_ingest_extract=True` on `IngestPipeline.ingest()` enables single-pass
+  ingest + extraction; failure is non-fatal
+
+**CLI usage:**
+```bash
+python -m polytool research-extract-claims --doc-id <DOC_ID>
+python -m polytool research-extract-claims --all
+python -m polytool research-extract-claims --all --dry-run
+python -m polytool research-extract-claims --all --json
+python -m polytool research-extract-claims --all --db-path artifacts/ris/knowledge.sqlite3
+```
+
+Tests: 56 new offline tests in `tests/test_ris_claim_extraction.py`. 3262 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase 4 section) and
+`docs/dev_logs/2026-04-02_ris_phase4_claim_extraction.md`.

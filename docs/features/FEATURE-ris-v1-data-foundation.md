@@ -205,14 +205,124 @@ python -m polytool research-ingest --file analysis.txt --source-type dossier --n
 - **Hard-stop always runs**: `check_hard_stops()` is unconditional; `--no-eval` only
   skips the LLM scoring gate.
 
+## Claim Extraction Pipeline (Phase 4 — quick-260402-ogq)
+
+**Shipped:** quick-260402-ogq (2026-04-02)
+
+Heuristic claim extraction that populates the `derived_claims`, `claim_evidence`,
+and `claim_relations` tables from already-ingested source documents. No LLM calls —
+entirely regex/heuristic-based.
+
+### New Modules
+
+| Module | Purpose |
+|--------|---------|
+| `packages/research/ingestion/claim_extractor.py` | `HeuristicClaimExtractor` + extraction functions |
+| `tools/cli/research_extract_claims.py` | `research-extract-claims` CLI entrypoint |
+
+### Architecture
+
+```
+source_document (already ingested in KnowledgeStore)
+  -> _get_document_body()       [re-reads file:// path or metadata_json body]
+  -> chunk_text(body)           [400-word chunks, 80-word overlap]
+  -> _extract_assertive_sentences(chunk)
+      - strips merged heading tokens (chunk_text joins all words inline)
+      - strips table-row fragments, code-fence markers
+      - filters: len >= 30, not all-caps, not code-looking
+      - returns up to 5 sentences per chunk
+  -> _classify_claim_type(sentence) -> empirical | normative | structural
+  -> _confidence_for_tier(trust_tier) -> 0.85 | 0.70 | 0.55
+  -> store.add_claim(claim_text, claim_type, confidence, ...)
+  -> store.add_evidence(claim_id, doc_id, excerpt, location_json)
+  -> build_intra_doc_relations(claim_ids)
+      - pairwise key-term comparison (>= 3 shared non-stopword terms)
+      - SUPPORTS: both claims have same negation state
+      - CONTRADICTS: one claim has negation, other does not
+```
+
+### Confidence Tier Mapping
+
+| Trust Tier | Confidence |
+|------------|------------|
+| `PEER_REVIEWED` | 0.85 |
+| `PRACTITIONER` | 0.70 (default) |
+| `COMMUNITY` | 0.55 |
+
+### Claim Types
+
+| Type | Detection |
+|------|-----------|
+| `empirical` | Contains percentage, float, or 3+ digit number |
+| `normative` | Contains should / must / recommend / best practice |
+| `structural` | Contains architecture / system / design / structure / layer |
+
+Default fallback is `empirical`.
+
+### Idempotency Design
+
+`_deterministic_created_at(doc_id, sentence, chunk_id)` generates a stable ISO-8601
+timestamp from SHA-256 of content (doc_id + sentence + chunk_id + EXTRACTOR_ID).
+This ensures `_sha256_id("claim", claim_text, actor, created_at)` in `KnowledgeStore`
+produces the same claim ID on every re-run, making `INSERT OR IGNORE` idempotent.
+
+Evidence rows are also deduplicated per `(claim_id, source_document_id)` — checked
+before each `add_evidence()` call.
+
+### Extractor Provenance
+
+Every claim carries:
+- `actor = "heuristic_v1"` (constant `EXTRACTOR_ID`)
+- `notes` JSON: `{"extractor_id": "heuristic_v1", "chunk_id": N, "document_id": "...", "section_heading": "..."}`
+- `claim_evidence` row with `excerpt` (first 500 chars of chunk) and `location` JSON:
+  `{"chunk_id": N, "start_word": M, "end_word": K, "document_id": "...", "section_heading": "..."}`
+
+### CLI Usage
+
+```bash
+# Extract from a single document
+python -m polytool research-extract-claims --doc-id <DOC_ID>
+
+# Extract from all documents in the knowledge store
+python -m polytool research-extract-claims --all
+
+# Dry run (count only, no writes)
+python -m polytool research-extract-claims --all --dry-run
+
+# JSON output
+python -m polytool research-extract-claims --all --json
+
+# Custom DB path
+python -m polytool research-extract-claims --all --db-path artifacts/ris/knowledge.sqlite3
+```
+
+### Post-Ingest Integration
+
+`IngestPipeline.ingest()` accepts `post_ingest_extract=True` for single-pass
+ingestion + extraction:
+
+```python
+result = pipeline.ingest("paper.md", post_ingest_extract=True)
+# Claims extracted automatically after source_document stored
+```
+
+Default is `False` (backward compatible).
+
+### Authority Conflict Resolution (Partial)
+
+The heuristic extractor resolves the immediate LLM authority conflict by operating
+entirely locally without network or LLM calls. The `KnowledgeStore._llm_provider`
+attribute remains `None`. Cloud LLM calls are still blocked pending operator decision
+on the Roadmap v5.1 / PLAN_OF_RECORD conflict.
+
 ## Next Steps
 
-1. **Seed Jon-Becker findings.** Roadmap v5.1 Phase 1 describes seeding the
-   knowledge store with wallet analysis findings from the Jon-Becker dataset.
-2. **Wire into RAG query pipeline.** Integrate with Chroma/FTS5 hybrid retrieval
+1. **Wire into RAG query pipeline.** Integrate with Chroma/FTS5 hybrid retrieval
    so that `external_knowledge` claims augment wallet-analysis context during
    alpha distillation.
-3. **LLM-assisted claim extraction.** After the authority conflict above is
-   resolved, implement automatic claim extraction from ingested source docs.
-4. **Phase 2 research scraper.** The knowledge store is the data foundation for
-   the Phase 2 automated research ingestion pipeline.
+2. **LLM-assisted claim extraction.** After the authority conflict above is
+   resolved, upgrade to LLM-based extraction for higher-precision claims.
+3. **Claim lifecycle management.** Implement the SUPERSEDES relation for updating
+   claims when newer evidence arrives.
+4. **Phase 5 research scraper.** The knowledge store + claim pipeline is the
+   data foundation for the Phase 5 automated research ingestion pipeline.

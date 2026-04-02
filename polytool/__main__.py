@@ -83,6 +83,7 @@ research_ingest_main = _command_entrypoint("tools.cli.research_ingest")
 research_seed_main = _command_entrypoint("tools.cli.research_seed")
 research_benchmark_main = _command_entrypoint("tools.cli.research_benchmark")
 research_calibration_main = _command_entrypoint("tools.cli.research_calibration")
+research_extract_claims_main = _command_entrypoint("tools.cli.research_extract_claims")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -138,6 +139,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-seed": "research_seed_main",
     "research-benchmark": "research_benchmark_main",
     "research-calibration": "research_calibration_main",
+    "research-extract-claims": "research_extract_claims_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -187,12 +189,13 @@ def print_usage() -> None:
     print("  llm-save              Save an LLM report run into the private KB")
     print("")
     print("--- Research Intelligence (RIS v1/v2) -----------------------------------")
-    print("  research-eval         Evaluate a document through the RIS quality gate")
-    print("  research-precheck     Pre-development check: GO / CAUTION / STOP recommendation")
-    print("  research-ingest       Ingest a document into the RIS knowledge store")
-    print("  research-seed         Seed the RIS knowledge store from a manifest")
-    print("  research-benchmark    Compare extractor outputs on a fixture set")
-    print("  research-calibration  Inspect precheck calibration health over the ledger")
+    print("  research-eval             Evaluate a document through the RIS quality gate")
+    print("  research-precheck         Pre-development check: GO / CAUTION / STOP recommendation")
+    print("  research-ingest           Ingest a document into the RIS knowledge store")
+    print("  research-seed             Seed the RIS knowledge store from a manifest")
+    print("  research-benchmark        Compare extractor outputs on a fixture set")
+    print("  research-calibration      Inspect precheck calibration health over the ledger")
+    print("  research-extract-claims   Extract structured claims from ingested documents (no LLM)")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")

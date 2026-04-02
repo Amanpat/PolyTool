@@ -90,13 +90,23 @@ class IngestPipeline:
         self._extractor = extractor if extractor is not None else PlainTextExtractor()
         self._evaluator = evaluator
 
-    def ingest(self, source: "str | Path", **kwargs) -> IngestResult:
+    def ingest(
+        self,
+        source: "str | Path",
+        *,
+        post_ingest_extract: bool = False,
+        **kwargs,
+    ) -> IngestResult:
         """Ingest a document from *source* into the KnowledgeStore.
 
         Parameters
         ----------
         source:
             File path or raw text string (same semantics as PlainTextExtractor).
+        post_ingest_extract:
+            If True, automatically run claim extraction (extract_and_link) after
+            the document is stored.  Useful for single-pass workflows.
+            Default False — backward compatible with all existing callers.
         **kwargs:
             Passed to ``extractor.extract()`` (e.g. ``source_type``, ``author``,
             ``title``, ``publish_date``).
@@ -169,7 +179,16 @@ class IngestPipeline:
             metadata_json=json.dumps(extracted.metadata),
         )
 
-        # Step 7: Return result
+        # Step 7: Optional post-ingest claim extraction
+        if post_ingest_extract and doc_id:
+            try:
+                from packages.research.ingestion.claim_extractor import extract_and_link
+                extract_and_link(self._store, doc_id)
+            except Exception:
+                # Extraction failure is non-fatal — document is already stored
+                pass
+
+        # Step 8: Return result
         return IngestResult(
             doc_id=doc_id,
             chunk_count=chunk_count,
