@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-02 — Completed quick task 260402-ogu: RIS Phase 4 external source acquisition — raw-source cache (JSONL per acquisition_id), metadata normalization, canonical IDs (DOI/arXiv/SSRN/repo URL), 3 family adapters (academic/github/blog-news), fixture-backed offline tests, research-acquire CLI; 49 new tests; 2009 total passing
+Last activity: 2026-04-02 — Completed quick task 260402-ogq: RIS Phase 4 claim extraction — HeuristicClaimExtractor, extract_and_link(), research-extract-claims CLI, idempotent claim IDs via deterministic SHA-256 created_at, SUPPORTS/CONTRADICTS relations, post_ingest_extract pipeline param; 56 new tests; 3262 total passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-04-02 — Completed quick task 260402-ogu: RIS Phase 4 exter
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260402-ogq: Deterministic claim IDs via SHA-256(doc_id+sentence+chunk_id+extractor_id) as created_at override; empirical regex requires 3+ digit numbers (2-digit falsely wins over normative keywords); evidence deduplication via pre-insert SELECT (add_evidence has no INSERT OR IGNORE); post_ingest_extract opt-in and non-fatal; no LLM calls (authority conflict unresolved)
 - quick-260402-m6t: LLM scoring retained as primary quality signal; feature extraction adds deterministic layer before it; SOURCE_FAMILY_OFFSETS empty until >= 50 artifacts span >= 3 families; 0.85 Jaccard threshold not yet calibrated; artifact persistence opt-in via constructor (backward compatible)
 - quick-260402-m6p: StructuredMarkdownExtractor preserves body unchanged, structural data in metadata only; pdfplumber/python-docx are optional deps checked at extract() call-time; StubPDFExtractor/StubDocxExtractor retained but removed from registry; reseed uses DELETE-before-ingest via store._conn (same pattern as source_family UPDATE); .md auto-detect -> structured_markdown (not plain_text)
 - quick-260402-ivi: source_family=book_foundational retained for reclassified entries (null half-life unchanged); evidence_tier values tier_1_internal vs tier_2_superseded; domain assignment in compute_family_drift() uses keyword heuristic on idea text (best-effort, Phase 3 should add source_family to precheck events); override_rate = override_count / total_prechecks; overrepresented_in_stop threshold STOP > 50% of domain total
