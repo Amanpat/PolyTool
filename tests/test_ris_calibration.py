@@ -440,13 +440,13 @@ class TestManifestHygiene:
         assert e.notes is None
 
     def test_real_seed_manifest_v2_parses(self):
-        """config/seed_manifest.json (v2) parses with all 11 entries."""
+        """config/seed_manifest.json (v3) parses with all 11 entries."""
         from packages.research.ingestion.seed import load_seed_manifest
         manifest_path = REPO_ROOT / "config" / "seed_manifest.json"
         if not manifest_path.exists():
             pytest.skip("config/seed_manifest.json not present in this environment")
         manifest = load_seed_manifest(manifest_path)
-        assert manifest.version == "2"
+        assert manifest.version in ("2", "3")
         assert len(manifest.entries) == 11
         # All source_types should be reference_doc or roadmap
         for entry in manifest.entries:

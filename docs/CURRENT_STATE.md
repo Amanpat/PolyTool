@@ -856,3 +856,55 @@ Files changed: `packages/polymarket/rag/lexical.py` (added `reciprocal_rank_fusi
 `tools/cli/rag_query.py` (5 new flags + evidence-mode logic).
 
 Tests: 25 new offline tests in `tests/test_ris_query_spine.py`. 3037 total passing.
+
+## RIS Phase 3 — Real Extractor Integration and Corpus Backfill (quick-260402-m6p, 2026-04-02)
+
+Stub extractors replaced with real implementations; structure-aware Markdown extractor
+added; benchmark harness enhanced with quality proxy metrics; reseed workflow wired.
+
+**StructuredMarkdownExtractor** (key: `"structured_markdown"`) is the primary extractor
+for the `docs/reference/` corpus. It parses heading structure, tables, and fenced code
+blocks and stores the counts in `ExtractedDocument.metadata`:
+
+| Metadata key      | What it captures                                            |
+|-------------------|-------------------------------------------------------------|
+| `sections`        | List of heading text strings (H1-H6)                        |
+| `section_count`   | Total heading count                                         |
+| `header_count`    | Same as section_count                                       |
+| `table_count`     | Pipe-delimited table blocks detected                        |
+| `code_block_count`| Fenced code block pairs (``` or ~~~)                        |
+
+Body text is returned unchanged — Markdown is preserved, not stripped.
+
+**PDFExtractor** (key: `"pdf"`) and **DocxExtractor** (key: `"docx"`) are real
+implementations using optional deps `pdfplumber` and `python-docx`. Both raise
+`ImportError` with `pip install` instructions at call-time when the dep is absent.
+No PDF or DOCX files exist in the corpus yet; extractors are wired for when they arrive.
+
+**StubPDFExtractor** and **StubDocxExtractor** are retained for backward compatibility
+but are no longer registered in `EXTRACTOR_REGISTRY`.
+
+**Seed manifest v3** (`config/seed_manifest.json`): all 11 entries have
+`"extractor": "structured_markdown"`. Auto-detect for `.md` files also resolves to
+`"structured_markdown"` by default.
+
+**Reseed CLI flag**: `python -m polytool research-seed --reseed` deletes existing
+docs by `source_url` before re-ingesting, allowing re-extraction with improved
+extractors without creating duplicates. Without `--reseed`, the seeder is idempotent
+(INSERT OR IGNORE semantics).
+
+**Benchmark quality proxy delta on real corpus** (8 files in `docs/reference/RAGfiles/`):
+
+| Extractor             | avg_section_count | avg_header_count | total_table_count |
+|-----------------------|-------------------|------------------|-------------------|
+| `plain_text`          | 0.0               | 0.0              | 0                 |
+| `structured_markdown` | 28.5              | 28.5             | 23                |
+
+Files changed: `packages/research/ingestion/extractors.py`,
+`packages/research/ingestion/benchmark.py`, `packages/research/ingestion/seed.py`,
+`packages/research/ingestion/__init__.py`, `config/seed_manifest.json`,
+`tools/cli/research_seed.py`.
+
+Tests: 42 new offline tests in `tests/test_ris_real_extractors.py`. 3110 total passing.
+Feature doc: `docs/features/FEATURE-ris-v3-real-extractors.md`.
+Dev log: `docs/dev_logs/2026-04-02_ris_phase3_real_extractor_and_backfill.md`.
