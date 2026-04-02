@@ -56,6 +56,13 @@ def main(argv: list) -> int:
         "--json", dest="output_json", action="store_true",
         help="Output raw JSON instead of formatted text.",
     )
+    parser.add_argument(
+        "--artifacts-dir", metavar="PATH", default=None,
+        help=(
+            "If set, persist a structured eval artifact to PATH/eval_artifacts.jsonl. "
+            "When --json is also set, the output includes 'features' and 'near_duplicate' fields."
+        ),
+    )
 
     if not argv:
         parser.print_help(sys.stderr)
@@ -81,10 +88,15 @@ def main(argv: list) -> int:
         title = args.title
         body = args.body
 
+    # Resolve artifacts_dir
+    artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else None
+
     # Build doc and evaluate
     try:
         from packages.research.evaluation.types import EvalDocument
         from packages.research.evaluation.evaluator import evaluate_document
+        from packages.research.evaluation.feature_extraction import extract_features
+        from packages.research.evaluation.artifacts import load_eval_artifacts
 
         import hashlib
         doc_id = "cli_" + hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
@@ -99,7 +111,10 @@ def main(argv: list) -> int:
             body=body,
         )
 
-        decision = evaluate_document(doc, provider_name=args.provider)
+        decision = evaluate_document(doc, provider_name=args.provider, artifacts_dir=artifacts_dir)
+
+        # Extract features for optional JSON output enrichment
+        features_result = extract_features(doc) if args.output_json else None
 
     except Exception as exc:
         print(f"Error: evaluation failed: {exc}", file=sys.stderr)
@@ -129,6 +144,21 @@ def main(argv: list) -> int:
                 "stop_type": decision.hard_stop.stop_type,
                 "reason": decision.hard_stop.reason,
             }
+        # Phase 3: include features and near_duplicate in JSON output when artifacts_dir set
+        if args.artifacts_dir and features_result is not None:
+            output["features"] = {
+                "family": features_result.family,
+                "values": features_result.features,
+                "confidence_signals": features_result.confidence_signals,
+            }
+            # Load the last artifact to retrieve near_duplicate result
+            if artifacts_dir is not None:
+                loaded = load_eval_artifacts(artifacts_dir)
+                if loaded:
+                    last = loaded[-1]
+                    ndr = last.get("near_duplicate_result")
+                    if ndr:
+                        output["near_duplicate"] = ndr
         print(json.dumps(output, indent=2))
     else:
         if decision.hard_stop and not decision.hard_stop.passed:

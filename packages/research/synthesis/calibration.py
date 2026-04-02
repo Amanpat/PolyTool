@@ -310,15 +310,126 @@ def compute_family_drift(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# compute_eval_artifact_summary (Phase 3 addition)
+# ---------------------------------------------------------------------------
+
+
+def compute_eval_artifact_summary(artifacts: list[dict]) -> dict:
+    """Summarize structured eval artifacts from the Phase 3 JSONL artifact log.
+
+    Produces counts and distributions for gate decisions, hard-stop causes,
+    family-level accept/reject rates, dedup rates, and per-family feature averages.
+
+    Args:
+        artifacts: List of dicts loaded from eval_artifacts.jsonl (via
+            packages.research.evaluation.artifacts.load_eval_artifacts).
+
+    Returns:
+        Dict with keys:
+        - total_evals (int)
+        - gate_distribution (dict[gate, count])
+        - hard_stop_distribution (dict[stop_type, count])
+        - family_gate_distribution (dict[family, dict[gate, count]])
+        - dedup_stats (dict): exact_duplicates, near_duplicates, unique counts
+        - avg_features_by_family (dict[family, dict[feature, avg]])
+    """
+    total_evals = len(artifacts)
+    gate_distribution: dict[str, int] = {}
+    hard_stop_distribution: dict[str, int] = {}
+    family_gate_distribution: dict[str, dict[str, int]] = {}
+    exact_duplicates = 0
+    near_duplicates = 0
+
+    # For feature averaging: family -> feature -> list[float]
+    feature_accumulator: dict[str, dict[str, list]] = {}
+
+    for art in artifacts:
+        # Gate distribution
+        gate = art.get("gate", "UNKNOWN")
+        gate_distribution[gate] = gate_distribution.get(gate, 0) + 1
+
+        # Hard-stop distribution
+        hs = art.get("hard_stop_result")
+        if hs and isinstance(hs, dict):
+            stop_type = hs.get("stop_type")
+            if stop_type:
+                hard_stop_distribution[stop_type] = (
+                    hard_stop_distribution.get(stop_type, 0) + 1
+                )
+
+        # Family gate distribution
+        family = art.get("source_family", "unknown")
+        if family not in family_gate_distribution:
+            family_gate_distribution[family] = {}
+        family_gate_distribution[family][gate] = (
+            family_gate_distribution[family].get(gate, 0) + 1
+        )
+
+        # Dedup stats
+        ndr = art.get("near_duplicate_result")
+        if ndr and isinstance(ndr, dict) and ndr.get("is_duplicate"):
+            dup_type = ndr.get("duplicate_type")
+            if dup_type == "exact":
+                exact_duplicates += 1
+            elif dup_type == "near":
+                near_duplicates += 1
+
+        # Feature averages
+        features = art.get("family_features") or {}
+        if family not in feature_accumulator:
+            feature_accumulator[family] = {}
+        for feat_name, feat_val in features.items():
+            if isinstance(feat_val, (int, float)) and feat_val is not None:
+                if feat_name not in feature_accumulator[family]:
+                    feature_accumulator[family][feat_name] = []
+                feature_accumulator[family][feat_name].append(float(feat_val))
+
+    # Compute unique count: total - exact - near
+    unique = total_evals - exact_duplicates - near_duplicates
+
+    dedup_stats = {
+        "exact_duplicates": exact_duplicates,
+        "near_duplicates": near_duplicates,
+        "unique": max(0, unique),
+    }
+
+    # Compute average features
+    avg_features_by_family: dict[str, dict[str, float]] = {}
+    for fam, feat_dict in feature_accumulator.items():
+        avg_features_by_family[fam] = {}
+        for feat_name, values in feat_dict.items():
+            avg_features_by_family[fam][feat_name] = sum(values) / len(values) if values else 0.0
+
+    return {
+        "total_evals": total_evals,
+        "gate_distribution": gate_distribution,
+        "hard_stop_distribution": hard_stop_distribution,
+        "family_gate_distribution": family_gate_distribution,
+        "dedup_stats": dedup_stats,
+        "avg_features_by_family": avg_features_by_family,
+    }
+
+
+# ---------------------------------------------------------------------------
+# format_calibration_report
+# ---------------------------------------------------------------------------
+
+
 def format_calibration_report(
     summary: CalibrationSummary,
     drift: "FamilyDriftReport | None" = None,
+    eval_artifacts_summary: "dict | None" = None,
 ) -> str:
-    """Format a CalibrationSummary (and optionally FamilyDriftReport) as human-readable text.
+    """Format a CalibrationSummary (and optionally FamilyDriftReport and eval
+    artifact summary) as human-readable text.
 
     Args:
         summary: CalibrationSummary from compute_calibration_summary().
         drift: Optional FamilyDriftReport from compute_family_drift().
+        eval_artifacts_summary: Optional dict from compute_eval_artifact_summary().
+            When provided, adds Hard-Stop Causes, Family Gate Distribution,
+            and Dedup Stats sections to the report.
 
     Returns:
         Multi-line human-readable report string.
@@ -374,5 +485,56 @@ def format_calibration_report(
         else:
             lines.append("  (no domain data)")
         lines.append("")
+
+    if eval_artifacts_summary is not None:
+        total_evals = eval_artifacts_summary.get("total_evals", 0)
+        lines.append(f"=== Eval Gate Artifact Summary ({total_evals} evals) ===")
+        lines.append("")
+
+        # Gate distribution
+        gate_dist = eval_artifacts_summary.get("gate_distribution", {})
+        if gate_dist:
+            lines.append("Gate Distribution:")
+            for gate, count in sorted(gate_dist.items()):
+                pct = count / total_evals * 100 if total_evals else 0
+                lines.append(f"  {gate:<8}: {count:4d}  ({pct:.0f}%)")
+        else:
+            lines.append("Gate Distribution: (none)")
+        lines.append("")
+
+        # Hard-Stop Causes
+        hs_dist = eval_artifacts_summary.get("hard_stop_distribution", {})
+        lines.append("Hard-Stop Causes:")
+        if hs_dist:
+            for stop_type, count in sorted(hs_dist.items(), key=lambda x: -x[1]):
+                lines.append(f"  {stop_type:<25}: {count:4d}")
+        else:
+            lines.append("  (none)")
+        lines.append("")
+
+        # Family Gate Distribution
+        fam_gate = eval_artifacts_summary.get("family_gate_distribution", {})
+        lines.append("Family Gate Distribution:")
+        if fam_gate:
+            for family, gates in sorted(fam_gate.items()):
+                total_fam = sum(gates.values())
+                accept_pct = gates.get("ACCEPT", 0) / total_fam * 100 if total_fam else 0
+                lines.append(
+                    f"  {family:<20}: "
+                    + "  ".join(f"{g}={c}" for g, c in sorted(gates.items()))
+                    + f"  (ACCEPT {accept_pct:.0f}%)"
+                )
+        else:
+            lines.append("  (no family data)")
+        lines.append("")
+
+        # Dedup stats
+        dedup = eval_artifacts_summary.get("dedup_stats", {})
+        if dedup:
+            lines.append("Dedup Stats:")
+            lines.append(f"  Exact duplicates: {dedup.get('exact_duplicates', 0)}")
+            lines.append(f"  Near duplicates:  {dedup.get('near_duplicates', 0)}")
+            lines.append(f"  Unique:           {dedup.get('unique', 0)}")
+            lines.append("")
 
     return "\n".join(lines)

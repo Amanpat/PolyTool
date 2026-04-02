@@ -908,3 +908,46 @@ Files changed: `packages/research/ingestion/extractors.py`,
 Tests: 42 new offline tests in `tests/test_ris_real_extractors.py`. 3110 total passing.
 Feature doc: `docs/features/FEATURE-ris-v3-real-extractors.md`.
 Dev log: `docs/dev_logs/2026-04-02_ris_phase3_real_extractor_and_backfill.md`.
+
+## RIS Phase 3 — Evaluation Gate Hardening (quick-260402-m6t, 2026-04-02)
+
+Deterministic pre-scoring layer added to the RIS evaluation gate. The pipeline is now:
+`hard_stops -> near_duplicate_check -> feature_extraction -> LLM_scoring -> artifact_persistence`.
+LLM scoring is still the primary quality signal; Phase 3 adds local-first guardrails and
+observability on top — without replacing or weakening it.
+
+**Feature extraction** (`packages/research/evaluation/feature_extraction.py`): per-family
+deterministic extractors using pure regex/text (no network). Families and key features:
+- `academic`: `has_doi`, `has_arxiv_id`, `has_ssrn_id`, `methodology_cues` count, `has_known_author`, `has_publish_date`
+- `github`: `stars`, `forks`, `has_readme_mention`, `has_license_mention`, `commit_recency`
+- `blog`/`news`: `has_byline`, `has_date`, `heading_count`, `paragraph_count`, `has_blockquote`
+- `forum_social`: `has_screenshot`, `has_data_mention`, `reply_count`, `specificity_markers`
+- `manual`/default: `body_length`, `word_count`, `has_url`
+
+**Near-duplicate detection** (`packages/research/evaluation/dedup.py`): two-pass — SHA256
+of normalized body for exact matches, then word 5-gram Jaccard similarity (threshold 0.85)
+for near-duplicates. Near-duplicates rejected before LLM scoring (no API tokens consumed).
+
+**Eval artifact persistence** (`packages/research/evaluation/artifacts.py`): opt-in JSONL
+artifact writer (`DocumentEvaluator(artifacts_dir=Path(...))`). One record per eval:
+gate, hard_stop_result, near_duplicate_result, family_features, scores, source metadata.
+CLI flag: `python -m polytool research-eval --artifacts-dir PATH --json`
+
+**Enhanced calibration analytics** (`packages/research/synthesis/calibration.py`):
+`compute_eval_artifact_summary()` returns gate_distribution, hard_stop_distribution,
+family_gate_distribution, dedup_stats, avg_features_by_family.
+`format_calibration_report()` gains "Hard-Stop Causes" and "Family Gate Distribution" sections.
+
+**SOURCE_FAMILY_OFFSETS hook** (`packages/research/evaluation/types.py`): empty dict;
+the designated future extension point for data-driven per-family credibility adjustments.
+Do not populate until >= 50 eval artifacts span >= 3 source families.
+
+Fully backward compatible: without new constructor params, evaluator behavior is identical
+to Phase 2.
+
+Tests: 47 new offline tests in `tests/test_ris_phase3_features.py`. 3111 total passing,
+4 pre-existing failures (require gitignored local dossier artifact files — unrelated to
+Phase 3 changes).
+
+See `docs/features/FEATURE-ris-phase3-gate-hardening.md` and
+`docs/dev_logs/2026-04-02_ris_phase3_gate_hardening.md`.
