@@ -951,3 +951,41 @@ Phase 3 changes).
 
 See `docs/features/FEATURE-ris-phase3-gate-hardening.md` and
 `docs/dev_logs/2026-04-02_ris_phase3_gate_hardening.md`.
+
+## RIS Phase 4 — External Source Acquisition (quick-260402-ogu, 2026-04-02)
+
+Raw-source caching, adapter boundaries for three source families (academic/preprint,
+GitHub/repo, blog/news/article), metadata normalization with canonical IDs, and a
+CLI/callable path wiring fixture-backed external sources through the full adapter ->
+cache -> normalize -> eval -> store pipeline.
+
+**Core modules:**
+- `packages/research/ingestion/source_cache.py` — RawSourceCache with deterministic
+  SHA-256 source IDs; envelope format `{source_id, source_family, cached_at, payload}`;
+  disk layout `{cache_dir}/{family}/{source_id}.json`
+- `packages/research/ingestion/normalize.py` — NormalizedMetadata dataclass, URL
+  canonicalization, canonical ID extraction (DOI/arXiv/SSRN/GitHub repo), family-specific
+  normalize_metadata()
+- `packages/research/ingestion/adapters.py` — SourceAdapter ABC, AcademicAdapter,
+  GithubAdapter, BlogNewsAdapter, ADAPTER_REGISTRY, get_adapter()
+- `packages/research/ingestion/pipeline.py` — IngestPipeline.ingest_external() wires
+  adapter output into standard hard-stop -> eval gate -> chunk -> store pipeline
+
+**CLI extension:**
+```bash
+python -m polytool research-ingest \
+  --from-adapter tests/fixtures/ris_external_sources/arxiv_sample.json \
+  --source-family academic --no-eval --json
+```
+
+**Source families covered:** academic (arxiv/ssrn/book), github, blog, news.
+
+**Canonical IDs extracted:** doi, arxiv_id, ssrn_id, repo_url.
+
+**Fixtures:** `tests/fixtures/ris_external_sources/{arxiv,github,blog}_sample.json`
+
+Tests: 49 new offline tests in `tests/test_ris_phase4_source_acquisition.py`.
+2009 total passing, 1 pre-existing failure (unrelated claim_extractor work).
+
+See `docs/features/FEATURE-ris-phase4-source-acquisition.md` and
+`docs/dev_logs/2026-04-02_ris_phase4_source_acquisition.md`.
