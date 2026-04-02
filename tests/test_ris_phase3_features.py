@@ -677,15 +677,25 @@ class TestEvaluatorIntegration:
         from packages.research.evaluation.dedup import compute_content_hash, compute_shingles
         from packages.research.evaluation.evaluator import DocumentEvaluator
 
+        # Use a longer body so a single-word change at the end still produces
+        # Jaccard similarity well above the 0.85 threshold.
         body_original = (
-            "This is an original document about Polymarket trading strategies. "
-            "Informed traders systematically exploit late-resolution pricing. "
-            "The pattern holds across crypto, sports, and politics markets."
+            "This is an original document about Polymarket trading strategies and market "
+            "microstructure research. Informed traders systematically exploit late-resolution "
+            "pricing inefficiencies that emerge in the final hours before a market settles. "
+            "The pattern holds consistently across crypto, sports, and politics markets where "
+            "volume and liquidity are both sufficient to support meaningful order flow analysis. "
+            "Key insight: price discovery lags fundamentals during the window just before "
+            "binary resolution events. Traders who hold informed positions profit from this gap."
         )
         body_near = (
-            "This is an original document about Polymarket trading strategies. "
-            "Informed traders systematically exploit late-resolution pricing. "
-            "The pattern holds across crypto, sports, and election markets."
+            "This is an original document about Polymarket trading strategies and market "
+            "microstructure research. Informed traders systematically exploit late-resolution "
+            "pricing inefficiencies that emerge in the final hours before a market settles. "
+            "The pattern holds consistently across crypto, sports, and politics markets where "
+            "volume and liquidity are both sufficient to support meaningful order flow analysis. "
+            "Key insight: price discovery lags fundamentals during the window just before "
+            "binary resolution events. Traders who hold informed positions benefit from this gap."
         )
 
         doc = _make_doc(body=body_near)
