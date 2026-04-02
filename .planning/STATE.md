@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-01 — Completed quick task 260401-nzz: RIS Phase 2 corpus seeding + extractor benchmark — manifest-driven batch seeder (11 docs/reference/ entries), source_family SQL override, MarkdownExtractor + StubPDFExtractor/DOCX + EXTRACTOR_REGISTRY, benchmark harness writing JSON artifacts, research-seed + research-benchmark CLIs; 52 new tests; 3012 passing
+Last activity: 2026-04-02 — Completed quick task 260402-ivb: RIS Phase 2 query spine wiring — KnowledgeStore wired as third RRF source in rag-query --hybrid path via reciprocal_rank_fusion_multi(); query_knowledge_store_for_rrf() adapter; 5 new CLI flags (--knowledge-store, --source-family, --min-freshness, --evidence-mode, --top-k-knowledge); closes Chroma wiring gap from RIS v1; 25 new offline tests; 3037 total passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-04-01 — Completed quick task 260401-nzz: RIS Phase 2 corpu
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260402-ivb: three-way RRF via reciprocal_rank_fusion_multi() over sidecar (unified ranked list more useful); keyword substring filter over semantic search for KS claims (structured claims, embedding overhead unjustified); evidence-mode as opt-in flag (uniform default output format)
 - quick-260401-n1s: find_contradictions() intentionally broad (no semantic filtering -- returns ALL CONTRADICTS-related claims as candidates); ks._conn direct access for source_documents (no public API yet); TYPE_CHECKING guard for KnowledgeStore import; lifecycle fields (was_overridden/override_reason/outcome_label/outcome_date) deferred to future precheck-lifecycle task
 - quick-260401-m8y: ManualProvider zero-dependency default (all dims=3, total=12, ACCEPT); OllamaProvider via stdlib urllib.request only; precheck ledger mirrors hypothesis registry JSONL pattern; find_contradictions/check_stale_evidence are stubs pointing to query_index(); cloud providers deferred to RIS v2 with ValueError
 - quick-054: ClobStreamClient uses raw websocket.WebSocket() (not WebSocketApp) matching TapeRecorder; 5s staleness guard; live mode explicitly gated by 'not live' pending order-timing review; token subscriptions deferred to first cycle (market slugs not known at startup)
