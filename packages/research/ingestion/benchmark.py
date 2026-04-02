@@ -4,13 +4,17 @@ Compares extractor outputs on a fixture directory of files, recording per-file
 timing, character/word counts, and any errors.  Results are written to an
 inspectable JSON artifact.
 
+Phase 3 enhancement: quality proxy metrics (section_count, header_count,
+table_count, code_block_count, extractor_used) are populated from
+ExtractedDocument metadata when available.
+
 Usage::
 
     from packages.research.ingestion.benchmark import run_extractor_benchmark
 
     result = run_extractor_benchmark(
         Path("tests/fixtures/ris_seed_corpus"),
-        extractors=["plain_text", "markdown"],
+        extractors=["plain_text", "structured_markdown"],
         output_dir=Path("artifacts/benchmark/extractor_eval"),
     )
     print(result.summary)
@@ -48,6 +52,19 @@ class ExtractorMetric:
         Wall-clock time for the ``extract()`` call in milliseconds.
     error:
         Exception message if extraction raised; None on success.
+    section_count:
+        Number of section headings found (populated from metadata when extractor
+        provides structural analysis, e.g. StructuredMarkdownExtractor).
+    header_count:
+        Total heading lines found (populated from metadata, same source as
+        section_count for Markdown extractors).
+    table_count:
+        Number of Markdown table blocks detected (populated from metadata).
+    code_block_count:
+        Number of fenced code blocks detected (populated from metadata).
+    extractor_used:
+        The extractor registry key used for this measurement (mirrors
+        extractor_name; provided for downstream JSON consumers).
     """
 
     extractor_name: str
@@ -56,6 +73,11 @@ class ExtractorMetric:
     word_count: int
     elapsed_ms: float
     error: Optional[str] = None
+    section_count: int = 0
+    header_count: int = 0
+    table_count: int = 0
+    code_block_count: int = 0
+    extractor_used: str = ""
 
 
 @dataclass
@@ -67,7 +89,9 @@ class BenchmarkResult:
     metrics:
         Flat list of :class:`ExtractorMetric` objects.
     summary:
-        Per-extractor dict with ``success_count`` and ``fail_count``.
+        Per-extractor dict with ``success_count``, ``fail_count``,
+        ``avg_section_count``, ``avg_header_count``, and
+        ``total_table_count``.
     """
 
     metrics: list[ExtractorMetric] = field(default_factory=list)
@@ -85,6 +109,7 @@ class BenchmarkResult:
 _EXTENSION_HINTS: dict[str, set[str]] = {
     "plain_text": {".txt", ".md", ".rst", ".csv", ".log"},
     "markdown": {".md", ".markdown"},
+    "structured_markdown": {".md", ".markdown"},
     "pdf": {".pdf"},
     "docx": {".docx", ".doc"},
 }
@@ -103,8 +128,14 @@ def run_extractor_benchmark(
 
     For each (extractor, file) combination, the extractor's ``extract()`` is
     called and the result is measured.  Any exception (including
-    ``NotImplementedError`` from stub extractors) is caught and recorded as an
-    error metric rather than crashing the run.
+    ``NotImplementedError`` from stub extractors or ``ImportError`` from
+    optional-dep extractors) is caught and recorded as an error metric rather
+    than crashing the run.
+
+    Quality proxy metrics (section_count, header_count, table_count,
+    code_block_count) are populated from ``ExtractedDocument.metadata``
+    when the extractor provides structural analysis
+    (e.g. ``StructuredMarkdownExtractor``).  Plain extractors leave these at 0.
 
     Parameters
     ----------
@@ -152,6 +183,7 @@ def run_extractor_benchmark(
                     word_count=0,
                     elapsed_ms=0.0,
                     error=f"Unknown extractor: {extractor_name}",
+                    extractor_used=extractor_name,
                 ))
                 summary.setdefault(extractor_name, {"success_count": 0, "fail_count": 0})
                 summary[extractor_name]["fail_count"] += 1
@@ -164,6 +196,14 @@ def run_extractor_benchmark(
                 elapsed_ms = (time.perf_counter() - t0) * 1000.0
                 char_count = len(doc.body)
                 word_count = len(doc.body.split())
+
+                # Extract quality proxy metrics from metadata if available
+                meta = doc.metadata
+                section_count = int(meta.get("section_count", 0))
+                header_count = int(meta.get("header_count", 0))
+                table_count = int(meta.get("table_count", 0))
+                code_block_count = int(meta.get("code_block_count", 0))
+
                 metrics.append(ExtractorMetric(
                     extractor_name=extractor_name,
                     file_name=file_path.name,
@@ -171,6 +211,11 @@ def run_extractor_benchmark(
                     word_count=word_count,
                     elapsed_ms=elapsed_ms,
                     error=None,
+                    section_count=section_count,
+                    header_count=header_count,
+                    table_count=table_count,
+                    code_block_count=code_block_count,
+                    extractor_used=extractor_name,
                 ))
                 summary[extractor_name]["success_count"] += 1
             except Exception as exc:
@@ -182,8 +227,26 @@ def run_extractor_benchmark(
                     word_count=0,
                     elapsed_ms=elapsed_ms,
                     error=str(exc),
+                    extractor_used=extractor_name,
                 ))
                 summary[extractor_name]["fail_count"] += 1
+
+    # Compute per-extractor quality proxy aggregates
+    for extractor_name in extractor_names:
+        extractor_metrics = [m for m in metrics if m.extractor_name == extractor_name and m.error is None]
+        n = len(extractor_metrics)
+        if n > 0:
+            avg_section_count = sum(m.section_count for m in extractor_metrics) / n
+            avg_header_count = sum(m.header_count for m in extractor_metrics) / n
+            total_table_count = sum(m.table_count for m in extractor_metrics)
+        else:
+            avg_section_count = 0.0
+            avg_header_count = 0.0
+            total_table_count = 0
+        summary.setdefault(extractor_name, {"success_count": 0, "fail_count": 0})
+        summary[extractor_name]["avg_section_count"] = avg_section_count
+        summary[extractor_name]["avg_header_count"] = avg_header_count
+        summary[extractor_name]["total_table_count"] = total_table_count
 
     result = BenchmarkResult(metrics=metrics, summary=summary)
 

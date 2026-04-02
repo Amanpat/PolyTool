@@ -168,17 +168,17 @@ class TestExtractorRegistry:
         extractor = get_extractor("markdown")
         assert isinstance(extractor, MarkdownExtractor)
 
-    def test_get_extractor_pdf_stub(self):
-        """get_extractor('pdf') returns a StubPDFExtractor instance."""
-        from packages.research.ingestion.extractors import get_extractor, StubPDFExtractor
+    def test_get_extractor_pdf(self):
+        """get_extractor('pdf') returns a PDFExtractor instance (real, not stub)."""
+        from packages.research.ingestion.extractors import get_extractor, PDFExtractor
         extractor = get_extractor("pdf")
-        assert isinstance(extractor, StubPDFExtractor)
+        assert isinstance(extractor, PDFExtractor)
 
-    def test_get_extractor_docx_stub(self):
-        """get_extractor('docx') returns a StubDocxExtractor instance."""
-        from packages.research.ingestion.extractors import get_extractor, StubDocxExtractor
+    def test_get_extractor_docx(self):
+        """get_extractor('docx') returns a DocxExtractor instance (real, not stub)."""
+        from packages.research.ingestion.extractors import get_extractor, DocxExtractor
         extractor = get_extractor("docx")
-        assert isinstance(extractor, StubDocxExtractor)
+        assert isinstance(extractor, DocxExtractor)
 
     def test_get_extractor_unknown_raises(self):
         """get_extractor('unknown_format') raises KeyError."""

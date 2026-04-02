@@ -16,6 +16,21 @@ from typing import Optional
 from packages.research.evaluation.types import SOURCE_FAMILIES
 
 # ---------------------------------------------------------------------------
+# Optional dependency detection (module-level, non-raising)
+# ---------------------------------------------------------------------------
+
+try:
+    import pdfplumber as _pdfplumber
+except ImportError:
+    _pdfplumber = None  # type: ignore[assignment]
+
+try:
+    import docx as _docx
+except ImportError:
+    _docx = None  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
 
@@ -193,15 +208,275 @@ class MarkdownExtractor(Extractor):
 
 
 # ---------------------------------------------------------------------------
-# Stub extractors (not-yet-implemented; raise NotImplementedError)
+# StructuredMarkdownExtractor
+# ---------------------------------------------------------------------------
+
+# Heading pattern: matches H1-H6 headings (e.g. # H1, ## H2, ### H3 ...)
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)", re.MULTILINE)
+# Table row pattern: line is a table row (starts/ends with pipe)
+_TABLE_ROW_RE = re.compile(r"^\|.+\|", re.MULTILINE)
+# Table separator row: `|---|---|` or `|:---:|`
+_TABLE_SEP_RE = re.compile(r"^\|[\s\-:|]+\|", re.MULTILINE)
+# Fenced code block: ``` or ~~~
+_FENCE_RE = re.compile(r"^(`{3,}|~{3,})", re.MULTILINE)
+
+
+def _count_tables(text: str) -> int:
+    """Count Markdown table blocks in *text*.
+
+    A table block is defined as a sequence of pipe-delimited rows that includes
+    at least one separator row (``|---|---|``).  Adjacent table rows are counted
+    as part of the same table.
+    """
+    # A table has >= 1 separator rows; count distinct table blocks by
+    # detecting transitions from non-table to table content.
+    lines = text.splitlines()
+    in_table = False
+    has_sep = False
+    table_count = 0
+    for line in lines:
+        stripped = line.strip()
+        is_row = bool(re.match(r"^\|.+\|", stripped))
+        is_sep = bool(re.match(r"^\|[\s\-:|]+\|", stripped))
+
+        if is_row:
+            if not in_table:
+                in_table = True
+                has_sep = False
+            if is_sep:
+                has_sep = True
+        else:
+            if in_table and has_sep:
+                table_count += 1
+            in_table = False
+            has_sep = False
+
+    # Handle table at end of file
+    if in_table and has_sep:
+        table_count += 1
+
+    return table_count
+
+
+def _count_code_blocks(text: str) -> int:
+    """Count fenced code blocks (``` or ~~~) in *text*."""
+    fence_matches = _FENCE_RE.findall(text)
+    # Each block is an open + close fence pair
+    return len(fence_matches) // 2
+
+
+class StructuredMarkdownExtractor(Extractor):
+    """Structure-aware Markdown extractor.
+
+    Extends PlainTextExtractor by parsing Markdown structural elements and
+    storing them as rich metadata:
+
+    - ``sections``: list of section heading title strings
+    - ``section_count``: number of headings found
+    - ``header_count``: total heading lines (same as section_count, both kept
+      for clarity — header_count counts raw heading lines including any that
+      may repeat)
+    - ``table_count``: number of Markdown table blocks detected
+    - ``code_block_count``: number of fenced code blocks detected
+
+    The body text is returned UNCHANGED (structure is preserved, not stripped).
+    The value-add is the metadata.
+
+    Falls back to PlainTextExtractor behaviour on any parsing exception.
+    """
+
+    def __init__(self) -> None:
+        self._delegate = PlainTextExtractor()
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        # First, get a base document from PlainTextExtractor
+        doc = self._delegate.extract(source, **kwargs)
+
+        # Attempt structural parsing of body
+        try:
+            body = doc.body
+            heading_matches = _HEADING_RE.findall(body)
+            # heading_matches: list of (hashes, title) tuples
+            sections = [title.strip() for _, title in heading_matches]
+            section_count = len(sections)
+            header_count = section_count  # all headings are headers
+
+            table_count = _count_tables(body)
+            code_block_count = _count_code_blocks(body)
+
+            structural_metadata = {
+                "sections": sections,
+                "section_count": section_count,
+                "header_count": header_count,
+                "table_count": table_count,
+                "code_block_count": code_block_count,
+            }
+            doc.metadata.update(structural_metadata)
+        except Exception:
+            # Graceful fallback: return doc with base metadata only (no crash)
+            pass
+
+        return doc
+
+
+# ---------------------------------------------------------------------------
+# PDFExtractor — real implementation with graceful ImportError fallback
+# ---------------------------------------------------------------------------
+
+
+class PDFExtractor(Extractor):
+    """PDF extractor using pdfplumber (optional dependency).
+
+    If ``pdfplumber`` is installed, extracts text from all pages and computes
+    structural metadata.  If pdfplumber is NOT installed, raises ``ImportError``
+    with a helpful install hint rather than ``NotImplementedError``.
+
+    Attributes
+    ----------
+    _pdfplumber:
+        The pdfplumber module (set at init time from module-level import).
+        Can be set to ``None`` in tests to simulate the missing-dependency path.
+    """
+
+    def __init__(self) -> None:
+        self._pdfplumber = _pdfplumber
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        if self._pdfplumber is None:
+            raise ImportError(
+                "PDF extraction requires pdfplumber. "
+                "Install: pip install pdfplumber"
+            )
+
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"No such file: {source_path}")
+
+        source_type: str = kwargs.get("source_type", "manual")
+        author: str = kwargs.get("author", "unknown")
+        publish_date: Optional[str] = kwargs.get("publish_date", None)
+        source_family: str = SOURCE_FAMILIES.get(source_type, source_type)
+
+        with self._pdfplumber.open(str(source_path)) as pdf:
+            pages = pdf.pages
+            page_count = len(pages)
+            texts = []
+            for page in pages:
+                page_text = page.extract_text()
+                if page_text:
+                    texts.append(page_text)
+
+        body = "\n\n".join(texts)
+
+        # Title: from first non-empty line of first page, or filename stem
+        title_override = kwargs.get("title")
+        if title_override:
+            title = title_override
+        else:
+            first_line = texts[0].strip().splitlines()[0].strip() if texts else ""
+            title = first_line if first_line else source_path.stem
+
+        abs_path = str(source_path.resolve()).replace("\\", "/")
+        source_url = f"file://{abs_path}"
+        content_hash = _sha256_hex(body)
+        metadata = {
+            "content_hash": content_hash,
+            "page_count": page_count,
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=source_url,
+            source_family=source_family,
+            author=author,
+            publish_date=publish_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# DocxExtractor — real implementation with graceful ImportError fallback
+# ---------------------------------------------------------------------------
+
+
+class DocxExtractor(Extractor):
+    """DOCX extractor using python-docx (optional dependency).
+
+    If ``python-docx`` is installed, extracts paragraph text and computes
+    basic metadata.  If python-docx is NOT installed, raises ``ImportError``
+    with a helpful install hint rather than ``NotImplementedError``.
+
+    Attributes
+    ----------
+    _docx:
+        The docx module (set at init time from module-level import).
+        Can be set to ``None`` in tests to simulate the missing-dependency path.
+    """
+
+    def __init__(self) -> None:
+        self._docx = _docx
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        if self._docx is None:
+            raise ImportError(
+                "DOCX extraction requires python-docx. "
+                "Install: pip install python-docx"
+            )
+
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"No such file: {source_path}")
+
+        source_type: str = kwargs.get("source_type", "manual")
+        author: str = kwargs.get("author", "unknown")
+        publish_date: Optional[str] = kwargs.get("publish_date", None)
+        source_family: str = SOURCE_FAMILIES.get(source_type, source_type)
+
+        document = self._docx.Document(str(source_path))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+        paragraph_count = len(paragraphs)
+        body = "\n\n".join(paragraphs)
+
+        # Title: first heading paragraph or filename stem
+        title_override = kwargs.get("title")
+        if title_override:
+            title = title_override
+        else:
+            title = source_path.stem
+            for p in document.paragraphs:
+                if p.style.name.startswith("Heading") and p.text.strip():
+                    title = p.text.strip()
+                    break
+
+        abs_path = str(source_path.resolve()).replace("\\", "/")
+        source_url = f"file://{abs_path}"
+        content_hash = _sha256_hex(body)
+        metadata = {
+            "content_hash": content_hash,
+            "paragraph_count": paragraph_count,
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=source_url,
+            source_family=source_family,
+            author=author,
+            publish_date=publish_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Stub extractors (kept for backward compatibility; tests may still reference them)
 # ---------------------------------------------------------------------------
 
 
 class StubPDFExtractor(Extractor):
-    """Stub PDF extractor — raises NotImplementedError until a real library is wired.
+    """Stub PDF extractor — raises NotImplementedError.
 
-    When a PDF extraction library is chosen (docling, marker, or pymupdf4llm),
-    replace this class body with the real implementation.
+    Kept for backward compatibility. Use PDFExtractor for real extraction.
     """
 
     def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
@@ -213,10 +488,9 @@ class StubPDFExtractor(Extractor):
 
 
 class StubDocxExtractor(Extractor):
-    """Stub DOCX extractor — raises NotImplementedError until python-docx is wired.
+    """Stub DOCX extractor — raises NotImplementedError.
 
-    When DOCX support is needed, install python-docx and replace this class body
-    with a real implementation.
+    Kept for backward compatibility. Use DocxExtractor for real extraction.
     """
 
     def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
@@ -234,8 +508,9 @@ class StubDocxExtractor(Extractor):
 EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
     "plain_text": PlainTextExtractor,
     "markdown": MarkdownExtractor,
-    "pdf": StubPDFExtractor,
-    "docx": StubDocxExtractor,
+    "structured_markdown": StructuredMarkdownExtractor,
+    "pdf": PDFExtractor,
+    "docx": DocxExtractor,
 }
 
 
