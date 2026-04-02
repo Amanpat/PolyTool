@@ -82,6 +82,9 @@ SOURCE_FAMILIES: dict[str, str] = {
     "news": "news",
     "dossier": "dossier_report",
     "manual": "manual",
+    # Internal document types — map to book_foundational (null half-life, timeless)
+    "reference_doc": "book_foundational",
+    "roadmap": "book_foundational",
 }
 
 SOURCE_FAMILY_GUIDANCE: dict[str, str] = {

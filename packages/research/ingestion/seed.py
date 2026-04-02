@@ -41,7 +41,8 @@ class SeedEntry:
     title:
         Human-readable document title.
     source_type:
-        Source type key (e.g. "book", "dossier"). Used as IngestPipeline kwarg.
+        Source type key (e.g. "book", "reference_doc", "roadmap"). Used as
+        IngestPipeline kwarg.
     source_family:
         Source-family key matching freshness_decay.json entries (authoritative).
     author:
@@ -50,6 +51,12 @@ class SeedEntry:
         ISO-8601 publication date string, or None.
     tags:
         List of string tags for metadata.
+    evidence_tier:
+        Optional evidence tier label (e.g. "tier_1_internal", "tier_2_superseded").
+        Provides metadata hygiene for corpus provenance tracking. None if not set.
+    notes:
+        Optional human-readable notes about this entry (reclassification rationale,
+        usage guidance, etc.). None if not set.
     """
 
     path: str
@@ -59,6 +66,8 @@ class SeedEntry:
     author: str = "unknown"
     publish_date: Optional[str] = None
     tags: list = field(default_factory=list)
+    evidence_tier: Optional[str] = None
+    notes: Optional[str] = None
 
 
 @dataclass
@@ -155,6 +164,8 @@ def load_seed_manifest(manifest_path: "str | Path") -> SeedManifest:
                 author=e.get("author", "unknown"),
                 publish_date=e.get("publish_date"),
                 tags=e.get("tags", []),
+                evidence_tier=e.get("evidence_tier"),
+                notes=e.get("notes"),
             )
         except KeyError as exc:
             raise ValueError(f"Entry {i} missing required field: {exc}") from exc
