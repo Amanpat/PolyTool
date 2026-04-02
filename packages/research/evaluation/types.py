@@ -92,6 +92,11 @@ SOURCE_FAMILY_GUIDANCE: dict[str, str] = {
         "Academic/peer-reviewed source. Credibility floor is 3 unless methodology is "
         "clearly flawed. Weight empirical findings heavily."
     ),
+    "book_foundational": (
+        "Internal architecture reference or foundational strategy document. Null freshness "
+        "decay (timeless). Credibility is 4-5 by default. Score novelty based on whether "
+        "the specific finding or design decision is already captured in the knowledge store."
+    ),
     "forum_social": (
         "Community source. Credibility ceiling is 3 unless the author provides verifiable "
         "data or on-chain evidence. Look past conversational filler for core insight."
