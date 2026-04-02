@@ -182,6 +182,102 @@ def query_knowledge_store_enriched(
     return results
 
 
+def query_knowledge_store_for_rrf(
+    store: KnowledgeStore,
+    *,
+    text_query: Optional[str] = None,
+    source_family: Optional[str] = None,
+    min_freshness: Optional[float] = None,
+    top_k: int = 25,
+) -> list[dict]:
+    """Query claims and return RRF-compatible result dicts.
+
+    Adapts KnowledgeStore enriched claims into the same dict contract used by
+    ``reciprocal_rank_fusion`` so they can participate in three-way RRF
+    fusion alongside Chroma vector and FTS5 lexical results.
+
+    Parameters
+    ----------
+    store:
+        A ``KnowledgeStore`` instance.
+    text_query:
+        Optional keyword filter.  When provided, only claims whose
+        ``claim_text`` contains the query as a case-insensitive substring
+        are returned.  When ``None``, all claims pass through.
+    source_family:
+        Optional source_family filter for KS claims.
+    min_freshness:
+        Optional minimum freshness_modifier threshold.
+    top_k:
+        Maximum number of RRF-compatible results to return.
+
+    Returns
+    -------
+    list[dict]
+        Each dict matches the RRF contract:
+        ``chunk_id``, ``score``, ``snippet``, ``file_path``,
+        ``chunk_index``, ``doc_id``, ``metadata``.
+        Results are sorted by score descending and limited to ``top_k``.
+    """
+    enriched = query_knowledge_store_enriched(
+        store,
+        source_family=source_family,
+        min_freshness=min_freshness,
+        top_k=top_k * 4,  # over-fetch before text filter
+        include_contradicted=True,
+    )
+
+    # Apply optional text filter (case-insensitive substring match)
+    if text_query is not None:
+        query_lower = text_query.lower()
+        enriched = [c for c in enriched if query_lower in c.get("claim_text", "").lower()]
+
+    results: list[dict] = []
+    for claim in enriched:
+        claim_id = claim["id"]
+        claim_text = claim.get("claim_text", "")
+        snippet = claim_text[:400].rstrip() + ("..." if len(claim_text) > 400 else "")
+
+        # Build provenance_docs as lightweight dicts (title/source_url/source_family)
+        provenance_docs_full: list[dict] = claim.get("provenance_docs", [])
+        provenance_docs = [
+            {
+                "title": d.get("title"),
+                "source_url": d.get("source_url"),
+                "source_family": d.get("source_family"),
+            }
+            for d in provenance_docs_full
+        ]
+
+        metadata: dict = {
+            "source": "knowledge_store",
+            "claim_type": claim.get("claim_type"),
+            "confidence": claim.get("confidence"),
+            "freshness_modifier": claim.get("freshness_modifier", 1.0),
+            "staleness_note": claim.get("staleness_note", ""),
+            "is_contradicted": claim.get("is_contradicted", False),
+            "contradiction_summary": claim.get("contradiction_summary", []),
+            "provenance_docs": provenance_docs,
+            "lifecycle": claim.get("lifecycle", "active"),
+            "claim_text": claim_text,
+        }
+
+        rrf_result: dict = {
+            "chunk_id": claim_id,
+            "score": claim.get("effective_score", 0.0),
+            "snippet": snippet,
+            "file_path": f"knowledge_store://claim/{claim_id}",
+            "chunk_index": 0,
+            "doc_id": claim.get("source_document_id", "") or "",
+            "metadata": metadata,
+        }
+        results.append(rrf_result)
+        if len(results) >= top_k:
+            break
+
+    return results
+
+
 def format_enriched_report(claims: list[dict]) -> str:
     """Format a structured multi-line report of enriched claims.
 

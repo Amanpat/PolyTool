@@ -14,6 +14,7 @@ from .lexical import (
     lexical_search,
     open_lexical_db,
     reciprocal_rank_fusion,
+    reciprocal_rank_fusion_multi,
 )
 from .reranker import BaseReranker, rerank_results
 
@@ -243,9 +244,17 @@ def query_index(
     # --- reranking ---
     reranker: Optional[BaseReranker] = None,
     rerank_top_n: int = 50,
+    # --- knowledge store (RIS) ---
+    knowledge_store_path: Optional[Path] = None,
+    source_family: Optional[str] = None,
+    min_freshness: Optional[float] = None,
+    top_k_knowledge: int = 25,
 ) -> List[dict]:
     if hybrid and lexical_only:
         raise ValueError("hybrid and lexical_only are mutually exclusive")
+
+    if knowledge_store_path is not None and not hybrid:
+        raise ValueError("knowledge_store requires hybrid=True (--hybrid mode)")
 
     if k <= 0:
         return []
@@ -313,7 +322,28 @@ def query_index(
             **_filter_kw,
         )
 
-        fused = reciprocal_rank_fusion(vector_results, lexical_results, rrf_k=rrf_k)
+        if knowledge_store_path is not None:
+            # Three-way RRF: vector + lexical + KnowledgeStore claims
+            # Deferred import to avoid overhead when KS is not used
+            from packages.research.ingestion.retriever import query_knowledge_store_for_rrf
+            from .knowledge_store import KnowledgeStore as _KnowledgeStore
+            _ks = _KnowledgeStore(knowledge_store_path)
+            try:
+                ks_results = query_knowledge_store_for_rrf(
+                    _ks,
+                    text_query=question,
+                    source_family=source_family,
+                    min_freshness=min_freshness,
+                    top_k=top_k_knowledge,
+                )
+            finally:
+                _ks.close()
+            fused = reciprocal_rank_fusion_multi(
+                [vector_results, lexical_results, ks_results],
+                rrf_k=rrf_k,
+            )
+        else:
+            fused = reciprocal_rank_fusion(vector_results, lexical_results, rrf_k=rrf_k)
         final = fused[:k]
 
     # --- Apply reranking if requested ---

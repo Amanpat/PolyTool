@@ -313,6 +313,62 @@ def lexical_query(
 # Reciprocal Rank Fusion
 # ---------------------------------------------------------------------------
 
+def reciprocal_rank_fusion_multi(
+    ranked_lists: List[List[dict]],
+    *,
+    rrf_k: int = RRF_K,
+) -> List[dict]:
+    """Fuse N ranked lists via Reciprocal Rank Fusion.
+
+    For each chunk *c* present in any list::
+
+        rrf_score(c) = Σ_list  1 / (rrf_k + rank_in_list)
+
+    Parameters
+    ----------
+    ranked_lists:
+        A list of ranked result lists.  Each result dict must have a
+        ``chunk_id`` key.  Empty lists are silently skipped.
+    rrf_k:
+        RRF smoothing constant (default 60, per the original paper).
+
+    Returns
+    -------
+    List[dict]
+        Merged list sorted by descending ``fused_score`` with
+        ``final_rank`` added to each entry.
+    """
+    scores: Dict[str, float] = {}
+    all_results: Dict[str, dict] = {}
+    per_list_ranks: Dict[str, Dict[int, int]] = {}  # chunk_id -> {list_index -> rank}
+
+    for list_idx, ranked in enumerate(ranked_lists):
+        if not ranked:
+            continue
+        for rank, r in enumerate(ranked, 1):
+            cid = r["chunk_id"]
+            scores[cid] = scores.get(cid, 0.0) + 1.0 / (rrf_k + rank)
+            if cid not in all_results:
+                all_results[cid] = r
+            if cid not in per_list_ranks:
+                per_list_ranks[cid] = {}
+            per_list_ranks[cid][list_idx] = rank
+
+    sorted_ids = sorted(scores, key=lambda c: scores[c], reverse=True)
+
+    fused: List[dict] = []
+    for final_rank, cid in enumerate(sorted_ids, 1):
+        entry = all_results[cid].copy()
+        entry["fused_score"] = scores[cid]
+        entry["final_rank"] = final_rank
+        entry["score"] = scores[cid]
+        # Back-compat: expose vector_rank / lexical_rank for 2-list callers
+        entry["vector_rank"] = per_list_ranks[cid].get(0)
+        entry["lexical_rank"] = per_list_ranks[cid].get(1)
+        fused.append(entry)
+    return fused
+
+
 def reciprocal_rank_fusion(
     vector_results: List[dict],
     lexical_results: List[dict],
