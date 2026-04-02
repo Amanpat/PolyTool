@@ -4,6 +4,11 @@ Provides manifest loading and batch ingestion of the docs/reference/ corpus
 into the KnowledgeStore with stable deterministic IDs and source_family tags
 matching freshness_decay.json families.
 
+Phase 3 enhancements:
+- SeedEntry gains optional ``extractor`` field for explicit extractor selection.
+- run_seed() auto-detects extractor from file extension when extractor=None.
+- run_seed(reseed=True) deletes existing docs by source_url before re-ingesting.
+
 Usage::
 
     from packages.research.ingestion.seed import load_seed_manifest, run_seed
@@ -57,6 +62,10 @@ class SeedEntry:
     notes:
         Optional human-readable notes about this entry (reclassification rationale,
         usage guidance, etc.). None if not set.
+    extractor:
+        Optional extractor registry key to use for this entry (e.g.
+        "structured_markdown", "plain_text"). If None, auto-detected from
+        file extension by run_seed().
     """
 
     path: str
@@ -68,6 +77,7 @@ class SeedEntry:
     tags: list = field(default_factory=list)
     evidence_tier: Optional[str] = None
     notes: Optional[str] = None
+    extractor: Optional[str] = None
 
 
 @dataclass
@@ -104,7 +114,8 @@ class SeedResult:
     failed:
         Failed entries (file not found, hard-stop rejection, etc.).
     results:
-        Per-entry result dicts with keys: title, path, status, doc_id, reason.
+        Per-entry result dicts with keys: title, path, status, doc_id, reason,
+        extractor_used.
     """
 
     total: int
@@ -166,12 +177,43 @@ def load_seed_manifest(manifest_path: "str | Path") -> SeedManifest:
                 tags=e.get("tags", []),
                 evidence_tier=e.get("evidence_tier"),
                 notes=e.get("notes"),
+                extractor=e.get("extractor"),
             )
         except KeyError as exc:
             raise ValueError(f"Entry {i} missing required field: {exc}") from exc
         entries.append(entry)
 
     return SeedManifest(version=version, description=description, entries=entries)
+
+
+# ---------------------------------------------------------------------------
+# Extractor auto-detection
+# ---------------------------------------------------------------------------
+
+_EXTENSION_TO_EXTRACTOR: dict[str, str] = {
+    ".md": "structured_markdown",
+    ".markdown": "structured_markdown",
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".doc": "docx",
+}
+
+
+def _detect_extractor(path: Path) -> str:
+    """Auto-detect the extractor registry key from a file extension.
+
+    Parameters
+    ----------
+    path:
+        File path to inspect.
+
+    Returns
+    -------
+    str
+        Extractor registry key (e.g. ``"structured_markdown"``, ``"plain_text"``).
+    """
+    suffix = path.suffix.lower()
+    return _EXTENSION_TO_EXTRACTOR.get(suffix, "plain_text")
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +228,7 @@ def run_seed(
     dry_run: bool = False,
     skip_eval: bool = True,
     base_dir: Optional[Path] = None,
+    reseed: bool = False,
 ) -> SeedResult:
     """Ingest all manifest entries into the KnowledgeStore.
 
@@ -202,6 +245,11 @@ def run_seed(
     base_dir:
         Base directory for resolving relative entry paths.
         Defaults to the repo root.
+    reseed:
+        If True, delete existing documents matching the entry's source_url before
+        re-ingesting. This allows re-extraction with improved extractors without
+        creating duplicates. The document ID is recomputed from content hash, so
+        unchanged content produces the same ID.
 
     Returns
     -------
@@ -209,6 +257,7 @@ def run_seed(
         Aggregate counts and per-entry result dicts.
     """
     from packages.research.ingestion.pipeline import IngestPipeline
+    from packages.research.ingestion.extractors import get_extractor, PlainTextExtractor
 
     base = Path(base_dir) if base_dir is not None else _REPO_ROOT
 
@@ -230,6 +279,7 @@ def run_seed(
                 "status": "dry_run",
                 "doc_id": None,
                 "reason": None,
+                "extractor_used": None,
             })
             continue
 
@@ -242,8 +292,45 @@ def run_seed(
                 "status": "failed",
                 "doc_id": None,
                 "reason": f"File not found: {entry_path}",
+                "extractor_used": None,
             })
             continue
+
+        # --- determine extractor ---
+        extractor_name = entry.extractor if entry.extractor else _detect_extractor(entry_path)
+        extractor_fallback = False
+
+        try:
+            ext = get_extractor(extractor_name)
+        except KeyError:
+            # Unknown extractor key: fall back to PlainTextExtractor
+            ext = PlainTextExtractor()
+            extractor_name = "plain_text"
+            extractor_fallback = True
+        except ImportError:
+            # Optional dep not installed (e.g. pdfplumber): fall back to PlainTextExtractor
+            ext = PlainTextExtractor()
+            extractor_name = "plain_text"
+            extractor_fallback = True
+
+        # --- reseed: delete existing doc by source_url ---
+        if reseed:
+            abs_path = str(entry_path.resolve()).replace("\\", "/")
+            source_url_pattern = f"file://{abs_path}"
+            try:
+                rows = store._conn.execute(
+                    "SELECT id FROM source_documents WHERE source_url = ?",
+                    (source_url_pattern,),
+                ).fetchall()
+                for row in rows:
+                    existing_id = row[0]
+                    store._conn.execute(
+                        "DELETE FROM source_documents WHERE id = ?",
+                        (existing_id,),
+                    )
+                store._conn.commit()
+            except Exception:
+                pass  # Non-fatal; proceed with ingest
 
         # --- run ingestion pipeline ---
         try:
@@ -253,7 +340,7 @@ def run_seed(
                 from packages.research.evaluation.providers import get_provider
                 evaluator = DocumentEvaluator(provider=get_provider("manual"))
 
-            pipeline = IngestPipeline(store=store, evaluator=evaluator)
+            pipeline = IngestPipeline(store=store, extractor=ext, evaluator=evaluator)
             ingest_kwargs: dict = {
                 "source_type": entry.source_type,
                 "author": entry.author,
@@ -272,6 +359,7 @@ def run_seed(
                 "status": "failed",
                 "doc_id": None,
                 "reason": str(exc),
+                "extractor_used": extractor_name,
             })
             continue
         except Exception as exc:
@@ -282,6 +370,7 @@ def run_seed(
                 "status": "failed",
                 "doc_id": None,
                 "reason": f"Unexpected error: {exc}",
+                "extractor_used": extractor_name,
             })
             continue
 
@@ -293,6 +382,7 @@ def run_seed(
                 "status": "failed",
                 "doc_id": None,
                 "reason": ingest_result.reject_reason or "rejected by pipeline",
+                "extractor_used": extractor_name,
             })
             continue
 
@@ -311,18 +401,21 @@ def run_seed(
         except Exception:
             pass  # Non-fatal; doc was ingested even if family update fails
 
-        # Determine if this was a new insert or a duplicate (idempotent INSERT OR IGNORE)
-        # If the doc already existed, the UPDATE above is a no-op but the doc_id is valid
-        # We track this as "ingested" for both new and existing because INSERT OR IGNORE
-        # is the idempotency mechanism -- the result is the same stable doc_id.
-        ingested += 1
-        results.append({
+        # --- store extractor metadata ---
+        # Record extractor_used in the result dict for traceability
+        result_entry: dict = {
             "title": entry.title,
             "path": str(entry_path),
             "status": "ingested",
             "doc_id": doc_id,
             "reason": None,
-        })
+            "extractor_used": extractor_name,
+        }
+        if extractor_fallback:
+            result_entry["extractor_fallback"] = True
+
+        ingested += 1
+        results.append(result_entry)
 
     total = len(manifest.entries)
 

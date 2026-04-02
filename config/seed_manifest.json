@@ -1,6 +1,6 @@
 {
-  "version": "2",
-  "description": "RIS Phase 2 seed corpus v2: internal reference docs and roadmaps reclassified with accurate source_type, evidence_tier, and notes. source_family=book_foundational for all entries (null half-life per freshness_decay.json — timeless foundational docs).",
+  "version": "3",
+  "description": "RIS Phase 3 seed corpus v3: all entries use structured_markdown extractor for richer metadata extraction. source_family=book_foundational for all entries (null half-life per freshness_decay.json — timeless foundational docs).",
   "entries": [
     {
       "path": "docs/reference/RAGfiles/RIS_OVERVIEW.md",
@@ -11,7 +11,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "architecture", "overview"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal architecture reference doc for the Research Intelligence System. Describes the overall RIS pipeline, design principles, and component relationships."
+      "notes": "Internal architecture reference doc for the Research Intelligence System. Describes the overall RIS pipeline, design principles, and component relationships.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_01_INGESTION_ACADEMIC.md",
@@ -22,7 +23,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "ingestion", "academic"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc specifying ingestion rules for academic sources (arxiv, SSRN, books). Covers hard-stop criteria and quality gate thresholds."
+      "notes": "Internal reference doc specifying ingestion rules for academic sources (arxiv, SSRN, books). Covers hard-stop criteria and quality gate thresholds.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_02_INGESTION_SOCIAL.md",
@@ -33,7 +35,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "ingestion", "social"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc specifying ingestion rules for social sources (Reddit, Twitter, YouTube). Covers credibility ceilings and evidence extraction patterns."
+      "notes": "Internal reference doc specifying ingestion rules for social sources (Reddit, Twitter, YouTube). Covers credibility ceilings and evidence extraction patterns.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_03_EVALUATION_GATE.md",
@@ -44,7 +47,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "evaluation", "gate"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc for the RIS 4-dimension scoring rubric (relevance, novelty, actionability, credibility) and gate decision thresholds."
+      "notes": "Internal reference doc for the RIS 4-dimension scoring rubric (relevance, novelty, actionability, credibility) and gate decision thresholds.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_04_KNOWLEDGE_STORE.md",
@@ -55,7 +59,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "knowledge-store", "sqlite"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc describing the SQLite-backed KnowledgeStore schema, document lifecycle, and retrieval interface."
+      "notes": "Internal reference doc describing the SQLite-backed KnowledgeStore schema, document lifecycle, and retrieval interface.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_05_SYNTHESIS_ENGINE.md",
@@ -66,7 +71,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "synthesis"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc for the precheck synthesis engine: idea intake, evidence retrieval, GO/CAUTION/STOP recommendation logic, and ledger persistence."
+      "notes": "Internal reference doc for the precheck synthesis engine: idea intake, evidence retrieval, GO/CAUTION/STOP recommendation logic, and ledger persistence.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_06_INFRASTRUCTURE.md",
@@ -77,7 +83,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "infrastructure"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc covering RIS deployment requirements, freshness decay configuration, and integration with ClickHouse and Chroma RAG backends."
+      "notes": "Internal reference doc covering RIS deployment requirements, freshness decay configuration, and integration with ClickHouse and Chroma RAG backends.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/RAGfiles/RIS_07_INTEGRATION.md",
@@ -88,7 +95,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["ris", "integration"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Internal reference doc specifying how RIS integrates with the broader PolyTool research loop: scan -> alpha-distill -> precheck -> hypothesis pipeline."
+      "notes": "Internal reference doc specifying how RIS integrates with the broader PolyTool research loop: scan -> alpha-distill -> precheck -> hypothesis pipeline.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md",
@@ -99,7 +107,8 @@
       "publish_date": "2025-12-01T00:00:00+00:00",
       "tags": ["roadmap", "strategy"],
       "evidence_tier": "tier_2_superseded",
-      "notes": "Superseded by v5; retained for historical context. Contains Phase 0-3 planning from the v4 era."
+      "notes": "Superseded by v5; retained for historical context. Contains Phase 0-3 planning from the v4 era.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md",
@@ -110,7 +119,8 @@
       "publish_date": "2026-02-01T00:00:00+00:00",
       "tags": ["roadmap", "strategy"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Predecessor to v5.1; contains Phase 0-4 planning. Still authoritative for Phase 0/1 strategy rationale."
+      "notes": "Predecessor to v5.1; contains Phase 0-4 planning. Still authoritative for Phase 0/1 strategy rationale.",
+      "extractor": "structured_markdown"
     },
     {
       "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md",
@@ -121,7 +131,8 @@
       "publish_date": "2026-03-01T00:00:00+00:00",
       "tags": ["roadmap", "strategy"],
       "evidence_tier": "tier_1_internal",
-      "notes": "Current governing roadmap document. Defines triple-track strategy, validation gates, and Phase 1A/1B milestones."
+      "notes": "Current governing roadmap document. Defines triple-track strategy, validation gates, and Phase 1A/1B milestones.",
+      "extractor": "structured_markdown"
     }
   ]
 }

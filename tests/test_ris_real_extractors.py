@@ -419,7 +419,12 @@ class TestSeedExtractorSelection:
     def test_seed_auto_detect_md_uses_structured_markdown(self, tmp_path):
         """run_seed() auto-detects structured_markdown for .md files when extractor=None."""
         md_file = tmp_path / "test_doc.md"
-        md_file.write_text("# Test\n\n## Section\n\nContent here.\n", encoding="utf-8")
+        md_file.write_text(
+            "# Test Document\n\n## Section One\n\n"
+            "This is a long enough body text for the document to pass the hard-stop check. "
+            "It needs at least 50 characters to be accepted by the ingestion pipeline.\n",
+            encoding="utf-8",
+        )
 
         manifest_data = {
             "version": "3",
@@ -456,7 +461,11 @@ class TestSeedExtractorSelection:
     def test_seed_with_extractor_field_uses_specified_extractor(self, tmp_path):
         """run_seed() uses the extractor specified in the manifest entry."""
         md_file = tmp_path / "test_doc.md"
-        md_file.write_text("# Test\n\nContent here.\n", encoding="utf-8")
+        md_file.write_text(
+            "# Test Document\n\nThis document has sufficient content to pass the minimum "
+            "character length hard-stop check in the ingestion pipeline. More words needed.\n",
+            encoding="utf-8",
+        )
 
         manifest_data = {
             "version": "3",
@@ -490,7 +499,12 @@ class TestSeedExtractorSelection:
     def test_reseed_replaces_document(self, tmp_path):
         """run_seed(reseed=True) replaces existing document, no duplicates."""
         md_file = tmp_path / "reseed_doc.md"
-        md_file.write_text("# Reseed Test\n\n## Section\n\nContent for reseed test.\n", encoding="utf-8")
+        md_file.write_text(
+            "# Reseed Test\n\n## Section\n\n"
+            "Content for reseed test. This document needs enough text to pass the "
+            "minimum character hard-stop check in the ingestion pipeline.\n",
+            encoding="utf-8",
+        )
 
         manifest_data = {
             "version": "3",
@@ -540,7 +554,11 @@ class TestSeedExtractorSelection:
     def test_reseed_false_does_not_delete(self, tmp_path):
         """run_seed(reseed=False) is idempotent — seeds twice without deleting."""
         md_file = tmp_path / "idempotent_doc.md"
-        md_file.write_text("# Idempotent\n\nContent.\n", encoding="utf-8")
+        md_file.write_text(
+            "# Idempotent Document\n\nThis document has enough content to pass the minimum "
+            "character hard-stop check in the ingestion pipeline verification step.\n",
+            encoding="utf-8",
+        )
 
         manifest_data = {
             "version": "3",

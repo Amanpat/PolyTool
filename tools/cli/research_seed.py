@@ -1,10 +1,13 @@
 """CLI entrypoint for RIS Phase 2 manifest-driven corpus seeding.
 
+Phase 3: adds --reseed flag to re-ingest with improved extractors.
+
 Usage:
   python -m polytool research-seed
   python -m polytool research-seed --manifest config/seed_manifest.json --no-eval --json
   python -m polytool research-seed --manifest config/seed_manifest.json --dry-run
   python -m polytool research-seed --manifest config/seed_manifest.json --db :memory: --json
+  python -m polytool research-seed --manifest config/seed_manifest.json --reseed --no-eval
 """
 
 from __future__ import annotations
@@ -43,6 +46,14 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--dry-run", dest="dry_run", action="store_true",
         help="List what would be ingested without writing to KnowledgeStore.",
+    )
+    parser.add_argument(
+        "--reseed", action="store_true",
+        help=(
+            "Delete and re-ingest existing documents. Use after extractor upgrades to "
+            "replace stale extraction metadata with improved versions. "
+            "Document identity (ID) is preserved for unchanged content."
+        ),
     )
     parser.add_argument(
         "--json", dest="output_json", action="store_true",
@@ -96,6 +107,7 @@ def main(argv: list) -> int:
             dry_run=args.dry_run,
             skip_eval=skip_eval,
             base_dir=None,  # use repo root
+            reseed=args.reseed,
         )
 
     except Exception as exc:
@@ -113,24 +125,27 @@ def main(argv: list) -> int:
             "skipped": result.skipped,
             "failed": result.failed,
             "dry_run": args.dry_run,
+            "reseed": args.reseed,
             "results": result.results,
         }
         print(json.dumps(output, indent=2))
     else:
         mode = "[DRY RUN] " if args.dry_run else ""
-        print(f"{mode}Seed complete: {result.ingested} ingested, "
+        reseed_note = " [reseed mode]" if args.reseed else ""
+        print(f"{mode}Seed complete{reseed_note}: {result.ingested} ingested, "
               f"{result.skipped} skipped, {result.failed} failed "
               f"(total: {result.total})")
         print()
         # Print table header
         col_w = 40
-        print(f"{'Title':<{col_w}} {'Status':<12} {'doc_id':<16} {'Reason'}")
-        print("-" * 90)
+        print(f"{'Title':<{col_w}} {'Status':<12} {'doc_id':<16} {'Extractor':<22} {'Reason'}")
+        print("-" * 110)
         for r in result.results:
             title = (r["title"] or "")[:col_w - 1]
             status = r.get("status", "?")
             doc_id_short = (r.get("doc_id") or "")[:14]
-            reason = (r.get("reason") or "")[:40]
-            print(f"{title:<{col_w}} {status:<12} {doc_id_short:<16} {reason}")
+            extractor = (r.get("extractor_used") or "")[:20]
+            reason = (r.get("reason") or "")[:30]
+            print(f"{title:<{col_w}} {status:<12} {doc_id_short:<16} {extractor:<22} {reason}")
 
     return 0
