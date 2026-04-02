@@ -819,3 +819,40 @@ python -m polytool research-precheck inspect --top-k 5
 ```
 
 Tests: 26 new offline tests in `tests/test_ris_phase2_operator_loop.py`. 3012 total passing.
+
+## RIS Phase 2 — Query Spine Wiring (quick-260402-ivb, 2026-04-02)
+
+KnowledgeStore is now wired into the canonical `rag-query --hybrid` retrieval path as a
+third RRF source alongside Chroma vector search and FTS5 lexical search. This closes the
+"Chroma wiring" gap that was deferred in the RIS v1 data foundation plan.
+
+**Architecture:** Three-way `reciprocal_rank_fusion_multi()` merges ranked results from:
+1. Chroma vector search (`top_k_vector`, default 25 candidates)
+2. SQLite FTS5 lexical search (`top_k_lexical`, default 25 candidates)
+3. KnowledgeStore claims (`top_k_knowledge`, default 25 candidates)
+
+KS claims are pre-filtered by case-insensitive substring match on the query text before
+entering RRF. Claims with `freshness_modifier < min_freshness` are excluded. Contradicted
+claims carry a 0.5x `effective_score` penalty and rank lower in fusion.
+
+**New CLI flags on `rag-query`:**
+- `--knowledge-store PATH` — activate KS as third source; `default` resolves to `kb/rag/knowledge/knowledge.sqlite3`
+- `--source-family NAME` — filter KS claims by source family (e.g. `book_foundational`)
+- `--min-freshness FLOAT` — exclude KS claims below freshness threshold [0,1]
+- `--evidence-mode` — promote provenance/contradiction annotations to top-level keys in output
+- `--top-k-knowledge N` — KS candidate count for RRF (default 25)
+
+**Canonical query path:**
+```
+python -m polytool rag-query --question "..." --hybrid --knowledge-store default --evidence-mode
+```
+
+**Evidence-mode fields** promoted to top-level for KS-sourced results:
+`provenance_docs`, `contradiction_summary`, `staleness_note`, `lifecycle`, `is_contradicted`
+
+Files changed: `packages/polymarket/rag/lexical.py` (added `reciprocal_rank_fusion_multi`),
+`packages/polymarket/rag/query.py` (KS params + three-way fusion path),
+`packages/research/ingestion/retriever.py` (added `query_knowledge_store_for_rrf`),
+`tools/cli/rag_query.py` (5 new flags + evidence-mode logic).
+
+Tests: 25 new offline tests in `tests/test_ris_query_spine.py`. 3037 total passing.

@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages
 from polymarket.llm_research_packets import _username_to_slug
 from polymarket.rag.defaults import RAG_DEFAULT_COLLECTION, RAG_DEFAULT_PERSIST_DIR
 from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
+from polymarket.rag.knowledge_store import DEFAULT_KNOWLEDGE_DB_PATH
 from polymarket.rag.query import query_index
 from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
 
@@ -136,6 +137,56 @@ def build_parser() -> argparse.ArgumentParser:
         default=RAG_DEFAULT_COLLECTION,
         help="Chroma collection name.",
     )
+    # --- KnowledgeStore (RIS) flags ---
+    parser.add_argument(
+        "--knowledge-store",
+        dest="knowledge_store",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to KnowledgeStore SQLite DB. When provided, enables KS as "
+            "third retrieval source in hybrid mode (requires --hybrid). "
+            "Special value 'default' resolves to kb/rag/knowledge/knowledge.sqlite3."
+        ),
+    )
+    parser.add_argument(
+        "--source-family",
+        dest="source_family",
+        default=None,
+        help=(
+            "Filter KS claims by source_family (e.g. 'book_foundational', "
+            "'wallet_analysis', 'news'). Only effective when --knowledge-store is active."
+        ),
+    )
+    parser.add_argument(
+        "--min-freshness",
+        dest="min_freshness",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help=(
+            "Minimum freshness modifier [0,1] for KS claims. Claims below this "
+            "threshold are excluded. Only effective when --knowledge-store is active."
+        ),
+    )
+    parser.add_argument(
+        "--evidence-mode",
+        dest="evidence_mode",
+        action="store_true",
+        default=False,
+        help=(
+            "When set, KS-sourced results include enriched provenance/contradiction "
+            "annotations as top-level keys in the output (provenance_docs, "
+            "contradiction_summary, staleness_note, lifecycle, is_contradicted)."
+        ),
+    )
+    parser.add_argument(
+        "--top-k-knowledge",
+        dest="top_k_knowledge",
+        type=int,
+        default=25,
+        help="Number of KnowledgeStore claim candidates for RRF fusion (default 25).",
+    )
     return parser
 
 
@@ -146,6 +197,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.k <= 0:
         print("Error: --k must be positive.")
         return 1
+
+    # Resolve --knowledge-store path
+    knowledge_store_path = None
+    if args.knowledge_store is not None:
+        from pathlib import Path as _Path
+        if args.knowledge_store == "default":
+            knowledge_store_path = DEFAULT_KNOWLEDGE_DB_PATH
+        else:
+            knowledge_store_path = _Path(args.knowledge_store)
+        # Guard: requires --hybrid
+        if not args.hybrid:
+            print("Error: --knowledge-store requires --hybrid mode.")
+            return 1
 
     # Resolve user slug for both metadata filter and defensive prefix backstop.
     user_slug: Optional[str] = None
@@ -199,6 +263,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             rrf_k=args.rrf_k,
             reranker=reranker,
             rerank_top_n=args.rerank_top_n,
+            knowledge_store_path=knowledge_store_path,
+            source_family=args.source_family,
+            min_freshness=args.min_freshness,
+            top_k_knowledge=args.top_k_knowledge,
         )
     except RuntimeError as exc:
         print(f"Error: {exc}")
@@ -206,11 +274,38 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # Determine mode string
     if args.hybrid:
-        mode = "hybrid+rerank" if args.rerank else "hybrid"
+        ks_suffix = "+knowledge-store" if knowledge_store_path is not None else ""
+        mode = f"hybrid{ks_suffix}+rerank" if args.rerank else f"hybrid{ks_suffix}"
     elif args.lexical_only:
         mode = "lexical"
     else:
         mode = "vector+rerank" if args.rerank else "vector"
+
+    # Post-process: evidence-mode promotes KS metadata fields to top-level
+    if args.evidence_mode and knowledge_store_path is not None:
+        _ks_fields = (
+            "provenance_docs",
+            "contradiction_summary",
+            "staleness_note",
+            "lifecycle",
+            "is_contradicted",
+        )
+        promoted_results = []
+        for r in results:
+            meta = r.get("metadata", {})
+            if meta.get("source") == "knowledge_store":
+                r = dict(r)  # shallow copy
+                for field in _ks_fields:
+                    if field in meta:
+                        r[field] = meta[field]
+            promoted_results.append(r)
+        results = promoted_results
+
+    ks_path_str = None
+    if knowledge_store_path is not None:
+        from pathlib import Path as _Path
+        ks_path_str = str(_Path(knowledge_store_path).resolve())
+
     payload = {
         "question": args.question,
         "k": args.k,
@@ -224,6 +319,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             "date_to": args.date_to,
             "include_archive": args.include_archive,
             "prefix_backstop": prefixes or [],
+        },
+        "knowledge_store": {
+            "active": knowledge_store_path is not None,
+            "path": ks_path_str,
+            "source_family": args.source_family,
+            "min_freshness": args.min_freshness,
         },
         "results": results,
     }
