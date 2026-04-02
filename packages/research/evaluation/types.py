@@ -87,6 +87,17 @@ SOURCE_FAMILIES: dict[str, str] = {
     "roadmap": "book_foundational",
 }
 
+# SOURCE_FAMILY_OFFSETS is the designated extension point for data-driven
+# per-family score adjustments. It is intentionally empty until calibration
+# artifacts accumulate enough signal to justify non-zero offsets.
+#
+# Expected shape when populated:
+#   {"academic": {"credibility": 1}, "forum_social": {"credibility": -1}}
+#
+# Do NOT populate this by hand — derive offsets from eval_artifacts.jsonl
+# once >= 50 entries across >= 3 families are available.
+SOURCE_FAMILY_OFFSETS: dict[str, dict[str, int]] = {}
+
 SOURCE_FAMILY_GUIDANCE: dict[str, str] = {
     "academic": (
         "Academic/peer-reviewed source. Credibility floor is 3 unless methodology is "
