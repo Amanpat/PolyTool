@@ -228,9 +228,8 @@ The following features from RIS_05 spec are deferred to v2:
   Gemini Flash verifies each citation against source documents.
 - **Iterative orchestrator loop** -- Query planner + gap detection + re-retrieval cycle.
 - **Weekly digest** -- Automated Sunday digest sent via Discord webhook.
-- **CLI commands for report generation** -- `polytool research report --topic ...` and
-  `polytool research precheck --idea ...` are not yet wired to CLI.
-- **Report storage/catalog** -- Reports are not saved to `artifacts/research/reports/`.
+- **CLI commands for report generation** -- `python -m polytool research-report` (save/list/search/digest) and `python -m polytool research-precheck` (run/override/outcome/history/inspect) are **shipped** as of quick-260402-xbt and quick-260401-o1q respectively. The precheck CLI wraps the deterministic `synthesize_precheck()` output.
+- **Report storage/catalog** -- `research-report save/list/search` shipped as of quick-260402-xbt. Reports saved to SQLite index + markdown files under `artifacts/research/reports/`.
 - **ClickHouse report indexing** -- The `research_reports` CH table is not created.
 - **Past failures search** -- `EnhancedPrecheck.past_failures` is always empty (v2 feature).
 - **HyDE expansion integration** -- `ReportSynthesizer` takes pre-retrieved claims,

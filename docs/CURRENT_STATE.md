@@ -1280,8 +1280,8 @@ covering precheck round-trip, ingest-then-query, acquire dry-run, file ingest,
 and contradiction detection.
 
 **v2 deferred items (explicitly out of scope):**
-- Dossier-to-external-knowledge extraction (RIS_07 Section 1)
-- SimTrader bridge / auto-hypothesis generation (RIS_07 Section 3)
+- Dossier-to-external-knowledge extraction (RIS_07 Section 1): **v1 shipped** — CLI + batch extract via research-dossier-extract. Auto-trigger after wallet-scan remains v2 deferred.
+- SimTrader auto-promotion loop (RIS_07 Section 3): bridge functions shipped (quick-260403-jyg), auto-hypothesis generation loop v2 deferred.
 - Auto-discovery -> knowledge loop (RIS_07 Section 2)
 - MCP auto-routing for rag-query
 
@@ -1319,3 +1319,31 @@ structured research findings and ingested as `source_family="dossier_report"`.
 
 See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase R5 section) and
 `docs/dev_logs/2026-04-03_ris_r5_dossier_and_discovery_loop.md`.
+
+## RIS v1 — Complete (2026-04-03)
+
+All practical v1 scope RIS subsystems are shipped and passing 3660 tests.
+
+**v1 Complete:**
+- R0: Knowledge store foundation (SQLite + Chroma, BGE-M3 embeddings)
+- R1: Academic ingestion (ArXiv search, BookAdapter, manual URL, --extract-claims)
+- R2: Social ingestion (Reddit, YouTube, clean_transcript)
+- R3: Synthesis engine (deterministic ReportSynthesizer, EnhancedPrecheck, ResearchBrief)
+- R4: Infrastructure (scheduler 8-job, health checks 6-condition, stats/metrics export, report catalog save/list/search/digest)
+- R5: Dossier pipeline (DossierExtractor, DossierAdapter, research-dossier-extract CLI, batch mode)
+- Dev agent integration (CLAUDE.md RIS section, operator recipes A-E, 10 integration tests)
+- SimTrader bridge (brief_to_candidate, precheck_to_candidate, register_research_hypothesis, record_validation_outcome)
+
+**v2 Deferred (require Phase 3+ or additional infra):**
+- Auto-trigger dossier extraction after wallet-scan (hook not wired)
+- Auto-discovery -> knowledge loop (requires auto-trigger prerequisite)
+- SimTrader auto-promotion loop (bridge shipped; auto-loop not wired)
+- LLM-based synthesis (DeepSeek V3 prose generation)
+- n8n migration from APScheduler
+- ClickHouse ingestion_log table + Grafana panels
+- ChatGPT architect / Google Drive connector
+- MCP rag-query -> KnowledgeStore routing
+- Weekly digest automation
+- SSRN ingestion, Twitter/X ingestion
+
+All 3660 tests pass. Codex review: docs-only changes, skip tier.
