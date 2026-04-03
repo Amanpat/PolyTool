@@ -114,6 +114,12 @@ def start_research_scheduler():
     return scheduler
 ```
 
+**Note (shipped behavior):** APScheduler is an optional dependency in the `[ris]` extras group
+(`pip install 'polytool[ris]'`). The `JOB_REGISTRY` and all job metadata are importable
+WITHOUT APScheduler installed. APScheduler is only required when `start_research_scheduler()`
+is called to actually start the background loop. The `research-scheduler status` and
+`research-scheduler run-job` subcommands work without APScheduler.
+
 ### v2: n8n Migration
 
 Once pipeline shapes are stable (~2-3 weeks after v1 launch), migrate to n8n for visual
@@ -201,8 +207,10 @@ polytool research digest [--days N]
 # List ingested documents
 polytool research catalog [--source-type TYPE] [--min-score N] [--freshness F]
 
-# Show ingestion statistics
-polytool research stats [--days N]
+# Show operator metrics snapshot
+python -m polytool research-stats summary [--json]
+python -m polytool research-stats export [--out PATH]
+# (Shipped as standalone `research-stats` command, not `research stats` subcommand.)
 
 # Review borderline documents for calibration
 polytool research review-borderline [--score-range MIN-MAX]
@@ -233,8 +241,11 @@ polytool research seed-foundations
 # Re-embed all documents (after embedding model change)
 polytool research reembed [--batch-size N]
 
-# Show scheduler status
-polytool research scheduler-status
+# Show scheduler status (list registered jobs)
+python -m polytool research-scheduler status
+python -m polytool research-scheduler status --json
+python -m polytool research-scheduler start --dry-run
+# (Shipped as standalone `research-scheduler` command with subcommands, not as a `research` subcommand.)
 ```
 
 ---
