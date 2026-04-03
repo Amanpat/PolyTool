@@ -24,7 +24,6 @@ from packages.research.evaluation.types import (
     SOURCE_FAMILIES,
 )
 from packages.research.evaluation.hard_stops import check_hard_stops
-from packages.research.evaluation.scoring import score_document
 from packages.research.evaluation.providers import EvalProvider, get_provider
 
 
@@ -90,7 +89,18 @@ class DocumentEvaluator:
         """
         from packages.research.evaluation.feature_extraction import extract_features
         from packages.research.evaluation.dedup import check_near_duplicate
-        from packages.research.evaluation.artifacts import EvalArtifact, persist_eval_artifact
+        from packages.research.evaluation.artifacts import (
+            EvalArtifact,
+            ProviderEvent,
+            persist_eval_artifact,
+            generate_event_id,
+            compute_output_hash,
+        )
+        from packages.research.evaluation.scoring import (
+            score_document_with_metadata,
+            SCORING_PROMPT_TEMPLATE_ID,
+        )
+        from packages.research.evaluation.providers import get_provider_metadata
 
         now = _iso_utc(_utcnow())
         source_family = SOURCE_FAMILIES.get(doc.source_type, "manual")
@@ -117,6 +127,8 @@ class DocumentEvaluator:
                     scores=None,
                     source_family=source_family,
                     source_type=doc.source_type,
+                    provider_event=None,
+                    event_id=None,
                 )
                 persist_eval_artifact(artifact, self._artifacts_dir)
             return decision
@@ -152,6 +164,8 @@ class DocumentEvaluator:
                         scores=None,
                         source_family=source_family,
                         source_type=doc.source_type,
+                        provider_event=None,
+                        event_id=None,
                     )
                     persist_eval_artifact(artifact, self._artifacts_dir)
                 return decision
@@ -159,10 +173,10 @@ class DocumentEvaluator:
         # Step 3: feature extraction
         features_result = extract_features(doc)
 
-        # Step 4: score with provider
-        scores = score_document(doc, self._provider)
+        # Step 4: score with provider (Phase 5: captures raw_output and prompt_hash)
+        scores, raw_output, prompt_hash = score_document_with_metadata(doc, self._provider)
 
-        # Step 5: persist artifact
+        # Step 5: persist artifact (Phase 5: includes ProviderEvent metadata)
         if self._artifacts_dir is not None:
             scores_dict = {
                 "relevance": scores.relevance,
@@ -176,6 +190,22 @@ class DocumentEvaluator:
                 "eval_model": scores.eval_model,
             }
             near_dup_dict = dataclasses.asdict(near_dup_result) if near_dup_result else None
+
+            # Build replay-grade metadata for this scoring event
+            provider_meta = get_provider_metadata(self._provider)
+            event_id = generate_event_id(doc.doc_id, now, provider_meta["provider_name"])
+            provider_event = ProviderEvent(
+                provider_name=provider_meta["provider_name"],
+                model_id=provider_meta["model_id"],
+                prompt_template_id=SCORING_PROMPT_TEMPLATE_ID,
+                prompt_template_version=prompt_hash,
+                generation_params=provider_meta["generation_params"],
+                source_chunk_refs=[doc.doc_id],
+                timestamp=now,
+                output_hash=compute_output_hash(raw_output),
+                raw_output=None,  # keep artifacts lightweight by default
+            )
+
             artifact = EvalArtifact(
                 doc_id=doc.doc_id,
                 timestamp=now,
@@ -186,6 +216,8 @@ class DocumentEvaluator:
                 scores=scores_dict,
                 source_family=source_family,
                 source_type=doc.source_type,
+                provider_event=dataclasses.asdict(provider_event),
+                event_id=event_id,
             )
             persist_eval_artifact(artifact, self._artifacts_dir)
 
