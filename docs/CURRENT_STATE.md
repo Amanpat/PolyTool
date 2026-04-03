@@ -1023,3 +1023,15 @@ Tests: 56 new offline tests in `tests/test_ris_claim_extraction.py`. 3262 total 
 
 See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase 4 section) and
 `docs/dev_logs/2026-04-02_ris_phase4_claim_extraction.md`.
+
+## RIS Social Ingestion v1 -- Reddit + YouTube (quick-260402-wj9, 2026-04-02)
+
+- Adds `RedditAdapter`, `YouTubeAdapter` to `ADAPTER_REGISTRY` in `packages/research/ingestion/adapters.py`
+- Adds `LiveRedditFetcher`, `LiveYouTubeFetcher`, `clean_transcript()` to `packages/research/ingestion/fetchers.py`
+- Both fetchers support offline `fetch_raw()` mode -- no PRAW or yt-dlp needed for tests
+- `research-acquire` CLI now accepts `--source-family reddit` and `--source-family youtube`
+- Twitter/X explicitly marked DEFERRED (no implementation, no implied support)
+  - Reason: $100/month API not justified pre-profit; free alternatives unreliable
+- 30 new offline tests in `tests/test_ris_social_ingestion.py` (all passing)
+- Total test count: 3405 passing, 0 failed, 3 deselected
+- See `docs/features/FEATURE-ris-social-ingestion-v1.md` for coverage table and setup notes
