@@ -599,7 +599,7 @@ def build_parser() -> argparse.ArgumentParser:
             "After each wallet scan, extract dossier findings and ingest into "
             "KnowledgeStore (requires dossier.json to be present in the scan run "
             "root). Findings are stored with source_family='dossier_report' and "
-            "are queryable via rag-query / research-query commands."
+            "are queryable via rag-query command (use --hybrid --knowledge-store default for derived claims)."
         ),
     )
     parser.add_argument(
