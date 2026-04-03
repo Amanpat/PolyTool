@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-2p9: Close RIS_06 Codex truth-alignment gaps — docs/reference/RIS_06_INFRASTRUCTURE.md corrected (scheduler-status→research-scheduler status, APScheduler optional note); 6 new research-stats CLI tests; 3566 passing
+Last activity: 2026-04-03 - Completed quick task 260403-it1: RIS manual producer health fix — research-ingest and research-acquire wired into append_run(); [DEFERRED] labeling for model_unavailable and rejection_audit_disagreement health checks; 14 new tests (TestCLIRunLogWiring, TestHealthTruthfulness, TestIntegrationIngestToHealth); 3582 passing
 
 ## Recent Progress
+- quick-260403-it1: RIS manual producer health fix — research-ingest and research-acquire wired into append_run(); [DEFERRED] labeling for model_unavailable and rejection_audit_disagreement; 14 new tests; 3582 passing
 - quick-260403-2ow: RIS_06 run_log wiring — append_run() wired into run_job() via injectable _run_log_fn hook (non-fatal write failures); 3 new E2E tests (run_job->run_log->health_checks); 3566 passing
 - quick-260403-1s3: RIS_06 APScheduler scheduler v1 — JOB_REGISTRY (8 named jobs, no Twitter/X), start_research_scheduler() with injectable _scheduler_factory/_job_runner, research-scheduler CLI, _JOB_FN_MAP patching pattern for reliable test isolation; 28 offline tests; 3557 passing
 - quick-260402-wj3: RIS_01 Academic Ingestion v1 closure — ArXiv topic search, BookAdapter, --extract-claims CLI flag on both CLIs; SSRN truthfully deferred; 26 new offline tests (3405 passing)
@@ -21,6 +22,7 @@ Last activity: 2026-04-03 - Completed quick task 260403-2p9: Close RIS_06 Codex 
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260403-it1: non-fatal append_run() pattern (health surface failures never affect CLI return codes); [DEFERRED] label with deferred=True in data dict (machine-readable for JSON consumers); dry-run exemption — research-acquire --dry-run exits before run_log write
 - quick-260402-rmz: three-way get_provider() branch (local/cloud-guard/unknown) preserves ValueError('unknown provider') backward compat; cloud providers recognized but not-yet-implemented (RIS v2); ProviderEvent raw_output=None by default for lightweight JSONL; backward-compat CLI routing via _KNOWN_SUBCOMMANDS check
 - quick-260402-rm1: stdlib-only HTTP in live fetchers; injectable _http_fn for offline test isolation; local regex copies in fetchers.py to avoid circular import; dedup check pre-pipeline, ingest proceeds regardless (idempotent); review record written even on ingest failure for complete audit trail
 - quick-260402-ogq: Deterministic claim IDs via SHA-256(doc_id+sentence+chunk_id+extractor_id) as created_at override; empirical regex requires 3+ digit numbers (2-digit falsely wins over normative keywords); evidence deduplication via pre-insert SELECT (add_evidence has no INSERT OR IGNORE); post_ingest_extract opt-in and non-fatal; no LLM calls (authority conflict unresolved)
