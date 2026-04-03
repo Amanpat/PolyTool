@@ -275,6 +275,51 @@ class KnowledgeStore:
         ).fetchone()
         return dict(row) if row else None
 
+    # Valid validation status values (RIS_07 Section 3)
+    VALID_VALIDATION_STATUSES = ("UNTESTED", "CONSISTENT_WITH_RESULTS", "CONTRADICTED", "INCONCLUSIVE")
+
+    def update_claim_validation_status(
+        self,
+        claim_id: str,
+        validation_status: str,
+        actor: str,
+    ) -> None:
+        """Update the validation_status of an existing derived claim.
+
+        Parameters
+        ----------
+        claim_id:
+            ID of the claim to update.
+        validation_status:
+            New status. Must be one of ``VALID_VALIDATION_STATUSES``.
+        actor:
+            Identity of the caller (e.g. ``"validation_feedback:hyp_abc"``)
+
+        Raises
+        ------
+        ValueError
+            If ``validation_status`` is not one of the valid values.
+        ValueError
+            If ``claim_id`` does not exist in the database.
+        """
+        if validation_status not in self.VALID_VALIDATION_STATUSES:
+            raise ValueError(
+                f"invalid validation_status '{validation_status}'. "
+                f"Must be one of: {', '.join(self.VALID_VALIDATION_STATUSES)}"
+            )
+
+        if self.get_claim(claim_id) is None:
+            raise ValueError(f"claim not found: {claim_id}")
+
+        now = _utcnow_iso()
+        self._conn.execute(
+            """UPDATE derived_claims
+               SET validation_status = ?, updated_at = ?
+               WHERE id = ?""",
+            (validation_status, now, claim_id),
+        )
+        self._conn.commit()
+
     # ------------------------------------------------------------------
     # CRUD: claim_evidence
     # ------------------------------------------------------------------
