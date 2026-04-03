@@ -1,7 +1,7 @@
 # FEATURE: RIS v1 Data Foundation
 
 **Shipped:** quick-055 (2026-04-01)
-**Status:** Complete (data-plane only; not yet wired into Chroma query path)
+**Status:** Complete (data-plane + query spine wired via quick-260402-ivb, MCP routing via quick-260403-lir)
 
 ## What Shipped
 
@@ -129,9 +129,9 @@ mutates stored records.
 
 - **No graph DB.** Tabular SQLite only. The 4-table schema covers the current
   use cases without the overhead of a dedicated graph store.
-- **No Chroma integration yet.** This is a data-plane addition. The knowledge
-  store is not wired into the existing Chroma/FTS5 hybrid retrieval pipeline.
-  That wiring is deferred to a future plan.
+- **Chroma/FTS5 hybrid retrieval wiring shipped** in quick-260402-ivb (query spine)
+  and quick-260403-lir (MCP KnowledgeStore routing with `ks_active` flag). The
+  original data-plane-only limitation is resolved.
 - **No LLM provider enabled by default.** See the authority conflict section below.
 
 ## Authority Conflict (Unresolved)
@@ -405,8 +405,9 @@ identical `source_documents` counts.
 
 ### Deferred Items
 
-- **Auto-trigger after wallet-scan**: calling `research-dossier-extract` automatically
-  at the end of `wallet-scan` is not yet wired. Run manually after each scan session.
+- **Auto-trigger after wallet-scan**: **Shipped** via `--extract-dossier` flag on
+  `wallet-scan` (quick-260403-lim). Run manually or pass `--extract-dossier` for
+  automatic extraction after each per-wallet scan.
 - **Wallet watchlist integration**: no automatic ingestion from the watchlist cadence.
 - **LLM-assisted memo extraction**: the current memo parser is regex/heuristic. No LLM
   calls are made. Higher-precision extraction requires resolving the authority conflict.

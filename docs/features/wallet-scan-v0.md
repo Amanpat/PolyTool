@@ -149,7 +149,7 @@ After ingestion, findings are queryable via the standard RIS commands:
 
 ```bash
 python -m polytool rag-query --question "MOMENTUM strategy wallets" --knowledge-store default
-python -m polytool research-dossier-extract --batch --base-dir artifacts/dossiers/users
+python -m polytool research-dossier-extract --batch --dossier-base artifacts/dossiers/users
 ```
 
 ### Notes

@@ -167,25 +167,27 @@ python -m polytool research-stats summary
 These items are explicitly out of scope for v1. They require additional infrastructure
 or are dependent on Phase 3+ roadmap items:
 
-- **Dossier-to-external-knowledge extraction (RIS_07 Section 1):** Auto-extract key
-  findings from wallet dossiers into `external_knowledge` partition. Requires LLM
-  extraction prompt and integration with `wallet-scan` / `alpha-distill`.
+- **Dossier-to-external-knowledge extraction (RIS_07 Section 1):** **v1 shipped**
+  (quick-260403-jy8, quick-260403-lim). `research-dossier-extract` CLI handles batch
+  extraction. `wallet-scan --extract-dossier` auto-triggers after each scan.
+  **v2 remaining:** LLM-assisted extraction (authority conflict blocks this) and
+  alpha-distill integration.
 
 - **Auto-discovery -> knowledge loop (RIS_07 Section 2):** Candidate scanner discovers
   wallet -> dossier_extractor pulls findings -> external_knowledge grows automatically.
-  Requires Section 1 as prerequisite.
+  Section 1 prerequisite is now shipped; full auto-loop remains v2.
 
-- **SimTrader bridge / auto-hypothesis generation (RIS_07 Section 3):** Synthesis engine
-  generates hypothesis candidates for the hypothesis registry when HIGH-confidence
-  findings are identified. Phase R5 / v2 deliverable.
+- **SimTrader bridge / auto-hypothesis generation (RIS_07 Section 3):** Bridge functions
+  (`research-register-hypothesis`, `research-record-outcome`) shipped in quick-260403-lir.
+  Auto-hypothesis generation loop remains v2 deferred.
 
 - **ChatGPT architect integration via Google Drive (RIS_07 Section 4):** ChatGPT Google
   Drive connector reads `artifacts/research/reports/` to ground specs in empirical
-  evidence. Requires manual drive sync setup.
+  evidence. Requires manual drive sync setup. v2 deferred.
 
-- **MCP polymarket_rag_query auto-routing (not yet wired to KS):** The existing MCP tool
-  queries Chroma but does not include the KnowledgeStore as a retrieval source. A v2
-  task should wire `knowledge_store_path=default` into the MCP tool's `query_index` call.
+- **MCP polymarket_rag_query KnowledgeStore routing:** **v1 shipped** (quick-260403-lir).
+  The MCP tool now uses hybrid KS retrieval when the default DB exists (`ks_active` flag
+  in response). Falls back to vector-only when DB absent. No v2 remaining for basic routing.
 
 ---
 
