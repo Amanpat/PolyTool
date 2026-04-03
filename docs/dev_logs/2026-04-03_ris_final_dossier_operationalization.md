@@ -164,7 +164,7 @@ python -m polytool wallet-scan \
   --extract-dossier
 
 # 2. Query findings in RIS
-python -m polytool rag-query --question "MOMENTUM strategy wallets" --knowledge-store default
+python -m polytool rag-query --question "MOMENTUM strategy wallets" --hybrid --knowledge-store default
 ```
 
 **Programmatic flow:**
