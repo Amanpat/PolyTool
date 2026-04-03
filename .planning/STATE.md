@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-jy8: RIS R5 dossier pipeline + discovery loop — DossierExtractor, DossierAdapter, batch_extract_dossiers, research-dossier-extract CLI, 31 new offline tests; 3660 passing
+Last activity: 2026-04-03 - Completed quick task 260403-lix: Close final truth-alignment gaps for RIS v1 docs and CURRENT_STATE
 
 ## Recent Progress
 - quick-260403-jy8: RIS R5 Dossier Pipeline — DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, research-dossier-extract CLI (single-dir + batch + dry-run); 31 new offline tests; 3660 passing
@@ -172,3 +172,4 @@ Last activity: 2026-04-03 - Completed quick task 260403-jy8: RIS R5 dossier pipe
 | 260403-jyg | RIS_07 SimTrader bridge v1: KnowledgeStore.update_claim_validation_status(); packages/research/integration/ (brief_to_candidate/precheck_to_candidate/register_research_hypothesis/record_validation_outcome); evidence provenance chain; 37 deterministic offline tests; full R5/v2 auto-orchestration explicitly deferred; 3644 passing | 2026-04-03 | edccc70 | [260403-jyg-complete-the-practical-v1-simtrader-brid](./quick/260403-jyg-complete-the-practical-v1-simtrader-brid/) |
 | 260403-jyl | RIS_07 dev-agent integration + fast-research preservation: CLAUDE.md RIS section (pre-build workflow + 3-path preservation recipes), FEATURE-ris-dev-agent-integration-v1.md (5 operator recipes), 10 offline integration tests; RIS_07 closed at v1 scope; 3660 passing | 2026-04-03 | 6f09522 | [260403-jyl-complete-the-dev-agent-integration-and-f](./quick/260403-jyl-complete-the-dev-agent-integration-and-f/) |
 | 260403-jy8 | RIS_07 dossier pipeline + discovery loop: DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, batch_extract_dossiers(), research-dossier-extract CLI (single-dir + batch + dry-run + extract-claims); 31 new offline tests; 3660 passing | 2026-04-03 | 530daf4 | [260403-jy8-complete-the-dossier-pipeline-and-discov](./quick/260403-jy8-complete-the-dossier-pipeline-and-discov/) |
+| 260403-lix | Close final truth-alignment gaps for RIS v1 docs and CURRENT_STATE: RIS_07/RIS_OVERVIEW command-surface patches (stale CLI forms replaced); synthesis feature doc "not yet wired" claims corrected; CURRENT_STATE RIS v1 Complete closure section added; v2 deferred items labeled; closure dev log written | 2026-04-03 | 4c03789 | [260403-lix-close-final-truth-alignment-gaps-for-ris](./quick/260403-lix-close-final-truth-alignment-gaps-for-ris/) |
