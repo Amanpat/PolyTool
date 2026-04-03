@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-nra: Close the final RIS truth-drift blockers: fix wallet-scan docs/help to match shipped behavior
+Last activity: 2026-04-03 - Completed quick task 260403-o5h: Remove the final RIS truth blocker: fix rag-query --knowledge-store example missing --hybrid in dossier operationalization dev log
 
 ## Recent Progress
 - quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
@@ -181,3 +181,4 @@ Last activity: 2026-04-03 - Completed quick task 260403-nra: Close the final RIS
 | 260403-lir | Close RIS_07 bridge/MCP gaps: research-register-hypothesis + research-record-outcome CLI subcommands (tools/cli/research_bridge.py); polymarket_rag_query MCP tool now uses hybrid KnowledgeStore retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing | 2026-04-03 | a961bc0 | [260403-lir-close-the-bridge-mcp-gaps-in-ris-07-done](./quick/260403-lir-close-the-bridge-mcp-gaps-in-ris-07-done/) |
 | 260403-n2w | Close final RIS truth-alignment gaps so Codex can call RIS v1 COMPLETE: removed stale v2-deferred bullets from CURRENT_STATE for --extract-dossier hook and MCP KS routing; fixed FEATURE-ris-dev-agent-integration-v1.md and FEATURE-ris-v1-data-foundation.md deferred/not-wired claims; corrected wallet-scan-v0.md --dossier-base flag; added RIS v1 closure note; dev log written; 3695 passing | 2026-04-03 | d373fe3 | [260403-n2w-close-the-final-ris-truth-alignment-gaps](./quick/260403-n2w-close-the-final-ris-truth-alignment-gaps/) |
 | 260403-nra | Close the final RIS truth-drift blockers: fix wallet-scan docs/help to match shipped behavior — post_ingest_extract→post_extract_claims+extract_and_link(), rag-query --hybrid flag added, research-query stale reference removed from help text | 2026-04-03 | 7259527 | [260403-nra-close-the-final-ris-truth-drift-blockers](./quick/260403-nra-close-the-final-ris-truth-drift-blockers/) |
+| 260403-o5h | Remove the final RIS truth blocker: added --hybrid to stale rag-query --knowledge-store example in dossier operationalization dev log (line 167); no historical sections touched; dev log written | 2026-04-03 | 1841a1a | [260403-o5h-remove-the-final-ris-truth-blocker-fix-r](./quick/260403-o5h-remove-the-final-ris-truth-blocker-fix-r/) |
