@@ -119,6 +119,9 @@ def canonicalize_url(url: str) -> str:
     - Normalize arXiv /pdf/ URLs to /abs/ form
     - Strip GitHub tree/blob/commit suffixes to repo root
 
+    Non-HTTP schemes (e.g. ``internal://``) are returned as-is without
+    modification — they are already canonical stable identifiers.
+
     Parameters
     ----------
     url:
@@ -129,6 +132,10 @@ def canonicalize_url(url: str) -> str:
     str
         Canonical URL.
     """
+    # Pass through non-HTTP(S) URLs unchanged (e.g. internal:// book identifiers)
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return url
+
     # Apply GitHub suffix stripping first (handles https/http)
     github_match = _GITHUB_SUFFIX_RE.match(url)
     if github_match:

@@ -1,0 +1,8 @@
+{
+  "title": "Market Microstructure Theory",
+  "authors": ["Maureen O'Hara"],
+  "book_id": "market_microstructure_theory",
+  "chapter": "Chapter 3: The Inventory Model",
+  "body_text": "The inventory model is central to understanding market maker behavior. Market makers face the fundamental problem of managing their inventory of securities while providing liquidity to other market participants. The inventory model developed by Stoll (1978) and Ho and Stoll (1981) addresses this by showing how market makers adjust their bid-ask spreads based on their current inventory position. When a market maker holds a long position, they prefer to sell and therefore lower their ask price. Conversely, when holding a short position, they prefer to buy and raise their bid price. This inventory management behavior is distinct from the adverse selection component identified in information-based models. The key prediction of inventory models is that spreads should be wider when market makers face greater inventory risk, and that serial correlation in order flow should be negative as market makers work to rebalance their positions.",
+  "published_date": "1995-01-01"
+}

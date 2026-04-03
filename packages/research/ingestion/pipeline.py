@@ -203,6 +203,7 @@ class IngestPipeline:
         source_family: str,
         *,
         cache: Optional[RawSourceCache] = None,
+        post_ingest_extract: bool = False,
         **kwargs,
     ) -> IngestResult:
         """Ingest an external source dict through adapter -> pipeline.
@@ -216,9 +217,13 @@ class IngestPipeline:
         raw_source:
             The original source dict (as from a scraper or fixture).
         source_family:
-            Source-family key: "academic", "github", "blog", or "news".
+            Source-family key: "academic", "github", "blog", "news", or "book".
         cache:
             Optional RawSourceCache for raw-payload preservation on disk.
+        post_ingest_extract:
+            If True, automatically run claim extraction (extract_and_link) after
+            the document is stored.  Non-fatal — extraction failure does not
+            affect the IngestResult.  Default False.
         **kwargs:
             Override fields on the ExtractedDocument after adaptation
             (e.g. ``title="My Override"``, ``author="Jane Doe"``).
@@ -323,6 +328,15 @@ class IngestPipeline:
             confidence_tier=None,
             metadata_json=json.dumps(extracted.metadata),
         )
+
+        # Step 7: Optional post-ingest claim extraction (same pattern as ingest())
+        if post_ingest_extract and doc_id:
+            try:
+                from packages.research.ingestion.claim_extractor import extract_and_link
+                extract_and_link(self._store, doc_id)
+            except Exception:
+                # Extraction failure is non-fatal — document is already stored
+                pass
 
         return IngestResult(
             doc_id=doc_id,

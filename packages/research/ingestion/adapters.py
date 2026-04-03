@@ -16,6 +16,7 @@ get_adapter(family) returns a fresh adapter instance.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
@@ -297,6 +298,92 @@ class BlogNewsAdapter(SourceAdapter):
 
 
 # ---------------------------------------------------------------------------
+# BookAdapter
+# ---------------------------------------------------------------------------
+
+
+def _slugify(text: str) -> str:
+    """Slugify *text* for use in canonical_url paths.
+
+    Lowercases text, replaces non-alphanumeric characters (except underscore)
+    with underscores, strips leading/trailing underscores, and collapses
+    consecutive underscores.
+    """
+    slug = re.sub(r"[^\w]", "_", text.lower())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "root"
+
+
+class BookAdapter(SourceAdapter):
+    """Adapter for curated book content ingestion.
+
+    Books do not have a live fetcher.  Raw source dicts are supplied manually
+    (e.g. via ``research-ingest --from-adapter --source-family book``) or
+    loaded from a structured fixture.
+
+    Expected raw_source keys:
+    - title (str): Book title
+    - authors (str or list[str]): Author(s)
+    - book_id (str): Stable book identifier (e.g. "market_microstructure_theory")
+    - chapter (str, optional): Chapter name/label
+    - section (str, optional): Section name/label (used if chapter absent)
+    - body_text (str): Chapter/section body text
+    - published_date (str, optional): ISO-8601 publication date
+
+    Identity is stable: canonical_url = "internal://book/{book_id}/{chapter_or_section_slug}"
+    where chapter_or_section_slug = slugify(chapter or section or "root").
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache: Optional[RawSourceCache] = None,
+    ) -> ExtractedDocument:
+        title = raw_source.get("title", "Unknown Book")
+        authors_raw = raw_source.get("authors", [])
+        book_id = raw_source.get("book_id", "")
+        chapter = raw_source.get("chapter", None)
+        section = raw_source.get("section", None)
+        body_text = raw_source.get("body_text", "")
+        published_date = raw_source.get("published_date", None)
+
+        # Determine chapter/section slug for stable canonical URL
+        chapter_or_section = chapter or section or "root"
+        slug = _slugify(chapter_or_section)
+
+        canonical_url = f"internal://book/{book_id}/{slug}"
+
+        # Build author string
+        if isinstance(authors_raw, list):
+            author = ", ".join(str(a) for a in authors_raw) if authors_raw else "unknown"
+        else:
+            author = str(authors_raw) if authors_raw else "unknown"
+
+        # Source ID from canonical URL
+        source_id = make_source_id(canonical_url)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, "book", cache)
+
+        metadata = {
+            "canonical_ids": {"book_id": book_id} if book_id else {},
+            "source_type": "book",
+            "chapter": chapter,
+            "section": section,
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body_text or title,
+            source_url=canonical_url,
+            source_family="book",
+            author=author,
+            publish_date=published_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registry and factory
 # ---------------------------------------------------------------------------
 
@@ -305,6 +392,7 @@ ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
     "github": GithubAdapter,
     "blog": BlogNewsAdapter,
     "news": BlogNewsAdapter,
+    "book": BookAdapter,
 }
 
 

@@ -15,6 +15,7 @@ import base64
 import json
 import os
 import re
+import urllib.parse
 import xml.etree.ElementTree as ET
 from typing import Callable, Optional
 import urllib.error
@@ -167,6 +168,88 @@ class LiveAcademicFetcher:
             "authors": authors,
             "published_date": published_date,
         }
+
+    def search_by_topic(self, query: str, max_results: int = 5) -> list[dict]:
+        """Search arXiv for papers matching *query*.
+
+        Uses the arXiv Atom API search endpoint.
+
+        Parameters
+        ----------
+        query:
+            Topic/keyword search string (e.g. "prediction markets microstructure").
+        max_results:
+            Maximum number of results to return (default 5).
+
+        Returns
+        -------
+        list[dict]
+            Each dict has the same keys as fetch():
+            url, title, abstract, authors (list[str]), published_date.
+            Returns [] when the API returns zero entries (no FetchError).
+
+        Raises
+        ------
+        FetchError
+            On network failure or XML parse error.
+        """
+        encoded = urllib.parse.quote_plus(query)
+        api_url = (
+            f"http://export.arxiv.org/api/query"
+            f"?search_query=all:{encoded}&max_results={max_results}"
+        )
+
+        xml_bytes = self._http_fn(api_url, self._timeout, {})
+
+        # Parse Atom XML
+        try:
+            root = ET.fromstring(xml_bytes)
+        except ET.ParseError as exc:
+            raise FetchError(f"Failed to parse arXiv search API response: {exc}") from exc
+
+        results = []
+        for entry in root.findall("atom:entry", _ATOM_NS):
+            title_el = entry.find("atom:title", _ATOM_NS)
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+
+            summary_el = entry.find("atom:summary", _ATOM_NS)
+            abstract = summary_el.text.strip() if summary_el is not None and summary_el.text else ""
+
+            authors = [
+                name_el.text.strip()
+                for author_el in entry.findall("atom:author", _ATOM_NS)
+                for name_el in [author_el.find("atom:name", _ATOM_NS)]
+                if name_el is not None and name_el.text
+            ]
+
+            published_el = entry.find("atom:published", _ATOM_NS)
+            published_date = None
+            if published_el is not None and published_el.text:
+                published_date = published_el.text[:10]  # YYYY-MM-DD
+
+            # Build canonical URL from entry id element
+            id_el = entry.find("atom:id", _ATOM_NS)
+            canonical_url = ""
+            if id_el is not None and id_el.text:
+                raw_id = id_el.text.strip()
+                # arXiv IDs in feed: http://arxiv.org/abs/YYMM.NNNNNvN
+                id_match = _ARXIV_URL_ID_RE.search(raw_id)
+                if id_match:
+                    canonical_url = f"https://arxiv.org/abs/{id_match.group(1)}"
+                else:
+                    canonical_url = raw_id
+
+            results.append(
+                {
+                    "url": canonical_url,
+                    "title": title,
+                    "abstract": abstract,
+                    "authors": authors,
+                    "published_date": published_date,
+                }
+            )
+
+        return results
 
 
 # ---------------------------------------------------------------------------
