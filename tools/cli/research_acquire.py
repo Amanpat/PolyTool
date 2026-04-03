@@ -132,6 +132,13 @@ def main(argv: list) -> int:
         action="store_true",
         help="Run claim extraction after ingest (opt-in; non-fatal if extraction fails).",
     )
+    parser.add_argument(
+        "--run-log",
+        dest="run_log",
+        metavar="PATH",
+        default="artifacts/research/run_log.jsonl",
+        help="Path to run log JSONL for health tracking (default: artifacts/research/run_log.jsonl).",
+    )
 
     if not argv:
         parser.print_help(sys.stderr)
@@ -161,6 +168,11 @@ def main(argv: list) -> int:
         return _run_search_mode(args)
 
     acquired_at = _utcnow_iso()
+
+    # Capture timing for run_log (health surface)
+    import time as _time
+    _t0 = _time.monotonic()
+    _started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     # --- Step 1: Fetch raw source dict ---
     try:
@@ -308,8 +320,24 @@ def main(argv: list) -> int:
     except Exception as exc:
         print(f"Warning: failed to write acquisition review: {exc}", file=sys.stderr)
 
-    # If ingestion itself errored out, return 2
+    # If ingestion itself errored out, write error run_log record and return 2
     if error_str:
+        try:
+            from packages.research.monitoring.run_log import RunRecord, append_run
+            _duration = _time.monotonic() - _t0
+            rec = RunRecord(
+                pipeline="research_acquire",
+                started_at=_started_at,
+                duration_s=_duration,
+                accepted=0,
+                rejected=0,
+                errors=1,
+                exit_status="error",
+                metadata={"source_family": args.source_family, "source_url": args.url},
+            )
+            append_run(rec, path=Path(args.run_log))
+        except Exception:
+            pass  # Non-fatal: health surface, not core pipeline
         return 2
 
     # --- Step 7: Output ---
@@ -338,6 +366,26 @@ def main(argv: list) -> int:
                 f"| family={args.source_family} | source_id={source_id} "
                 f"| doc_id={short_id} | chunks={chunk_count} | dedup={dedup_status}"
             )
+
+    # Write success run record (non-fatal — health surface, not core pipeline)
+    try:
+        from packages.research.monitoring.run_log import RunRecord, append_run
+        _duration = _time.monotonic() - _t0
+        _accepted = 0 if rejected else 1
+        _rejected_count = 1 if rejected else 0
+        rec = RunRecord(
+            pipeline="research_acquire",
+            started_at=_started_at,
+            duration_s=_duration,
+            accepted=_accepted,
+            rejected=_rejected_count,
+            errors=0,
+            exit_status="ok",
+            metadata={"source_family": args.source_family, "source_url": args.url},
+        )
+        append_run(rec, path=Path(args.run_log))
+    except Exception:
+        pass  # Non-fatal: health surface, not core pipeline
 
     return 0
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time as _time
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -93,6 +95,13 @@ def main(argv: list) -> int:
         action="store_true",
         help="Run claim extraction after ingest (opt-in; non-fatal if extraction fails).",
     )
+    parser.add_argument(
+        "--run-log",
+        dest="run_log",
+        metavar="PATH",
+        default="artifacts/research/run_log.jsonl",
+        help="Path to run log JSONL for health tracking (default: artifacts/research/run_log.jsonl).",
+    )
 
     if not argv:
         parser.print_help(sys.stderr)
@@ -123,6 +132,11 @@ def main(argv: list) -> int:
         if not args.source_family:
             print("Error: --source-family is required when using --from-adapter.", file=sys.stderr)
             return 1
+
+    # Capture timing for run_log (health surface)
+    _t0 = _time.monotonic()
+    _started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    _ingest_error: bool = False
 
     store = None
     try:
@@ -183,6 +197,24 @@ def main(argv: list) -> int:
 
     except Exception as exc:
         print(f"Error: ingestion failed: {exc}", file=sys.stderr)
+        _ingest_error = True
+        # Write error run record (non-fatal — health surface, not core pipeline)
+        try:
+            from packages.research.monitoring.run_log import RunRecord, append_run
+            _duration = _time.monotonic() - _t0
+            rec = RunRecord(
+                pipeline="research_ingest",
+                started_at=_started_at,
+                duration_s=_duration,
+                accepted=0,
+                rejected=0,
+                errors=1,
+                exit_status="error",
+                metadata={"source_type": args.source_type},
+            )
+            append_run(rec, path=Path(args.run_log))
+        except Exception:
+            pass  # Non-fatal: health surface, not core pipeline
         return 2
     finally:
         if store is not None:
@@ -232,5 +264,25 @@ def main(argv: list) -> int:
                 f"Ingested: {display_title} | doc_id={short_id} "
                 f"| chunks={result.chunk_count} | gate={gate_label}"
             )
+
+    # Write success run record (non-fatal — health surface, not core pipeline)
+    try:
+        from packages.research.monitoring.run_log import RunRecord, append_run
+        _duration = _time.monotonic() - _t0
+        _accepted = 0 if result.rejected else 1
+        _rejected = 1 if result.rejected else 0
+        rec = RunRecord(
+            pipeline="research_ingest",
+            started_at=_started_at,
+            duration_s=_duration,
+            accepted=_accepted,
+            rejected=_rejected,
+            errors=0,
+            exit_status="ok",
+            metadata={"source_type": args.source_type},
+        )
+        append_run(rec, path=Path(args.run_log))
+    except Exception:
+        pass  # Non-fatal: health surface, not core pipeline
 
     return 0

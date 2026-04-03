@@ -659,3 +659,190 @@ class TestResearchHealthCLI:
         with patch("requests.post", side_effect=Exception("NO NETWORK ALLOWED")):
             ret = main(["--run-log", str(log_path)])
         assert ret == 0  # Should complete without network
+
+
+# ---------------------------------------------------------------------------
+# Task 1: CLI run_log wiring tests
+# ---------------------------------------------------------------------------
+
+class TestCLIRunLogWiring:
+    """Tests that research-ingest and research-acquire write RunRecords to run_log."""
+
+    def test_ingest_writes_run_log(self, tmp_path):
+        """research_ingest.main writes a RunRecord after successful ingest."""
+        from packages.research.monitoring.run_log import list_runs
+        from tools.cli.research_ingest import main
+
+        fixture = tmp_path / "test_doc.md"
+        fixture.write_text(
+            "# Test Document\n\n"
+            "This document discusses prediction market content, "
+            "market maker strategies, and arbitrage opportunities."
+        )
+        log_path = tmp_path / "run_log.jsonl"
+
+        ret = main(["--file", str(fixture), "--no-eval", "--run-log", str(log_path)])
+        assert ret == 0, f"main() returned {ret}"
+
+        runs = list_runs(path=log_path)
+        assert len(runs) == 1, f"Expected 1 run record, got {len(runs)}"
+        r = runs[0]
+        assert r.pipeline == "research_ingest"
+        assert r.accepted == 1
+        assert r.rejected == 0
+        assert r.exit_status == "ok"
+        assert r.duration_s > 0
+
+    def test_ingest_rejected_writes_run_log(self, tmp_path, monkeypatch):
+        """When ingest returns rejected=True, run_log has accepted=0, rejected=1, exit_status='ok'."""
+        from packages.research.monitoring.run_log import list_runs
+        from packages.research.ingestion.pipeline import IngestResult
+
+        rejected_result = IngestResult(
+            doc_id="",
+            chunk_count=0,
+            gate_decision=None,
+            rejected=True,
+            reject_reason="hard_stop: low quality",
+        )
+
+        import packages.research.ingestion.pipeline as pipeline_mod
+        monkeypatch.setattr(
+            pipeline_mod.IngestPipeline, "ingest", lambda self, *a, **kw: rejected_result
+        )
+
+        from tools.cli.research_ingest import main
+
+        fixture = tmp_path / "test_doc.md"
+        fixture.write_text("# Low quality doc")
+        log_path = tmp_path / "run_log.jsonl"
+
+        ret = main(["--file", str(fixture), "--no-eval", "--run-log", str(log_path)])
+        assert ret == 0
+
+        runs = list_runs(path=log_path)
+        assert len(runs) == 1
+        r = runs[0]
+        assert r.accepted == 0
+        assert r.rejected == 1
+        assert r.exit_status == "ok"
+
+    def test_ingest_error_writes_run_log(self, tmp_path, monkeypatch):
+        """When ingest raises, run_log has errors=1, exit_status='error'."""
+        from packages.research.monitoring.run_log import list_runs
+        import packages.research.ingestion.pipeline as pipeline_mod
+
+        monkeypatch.setattr(
+            pipeline_mod.IngestPipeline, "ingest",
+            lambda self, *a, **kw: (_ for _ in ()).throw(RuntimeError("simulated failure")),
+        )
+
+        from tools.cli.research_ingest import main
+
+        fixture = tmp_path / "test_doc.md"
+        fixture.write_text("# Test Document")
+        log_path = tmp_path / "run_log.jsonl"
+
+        # CLI returns 2 on exception, but run_log should still be written
+        ret = main(["--file", str(fixture), "--no-eval", "--run-log", str(log_path)])
+        assert ret == 2
+
+        runs = list_runs(path=log_path)
+        assert len(runs) == 1
+        r = runs[0]
+        assert r.errors == 1
+        assert r.exit_status == "error"
+
+    def test_acquire_dryrun_no_run_log(self, tmp_path, monkeypatch):
+        """research_acquire.main with --dry-run does NOT write a run_log entry."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+
+        def _arxiv_bytes(url, timeout, headers):
+            xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2301.12345v1</id>
+    <title>Test Paper</title>
+    <summary>Abstract text.</summary>
+    <author><name>Test Author</name></author>
+    <published>2024-01-01T00:00:00Z</published>
+  </entry>
+</feed>"""
+            return xml
+
+        monkeypatch.setattr(fetchers_mod, "_default_urlopen", _arxiv_bytes)
+
+        from tools.cli.research_acquire import main
+
+        log_path = tmp_path / "run_log.jsonl"
+        ret = main([
+            "--url", "https://arxiv.org/abs/2301.12345",
+            "--source-family", "academic",
+            "--dry-run",
+            "--no-eval",
+            "--run-log", str(log_path),
+        ])
+        assert ret == 0
+        # Dry-run: no run_log entry
+        assert not log_path.exists() or log_path.read_text(encoding="utf-8").strip() == ""
+
+    def test_acquire_writes_run_log(self, tmp_path, monkeypatch):
+        """After a successful acquire (mocked fetch), run_log contains a RunRecord."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+
+        def _arxiv_bytes(url, timeout, headers):
+            xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2301.12345v1</id>
+    <title>Test Paper</title>
+    <summary>Abstract text for prediction markets.</summary>
+    <author><name>Test Author</name></author>
+    <published>2024-01-01T00:00:00Z</published>
+  </entry>
+</feed>"""
+            return xml
+
+        monkeypatch.setattr(fetchers_mod, "_default_urlopen", _arxiv_bytes)
+
+        from tools.cli.research_acquire import main
+        from packages.research.monitoring.run_log import list_runs
+
+        log_path = tmp_path / "run_log.jsonl"
+        db_path = tmp_path / "test.sqlite3"
+        cache_dir = tmp_path / "cache"
+        review_dir = tmp_path / "reviews"
+
+        ret = main([
+            "--url", "https://arxiv.org/abs/2301.12345",
+            "--source-family", "academic",
+            "--no-eval",
+            "--run-log", str(log_path),
+            "--db", str(db_path),
+            "--cache-dir", str(cache_dir),
+            "--review-dir", str(review_dir),
+        ])
+        assert ret == 0
+
+        runs = list_runs(path=log_path)
+        assert len(runs) == 1
+        r = runs[0]
+        assert r.pipeline == "research_acquire"
+        assert r.exit_status == "ok"
+
+    def test_run_log_write_failure_is_nonfatal(self, tmp_path, monkeypatch):
+        """When append_run raises, CLI still returns 0 (run_log write is non-fatal)."""
+        import packages.research.monitoring.run_log as run_log_mod
+        monkeypatch.setattr(run_log_mod, "append_run", lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
+
+        from tools.cli.research_ingest import main
+
+        fixture = tmp_path / "test_doc.md"
+        fixture.write_text(
+            "# Test Document\n\n"
+            "This document discusses prediction market content, "
+            "market maker strategies, and arbitrage opportunities."
+        )
+
+        ret = main(["--file", str(fixture), "--no-eval", "--run-log", str(tmp_path / "run_log.jsonl")])
+        assert ret == 0, f"CLI returned {ret} instead of 0 when append_run raises"
