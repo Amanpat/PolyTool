@@ -497,7 +497,12 @@ def ingest_dossier_findings(
                 ))
                 continue
 
-        # Ingest via pipeline using body text + metadata kwargs
+        # Ingest via pipeline using body text + metadata kwargs.
+        # Note: PlainTextExtractor raw-text mode sets source_url="internal://manual"
+        # and only stores content_hash in metadata_json.  When post_extract_claims=True,
+        # we need the body to be retrievable by extract_and_link (_get_document_body).
+        # We therefore run ingestion without post_ingest_extract and then, if needed,
+        # patch metadata_json with the body before calling extract_and_link directly.
         result = pipeline.ingest(
             doc.body,
             source_type="dossier",
@@ -507,8 +512,40 @@ def ingest_dossier_findings(
             source_family="dossier_report",
             source_url=doc.source_url,
             content_hash=doc.metadata.get("content_hash"),
-            post_ingest_extract=post_extract_claims,
+            post_ingest_extract=False,  # handled below after metadata patch
         )
+
+        if post_extract_claims and result.doc_id and not result.rejected:
+            import json as _json
+            try:
+                from packages.research.ingestion.claim_extractor import extract_and_link
+
+                # Patch metadata_json to include the body so _get_document_body can
+                # retrieve it (the pipeline stores only content_hash in metadata_json
+                # by default).
+                stored_doc = store._conn.execute(
+                    "SELECT metadata_json FROM source_documents WHERE id=?",
+                    (result.doc_id,),
+                ).fetchone()
+                if stored_doc:
+                    try:
+                        existing_meta = _json.loads(stored_doc[0] or "{}")
+                    except (_json.JSONDecodeError, TypeError):
+                        existing_meta = {}
+                    if "body" not in existing_meta:
+                        existing_meta["body"] = doc.body
+                        store._conn.execute(
+                            "UPDATE source_documents SET metadata_json=? WHERE id=?",
+                            (_json.dumps(existing_meta), result.doc_id),
+                        )
+                        store._conn.commit()
+
+                extract_and_link(store, result.doc_id)
+            except Exception:
+                # Non-fatal: document is already stored; claim extraction failure
+                # should not block the ingest result.
+                pass
+
         results.append(result)
 
     return results

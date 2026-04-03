@@ -289,3 +289,187 @@ class TestWalletScanDossierIntegration:
         docs = _get_source_documents(store)
         families = {d["source_family"] for d in docs}
         assert "dossier_report" in families
+
+
+# ---------------------------------------------------------------------------
+# New tests: Dossier claim extraction (derived_claims path)
+# ---------------------------------------------------------------------------
+
+
+def _count_derived_claims(store: KnowledgeStore) -> int:
+    return store._conn.execute("SELECT COUNT(*) FROM derived_claims").fetchone()[0]
+
+
+def _get_derived_claims(store: KnowledgeStore) -> list[dict]:
+    rows = store._conn.execute(
+        "SELECT id, source_document_id, claim_text, claim_type, confidence FROM derived_claims"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _count_claim_evidence(store: KnowledgeStore) -> int:
+    return store._conn.execute("SELECT COUNT(*) FROM claim_evidence").fetchone()[0]
+
+
+def _get_claim_evidence(store: KnowledgeStore) -> list[dict]:
+    rows = store._conn.execute(
+        "SELECT claim_id, source_document_id FROM claim_evidence"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+class TestDossierClaimExtraction:
+    """Verify that post_extract_claims=True produces derived_claims in KnowledgeStore
+    and that the hybrid retrieval path (query_knowledge_store_for_rrf) can surface them.
+
+    All tests are offline: in-memory SQLite, no network, no LLM.
+    """
+
+    def test_ingest_with_claims_produces_derived_claims(self, tmp_path: Path) -> None:
+        """After ingest with post_extract_claims=True, derived_claims has >= 1 row."""
+        scan_root = _make_full_scan_root(tmp_path / "runs", "run1")
+        store = _in_memory_store()
+
+        findings = extract_dossier_findings(scan_root)
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+
+        claim_count = _count_derived_claims(store)
+        assert claim_count >= 1, (
+            f"Expected >= 1 derived_claim after ingest with post_extract_claims=True, got {claim_count}"
+        )
+
+        # Each claim must reference a valid source_document
+        claims = _get_derived_claims(store)
+        source_doc_ids = {
+            row["id"] for row in store._conn.execute(
+                "SELECT id FROM source_documents"
+            ).fetchall()
+        }
+        for claim in claims:
+            assert claim["source_document_id"] in source_doc_ids, (
+                f"claim {claim['id']} references unknown source_document_id "
+                f"{claim['source_document_id']!r}"
+            )
+
+    def test_claim_evidence_links_back_to_source(self, tmp_path: Path) -> None:
+        """After ingest with claims, claim_evidence rows reference source_documents
+        with source_family='dossier_report'."""
+        scan_root = _make_full_scan_root(tmp_path / "runs", "run1")
+        store = _in_memory_store()
+
+        findings = extract_dossier_findings(scan_root)
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+
+        evidence_rows = _get_claim_evidence(store)
+        assert len(evidence_rows) >= 1, (
+            "Expected >= 1 claim_evidence row after ingest with post_extract_claims=True"
+        )
+
+        # All evidence must link back to a dossier_report source document
+        for ev in evidence_rows:
+            src_doc = store.get_source_document(ev["source_document_id"])
+            assert src_doc is not None, (
+                f"claim_evidence references missing source_document {ev['source_document_id']!r}"
+            )
+            assert src_doc.get("source_family") == "dossier_report", (
+                f"Expected source_family='dossier_report', got {src_doc.get('source_family')!r}"
+            )
+
+    def test_hybrid_retrieval_surfaces_dossier_claims(self, tmp_path: Path) -> None:
+        """After ingest with claims, query_knowledge_store_for_rrf returns >= 1 result
+        for a keyword present in the MINIMAL_DOSSIER fixture ('MOMENTUM' or 'holding_style')."""
+        from packages.research.ingestion.retriever import query_knowledge_store_for_rrf
+
+        scan_root = _make_full_scan_root(tmp_path / "runs", "run1")
+        store = _in_memory_store()
+
+        findings = extract_dossier_findings(scan_root)
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+
+        # Try both keywords present in MINIMAL_DOSSIER fixture
+        results_momentum = query_knowledge_store_for_rrf(store, text_query="MOMENTUM")
+        results_style = query_knowledge_store_for_rrf(store, text_query="holding_style")
+
+        total = len(results_momentum) + len(results_style)
+        assert total >= 1, (
+            f"Expected >= 1 result from hybrid retrieval after dossier ingest with claims. "
+            f"Got {len(results_momentum)} for 'MOMENTUM', {len(results_style)} for 'holding_style'."
+        )
+
+    def test_wallet_scanner_e2e_produces_claims(self, tmp_path: Path) -> None:
+        """Full E2E: WalletScanner with _make_dossier_extractor (post_extract_claims=True)
+        produces derived_claims in the KnowledgeStore after a scan run."""
+        scan_root = _make_full_scan_root(tmp_path / "runs", "e2e_claims_run")
+        store = _in_memory_store()
+
+        def real_extractor_with_claims(scan_run_root: Path, slug: str, wallet: str) -> None:
+            findings = extract_dossier_findings(scan_run_root)
+            if findings:
+                ingest_dossier_findings(findings, store, post_extract_claims=True)
+
+        scanner = WalletScanner(
+            scan_callable=lambda ident, flags: scan_root.as_posix(),
+            now_provider=lambda: __import__("datetime").datetime(2026, 4, 3, 12, 0, 0,
+                                               tzinfo=__import__("datetime").timezone.utc),
+            post_scan_extractor=real_extractor_with_claims,
+        )
+        scanner.run(
+            entries=[{"identifier": "@integuser", "kind": "handle"}],
+            output_root=tmp_path / "out",
+            run_id="e2e-claims-run",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+
+        claim_count = _count_derived_claims(store)
+        assert claim_count >= 1, (
+            f"Expected >= 1 derived_claim after full E2E scan with claim extraction, got {claim_count}"
+        )
+
+    def test_idempotent_reingest_with_claims(self, tmp_path: Path) -> None:
+        """Re-ingesting same findings twice with post_extract_claims=True produces
+        the same number of derived_claims (INSERT OR IGNORE prevents duplicates)."""
+        scan_root = _make_full_scan_root(tmp_path / "runs", "run1")
+        store = _in_memory_store()
+
+        findings = extract_dossier_findings(scan_root)
+
+        # First ingest with claims
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+        count_after_first = _count_derived_claims(store)
+        assert count_after_first >= 1, "First ingest produced no derived_claims"
+
+        # Second ingest: source_documents dedup (content-hash) prevents re-running extract_and_link
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+        count_after_second = _count_derived_claims(store)
+
+        assert count_after_second == count_after_first, (
+            f"Idempotent reingest failed: claim count changed from "
+            f"{count_after_first} to {count_after_second}"
+        )
+
+    def test_provenance_chain_claim_to_source_document(self, tmp_path: Path) -> None:
+        """Provenance chain: derived_claim.source_document_id -> source_documents row
+        with source_family='dossier_report'."""
+        scan_root = _make_full_scan_root(tmp_path / "runs", "run1")
+        store = _in_memory_store()
+
+        findings = extract_dossier_findings(scan_root)
+        ingest_dossier_findings(findings, store, post_extract_claims=True)
+
+        claims = _get_derived_claims(store)
+        assert len(claims) >= 1, "No derived_claims produced"
+
+        for claim in claims:
+            src_doc_id = claim["source_document_id"]
+            assert src_doc_id, f"derived_claim {claim['id']} has no source_document_id"
+
+            src_doc = store.get_source_document(src_doc_id)
+            assert src_doc is not None, (
+                f"derived_claim {claim['id']} references non-existent "
+                f"source_document {src_doc_id!r}"
+            )
+            assert src_doc.get("source_family") == "dossier_report", (
+                f"source_document for claim {claim['id']} has source_family="
+                f"{src_doc.get('source_family')!r}, expected 'dossier_report'"
+            )

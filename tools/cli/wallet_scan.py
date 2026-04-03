@@ -92,10 +92,10 @@ def _make_dossier_extractor(store_path: str = DEFAULT_DOSSIER_DB) -> PostScanExt
     def _extract_and_ingest(scan_run_root: Path, slug: str, wallet: str) -> None:
         findings = extract_dossier_findings(scan_run_root)
         if findings:
-            ingest_dossier_findings(findings, store)
+            ingest_dossier_findings(findings, store, post_extract_claims=True)
             print(
                 f"[dossier-extract] {slug}: {len(findings)} finding(s) ingested "
-                f"into {store_path}",
+                f"+ claims extracted into {store_path}",
                 file=sys.stderr,
             )
 
