@@ -24,6 +24,7 @@ from polytool.user_context import resolve_user_context
 
 DEFAULT_OUTPUT_ROOT = Path("artifacts") / "research" / "wallet_scan"
 DEFAULT_PROFILE = "lite"
+DEFAULT_DOSSIER_DB = "kb/rag/knowledge/knowledge.sqlite3"
 TOP_N_LEADERBOARD = 20
 
 # Scan flags used for each profile. These are passed to the injected scan callable.
@@ -45,6 +46,60 @@ _PROFILE_FLAGS: Dict[str, Dict[str, Any]] = {
 }
 
 ScanCallable = Callable[[str, Dict[str, Any]], str]
+
+# PostScanExtractor: called once per successful scan with the scan run root dir,
+# the resolved user slug, and the wallet address.  Must never raise (errors are
+# caught and logged non-fatally so the scan loop is never aborted).
+PostScanExtractor = Callable[[Path, str, str], None]
+
+
+# ---------------------------------------------------------------------------
+# Dossier extraction helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_wallet_from_dossier(scan_run_root: Path) -> str:
+    """Return proxy_wallet from dossier.json in scan_run_root, or '' if absent."""
+    dossier_path = scan_run_root / "dossier.json"
+    if not dossier_path.exists():
+        return ""
+    try:
+        raw = json.loads(dossier_path.read_text(encoding="utf-8"))
+        return str(raw.get("header", {}).get("proxy_wallet", "") or "")
+    except Exception:
+        return ""
+
+
+def _make_dossier_extractor(store_path: str = DEFAULT_DOSSIER_DB) -> PostScanExtractor:
+    """Return a post-scan extractor callable that writes findings to KnowledgeStore.
+
+    Uses lazy imports so the default (no-extractor) code path never pays the
+    import cost of research packages.
+
+    Parameters
+    ----------
+    store_path:
+        SQLite path for KnowledgeStore.  Use ":memory:" in tests.
+    """
+    from packages.polymarket.rag.knowledge_store import KnowledgeStore
+    from packages.research.integration.dossier_extractor import (
+        extract_dossier_findings,
+        ingest_dossier_findings,
+    )
+
+    store = KnowledgeStore(db_path=store_path)
+
+    def _extract_and_ingest(scan_run_root: Path, slug: str, wallet: str) -> None:
+        findings = extract_dossier_findings(scan_run_root)
+        if findings:
+            ingest_dossier_findings(findings, store)
+            print(
+                f"[dossier-extract] {slug}: {len(findings)} finding(s) ingested "
+                f"into {store_path}",
+                file=sys.stderr,
+            )
+
+    return _extract_and_ingest
 
 
 # ---------------------------------------------------------------------------
@@ -376,9 +431,11 @@ class WalletScanner:
         self,
         scan_callable: Optional[ScanCallable] = None,
         now_provider: Optional[Callable[[], datetime]] = None,
+        post_scan_extractor: Optional[PostScanExtractor] = None,
     ) -> None:
         self._scan_callable = scan_callable or _default_scan_callable
         self._now_provider = now_provider or _utcnow
+        self._post_scan_extractor = post_scan_extractor
 
     def run(
         self,
@@ -415,6 +472,23 @@ class WalletScanner:
                 scan_run_root_str = self._scan_callable(identifier, scan_flags)
                 scan_run_root = Path(scan_run_root_str)
                 result = _success_result(entry, slug, scan_run_root)
+
+                # Post-scan hook: extract dossier findings into KnowledgeStore.
+                # Non-fatal: errors are caught and logged; the scan loop always continues.
+                if self._post_scan_extractor is not None:
+                    wallet_addr = _read_wallet_from_dossier(scan_run_root)
+                    try:
+                        self._post_scan_extractor(
+                            scan_run_root,
+                            str(slug or ""),
+                            wallet_addr,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[dossier-extract] Non-fatal error for {identifier!r}: {exc}",
+                            file=sys.stderr,
+                        )
+
                 per_user_results.append(result)
             except Exception as exc:
                 error_text = f"{type(exc).__name__}: {exc}"
@@ -517,6 +591,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Continue on per-entry scan failures (default: true).",
     )
+    parser.add_argument(
+        "--extract-dossier",
+        action="store_true",
+        default=False,
+        help=(
+            "After each wallet scan, extract dossier findings and ingest into "
+            "KnowledgeStore (requires dossier.json to be present in the scan run "
+            "root). Findings are stored with source_family='dossier_report' and "
+            "are queryable via rag-query / research-query commands."
+        ),
+    )
+    parser.add_argument(
+        "--extract-dossier-db",
+        default=DEFAULT_DOSSIER_DB,
+        help=(
+            f"KnowledgeStore SQLite path for --extract-dossier "
+            f"(default: {DEFAULT_DOSSIER_DB})."
+        ),
+    )
     return parser
 
 
@@ -538,7 +631,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("Error: input file produced zero entries after filtering blank/comment lines.", file=sys.stderr)
         return 1
 
-    scanner = WalletScanner()
+    post_scan_extractor = None
+    if getattr(args, "extract_dossier", False):
+        post_scan_extractor = _make_dossier_extractor(
+            store_path=getattr(args, "extract_dossier_db", DEFAULT_DOSSIER_DB)
+        )
+
+    scanner = WalletScanner(post_scan_extractor=post_scan_extractor)
     try:
         output_paths = scanner.run(
             entries=entries,

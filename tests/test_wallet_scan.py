@@ -13,7 +13,9 @@ from tools.cli.wallet_scan import (
     _build_leaderboard,
     _build_leaderboard_md,
     _detect_identifier_type,
+    _make_dossier_extractor,
     _sort_key_for_leaderboard,
+    _read_wallet_from_dossier,
     parse_input_file,
 )
 
@@ -429,3 +431,207 @@ class TestLeaderboardMarkdown:
         md = _build_leaderboard_md(lb)
         assert "alice" in md
         assert "5.0000" in md
+
+
+# ---------------------------------------------------------------------------
+# WalletScanner — post-scan dossier hook
+# ---------------------------------------------------------------------------
+
+MINIMAL_DOSSIER = {
+    "header": {
+        "export_id": "test-export-001",
+        "proxy_wallet": "0xABC",
+        "user_input": "testuser",
+        "generated_at": "2026-04-03T10:00:00Z",
+        "window_days": 90,
+        "window_start": "2026-01-03",
+        "window_end": "2026-04-03",
+        "max_trades": 1000,
+    },
+    "detectors": {
+        "latest": [
+            {"detector": "holding_style", "label": "MOMENTUM", "score": 0.8}
+        ]
+    },
+    "pnl_summary": {
+        "pricing_confidence": "HIGH",
+        "trend_30d": "POSITIVE",
+        "latest_bucket": "profitable",
+    },
+}
+
+
+class TestWalletScannerDossierHook:
+    """Tests for the post_scan_extractor hook and --extract-dossier integration."""
+
+    def _make_scanner_with_hook(
+        self,
+        scan_results: dict,
+        extractor_calls: list,
+        *,
+        fail_extractor: bool = False,
+    ) -> WalletScanner:
+        """Build a WalletScanner with a call-tracking extractor."""
+        from pathlib import Path as _Path
+
+        def fake_scan(identifier: str, scan_flags: dict) -> str:
+            if identifier not in scan_results:
+                raise RuntimeError(f"No fake scan result for {identifier!r}")
+            return scan_results[identifier]
+
+        def tracking_extractor(scan_run_root: _Path, slug: str, wallet: str) -> None:
+            if fail_extractor:
+                raise ValueError("extractor exploded")
+            extractor_calls.append((scan_run_root, slug, wallet))
+
+        return WalletScanner(
+            scan_callable=fake_scan,
+            now_provider=lambda: FIXED_NOW,
+            post_scan_extractor=tracking_extractor,
+        )
+
+    def test_no_extractor_runs_unchanged(self, tmp_path: Path) -> None:
+        """WalletScanner with no post_scan_extractor runs without any dossier calls."""
+        run_root = _make_scan_run_root(tmp_path / "runs", "alice_run", pnl_net=1.0)
+        scanner = WalletScanner(
+            scan_callable=lambda ident, flags: run_root.as_posix(),
+            now_provider=lambda: FIXED_NOW,
+        )
+        paths = scanner.run(
+            entries=[{"identifier": "@Alice", "kind": "handle"}],
+            output_root=tmp_path / "out",
+            run_id="no-extractor-run",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+        assert Path(paths["leaderboard_json"]).exists()
+
+    def test_extractor_called_for_each_successful_scan(self, tmp_path: Path) -> None:
+        """post_scan_extractor receives (scan_run_root, slug, wallet) for each success."""
+        run_root_alice = _make_scan_run_root(tmp_path / "runs", "alice_run", pnl_net=5.0)
+        run_root_bob = _make_scan_run_root(tmp_path / "runs", "bob_run", pnl_net=3.0)
+
+        calls: list = []
+        scanner = self._make_scanner_with_hook(
+            {
+                "@Alice": run_root_alice.as_posix(),
+                "@Bob": run_root_bob.as_posix(),
+            },
+            calls,
+        )
+        scanner.run(
+            entries=[
+                {"identifier": "@Alice", "kind": "handle"},
+                {"identifier": "@Bob", "kind": "handle"},
+            ],
+            output_root=tmp_path / "out",
+            run_id="hook-test-run",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+        assert len(calls) == 2
+        slugs_called = {c[1] for c in calls}
+        # slug comes from resolve_user_context — just confirm it was called for both
+        assert len(slugs_called) == 2
+
+    def test_failed_scans_do_not_call_extractor(self, tmp_path: Path) -> None:
+        """The extractor is NOT called for failed wallet scans."""
+        run_root_bob = _make_scan_run_root(tmp_path / "runs", "bob_run", pnl_net=3.0)
+        calls: list = []
+
+        def flaky_scan(identifier: str, scan_flags: dict) -> str:
+            if identifier == "@Alice":
+                raise RuntimeError("scan failed")
+            return run_root_bob.as_posix()
+
+        def tracking_extractor(scan_run_root: Path, slug: str, wallet: str) -> None:
+            calls.append((scan_run_root, slug, wallet))
+
+        scanner = WalletScanner(
+            scan_callable=flaky_scan,
+            now_provider=lambda: FIXED_NOW,
+            post_scan_extractor=tracking_extractor,
+        )
+        scanner.run(
+            entries=[
+                {"identifier": "@Alice", "kind": "handle"},
+                {"identifier": "@Bob", "kind": "handle"},
+            ],
+            output_root=tmp_path / "out",
+            run_id="fail-extractor-run",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+        # Only the successful Bob scan should trigger the extractor
+        assert len(calls) == 1
+
+    def test_extractor_exception_is_non_fatal(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """An exception in the post_scan_extractor does NOT abort the scan loop."""
+        run_root_alice = _make_scan_run_root(tmp_path / "runs", "alice_run", pnl_net=5.0)
+        run_root_bob = _make_scan_run_root(tmp_path / "runs", "bob_run", pnl_net=3.0)
+
+        calls: list = []
+        call_count = {"n": 0}
+
+        def failing_then_ok_extractor(scan_run_root: Path, slug: str, wallet: str) -> None:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ValueError("first extractor exploded")
+            calls.append((scan_run_root, slug, wallet))
+
+        scanner = WalletScanner(
+            scan_callable=lambda ident, flags: (
+                run_root_alice.as_posix() if "Alice" in ident else run_root_bob.as_posix()
+            ),
+            now_provider=lambda: FIXED_NOW,
+            post_scan_extractor=failing_then_ok_extractor,
+        )
+        paths = scanner.run(
+            entries=[
+                {"identifier": "@Alice", "kind": "handle"},
+                {"identifier": "@Bob", "kind": "handle"},
+            ],
+            output_root=tmp_path / "out",
+            run_id="non-fatal-run",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+        # Both scans ran; extractor was called twice (once raising, once ok)
+        assert call_count["n"] == 2
+        # The leaderboard still contains both entries (loop didn't abort)
+        leaderboard = json.loads(Path(paths["leaderboard_json"]).read_text(encoding="utf-8"))
+        assert leaderboard["entries_succeeded"] == 2
+        # Error message was printed to stderr
+        captured = capsys.readouterr()
+        assert "dossier-extract" in captured.err
+        assert "Non-fatal" in captured.err
+
+    def test_read_wallet_from_dossier_present(self, tmp_path: Path) -> None:
+        """_read_wallet_from_dossier returns proxy_wallet from dossier.json."""
+        _write_json(tmp_path / "dossier.json", MINIMAL_DOSSIER)
+        wallet = _read_wallet_from_dossier(tmp_path)
+        assert wallet == "0xABC"
+
+    def test_read_wallet_from_dossier_missing_returns_empty(self, tmp_path: Path) -> None:
+        """_read_wallet_from_dossier returns '' when dossier.json is absent."""
+        wallet = _read_wallet_from_dossier(tmp_path)
+        assert wallet == ""
+
+    def test_make_dossier_extractor_returns_callable(self) -> None:
+        """_make_dossier_extractor returns a callable without importing at module level."""
+        extractor = _make_dossier_extractor(store_path=":memory:")
+        assert callable(extractor)
+
+    def test_extract_dossier_cli_flag_in_help(self, tmp_path: Path) -> None:
+        """--extract-dossier flag appears in wallet-scan CLI help output."""
+        from tools.cli.wallet_scan import build_parser
+        parser = build_parser()
+        help_text = parser.format_help()
+        assert "--extract-dossier" in help_text
+
+    def test_no_extract_dossier_flag_default_off(self, tmp_path: Path) -> None:
+        """Without --extract-dossier, args.extract_dossier is False."""
+        from tools.cli.wallet_scan import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["--input", "wallets.txt"])
+        assert args.extract_dossier is False
