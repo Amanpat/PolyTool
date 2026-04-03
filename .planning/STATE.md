@@ -5,9 +5,11 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 — Completed quick task 260402-wj9: RIS_02 Social Ingestion v1 — RedditAdapter + YouTubeAdapter + clean_transcript(), LiveRedditFetcher + LiveYouTubeFetcher (opt-in PRAW/yt-dlp), research-acquire CLI reddit/youtube choices, Twitter/X explicitly deferred; 30 new offline tests; 3405 passing
+Last activity: 2026-04-03 — Completed quick task 260402-wj3: RIS_01 Academic Ingestion v1 closure — ArXiv topic search (search_by_topic), BookAdapter (stable book_id/chapter identity), --extract-claims on both CLIs, SSRN truthfully deferred; 26 new offline tests; 3405 passing
 
 ## Recent Progress
+- quick-260402-wj3: RIS_01 Academic Ingestion v1 closure — ArXiv topic search, BookAdapter, --extract-claims CLI flag on both CLIs; SSRN truthfully deferred; 26 new offline tests (3405 passing)
+- quick-260402-wj9: RIS_02 Social Ingestion v1 — RedditAdapter + YouTubeAdapter + clean_transcript(), LiveRedditFetcher + LiveYouTubeFetcher (opt-in PRAW/yt-dlp), research-acquire CLI reddit/youtube choices, Twitter/X explicitly deferred; 30 new offline tests; 3405 passing
 - quick-260402-rmz: Cloud provider guard + replay-grade ProviderEvent metadata + ReplayDiff workflow + research-eval subcommands (eval/replay/list-providers); 20 new offline tests (3349 passing)
 - quick-260402-rm1: stdlib-only live fetchers, AcquisitionReviewWriter, research-acquire CLI, pytest.mark.live; 57 new offline tests
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
