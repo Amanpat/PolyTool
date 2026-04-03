@@ -29,6 +29,12 @@ def pytest_configure(config: pytest.Config) -> None:
     """Guard pytest tmpdir cleanup against Windows ACL edge cases."""
     import _pytest.tmpdir as pytest_tmpdir
 
+    # Register custom markers
+    config.addinivalue_line(
+        "markers",
+        'live: marks tests that require real network access (deselect with \'-m "not live"\')',
+    )
+
     global _SAFE_CLEANUP_ROOTS
 
     repo_root = Path(__file__).resolve().parent.parent
