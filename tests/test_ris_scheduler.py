@@ -366,3 +366,82 @@ class TestCliMissingSubcommand:
         except SystemExit as exc:
             # argparse exits with code 2 for unrecognized args
             assert exc.code != 0
+
+
+# ---------------------------------------------------------------------------
+# TestRunJobRunLog — run_log wiring tests (Task 1 + Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRunJobRunLog:
+    def test_run_job_writes_run_log_on_success(self) -> None:
+        """Successful run_job produces a RunRecord with exit_status='ok'."""
+        from packages.research.scheduling import scheduler as sched_mod
+        from packages.research.monitoring.run_log import RunRecord
+
+        records: list = []
+        mock_fn = MagicMock(return_value=None)
+        original = sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"]
+        sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = mock_fn
+        try:
+            result = sched_mod.run_job("academic_ingest", _run_log_fn=records.append)
+        finally:
+            sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = original
+
+        assert result == 0
+        assert len(records) == 1
+        rec = records[0]
+        assert isinstance(rec, RunRecord)
+        assert rec.pipeline == "academic_ingest"
+        assert rec.exit_status == "ok"
+        assert rec.duration_s >= 0
+
+    def test_run_job_writes_run_log_on_error(self) -> None:
+        """Failing run_job produces a RunRecord with exit_status='error'."""
+        from packages.research.scheduling import scheduler as sched_mod
+        from packages.research.monitoring.run_log import RunRecord
+
+        records: list = []
+        mock_fn = MagicMock(side_effect=RuntimeError("simulated failure"))
+        original = sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"]
+        sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = mock_fn
+        try:
+            result = sched_mod.run_job("academic_ingest", _run_log_fn=records.append)
+        finally:
+            sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = original
+
+        assert result == 1
+        assert len(records) == 1
+        rec = records[0]
+        assert isinstance(rec, RunRecord)
+        assert rec.pipeline == "academic_ingest"
+        assert rec.exit_status == "error"
+        assert rec.duration_s >= 0
+
+    def test_run_job_to_health_end_to_end(self, tmp_path) -> None:
+        """run_job -> append_run -> list_runs -> evaluate_health full pipeline."""
+        from packages.research.monitoring.run_log import append_run, list_runs
+        from packages.research.monitoring.health_checks import evaluate_health
+        from packages.research.scheduling import scheduler as sched_mod
+
+        log_path = tmp_path / "run_log.jsonl"
+
+        def capturing_log_fn(rec):
+            append_run(rec, path=log_path)
+
+        mock_fn = MagicMock(return_value=None)
+        original = sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"]
+        sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = mock_fn
+        try:
+            sched_mod.run_job("academic_ingest", _run_log_fn=capturing_log_fn)
+        finally:
+            sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = original
+
+        # Read back the run log
+        runs = list_runs(path=log_path)
+        assert len(runs) == 1
+        assert runs[0].pipeline == "academic_ingest"
+
+        # Evaluate health — pipeline_failed should be GREEN (successful run)
+        results = {r.check_name: r for r in evaluate_health(runs)}
+        assert results["pipeline_failed"].status == "GREEN"

@@ -21,6 +21,8 @@ Usage (injectable/testable):
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -249,10 +251,20 @@ _JOB_FN_MAP: dict[str, Callable[[], None]] = {
 # ---------------------------------------------------------------------------
 
 
-def run_job(job_id: str) -> int:
+def run_job(job_id: str, _run_log_fn: Optional[Callable] = None) -> int:
     """Invoke a single job callable by id.
 
     Returns 0 on success, 1 on unknown id or exception.
+
+    Parameters
+    ----------
+    job_id:
+        Registered job id (e.g. "academic_ingest").
+    _run_log_fn:
+        Optional callable that receives a RunRecord after each execution.
+        When None, defaults to the real append_run from run_log module
+        (lazy import — no coupling at module import time).
+        Provide a replacement for offline testing.
     """
     callable_name = _JOB_CALLABLE_MAP.get(job_id)
     if callable_name is None:
@@ -264,12 +276,39 @@ def run_job(job_id: str) -> int:
         logger.error("run_job: callable %r not found in _JOB_FN_MAP", callable_name)
         return 1
 
+    started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    t0 = time.monotonic()
+    exit_status = "ok"
+    exit_code = 0
+
     try:
         fn()
-        return 0
     except Exception:
         logger.exception("run_job: job %r raised an exception", job_id)
-        return 1
+        exit_status = "error"
+        exit_code = 1
+    finally:
+        duration_s = time.monotonic() - t0
+
+        # Lazy import of RunRecord and append_run to avoid coupling at module load.
+        try:
+            from packages.research.monitoring.run_log import RunRecord, append_run  # noqa: PLC0415
+
+            record = RunRecord(
+                pipeline=job_id,
+                started_at=started_at,
+                duration_s=duration_s,
+                accepted=0,
+                rejected=0,
+                errors=0,
+                exit_status=exit_status,  # type: ignore[arg-type]
+            )
+            log_fn = _run_log_fn if _run_log_fn is not None else append_run
+            log_fn(record)
+        except Exception:
+            logger.warning("run_job: failed to write run log for job %r (non-fatal)", job_id)
+
+    return exit_code
 
 
 def start_research_scheduler(
