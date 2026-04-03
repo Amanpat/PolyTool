@@ -188,8 +188,23 @@ The CLI always exits 0 — health output is informational; non-zero would break 
 
 ## Wiring the Run Log from a Pipeline
 
-To integrate the run log with an existing pipeline (e.g. the ingestion scheduler),
-add an `append_run()` call at the end of each pipeline execution:
+The following pipelines automatically call `append_run()` — operators do not need
+to wire this manually:
+
+| Command                       | Pipeline Name           | When Written                                    |
+|-------------------------------|-------------------------|-------------------------------------------------|
+| `research-ingest`             | `research_ingest`       | After every ingest (success, rejection, or error)|
+| `research-acquire`            | `research_acquire`      | After every acquire (skipped on `--dry-run`)     |
+| `research-acquire --search`   | `research_acquire_search`| After search+multi-ingest (planned)             |
+| `research-scheduler run-job`  | `{job_id}`              | After every scheduled job                       |
+
+The `--run-log PATH` flag controls where the JSONL is written (default:
+`artifacts/research/run_log.jsonl`). All CLI commands accept this override.
+
+### Manual wiring for custom pipelines
+
+To integrate the run log with a custom pipeline, use this pattern (same as the
+scheduler and CLI entrypoints):
 
 ```python
 import time
@@ -220,22 +235,29 @@ for future implementation:
 1. **ClickHouse `ingestion_log` table** — For real-time Grafana dashboards; deferred to
    RIS_06 infrastructure plan (ClickHouse write path).
 2. **Grafana panels** — Health check trend panels and alert history; requires CH table first.
-3. **APScheduler wiring** — Automatic `append_run()` call from the scheduler's run loop;
-   deferred to scheduler enhancement plan.
-4. **`model_unavailable` check** — Requires provider event data (e.g. 503 counts from
+3. **`model_unavailable` check** — Requires provider event data (e.g. 503 counts from
    the evaluation provider); deferred until scheduler wires provider error events.
-5. **Rejection audit wiring** — `rejection_audit_disagreement` requires an audit runner
+   Currently labeled `[DEFERRED]` in output.
+4. **Rejection audit wiring** — `rejection_audit_disagreement` requires an audit runner
    that computes disagreement rate; deferred to audit tooling plan.
+   Currently labeled `[DEFERRED]` in output.
+
+**Completed (no longer deferred):**
+- Manual CLI wiring: `research-ingest` and `research-acquire` now call `append_run()` automatically.
+- APScheduler wiring: scheduler `run_job()` calls `append_run()` (completed in quick-260403-2ow).
 
 ## Tests
 
-40 deterministic offline tests in `tests/test_ris_monitoring.py`.
+54 deterministic offline tests in `tests/test_ris_monitoring.py`.
 
 - `TestRunLog` (9 tests): append/list/load lifecycle, window filtering, newest-first ordering
 - `TestHealthChecks` (17 tests): all 6 checks, boundary conditions, empty-run cases
 - `TestAlertSink` (7 tests): LogSink, WebhookSink (mocked), fire_alerts GREEN skip
 - `TestMonitoringInit` (1 test): public API completeness
 - `TestResearchHealthCLI` (6 tests): no-data path, JSON output, RED detection, window filtering, no-network
+- `TestCLIRunLogWiring` (6 tests): research-ingest and research-acquire append_run() integration
+- `TestHealthTruthfulness` (5 tests): [DEFERRED] labeling for stub checks
+- `TestIntegrationIngestToHealth` (3 tests): end-to-end file ingest -> run_log -> health pipeline
 
 All tests are fully offline. No network calls. No ClickHouse required.
 No environment variables required.

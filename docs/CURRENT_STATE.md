@@ -1183,15 +1183,21 @@ evaluation, and alert routing are now available.
   `accept_rate_low`, `accept_rate_high`, `model_unavailable` (GREEN stub), `rejection_audit_disagreement`
 - `alert_sink.py` -- `LogSink` (default, no config) + `WebhookSink` (optional, needs URL) + `fire_alerts()`
 
-**New CLI:** `python -m polytool research-health [--json] [--window-hours N]`
+**New CLI:** `python -m polytool research-health [--json] [--window-hours N] [--run-log PATH]`
 
 - Loads run history, evaluates all 6 health checks, fires LogSink alerts for YELLOW/RED
-- `--json` outputs `{"checks": [...], "summary": "GREEN|YELLOW|RED|no_data", "run_count": N}`
+- `--json` outputs `{"checks": [...], "summary": "GREEN|YELLOW|RED|no_data", "run_count": N, "deferred_checks": [...]}`
+- Table output includes footer note when deferred checks present
 
-**Deferred:** ClickHouse ingestion_log table, Grafana panels, APScheduler wiring,
+**Manual producer wiring (quick-260403-it1, 2026-04-03):** research-ingest and
+research-acquire now call append_run() automatically after every run. Operators
+running these commands manually will see their runs in research-health immediately.
+Deferred checks labeled `[DEFERRED]` in output -- GREEN = no data, not verified healthy.
+
+**Deferred:** ClickHouse ingestion_log table, Grafana panels,
 `model_unavailable` (requires provider event data), rejection audit wiring (requires audit runner).
 
-40 offline deterministic tests in `tests/test_ris_monitoring.py`. 0 new failures in regression.
+54 offline deterministic tests in `tests/test_ris_monitoring.py`. 0 new failures in regression.
 
 See `docs/features/FEATURE-ris-monitoring-health-v1.md` and
 `docs/dev_logs/2026-04-03_ris_r4_monitoring_and_health.md`.
