@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-it1: RIS manual producer health fix — research-ingest and research-acquire wired into append_run(); [DEFERRED] labeling for model_unavailable and rejection_audit_disagreement health checks; 14 new tests (TestCLIRunLogWiring, TestHealthTruthfulness, TestIntegrationIngestToHealth); 3582 passing
+Last activity: 2026-04-03 - Completed quick task 260403-jyg: RIS SimTrader Bridge v1 — research findings converted to hypothesis candidates and registered; validation feedback hook updates claim validation_status in KnowledgeStore; packages/research/integration/ new module; 37 new tests; 3644 passing
 
 ## Recent Progress
+- quick-260403-jyg: RIS SimTrader Bridge v1 — brief_to_candidate/precheck_to_candidate/register_research_hypothesis/record_validation_outcome; KnowledgeStore.update_claim_validation_status(); packages/research/integration/ new module; 37 new offline tests; 3644 passing
 - quick-260403-it1: RIS manual producer health fix — research-ingest and research-acquire wired into append_run(); [DEFERRED] labeling for model_unavailable and rejection_audit_disagreement; 14 new tests; 3582 passing
 - quick-260403-2ow: RIS_06 run_log wiring — append_run() wired into run_job() via injectable _run_log_fn hook (non-fatal write failures); 3 new E2E tests (run_job->run_log->health_checks); 3566 passing
 - quick-260403-1s3: RIS_06 APScheduler scheduler v1 — JOB_REGISTRY (8 named jobs, no Twitter/X), start_research_scheduler() with injectable _scheduler_factory/_job_runner, research-scheduler CLI, _JOB_FN_MAP patching pattern for reliable test isolation; 28 offline tests; 3557 passing
@@ -22,6 +23,7 @@ Last activity: 2026-04-03 - Completed quick task 260403-it1: RIS manual producer
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260403-jyg: research hypothesis ID uses sha256({"kind":"research_candidate","name":name})[:16] not stable_hypothesis_id() (which expects dimension_key/segment_key shapes); record_validation_outcome() is operator-triggered (no auto-loop at v1); evidence_doc_ids flow brief.cited_sources -> candidate -> registry event source field
 - quick-260403-it1: non-fatal append_run() pattern (health surface failures never affect CLI return codes); [DEFERRED] label with deferred=True in data dict (machine-readable for JSON consumers); dry-run exemption — research-acquire --dry-run exits before run_log write
 - quick-260402-rmz: three-way get_provider() branch (local/cloud-guard/unknown) preserves ValueError('unknown provider') backward compat; cloud providers recognized but not-yet-implemented (RIS v2); ProviderEvent raw_output=None by default for lightweight JSONL; backward-compat CLI routing via _KNOWN_SUBCOMMANDS check
 - quick-260402-rm1: stdlib-only HTTP in live fetchers; injectable _http_fn for offline test isolation; local regex copies in fetchers.py to avoid circular import; dedup check pre-pipeline, ingest proceeds regardless (idempotent); review record written even on ingest failure for complete audit trail
