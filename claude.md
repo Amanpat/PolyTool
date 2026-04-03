@@ -354,6 +354,70 @@ since this doc was last updated. A 2-second check prevents 20-minute debugging.
 - `alpha-distill`
 - `llm-bundle`
 - `candidate-scan`
+- `research-precheck`
+- `research-ingest`
+- `research-acquire`
+- `research-report`
+- `research-health`
+- `research-stats`
+- `research-scheduler`
+
+## Research Intelligence System (RIS)
+
+### Purpose
+
+RIS is the project's persistent knowledge base for research findings, academic papers,
+and operator-discovered insights. Before implementing a new strategy or feature, check
+what existing research says to avoid duplicate effort and catch contradictions early.
+
+### Dev Agent Pre-Build Workflow
+
+Before starting any feature or strategy implementation, run these checks in order:
+
+1. Run a precheck on the planned work:
+   ```
+   python -m polytool research-precheck run --idea "description of planned work" --no-ledger
+   ```
+2. Interpret the result:
+   - **STOP** -- Do not proceed without operator discussion. A known contradiction or blocker exists.
+   - **CAUTION** -- Note the concerns flagged. Proceed with awareness.
+   - **GO** -- No blockers found. Proceed.
+3. For deeper context, query the knowledge store directly:
+   ```
+   python -m polytool rag-query --question "relevant topic" --hybrid --knowledge-store default
+   ```
+4. If precheck cites contradictions, run inspect for full provenance:
+   ```
+   python -m polytool research-precheck inspect --db kb/rag/knowledge/knowledge.sqlite3
+   ```
+
+### Preserving Findings into RIS
+
+After a productive research session (LLM chat, web search, paper read), preserve findings:
+
+- **Save a URL** (paper, blog post, GitHub repo):
+  ```
+  python -m polytool research-acquire --url URL --source-family FAMILY --no-eval
+  ```
+  FAMILY values: `academic`, `github`, `blog`, `news`, `book`, `reddit`, `youtube`
+
+- **Save a manual summary** (from a ChatGPT/Gemini/Claude session):
+  ```
+  python -m polytool research-ingest --text "finding text" --title "Finding Title" --source-type manual --no-eval
+  ```
+
+- **Save from a file** (notes, exported doc):
+  ```
+  python -m polytool research-ingest --file path/to/notes.md --source-type manual --no-eval
+  ```
+
+### Pipeline Health
+
+- Status snapshot: `python -m polytool research-health`
+- Metrics: `python -m polytool research-stats summary`
+- Scheduler status: `python -m polytool research-scheduler status`
+
+All RIS commands are offline-first and do not call external LLM APIs unless `--provider ollama` is used.
 
 ### Tape / benchmark workflows
 
