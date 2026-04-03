@@ -471,6 +471,358 @@ class LiveBlogFetcher:
 
 
 # ---------------------------------------------------------------------------
+# clean_transcript — pure function for VTT/YouTube transcript cleaning
+# ---------------------------------------------------------------------------
+
+# VTT timestamp line: "00:00:01.000 --> 00:00:03.000" (with optional position/align)
+_VTT_TIMESTAMP_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}.*$", re.MULTILINE)
+# Inline timestamps: "<00:00:05.000>"
+_INLINE_TIMESTAMP_RE = re.compile(r"<\d{2}:\d{2}:\d{2}\.\d{3}>")
+# Sponsor / boilerplate patterns (case-insensitive line-level matching)
+_SPONSOR_PATTERNS = [
+    re.compile(r".*\bsponsored by\b.*", re.IGNORECASE),
+    re.compile(r".*\blike and subscribe\b.*", re.IGNORECASE),
+    re.compile(r".*\bsmash the like button\b.*", re.IGNORECASE),
+    re.compile(r".*\bsubscribe to the channel\b.*", re.IGNORECASE),
+    re.compile(r".*\blink in (?:the )?description\b.*", re.IGNORECASE),
+    re.compile(r".*\buse code\b.*\bfor.*\b(?:off|discount)\b.*", re.IGNORECASE),
+]
+# Collapse whitespace
+_MULTI_SPACE_RE = re.compile(r"  +")
+
+
+def clean_transcript(text: str) -> str:
+    """Strip VTT noise and boilerplate from a YouTube transcript string.
+
+    Steps applied in order:
+    1. Remove the WEBVTT header line.
+    2. Remove VTT timestamp range lines (``HH:MM:SS.mmm --> HH:MM:SS.mmm``).
+    3. Remove inline timestamps (``<HH:MM:SS.mmm>``).
+    4. Remove align/position directive lines (``align:start position:0%`` etc.).
+    5. Remove sponsor boilerplate lines (see ``_SPONSOR_PATTERNS``).
+    6. Deduplicate consecutive identical lines.
+    7. Collapse multiple spaces.
+    8. Strip leading/trailing whitespace.
+
+    Parameters
+    ----------
+    text:
+        Raw VTT or transcript string.
+
+    Returns
+    -------
+    str
+        Cleaned transcript.  Empty string if *text* is empty or whitespace-only.
+    """
+    if not text or not text.strip():
+        return ""
+
+    # 1. Remove WEBVTT header
+    lines = text.replace("\r\n", "\n").split("\n")
+
+    cleaned_lines = []
+    prev_line = None
+    for line in lines:
+        # Remove WEBVTT header
+        if line.strip() == "WEBVTT":
+            continue
+
+        # Remove VTT timestamp range lines
+        if _VTT_TIMESTAMP_RE.match(line.strip()):
+            continue
+
+        # Remove align/position directive lines
+        if re.match(r"^\s*(?:align|position|line|size):", line, re.IGNORECASE):
+            continue
+
+        # Remove inline timestamps from the line
+        line = _INLINE_TIMESTAMP_RE.sub("", line)
+
+        # Remove sponsor/boilerplate lines
+        skip = False
+        for pattern in _SPONSOR_PATTERNS:
+            if pattern.match(line.strip()):
+                skip = True
+                break
+        if skip:
+            continue
+
+        # Deduplicate consecutive identical lines
+        stripped = line.strip()
+        if stripped == prev_line:
+            continue
+        prev_line = stripped
+
+        if stripped:
+            cleaned_lines.append(stripped)
+
+    result = " ".join(cleaned_lines)
+    # Collapse multiple spaces
+    result = _MULTI_SPACE_RE.sub(" ", result).strip()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# LiveRedditFetcher
+# ---------------------------------------------------------------------------
+
+
+class LiveRedditFetcher:
+    """Fetch a Reddit post and its top comments.
+
+    Offline mode: Use ``fetch_raw(raw_post_dict)`` to bypass network entirely.
+    Live mode: Requires ``praw_instance`` — install praw and create a Reddit
+    script app at reddit.com/prefs/apps, then pass a ``praw.Reddit`` instance.
+
+    PRAW is NEVER imported at module level.  Missing praw raises ``FetchError``
+    inside ``fetch()``, not at import time.
+
+    Returns a raw_source dict compatible with ``RedditAdapter.adapt()``.
+    """
+
+    def __init__(
+        self,
+        praw_instance=None,
+        _fetch_fn=None,
+    ) -> None:
+        self._praw = praw_instance
+        self._fetch_fn = _fetch_fn  # reserved for future injectable use
+
+    def fetch_raw(self, raw_post_dict: dict) -> dict:
+        """Return *raw_post_dict* immediately (offline/fixture mode).
+
+        Parameters
+        ----------
+        raw_post_dict:
+            Pre-built dict matching the RedditAdapter contract.
+
+        Returns
+        -------
+        dict
+            The same dict, unchanged.
+        """
+        return raw_post_dict
+
+    def fetch(self, url: str) -> dict:
+        """Fetch a Reddit post from *url* using PRAW.
+
+        Requires ``praw_instance`` to be set.  Without it, raises
+        ``FetchError`` with instructions to use ``fetch_raw()`` instead.
+
+        Parameters
+        ----------
+        url:
+            Full Reddit post URL.
+
+        Returns
+        -------
+        dict
+            Keys: url, title, body_text, author, published_date,
+                  subreddit, score, num_comments, top_comments (list[str]).
+
+        Raises
+        ------
+        FetchError
+            If praw is not installed or praw_instance is not set.
+        """
+        if self._praw is None:
+            # Attempt to import praw to check availability
+            try:
+                import praw as _praw_mod  # noqa: F401
+            except ImportError:
+                raise FetchError(
+                    "praw is required for live Reddit fetching -- "
+                    "install praw or use fetch_raw() with a fixture dict."
+                )
+            raise FetchError(
+                "PRAW not available -- pass raw fixture dict via fetch_raw() "
+                "or provide a praw_instance to LiveRedditFetcher()."
+            )
+
+        # Live PRAW path
+        try:
+            submission = self._praw.submission(url=url)
+            submission.comments.replace_more(limit=0)
+            top_comments = [
+                comment.body
+                for comment in submission.comments.list()[:5]
+            ]
+            import datetime as _dt
+            published_date = (
+                _dt.datetime.utcfromtimestamp(submission.created_utc).strftime("%Y-%m-%d")
+                if hasattr(submission, "created_utc")
+                else None
+            )
+            return {
+                "url": url,
+                "title": submission.title,
+                "body_text": submission.selftext or "",
+                "author": str(submission.author) if submission.author else "unknown",
+                "published_date": published_date,
+                "subreddit": str(submission.subreddit),
+                "score": submission.score,
+                "num_comments": submission.num_comments,
+                "top_comments": top_comments,
+            }
+        except FetchError:
+            raise
+        except Exception as exc:
+            raise FetchError(f"PRAW fetch failed for {url}: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# LiveYouTubeFetcher
+# ---------------------------------------------------------------------------
+
+
+class LiveYouTubeFetcher:
+    """Fetch YouTube video metadata and transcript via yt-dlp.
+
+    Offline mode: Use ``fetch_raw(raw_dict)`` to bypass subprocess entirely.
+    Live mode: Requires yt-dlp installed.  No API key needed.
+
+    yt-dlp is NEVER imported at module level.  Missing yt-dlp raises
+    ``FetchError`` inside ``fetch()``.
+
+    Duration filter: raises ``FetchError`` if duration < 180s or > 3600s.
+
+    Returns a raw_source dict compatible with ``YouTubeAdapter.adapt()``.
+    """
+
+    def __init__(self, _subprocess_fn=None) -> None:
+        self._subprocess_fn = _subprocess_fn
+
+    def fetch_raw(self, raw_dict: dict) -> dict:
+        """Return *raw_dict* immediately (offline/fixture mode).
+
+        Parameters
+        ----------
+        raw_dict:
+            Pre-built dict matching the YouTubeAdapter contract.
+
+        Returns
+        -------
+        dict
+            The same dict, unchanged.
+        """
+        return raw_dict
+
+    def fetch(self, url: str) -> dict:
+        """Fetch YouTube video metadata and transcript from *url*.
+
+        Uses yt-dlp subprocess calls.
+
+        Parameters
+        ----------
+        url:
+            YouTube video URL.
+
+        Returns
+        -------
+        dict
+            Keys: url, title, transcript_text, channel, published_date,
+                  duration_seconds, view_count.
+
+        Raises
+        ------
+        FetchError
+            If yt-dlp is not found, if duration is out of range, or on
+            any subprocess/IO failure.
+        """
+        import subprocess
+        import tempfile
+        import os as _os
+
+        _run = self._subprocess_fn
+
+        def _run_ytdlp(*args, **kwargs):
+            if _run is not None:
+                return _run(*args, **kwargs)
+            return subprocess.run(*args, **kwargs)
+
+        # Fetch metadata via yt-dlp --dump-json
+        try:
+            meta_result = _run_ytdlp(
+                ["yt-dlp", "--dump-json", "--no-playlist", url],
+                capture_output=True,
+                text=True,
+            )
+            if meta_result.returncode != 0:
+                raise FetchError(
+                    f"yt-dlp metadata fetch failed (exit {meta_result.returncode}): "
+                    f"{meta_result.stderr.strip()}"
+                )
+            meta = json.loads(meta_result.stdout)
+        except FetchError:
+            raise
+        except OSError as exc:
+            raise FetchError(f"yt-dlp not found: {exc}") from exc
+        except Exception as exc:
+            raise FetchError(f"yt-dlp metadata error for {url}: {exc}") from exc
+
+        duration = meta.get("duration", 0) or 0
+        if duration < 180:
+            raise FetchError(
+                f"Video too short ({duration}s < 180s), skipping: {url}"
+            )
+        if duration > 3600:
+            raise FetchError(
+                f"Video too long ({duration}s > 3600s), skipping: {url}"
+            )
+
+        title = meta.get("title", "")
+        channel = meta.get("uploader") or meta.get("channel") or ""
+        upload_date = meta.get("upload_date", "")
+        published_date = (
+            f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+            if upload_date and len(upload_date) == 8
+            else None
+        )
+        view_count = meta.get("view_count", 0) or 0
+
+        # Fetch transcript via yt-dlp --write-auto-sub
+        transcript_text = ""
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                sub_result = _run_ytdlp(
+                    [
+                        "yt-dlp",
+                        "--write-auto-sub",
+                        "--skip-download",
+                        "--sub-langs", "en",
+                        "--sub-format", "vtt",
+                        "-o", _os.path.join(tmpdir, "%(id)s.%(ext)s"),
+                        url,
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                # Find the VTT file
+                vtt_files = [
+                    f for f in _os.listdir(tmpdir)
+                    if f.endswith(".vtt")
+                ]
+                if vtt_files:
+                    vtt_path = _os.path.join(tmpdir, vtt_files[0])
+                    raw_vtt = open(vtt_path, encoding="utf-8").read()
+                    transcript_text = clean_transcript(raw_vtt)
+        except FetchError:
+            raise
+        except Exception:
+            transcript_text = ""
+
+        return {
+            "url": url,
+            "title": title,
+            "transcript_text": transcript_text,
+            "channel": channel,
+            "published_date": published_date,
+            "duration_seconds": duration,
+            "view_count": view_count,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Registry and factory
 # ---------------------------------------------------------------------------
 
@@ -479,22 +831,24 @@ FETCHER_REGISTRY: dict[str, type] = {
     "github": LiveGitHubFetcher,
     "blog": LiveBlogFetcher,
     "news": LiveBlogFetcher,
+    "reddit": LiveRedditFetcher,
+    "youtube": LiveYouTubeFetcher,
 }
 
 
-def get_fetcher(family: str, **kwargs) -> "LiveAcademicFetcher | LiveGitHubFetcher | LiveBlogFetcher":
+def get_fetcher(family: str, **kwargs) -> "LiveAcademicFetcher | LiveGitHubFetcher | LiveBlogFetcher | LiveRedditFetcher | LiveYouTubeFetcher":
     """Return a fresh fetcher instance for *family*.
 
     Parameters
     ----------
     family:
-        Source-family key ("academic", "github", "blog", "news").
+        Source-family key ("academic", "github", "blog", "news", "reddit", "youtube").
     **kwargs:
         Passed to the fetcher constructor.
 
     Returns
     -------
-    LiveAcademicFetcher | LiveGitHubFetcher | LiveBlogFetcher
+    fetcher instance
 
     Raises
     ------

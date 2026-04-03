@@ -384,6 +384,165 @@ class BookAdapter(SourceAdapter):
 
 
 # ---------------------------------------------------------------------------
+# RedditAdapter
+# ---------------------------------------------------------------------------
+
+
+class RedditAdapter(SourceAdapter):
+    """Adapter for Reddit post sources.
+
+    Expected raw_source keys:
+    - url (str): Reddit post URL
+    - title (str): Post title
+    - body_text (str, optional): Post body / self-text
+    - author (str): Post author username
+    - published_date (str, optional): ISO-8601 date
+    - subreddit (str): Subreddit name
+    - score (int, optional): Post score (upvotes)
+    - num_comments (int, optional): Total comment count
+    - top_comments (list[str], optional): Top comment texts
+
+    Body is assembled as::
+
+        {title}
+
+        {body_text}
+
+        --- Top Comments ---
+
+        {comment_1}
+        {comment_2}
+        ...
+
+    The ``--- Top Comments ---`` block is omitted when ``top_comments`` is
+    empty or absent.
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache=None,
+    ) -> ExtractedDocument:
+        url = raw_source.get("url", "")
+        title = raw_source.get("title", "")
+        body_text = raw_source.get("body_text", "") or ""
+        author = raw_source.get("author", "unknown") or "unknown"
+        published_date = raw_source.get("published_date", None)
+        subreddit = raw_source.get("subreddit", "")
+        score = raw_source.get("score", None)
+        num_comments = raw_source.get("num_comments", None)
+        top_comments = raw_source.get("top_comments", []) or []
+
+        # Normalize metadata
+        meta: NormalizedMetadata = normalize_metadata(raw_source, "reddit")
+
+        canonical_url = meta.canonical_url or url
+        source_id = make_source_id(canonical_url) if canonical_url else make_source_id(title)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, "reddit", cache)
+
+        # Build body
+        parts = []
+        if title:
+            parts.append(title)
+        if body_text:
+            parts.append(body_text)
+        if top_comments:
+            parts.append("--- Top Comments ---")
+            for comment in top_comments:
+                if comment and comment.strip():
+                    parts.append(comment.strip())
+        body = "\n\n".join(parts) if parts else title or ""
+
+        metadata = {
+            "subreddit": subreddit,
+            "score": score,
+            "num_comments": num_comments,
+            "canonical_ids": meta.canonical_ids,
+            "source_type": "reddit",
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=canonical_url or url or "internal://reddit",
+            source_family="reddit",
+            author=author,
+            publish_date=published_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
+# YouTubeAdapter
+# ---------------------------------------------------------------------------
+
+
+class YouTubeAdapter(SourceAdapter):
+    """Adapter for YouTube video sources.
+
+    Expected raw_source keys:
+    - url (str): YouTube video URL
+    - title (str): Video title
+    - transcript_text (str): Raw VTT transcript or plain transcript text
+    - channel (str): Channel name
+    - published_date (str, optional): ISO-8601 date
+    - duration_seconds (int, optional): Video duration in seconds
+    - view_count (int, optional): View count
+
+    Body is produced by ``clean_transcript(transcript_text)`` from fetchers.py.
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache=None,
+    ) -> ExtractedDocument:
+        from packages.research.ingestion.fetchers import clean_transcript
+
+        url = raw_source.get("url", "")
+        title = raw_source.get("title", "")
+        transcript_text = raw_source.get("transcript_text", "") or ""
+        channel = raw_source.get("channel", "unknown") or "unknown"
+        published_date = raw_source.get("published_date", None)
+        duration_seconds = raw_source.get("duration_seconds", None)
+        view_count = raw_source.get("view_count", None)
+
+        # Normalize metadata
+        meta: NormalizedMetadata = normalize_metadata(raw_source, "youtube")
+
+        canonical_url = meta.canonical_url or url
+        source_id = make_source_id(canonical_url) if canonical_url else make_source_id(title)
+
+        # Cache raw payload
+        self._cache_if_provided(raw_source, source_id, "youtube", cache)
+
+        # Clean transcript
+        body = clean_transcript(transcript_text)
+        if not body:
+            body = title or ""
+
+        metadata = {
+            "duration_seconds": duration_seconds,
+            "view_count": view_count,
+            "channel": channel,
+            "canonical_ids": meta.canonical_ids,
+            "source_type": "youtube",
+        }
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=canonical_url or url or "internal://youtube",
+            source_family="youtube",
+            author=channel,
+            publish_date=published_date,
+            metadata=metadata,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Registry and factory
 # ---------------------------------------------------------------------------
 
@@ -393,6 +552,8 @@ ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
     "blog": BlogNewsAdapter,
     "news": BlogNewsAdapter,
     "book": BookAdapter,
+    "reddit": RedditAdapter,
+    "youtube": YouTubeAdapter,
 }
 
 

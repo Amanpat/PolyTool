@@ -31,8 +31,15 @@ from packages.research.ingestion.adapters import (
     AcademicAdapter,
     GithubAdapter,
     BlogNewsAdapter,
+    RedditAdapter,
+    YouTubeAdapter,
     ADAPTER_REGISTRY,
     get_adapter,
+)
+from packages.research.ingestion.fetchers import (
+    LiveRedditFetcher,
+    LiveYouTubeFetcher,
+    clean_transcript,
 )
 from packages.research.ingestion.seed import (
     SeedEntry,
@@ -83,8 +90,14 @@ __all__ = [
     "AcademicAdapter",
     "GithubAdapter",
     "BlogNewsAdapter",
+    "RedditAdapter",
+    "YouTubeAdapter",
     "ADAPTER_REGISTRY",
     "get_adapter",
+    # Phase 5 — Social Fetchers
+    "LiveRedditFetcher",
+    "LiveYouTubeFetcher",
+    "clean_transcript",
     # Seed
     "SeedEntry",
     "SeedManifest",
