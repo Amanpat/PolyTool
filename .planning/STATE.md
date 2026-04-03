@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-lir: Close the bridge/MCP gaps in RIS_07
+Last activity: 2026-04-03 - Completed quick task 260403-n2w: Close the final RIS truth-alignment gaps so Codex can call RIS overall v1 COMPLETE
 
 ## Recent Progress
 - quick-260403-lir: RIS bridge CLI + MCP KS routing — research-register-hypothesis + research-record-outcome CLI subcommands; polymarket_rag_query with hybrid KS retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing
@@ -177,3 +177,4 @@ Last activity: 2026-04-03 - Completed quick task 260403-lir: Close the bridge/MC
 | 260403-lix | Close final truth-alignment gaps for RIS v1 docs and CURRENT_STATE: RIS_07/RIS_OVERVIEW command-surface patches (stale CLI forms replaced); synthesis feature doc "not yet wired" claims corrected; CURRENT_STATE RIS v1 Complete closure section added; v2 deferred items labeled; closure dev log written | 2026-04-03 | 4c03789 | [260403-lix-close-final-truth-alignment-gaps-for-ris](./quick/260403-lix-close-final-truth-alignment-gaps-for-ris/) |
 | 260403-lim | RIS_07 dossier operationalization: PostScanExtractor hook wired into WalletScanner (--extract-dossier flag, non-fatal, opt-in); 9 unit tests in TestWalletScannerDossierHook; 9 E2E integration tests (scan_run_root -> extract -> ingest -> KnowledgeStore, provenance, graceful-skip, idempotent-reingest); docs/features/wallet-scan-v0.md updated; CURRENT_STATE.md updated; dev log written; 3688 passing | 2026-04-03 | 34d198c | [260403-lim-close-the-dossier-discovery-loop-gap-in-](./quick/260403-lim-close-the-dossier-discovery-loop-gap-in-/) |
 | 260403-lir | Close RIS_07 bridge/MCP gaps: research-register-hypothesis + research-record-outcome CLI subcommands (tools/cli/research_bridge.py); polymarket_rag_query MCP tool now uses hybrid KnowledgeStore retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing | 2026-04-03 | a961bc0 | [260403-lir-close-the-bridge-mcp-gaps-in-ris-07-done](./quick/260403-lir-close-the-bridge-mcp-gaps-in-ris-07-done/) |
+| 260403-n2w | Close final RIS truth-alignment gaps so Codex can call RIS v1 COMPLETE: removed stale v2-deferred bullets from CURRENT_STATE for --extract-dossier hook and MCP KS routing; fixed FEATURE-ris-dev-agent-integration-v1.md and FEATURE-ris-v1-data-foundation.md deferred/not-wired claims; corrected wallet-scan-v0.md --dossier-base flag; added RIS v1 closure note; dev log written; 3695 passing | 2026-04-03 | d373fe3 | [260403-n2w-close-the-final-ris-truth-alignment-gaps](./quick/260403-n2w-close-the-final-ris-truth-alignment-gaps/) |
