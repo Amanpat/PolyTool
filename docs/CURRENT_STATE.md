@@ -1195,3 +1195,37 @@ evaluation, and alert routing are now available.
 
 See `docs/features/FEATURE-ris-monitoring-health-v1.md` and
 `docs/dev_logs/2026-04-03_ris_r4_monitoring_and_health.md`.
+
+## RIS Scheduler v1 (quick-260403-1s3, 2026-04-03)
+
+APScheduler background scheduler with 8 named jobs for automated RIS ingestion.
+Twitter/X deferred (no live fetcher yet).
+
+**New modules:**
+- `packages/research/scheduling/__init__.py` — package marker
+- `packages/research/scheduling/scheduler.py` — `JOB_REGISTRY` (8 jobs), `start_research_scheduler()`,
+  `run_job(job_id) -> int`; lazy APScheduler import inside `start_research_scheduler()` so
+  JOB_REGISTRY is always importable without APScheduler installed; injectable `_scheduler_factory`
+  and `_job_runner` for offline testing
+
+**Jobs registered (8):** academic_ingest (ArXiv, every 12h), reddit_polymarket (r/polymarket, every 6h),
+reddit_others (PredictionMarkets + Kalshi, daily 03:00), blog_ingest (3 feeds, every 4h),
+youtube_ingest (Mondays 04:00), github_ingest (Wednesdays 04:00),
+freshness_refresh (Sundays 02:00), weekly_digest (Sundays 08:00).
+
+**New CLI:** `research-scheduler`
+
+```
+python -m polytool research-scheduler status        # list 8 jobs, no APScheduler needed
+python -m polytool research-scheduler status --json # JSON list output
+python -m polytool research-scheduler start         # blocking scheduler loop (Ctrl-C to stop)
+python -m polytool research-scheduler start --dry-run
+python -m polytool research-scheduler run-job academic_ingest
+```
+
+**Install:** `pip install 'polytool[ris]'` (adds `apscheduler>=3.10.0,<4.0`)
+
+28 offline tests in `tests/test_ris_scheduler.py`. 3557 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-scheduler-v1.md` and
+`docs/dev_logs/2026-04-03_ris_scheduler_apscheduler.md`.
