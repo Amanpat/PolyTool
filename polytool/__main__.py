@@ -88,6 +88,7 @@ research_acquire_main = _command_entrypoint("tools.cli.research_acquire")
 research_report_main = _command_entrypoint("tools.cli.research_report")
 research_scheduler_main = _command_entrypoint("tools.cli.research_scheduler")
 research_stats_main = _command_entrypoint("tools.cli.research_stats")
+research_health_main = _command_entrypoint("tools.cli.research_health")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -148,6 +149,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-report": "research_report_main",
     "research-scheduler": "research_scheduler_main",
     "research-stats": "research_stats_main",
+    "research-health": "research_health_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -208,6 +210,7 @@ def print_usage() -> None:
     print("  research-report           Save, list, search reports and generate weekly digests")
     print("  research-scheduler        Manage the RIS background ingestion scheduler")
     print("  research-stats            Operator metrics snapshot and local-first export for RIS pipeline")
+    print("  research-health           Print RIS health status summary from stored run data")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")

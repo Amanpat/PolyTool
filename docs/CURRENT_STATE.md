@@ -1170,3 +1170,28 @@ Operator metrics surface for the RIS pipeline. `research-stats summary` and `res
 
 See `docs/features/FEATURE-ris-ops-cli-and-metrics.md` and
 `docs/dev_logs/2026-04-03_ris_r4_ops_cli_and_metrics.md`.
+
+## RIS Monitoring and Health Checks (quick-260403-1sc, 2026-04-03)
+
+RIS operational visibility layer (R4) shipped. Pipeline run logs, health condition
+evaluation, and alert routing are now available.
+
+**New module:** `packages/research/monitoring/`
+
+- `run_log.py` -- `RunRecord` dataclass + JSONL append-only log (`append_run`, `list_runs`, `load_last_run`)
+- `health_checks.py` -- 6 health checks per RIS_06 spec: `pipeline_failed`, `no_new_docs_48h`,
+  `accept_rate_low`, `accept_rate_high`, `model_unavailable` (GREEN stub), `rejection_audit_disagreement`
+- `alert_sink.py` -- `LogSink` (default, no config) + `WebhookSink` (optional, needs URL) + `fire_alerts()`
+
+**New CLI:** `python -m polytool research-health [--json] [--window-hours N]`
+
+- Loads run history, evaluates all 6 health checks, fires LogSink alerts for YELLOW/RED
+- `--json` outputs `{"checks": [...], "summary": "GREEN|YELLOW|RED|no_data", "run_count": N}`
+
+**Deferred:** ClickHouse ingestion_log table, Grafana panels, APScheduler wiring,
+`model_unavailable` (requires provider event data), rejection audit wiring (requires audit runner).
+
+40 offline deterministic tests in `tests/test_ris_monitoring.py`. 0 new failures in regression.
+
+See `docs/features/FEATURE-ris-monitoring-health-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r4_monitoring_and_health.md`.
