@@ -1235,3 +1235,31 @@ python -m polytool research-scheduler run-job academic_ingest
 
 See `docs/features/FEATURE-ris-scheduler-v1.md` and
 `docs/dev_logs/2026-04-03_ris_scheduler_apscheduler.md`.
+
+## RIS SimTrader Bridge v1 (quick-260403-jyg, 2026-04-03)
+
+Practical v1 bridge between RIS research outputs and the hypothesis registry /
+simulator validation workflow. ResearchBrief and EnhancedPrecheck objects can now
+be converted to hypothesis candidates and registered in one function-call chain.
+Validation feedback hook lets SimTrader replay outcomes update claim validation
+status in the KnowledgeStore, closing the research-to-validation loop.
+
+**New module:** `packages/research/integration/`
+
+**Key functions:**
+- `brief_to_candidate(brief)` -- ResearchBrief -> hypothesis candidate dict
+- `precheck_to_candidate(precheck)` -- EnhancedPrecheck -> hypothesis candidate dict
+- `register_research_hypothesis(registry_path, candidate)` -- write JSONL registry event with `source.origin="research_bridge"` and full evidence_doc_ids provenance
+- `record_validation_outcome(store, hypothesis_id, claim_ids, outcome, reason)` -- maps `confirmed/contradicted/inconclusive` to `CONSISTENT_WITH_RESULTS / CONTRADICTED / INCONCLUSIVE` in the KnowledgeStore
+
+**KnowledgeStore addition:**
+- `update_claim_validation_status(claim_id, validation_status, actor)` -- updates SQLite `derived_claims` row; validates against `VALID_VALIDATION_STATUSES`
+
+**What is v1 (shipped):** manual bridge functions, deterministic, no LLM calls, no network, evidence provenance chain, 37 offline tests.
+
+**What remains deferred (R5 / v2):** auto-test orchestration loop, auto-hypothesis promotion, Discord approval integration, scheduled re-validation, LLM-enhanced hypothesis generation.
+
+37 new tests in `tests/test_ris_simtrader_bridge.py`. 3644 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-simtrader-bridge-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r5_simtrader_bridge.md`.
