@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-lir: research-bridge CLI + MCP KS hybrid routing
+Last activity: 2026-04-03 - Completed quick task 260403-lim: Close the dossier/discovery-loop gap in RIS_07
 
 ## Recent Progress
 - quick-260403-lir: RIS bridge CLI + MCP KS routing — research-register-hypothesis + research-record-outcome CLI subcommands; polymarket_rag_query with hybrid KS retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing
@@ -175,3 +175,4 @@ Last activity: 2026-04-03 - Completed quick task 260403-lir: research-bridge CLI
 | 260403-jyl | RIS_07 dev-agent integration + fast-research preservation: CLAUDE.md RIS section (pre-build workflow + 3-path preservation recipes), FEATURE-ris-dev-agent-integration-v1.md (5 operator recipes), 10 offline integration tests; RIS_07 closed at v1 scope; 3660 passing | 2026-04-03 | 6f09522 | [260403-jyl-complete-the-dev-agent-integration-and-f](./quick/260403-jyl-complete-the-dev-agent-integration-and-f/) |
 | 260403-jy8 | RIS_07 dossier pipeline + discovery loop: DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, batch_extract_dossiers(), research-dossier-extract CLI (single-dir + batch + dry-run + extract-claims); 31 new offline tests; 3660 passing | 2026-04-03 | 530daf4 | [260403-jy8-complete-the-dossier-pipeline-and-discov](./quick/260403-jy8-complete-the-dossier-pipeline-and-discov/) |
 | 260403-lix | Close final truth-alignment gaps for RIS v1 docs and CURRENT_STATE: RIS_07/RIS_OVERVIEW command-surface patches (stale CLI forms replaced); synthesis feature doc "not yet wired" claims corrected; CURRENT_STATE RIS v1 Complete closure section added; v2 deferred items labeled; closure dev log written | 2026-04-03 | 4c03789 | [260403-lix-close-final-truth-alignment-gaps-for-ris](./quick/260403-lix-close-final-truth-alignment-gaps-for-ris/) |
+| 260403-lim | RIS_07 dossier operationalization: PostScanExtractor hook wired into WalletScanner (--extract-dossier flag, non-fatal, opt-in); 9 unit tests in TestWalletScannerDossierHook; 9 E2E integration tests (scan_run_root -> extract -> ingest -> KnowledgeStore, provenance, graceful-skip, idempotent-reingest); docs/features/wallet-scan-v0.md updated; CURRENT_STATE.md updated; dev log written; 3688 passing | 2026-04-03 | 34d198c | [260403-lim-close-the-dossier-discovery-loop-gap-in-](./quick/260403-lim-close-the-dossier-discovery-loop-gap-in-/) |
