@@ -1114,3 +1114,37 @@ cloud provider HyDE (RIS v2 deliverable).
 
 See `docs/features/FEATURE-ris-query-planner.md` and
 `docs/dev_logs/2026-04-03_ris_query_planner.md`.
+
+## RIS_05 Synthesis Engine v1 -- Deterministic Report and Precheck Synthesis (quick-260402-xbo, 2026-04-03)
+
+The deterministic synthesis layer for RIS_05 is shipped. `ReportSynthesizer` takes
+enriched claims from `query_knowledge_store_enriched()` and produces structured,
+cited research artifacts -- no LLM calls. LLM-based synthesis (DeepSeek V3) is deferred to v2.
+
+**New module:** `packages/research/synthesis/report.py`
+
+- `CitedEvidence` -- single cited evidence item with source attribution (source_doc_id,
+  source_title, source_type, trust_tier, confidence, freshness_note, provenance_url)
+- `ResearchBrief` -- structured report matching RIS_05 format with all sections:
+  summary, key_findings, contradictions, actionability, knowledge_gaps, cited_sources
+- `EnhancedPrecheck` -- parallel to PrecheckResult; GO/CAUTION/STOP with cited evidence
+  lists (supporting, contradicting), risk_factors, stale_warning, evidence_gap
+- `ReportSynthesizer.synthesize_brief(topic, claims)` -- sorts by effective_score,
+  top non-contradicted claims -> key_findings, contradicted -> contradictions section,
+  stale -> knowledge_gaps, strategy keywords -> actionability
+- `ReportSynthesizer.synthesize_precheck(idea, claims)` -- keyword-filters claims by
+  idea relevance, separates supporting vs contradicting, applies GO/CAUTION/STOP rules
+- `format_citation()`, `format_research_brief()`, `format_enhanced_precheck()` -- markdown renderers
+
+**Exports added to `packages/research/synthesis/__init__.py`:**
+`CitedEvidence`, `EnhancedPrecheck`, `ResearchBrief`, `ReportSynthesizer`,
+`format_citation`, `format_enhanced_precheck`, `format_research_brief`
+
+**Deferred (v2):** LLM-based synthesis (DeepSeek V3), multi-model citation verification,
+iterative orchestrator loop, weekly digest, CLI commands for report generation,
+report storage/catalog, ClickHouse report indexing, past failures search.
+
+21 offline tests in `tests/test_ris_report_synthesis.py`. 3474 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-synthesis-engine-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r3_report_and_precheck_synthesis.md`.
