@@ -103,9 +103,10 @@ packages = [
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short -p no:cacheprovider"
+addopts = "-v --tb=short -p no:cacheprovider -m 'not live'"
 norecursedirs = ["tests/pytest_tmp", "tests/.pytest_tmp", ".tmp", "pytest_tmp", ".pytest_tmp"]
 markers = [
     "optional_dep: tests that require optional third-party dependencies",
+    "live: tests that require real network access (skipped in offline runs)",
 ]
 

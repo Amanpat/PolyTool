@@ -5,10 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 — Completed quick task 260402-rmz: RIS Phase 5 controlled provider enablement — cloud provider guard (RIS_ENABLE_CLOUD_PROVIDERS=1), ProviderEvent replay-grade metadata, ReplayDiff workflow, research-eval subcommands (eval/replay/list-providers); 20 new offline tests, 3215 passing
+Last activity: 2026-04-02 — Completed quick task 260402-rmz: RIS Phase 5 controlled provider enablement — cloud provider guard (RIS_ENABLE_CLOUD_PROVIDERS=1), ProviderEvent replay-grade metadata, ReplayDiff workflow, research-eval subcommands (eval/replay/list-providers); 20 new offline tests, 3349 passing (live tests now auto-skipped via pyproject.toml -m 'not live')
 
 ## Recent Progress
-- quick-260402-rmz: Cloud provider guard + replay-grade ProviderEvent metadata + ReplayDiff workflow + research-eval subcommands (eval/replay/list-providers); 20 new offline tests (3215 passing)
+- quick-260402-rmz: Cloud provider guard + replay-grade ProviderEvent metadata + ReplayDiff workflow + research-eval subcommands (eval/replay/list-providers); 20 new offline tests (3349 passing)
 - quick-260402-rm1: stdlib-only live fetchers, AcquisitionReviewWriter, research-acquire CLI, pytest.mark.live; 57 new offline tests
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
 - Quick-001: Cross-encoder reranking with hybrid+rerank eval mode (101 tests passing)
