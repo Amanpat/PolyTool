@@ -191,8 +191,8 @@ def _check_model_unavailable() -> HealthCheckResult:
     return HealthCheckResult(
         check_name="model_unavailable",
         status="GREEN",
-        message="Model availability monitoring not yet wired (deferred to scheduler integration).",
-        data={"deferred": True},
+        message="[DEFERRED] Model availability check requires provider event data. Not yet wired.",
+        data={"deferred": True, "check_type": "stub"},
     )
 
 
@@ -204,8 +204,8 @@ def _check_rejection_audit_disagreement(
         return HealthCheckResult(
             check_name="rejection_audit_disagreement",
             status="GREEN",
-            message="No audit disagreement data provided.",
-            data={},
+            message="[DEFERRED] Rejection audit check requires audit runner. Not yet wired.",
+            data={"deferred": True, "check_type": "stub"},
         )
 
     if audit_disagreement_rate > 0.30:

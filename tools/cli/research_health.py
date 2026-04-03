@@ -116,10 +116,13 @@ def _output_json(results: list, run_count: int) -> int:
         for r in results
     ]
 
+    deferred_checks = [r.check_name for r in results if r.data.get("deferred")]
+
     output = {
         "checks": checks_data,
         "summary": overall,
         "run_count": run_count,
+        "deferred_checks": deferred_checks,
     }
     print(json.dumps(output, indent=2))
     return 0
@@ -152,5 +155,14 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
     for r in results:
         status_display = r.status
         print(f"{r.check_name:<{col_check}} {status_display:<{col_status}} {r.message}")
+
+    # Footer: note deferred checks so operator knows GREEN != verified healthy
+    deferred = [r.check_name for r in results if r.data.get("deferred")]
+    if deferred:
+        print("")
+        print(
+            "Note: Checks marked [DEFERRED] are not yet wired to data sources. "
+            "GREEN = no data, not verified healthy."
+        )
 
     return 0

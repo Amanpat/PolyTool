@@ -846,3 +846,153 @@ class TestCLIRunLogWiring:
 
         ret = main(["--file", str(fixture), "--no-eval", "--run-log", str(tmp_path / "run_log.jsonl")])
         assert ret == 0, f"CLI returned {ret} instead of 0 when append_run raises"
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Health check truthfulness tests
+# ---------------------------------------------------------------------------
+
+class TestHealthTruthfulness:
+    """Tests that deferred checks are clearly labeled as [DEFERRED], not misleadingly GREEN."""
+
+    def test_model_unavailable_message_says_deferred(self):
+        """evaluate_health([]) -> model_unavailable result message contains '[DEFERRED]'."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = {r.check_name: r for r in evaluate_health([])}
+        r = results["model_unavailable"]
+        assert "[DEFERRED]" in r.message, f"Expected [DEFERRED] in message, got: {r.message!r}"
+        assert r.data.get("deferred") is True
+
+    def test_rejection_audit_none_says_deferred(self):
+        """When audit_disagreement_rate=None, message contains '[DEFERRED]'."""
+        from packages.research.monitoring.health_checks import evaluate_health
+        from packages.research.monitoring.run_log import RunRecord
+
+        runs = []
+        results = {r.check_name: r for r in evaluate_health(runs, audit_disagreement_rate=None)}
+        r = results["rejection_audit_disagreement"]
+        assert "[DEFERRED]" in r.message, f"Expected [DEFERRED] in message, got: {r.message!r}"
+
+    def test_deferred_checks_still_green(self):
+        """Both deferred checks still return GREEN (no false alerts)."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = {r.check_name: r for r in evaluate_health([], audit_disagreement_rate=None)}
+        assert results["model_unavailable"].status == "GREEN"
+        assert results["rejection_audit_disagreement"].status == "GREEN"
+
+    def test_model_unavailable_has_check_type_stub(self):
+        """model_unavailable check has check_type='stub' in data dict."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = {r.check_name: r for r in evaluate_health([])}
+        r = results["model_unavailable"]
+        assert r.data.get("check_type") == "stub"
+
+    def test_rejection_audit_none_has_check_type_stub(self):
+        """rejection_audit_disagreement with None has check_type='stub' in data dict."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = {r.check_name: r for r in evaluate_health([], audit_disagreement_rate=None)}
+        r = results["rejection_audit_disagreement"]
+        assert r.data.get("check_type") == "stub"
+
+
+class TestIntegrationIngestToHealth:
+    """Integration tests: ingest -> run_log -> research-health reads real data."""
+
+    def test_ingest_to_run_log_to_health_green(self, tmp_path, capsys):
+        """File ingest -> run_log write -> research-health reads the run and reports non-no_data status."""
+        from tools.cli.research_ingest import main as ingest_main
+        from tools.cli.research_health import main as health_main
+
+        fixture = tmp_path / "test_doc.md"
+        fixture.write_text(
+            "# Prediction Market Research\n\n"
+            "This paper discusses market maker strategies, bid-ask spreads, "
+            "and inventory risk in prediction market contexts."
+        )
+        log_path = tmp_path / "run_log.jsonl"
+        db_path = tmp_path / "test.sqlite3"
+
+        # Step 1: ingest writes to run_log
+        ret = ingest_main([
+            "--file", str(fixture),
+            "--no-eval",
+            "--run-log", str(log_path),
+            "--db", str(db_path),
+        ])
+        assert ret == 0, f"ingest returned {ret}"
+
+        # Capture previous stdout from ingest
+        capsys.readouterr()
+
+        # Step 2: health reads the run_log and reports real data
+        ret = health_main(["--run-log", str(log_path), "--json"])
+        assert ret == 0
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        assert data["summary"] != "no_data", f"Expected non-no_data summary, got: {data['summary']}"
+        assert data["run_count"] >= 1, f"Expected run_count >= 1, got: {data['run_count']}"
+
+        # pipeline_failed should be GREEN since ingest succeeded
+        checks = {c["check_name"]: c for c in data["checks"]}
+        assert checks["pipeline_failed"]["status"] == "GREEN"
+
+    def test_health_json_includes_deferred_checks(self, tmp_path, capsys):
+        """health --json output includes 'deferred_checks' list with both stub check names."""
+        from packages.research.monitoring.run_log import RunRecord, append_run
+        from tools.cli.research_health import main as health_main
+
+        log_path = tmp_path / "run_log.jsonl"
+        # Write at least one run so we don't hit no_data path
+        rec = RunRecord(
+            pipeline="research_ingest",
+            started_at=_iso_utc(_now()),
+            duration_s=1.0,
+            accepted=1,
+            rejected=0,
+            errors=0,
+            exit_status="ok",
+        )
+        append_run(rec, path=log_path)
+
+        ret = health_main(["--json", "--run-log", str(log_path)])
+        assert ret == 0
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+
+        assert "deferred_checks" in data, "JSON output missing 'deferred_checks' key"
+        deferred = data["deferred_checks"]
+        assert "model_unavailable" in deferred, f"model_unavailable not in deferred_checks: {deferred}"
+        assert "rejection_audit_disagreement" in deferred, (
+            f"rejection_audit_disagreement not in deferred_checks: {deferred}"
+        )
+
+    def test_health_table_includes_deferred_footer(self, tmp_path, capsys):
+        """health table output includes footer note about deferred checks when runs present."""
+        from packages.research.monitoring.run_log import RunRecord, append_run
+        from tools.cli.research_health import main as health_main
+
+        log_path = tmp_path / "run_log.jsonl"
+        rec = RunRecord(
+            pipeline="research_ingest",
+            started_at=_iso_utc(_now()),
+            duration_s=1.0,
+            accepted=1,
+            rejected=0,
+            errors=0,
+            exit_status="ok",
+        )
+        append_run(rec, path=log_path)
+
+        ret = health_main(["--run-log", str(log_path)])
+        assert ret == 0
+
+        captured = capsys.readouterr()
+        assert "DEFERRED" in captured.out, "Expected deferred footer note in table output"
+        assert "GREEN = no data, not verified healthy" in captured.out
