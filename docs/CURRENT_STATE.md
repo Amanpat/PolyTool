@@ -1289,3 +1289,33 @@ and contradiction detection.
 
 See `docs/features/FEATURE-ris-dev-agent-integration-v1.md` and
 `docs/dev_logs/2026-04-03_ris_07_dev_agent_integration.md`.
+
+## RIS R5 Dossier Pipeline and Discovery Loop (quick-260403-jy8, 2026-04-03)
+
+Dossier-to-KnowledgeStore extraction pipeline shipped. Wallet-scan dossier artifacts
+(`dossier.json`, `memo.md`, `hypothesis_candidates.json`) can now be parsed into
+structured research findings and ingested as `source_family="dossier_report"`.
+
+**New/updated files:**
+- `packages/research/integration/dossier_extractor.py` -- parse + ingest pipeline
+- `packages/research/ingestion/adapters.py` -- `DossierAdapter` in `ADAPTER_REGISTRY["dossier"]`
+- `packages/research/integration/__init__.py` -- dossier pipeline exports
+- `tools/cli/research_dossier_extract.py` -- `research-dossier-extract` CLI entrypoint
+- `tests/test_ris_dossier_extractor.py` -- 31 offline deterministic tests
+
+**What shipped:**
+- 3 document types per dossier run: Detectors, Hypothesis Candidates, Memo
+- Wallet provenance in metadata: wallet address, user_slug, run_id, dossier_path
+- Content-hash dedup (idempotent re-ingestion)
+- CLI: single `--dossier-dir` and `--batch` (walks `artifacts/dossiers/users/`)
+- Full regression: 3660 tests passing, 0 failures
+
+**Deferred:**
+- Auto-trigger after wallet-scan (not wired into `wallet-scan` hook)
+- RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
+- LLM-assisted memo extraction (authority conflict blocks this)
+
+31 new tests in `tests/test_ris_dossier_extractor.py`. 3660 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase R5 section) and
+`docs/dev_logs/2026-04-03_ris_r5_dossier_and_discovery_loop.md`.

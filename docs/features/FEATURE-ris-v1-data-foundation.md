@@ -315,6 +315,105 @@ entirely locally without network or LLM calls. The `KnowledgeStore._llm_provider
 attribute remains `None`. Cloud LLM calls are still blocked pending operator decision
 on the Roadmap v5.1 / PLAN_OF_RECORD conflict.
 
+## Phase R5 — Dossier Pipeline (quick-260403-jy8)
+
+**Shipped:** quick-260403-jy8 (2026-04-03)
+**Status:** Complete — dossier extractor, adapter, batch path, and CLI all functional.
+
+Converts locked-away wallet-scan dossier artifacts into queryable research memory in
+the KnowledgeStore. Closes the `wallet-scan -> dossier -> knowledge` discovery loop.
+
+### New Modules
+
+| Module | Purpose |
+|--------|---------|
+| `packages/research/integration/dossier_extractor.py` | Parse dossier artifacts + build finding documents + ingest |
+| `packages/research/ingestion/adapters.py` (updated) | `DossierAdapter` in `ADAPTER_REGISTRY["dossier"]` |
+| `packages/research/integration/__init__.py` (updated) | Re-exports dossier pipeline functions |
+| `tools/cli/research_dossier_extract.py` | `research-dossier-extract` CLI entrypoint |
+| `tests/test_ris_dossier_extractor.py` | 31 offline deterministic tests |
+
+### Architecture
+
+```
+wallet-scan -> export-dossier -> artifacts/dossiers/users/{slug}/{wallet}/{date}/{run_id}/
+  dossier.json      header + detector labels + pnl_summary
+  memo.md           LLM research packet (executive summary, hypotheses, evidence)
+  hypothesis_candidates.json   ranked candidates with CLV metrics
+
+research-dossier-extract [--dossier-dir DIR | --batch]
+  -> extract_dossier_findings(dossier_dir)
+      _parse_dossier_json()    => detector labels, pricing confidence, PnL trend
+      _parse_memo()            => body text with TODOs stripped
+      _parse_hypothesis_candidates()  => top candidates by CLV
+      _build_finding_documents()      => 1-3 finding dicts per run
+  -> ingest_dossier_findings(findings, store)
+      DossierAdapter.adapt(finding)   => ExtractedDocument(source_family="dossier_report")
+      content_hash dedup check (SHA-256)
+      IngestPipeline.ingest(body, source_type="dossier", ...)
+      KnowledgeStore.add_source_document()
+```
+
+### Document Types (1-3 per dossier run)
+
+| Document Title | Content |
+|---------------|---------|
+| `Dossier Detectors: {slug}` | Strategy detector labels, pricing confidence, PnL trend |
+| `Dossier Hypothesis Candidates: {slug}` | Top candidates with avg_clv_pct, beat_close_rate, count |
+| `Dossier Memo: {slug}` | Full LLM research packet (TODO lines stripped) |
+
+### Wallet Provenance in Metadata
+
+Every ingested document carries:
+- `wallet` — proxy wallet address
+- `user_slug` — user handle (from `user_input` header or directory name)
+- `run_id` — unique run identifier
+- `dossier_path` — file system path to the run directory
+- `export_id` — dossier export ID
+- `detector_labels` — dict of detector name -> label
+- `document_type` — one of `dossier_detectors`, `dossier_hypothesis_candidates`, `dossier_memo`
+- `generated_at` — ISO timestamp of when the dossier was generated
+
+### CLI Usage
+
+```bash
+# Single dossier run extraction
+python -m polytool research-dossier-extract \
+  --dossier-dir artifacts/dossiers/users/gabagool22/0x640a.../2026-03-29/47c5ac46-...
+
+# Preview what would be extracted (no writes)
+python -m polytool research-dossier-extract \
+  --dossier-dir artifacts/dossiers/users/gabagool22/0x640a.../2026-03-29/47c5ac46-... \
+  --dry-run
+
+# Batch extraction — all dossiers under artifacts/dossiers/users/
+python -m polytool research-dossier-extract --batch
+
+# Batch with claim extraction enabled
+python -m polytool research-dossier-extract --batch --extract-claims
+
+# Custom DB path
+python -m polytool research-dossier-extract --batch --db-path kb/rag/knowledge/knowledge.sqlite3
+```
+
+### Idempotency
+
+Duplicate ingestion is safe. `ingest_dossier_findings()` pre-checks `content_hash`
+against the `source_documents` table and skips any document already stored.
+Running `research-dossier-extract` twice on the same dossier directory produces
+identical `source_documents` counts.
+
+### Deferred Items
+
+- **Auto-trigger after wallet-scan**: calling `research-dossier-extract` automatically
+  at the end of `wallet-scan` is not yet wired. Run manually after each scan session.
+- **Wallet watchlist integration**: no automatic ingestion from the watchlist cadence.
+- **LLM-assisted memo extraction**: the current memo parser is regex/heuristic. No LLM
+  calls are made. Higher-precision extraction requires resolving the authority conflict.
+- **source_url persistence**: `ingest_dossier_findings` stores `source_url = "internal://manual"`
+  (PlainTextExtractor raw-text behavior). The `file://` URI is in the finding dict metadata
+  but the `source_documents.source_url` column reflects the ingest mode, not the file path.
+
 ## Next Steps
 
 1. **Wire into RAG query pipeline.** Integrate with Chroma/FTS5 hybrid retrieval
@@ -326,3 +425,5 @@ on the Roadmap v5.1 / PLAN_OF_RECORD conflict.
    claims when newer evidence arrives.
 4. **Phase 5 research scraper.** The knowledge store + claim pipeline is the
    data foundation for the Phase 5 automated research ingestion pipeline.
+5. **Auto-trigger dossier extraction.** Wire `research-dossier-extract --batch`
+   into the wallet-scan end-of-run hook or scheduler cadence.
