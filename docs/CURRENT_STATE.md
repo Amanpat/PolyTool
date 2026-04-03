@@ -1082,3 +1082,35 @@ Tests: 21 new offline tests in `tests/test_ris_report_catalog.py`. 3334 total pa
 
 See `docs/features/FEATURE-ris-report-persistence.md` and
 `docs/dev_logs/2026-04-02_ris_r3_report_storage_and_catalog.md`.
+
+## RIS Query Planner, HyDE Expansion, and Combined Retrieval (quick-260402-xbj, 2026-04-03)
+
+Query-planning side of RIS_05 Synthesis Engine. Three new modules in
+`packages/research/synthesis/` enable multi-angle evidence retrieval for research
+briefs and prechecks.
+
+**New modules:**
+- `packages/research/synthesis/query_planner.py` — `QueryPlan` dataclass, `plan_queries()`:
+  topic -> 3-5 diverse retrieval queries via ANGLE_PREFIXES (deterministic) or LLM (Ollama).
+  Supports `include_step_back=True` for broader contextual query. Falls back to deterministic
+  when LLM returns unparseable JSON or raises.
+- `packages/research/synthesis/hyde.py` — `HydeResult` dataclass, `expand_hyde()`:
+  query -> hypothetical document passage (HyDE technique). Deterministic template fallback.
+- `packages/research/synthesis/retrieval.py` — `RetrievalPlan` dataclass, `retrieve_for_research()`:
+  multi-angle retrieval through existing `query_index()` RRF spine. Merges by chunk_id (highest
+  score), tracks `result_sources` dict, falls back to empty results if Chroma unavailable.
+
+**All three modules follow the existing provider pattern** (same as `precheck.py`):
+uses `get_provider()` with `was_fallback` tracking. Local providers (manual, ollama) work offline.
+
+**Key design note:** `get_provider` imported at module level so that `unittest.mock.patch`
+can intercept it in tests. Retrieval module uses a thin `query_index` wrapper at module level
+to defer Chroma import while remaining patchable.
+
+**Deferred:** semantic query dedup, parallel sub-query execution, multi-hop reasoning,
+cloud provider HyDE (RIS v2 deliverable).
+
+27 offline tests in `tests/test_ris_query_planner.py`. 3474 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-query-planner.md` and
+`docs/dev_logs/2026-04-03_ris_query_planner.md`.
