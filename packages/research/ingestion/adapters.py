@@ -546,6 +546,51 @@ class YouTubeAdapter(SourceAdapter):
 # Registry and factory
 # ---------------------------------------------------------------------------
 
+class DossierAdapter(SourceAdapter):
+    """Adapter for dossier finding dicts.
+
+    Converts a raw finding dict (as produced by
+    ``packages.research.integration.dossier_extractor.extract_dossier_findings``)
+    into an ExtractedDocument with source_family="dossier_report".
+
+    Expected raw_source keys:
+    - title (str): Document title
+    - body (str): Document body text
+    - source_url (str): file:// URI to dossier directory
+    - author (str): user slug
+    - publish_date (str, optional): ISO date string
+    - metadata (dict): provenance fields (wallet, run_id, dossier_path, ...)
+    """
+
+    def adapt(
+        self,
+        raw_source: dict,
+        cache=None,  # Not used — dossier sources are local files, no fetch needed
+    ) -> ExtractedDocument:
+        import hashlib
+
+        title = raw_source.get("title", "Dossier Document")
+        body = raw_source.get("body", "")
+        source_url = raw_source.get("source_url", "internal://dossier")
+        author = raw_source.get("author", "unknown") or "unknown"
+        publish_date = raw_source.get("publish_date", None)
+        metadata = dict(raw_source.get("metadata", {}))
+
+        # Build content_hash from body for dedup if not already present
+        if "content_hash" not in metadata:
+            metadata["content_hash"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+        return ExtractedDocument(
+            title=title,
+            body=body,
+            source_url=source_url,
+            source_family="dossier_report",
+            author=author,
+            publish_date=publish_date,
+            metadata=metadata,
+        )
+
+
 ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
     "academic": AcademicAdapter,
     "github": GithubAdapter,
@@ -554,6 +599,7 @@ ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
     "book": BookAdapter,
     "reddit": RedditAdapter,
     "youtube": YouTubeAdapter,
+    "dossier": DossierAdapter,
 }
 
 
