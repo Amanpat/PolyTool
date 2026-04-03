@@ -130,7 +130,7 @@ python -m polytool wallet-scan \
    - **Dossier Hypothesis Candidates** — top CLV-ranked segment candidates (if present).
    - **Dossier Memo** — LLM research packet body (if present and non-placeholder).
 3. Each document is ingested into the KnowledgeStore as `source_family="dossier_report"` AND
-   derived claims are automatically extracted (`post_ingest_extract=True`), making findings
+   derived claims are automatically extracted (`post_extract_claims=True` in `ingest_dossier_findings()`, which calls `extract_and_link()` directly after patching metadata), making findings
    queryable via hybrid retrieval (`query_knowledge_store_for_rrf`).
 4. Content-hash dedup ensures re-running with the same dossier produces no duplicate rows.
    Re-ingesting the same dossier is idempotent: claim count does not change on the second run.
@@ -155,8 +155,8 @@ claim paths:
 # Hybrid retrieval (queries derived_claims — this is the primary retrieval path)
 python -m polytool rag-query --question "MOMENTUM strategy wallets" --hybrid --knowledge-store default
 
-# Standard vector-only retrieval
-python -m polytool rag-query --question "MOMENTUM strategy wallets" --knowledge-store default
+# Vector-only retrieval (omit --hybrid and --knowledge-store to search source_documents only; derived_claims are not searched)
+python -m polytool rag-query --question "MOMENTUM strategy wallets"
 ```
 
 Dossier findings surface in hybrid retrieval results because `--extract-dossier` now runs
