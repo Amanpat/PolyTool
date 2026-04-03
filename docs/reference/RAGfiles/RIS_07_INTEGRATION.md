@@ -233,7 +233,7 @@ And receive the seeded academic paper summary with specific formula references.
 **Precheck before coding:**
 Before starting any feature development session, the operator runs:
 ```bash
-polytool research precheck --idea "Implement momentum signal for crypto pair bot"
+python -m polytool research-precheck run --idea "Implement momentum signal for crypto pair bot" --no-ledger
 ```
 The precheck report is pasted into the dev agent session as context, ensuring the agent
 knows what existing research says about the approach.
@@ -243,12 +243,14 @@ Add to `CLAUDE.md`:
 ```
 ## Research Intelligence System
 Before implementing a new strategy or feature, check existing research:
-- Run: polytool research precheck --idea "description"
-- Query: polytool research query "relevant topic"
+- Run: python -m polytool research-precheck run --idea "description" --no-ledger
+- Query: python -m polytool rag-query --question "relevant topic" --hybrid --knowledge-store default
 - If the precheck returns STOP, do not proceed without discussing with the operator.
 ```
 
 ### How the ChatGPT architect uses the RIS
+
+**[v2 deferred — requires manual Google Drive sync setup]**
 
 The ChatGPT architect (Google Drive connector) can access research reports saved to
 `artifacts/research/reports/`. When generating specs and prompts for dev agents, the
@@ -279,8 +281,8 @@ information yet.
 When an LLM fast-research session produces valuable findings:
 
 1. Operator identifies the finding as worth preserving
-2. `polytool research ingest-url "source_url"` captures the source permanently
-3. Or manually writes a summary: `polytool research ingest-manual --title "..." --text "..."`
+2. `python -m polytool research-acquire --url "source_url" --source-family blog --no-eval` captures the source permanently
+3. Or manually writes a summary: `python -m polytool research-ingest --text "..." --title "..." --source-type manual --no-eval`
 4. The finding goes through the evaluation gate and enters `external_knowledge`
 5. Now it's permanently queryable by all future sessions
 

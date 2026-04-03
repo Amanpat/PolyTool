@@ -100,12 +100,12 @@ strategy design.
 │  ┌───────────────────────────────────────────────────────────────────┐  │
 │  │  INFRASTRUCTURE                                    [RIS_06]       │  │
 │  │  n8n orchestration · APScheduler (v1) · Grafana panels            │  │
-│  │  CLI: polytool research {ingest,query,report,precheck,stats}     │  │
+│  │  CLI: python -m polytool research-{ingest,acquire,report,precheck,stats,health,scheduler,dossier-extract} (standalone hyphenated commands) │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
 │  │  INTEGRATION                                       [RIS_07]       │  │
-│  │  Dossier pipeline upgrade · SimTrader bridge (v2)                 │  │
+│  │  Dossier pipeline upgrade (v1 shipped) · SimTrader bridge (v1 shipped, auto-loop v2) │  │
 │  │  Auto-discovery → findings → external_knowledge                  │  │
 │  │  LLM fast-research complement (GLM / Gemini for on-demand)       │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
@@ -171,7 +171,7 @@ evaluation gate from R1. New work is source-specific scrapers and the content no
 
 ### Phase R3 — Synthesis Engine (3-5 days)
 Query planner, HyDE expansion, report synthesizer, pre-development check command.
-This is the payoff — `polytool research precheck --idea "..."` prevents another
+This is the payoff — `python -m polytool research-precheck run --idea "..." --no-ledger` prevents another
 pair-accumulation-level wasted effort.
 **Details:** `RIS_05_SYNTHESIS_ENGINE.md`
 
@@ -217,7 +217,7 @@ These are complementary, not competing:
   (results exist only in chat context unless manually saved).
 
 The bridge: when an LLM fast-research session produces valuable findings, the operator
-can save them to the RIS via `polytool research ingest-url` or manual submission.
+can save them to the RIS via `python -m polytool research-acquire --url "..." --source-family blog --no-eval` or manual submission via `python -m polytool research-ingest --text "..." --source-type manual --no-eval`.
 Over time, the RIS absorbs the best findings from ad-hoc research sessions, building
 institutional memory that outlasts any single chat conversation.
 
