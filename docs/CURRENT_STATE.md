@@ -1035,3 +1035,21 @@ See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase 4 section) and
 - 30 new offline tests in `tests/test_ris_social_ingestion.py` (all passing)
 - Total test count: 3405 passing, 0 failed, 3 deselected
 - See `docs/features/FEATURE-ris-social-ingestion-v1.md` for coverage table and setup notes
+
+## RIS_01 Academic Ingestion — Practical v1 Closure (quick-260402-wj3, 2026-04-02)
+
+- `LiveAcademicFetcher.search_by_topic(query, max_results=5)` — ArXiv Atom search API,
+  injectable `_http_fn`, returns `list[dict]`; accessible via `research-acquire --search`
+- `BookAdapter` added to `ADAPTER_REGISTRY["book"]` — stable canonical URL
+  `internal://book/{book_id}/{slug}` for curated book chapter ingestion
+- `canonicalize_url()` guard added for non-HTTP schemes (`internal://` now passes through
+  unchanged); fixes normalization crash on book canonical URLs
+- `IngestPipeline.ingest_external()` now accepts `post_ingest_extract=False` kwarg (same
+  non-fatal pattern as `ingest()`)
+- Both `research-ingest` and `research-acquire` CLIs expose `--extract-claims` flag
+- `research-acquire` exposes `--search QUERY` + `--max-results N` for ArXiv topic search
+- SSRN status documented truthfully as deferred (live scraper not implemented; URL-pattern
+  detection works when operator provides pre-built raw_source via `--from-adapter`)
+- 26 new offline tests in `tests/test_ris_academic_ingest_v1.py` (all passing)
+- See `docs/features/FEATURE-ris-academic-ingest-v1.md` and
+  `docs/dev_logs/2026-04-02_ris_r1_academic_ingestion_completion.md`

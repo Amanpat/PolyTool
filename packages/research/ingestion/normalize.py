@@ -133,7 +133,8 @@ def canonicalize_url(url: str) -> str:
         Canonical URL.
     """
     # Pass through non-HTTP(S) URLs unchanged (e.g. internal:// book identifiers)
-    if not url.startswith("http://") and not url.startswith("https://"):
+    url_lower = url.lower()
+    if not url_lower.startswith("http://") and not url_lower.startswith("https://"):
         return url
 
     # Apply GitHub suffix stripping first (handles https/http)

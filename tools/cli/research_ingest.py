@@ -73,8 +73,8 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--source-family", metavar="FAMILY",
         dest="source_family",
-        choices=["academic", "github", "blog", "news"],
-        help="Source family for --from-adapter path (academic/github/blog/news).",
+        choices=["academic", "github", "blog", "news", "book"],
+        help="Source family for --from-adapter path (academic/github/blog/news/book).",
     )
     parser.add_argument(
         "--cache-dir", metavar="PATH",
@@ -86,6 +86,12 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--json", dest="output_json", action="store_true",
         help="Output raw JSON instead of human-readable text.",
+    )
+    parser.add_argument(
+        "--extract-claims",
+        dest="extract_claims",
+        action="store_true",
+        help="Run claim extraction after ingest (opt-in; non-fatal if extraction fails).",
     )
 
     if not argv:
@@ -153,6 +159,7 @@ def main(argv: list) -> int:
                 raw_source,
                 args.source_family,
                 cache=raw_cache,
+                post_ingest_extract=args.extract_claims,
             )
         else:
             # Standard file/text path
@@ -168,7 +175,11 @@ def main(argv: list) -> int:
             else:
                 source = args.text  # type: ignore[assignment]
 
-            result = pipeline.ingest(source, **ingest_kwargs)
+            result = pipeline.ingest(
+                source,
+                post_ingest_extract=args.extract_claims,
+                **ingest_kwargs,
+            )
 
     except Exception as exc:
         print(f"Error: ingestion failed: {exc}", file=sys.stderr)
