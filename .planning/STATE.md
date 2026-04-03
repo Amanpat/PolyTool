@@ -5,9 +5,11 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 — Completed quick task 260402-rm1: RIS Phase 5 live source acquisition adapters — stdlib-only LiveAcademicFetcher/LiveGitHubFetcher/LiveBlogFetcher, AcquisitionReviewWriter (JSONL audit log), research-acquire CLI, pytest.mark.live marker; 57 new offline tests + 3 live-marked smoke tests; 3328 passing
+Last activity: 2026-04-03 — Completed quick task 260402-rmz: RIS Phase 5 controlled provider enablement — cloud provider guard (RIS_ENABLE_CLOUD_PROVIDERS=1), ProviderEvent replay-grade metadata, ReplayDiff workflow, research-eval subcommands (eval/replay/list-providers); 20 new offline tests, 3215 passing
 
 ## Recent Progress
+- quick-260402-rmz: Cloud provider guard + replay-grade ProviderEvent metadata + ReplayDiff workflow + research-eval subcommands (eval/replay/list-providers); 20 new offline tests (3215 passing)
+- quick-260402-rm1: stdlib-only live fetchers, AcquisitionReviewWriter, research-acquire CLI, pytest.mark.live; 57 new offline tests
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
 - Quick-001: Cross-encoder reranking with hybrid+rerank eval mode (101 tests passing)
 - Phase 4.3: Offline RAG eval harness implemented with 20 passing tests
@@ -15,6 +17,7 @@ Last activity: 2026-04-03 — Completed quick task 260402-rm1: RIS Phase 5 live 
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260402-rmz: three-way get_provider() branch (local/cloud-guard/unknown) preserves ValueError('unknown provider') backward compat; cloud providers recognized but not-yet-implemented (RIS v2); ProviderEvent raw_output=None by default for lightweight JSONL; backward-compat CLI routing via _KNOWN_SUBCOMMANDS check
 - quick-260402-rm1: stdlib-only HTTP in live fetchers; injectable _http_fn for offline test isolation; local regex copies in fetchers.py to avoid circular import; dedup check pre-pipeline, ingest proceeds regardless (idempotent); review record written even on ingest failure for complete audit trail
 - quick-260402-ogq: Deterministic claim IDs via SHA-256(doc_id+sentence+chunk_id+extractor_id) as created_at override; empirical regex requires 3+ digit numbers (2-digit falsely wins over normative keywords); evidence deduplication via pre-insert SELECT (add_evidence has no INSERT OR IGNORE); post_ingest_extract opt-in and non-fatal; no LLM calls (authority conflict unresolved)
 - quick-260402-m6t: LLM scoring retained as primary quality signal; feature extraction adds deterministic layer before it; SOURCE_FAMILY_OFFSETS empty until >= 50 artifacts span >= 3 families; 0.85 Jaccard threshold not yet calibrated; artifact persistence opt-in via constructor (backward compatible)
