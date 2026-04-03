@@ -84,6 +84,7 @@ research_seed_main = _command_entrypoint("tools.cli.research_seed")
 research_benchmark_main = _command_entrypoint("tools.cli.research_benchmark")
 research_calibration_main = _command_entrypoint("tools.cli.research_calibration")
 research_extract_claims_main = _command_entrypoint("tools.cli.research_extract_claims")
+research_acquire_main = _command_entrypoint("tools.cli.research_acquire")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -140,6 +141,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-benchmark": "research_benchmark_main",
     "research-calibration": "research_calibration_main",
     "research-extract-claims": "research_extract_claims_main",
+    "research-acquire": "research_acquire_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -196,6 +198,7 @@ def print_usage() -> None:
     print("  research-benchmark        Compare extractor outputs on a fixture set")
     print("  research-calibration      Inspect precheck calibration health over the ledger")
     print("  research-extract-claims   Extract structured claims from ingested documents (no LLM)")
+    print("  research-acquire          Acquire a source from URL and ingest into knowledge store")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")
