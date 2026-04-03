@@ -142,7 +142,11 @@ def polymarket_llm_bundle(user: str) -> str:
 
 @mcp_app.tool()
 def polymarket_rag_query(question: str, user: str = "", k: int = 8) -> str:
-    """Query the local RAG index for evidence.
+    """Query the local RAG index for evidence, including KnowledgeStore claims when available.
+
+    Uses hybrid retrieval (vector + lexical + KnowledgeStore claims) when the
+    default KnowledgeStore DB exists at kb/rag/knowledge/knowledge.sqlite3.
+    Falls back to vector-only private retrieval when the DB is absent.
 
     Args:
         question: The query to search for
@@ -157,21 +161,39 @@ def polymarket_rag_query(question: str, user: str = "", k: int = 8) -> str:
         SentenceTransformerEmbedder,
     )
     from polymarket.rag.query import query_index
+    from polymarket.rag.knowledge_store import DEFAULT_KNOWLEDGE_DB_PATH
+
+    ks_path = DEFAULT_KNOWLEDGE_DB_PATH
+    ks_active = ks_path.exists()
 
     with _suppress_stdout():
         embedder = SentenceTransformerEmbedder(model_name=DEFAULT_EMBED_MODEL)
-        results = query_index(
-            question=question,
-            embedder=embedder,
-            k=k,
-            user_slug=user or None,
-            private_only=True,
-        )
+        if ks_active:
+            results = query_index(
+                question=question,
+                embedder=embedder,
+                k=k,
+                user_slug=user or None,
+                private_only=True,
+                hybrid=True,
+                top_k_vector=25,
+                top_k_lexical=25,
+                knowledge_store_path=ks_path,
+            )
+        else:
+            results = query_index(
+                question=question,
+                embedder=embedder,
+                k=k,
+                user_slug=user or None,
+                private_only=True,
+            )
     return json.dumps({
         "success": True,
         "question": question,
         "results": results,
         "count": len(results),
+        "ks_active": ks_active,
     })
 
 
