@@ -1343,7 +1343,7 @@ output of the wallet-scan workflow via an opt-in `--extract-dossier` flag.
 - 40 new tests; 3685 total passing, 4 pre-existing failures unchanged
 
 **Still deferred:**
-- RAG query integration via Chroma/FTS5 (KnowledgeStore hybrid routing shipped in quick-260403-lir; direct Chroma embed not yet wired)
+- RAG query integration via Chroma/FTS5 (KnowledgeStore hybrid routing shipped in quick-260403-lir; dossier-path hybrid retrieval via derived_claims shipped in quick-260403-n2o; direct Chroma embed not yet wired)
 - LLM-assisted memo extraction (authority conflict)
 - Parallel scan workers
 
@@ -1369,9 +1369,40 @@ Closed the two final implementation gaps in RIS v1:
 
 See `docs/dev_logs/2026-04-03_ris_final_bridge_and_mcp_fix.md`.
 
+## RIS Dossier Queryability Fix (quick-260403-n2o, 2026-04-03)
+
+Closed the final functional gap in the dossier integration: `wallet-scan --extract-dossier`
+now produces retrieval-visible `derived_claims` in KnowledgeStore, not just `source_documents`.
+
+**Root cause:** `_make_dossier_extractor()` called `ingest_dossier_findings(findings, store)`
+without `post_extract_claims=True`. Additionally, `_get_document_body()` in the claim extractor
+could not retrieve body text for dossier documents (stored with `source_url="internal://manual"`
+and no `body` key in `metadata_json`). Both issues fixed.
+
+**New/updated files:**
+- `tools/cli/wallet_scan.py` -- pass `post_extract_claims=True`; update log message
+- `packages/research/integration/dossier_extractor.py` -- patch `metadata_json` with body; call `extract_and_link` directly
+- `tests/test_wallet_scan_dossier_integration.py` -- 6 new tests in TestDossierClaimExtraction
+- `docs/features/wallet-scan-v0.md` -- step 3, Queryable via RIS, Notes updated
+- `docs/dev_logs/2026-04-03_ris_final_dossier_queryability_fix.md` -- dev log
+
+**What shipped:**
+- Dossier ingest now triggers claim extraction automatically (end-to-end)
+- `derived_claims` table populated after `--extract-dossier` runs
+- `rag-query --hybrid --knowledge-store default` surfaces dossier findings
+- Provenance chain intact: `derived_claim.source_document_id` -> `source_documents` row with `source_family="dossier_report"`
+- Idempotent: re-ingest with same dossier produces 0 new claims (INSERT OR IGNORE)
+- 6 new tests prove the full chain; 3695 total passing, 0 failures
+
+**Deferred:**
+- LLM-assisted dossier memo extraction (authority conflict; rule-based extractor used)
+- Direct Chroma embed path (not needed; KS hybrid retrieval via derived_claims is sufficient)
+
+See `docs/dev_logs/2026-04-03_ris_final_dossier_queryability_fix.md`.
+
 ## RIS v1 — Complete (2026-04-03)
 
-All practical v1 scope RIS subsystems are shipped and passing 3689 tests.
+All practical v1 scope RIS subsystems are shipped and passing 3695 tests.
 
 **v1 Complete:**
 - R0: Knowledge store foundation (SQLite + Chroma, BGE-M3 embeddings)
@@ -1384,6 +1415,7 @@ All practical v1 scope RIS subsystems are shipped and passing 3689 tests.
 - SimTrader bridge (brief_to_candidate, precheck_to_candidate, register_research_hypothesis, record_validation_outcome)
 - wallet-scan --extract-dossier auto-trigger hook (quick-260403-lim)
 - Bridge CLI (research-register-hypothesis, research-record-outcome) + MCP KnowledgeStore hybrid routing (quick-260403-lir)
+- Dossier claim extraction + hybrid retrieval (derived_claims, provenance chain, idempotency) (quick-260403-n2o)
 
 **v2 Deferred (require Phase 3+ or additional infra):**
 - Auto-discovery -> knowledge loop (requires candidate scanner integration)
@@ -1396,4 +1428,4 @@ All practical v1 scope RIS subsystems are shipped and passing 3689 tests.
 - SSRN ingestion, Twitter/X ingestion
 - LLM-assisted dossier memo extraction (authority conflict)
 
-All 3689 tests pass. Codex review: docs-only changes, skip tier.
+All 3695 tests pass. Codex review: docs-only changes, skip tier.

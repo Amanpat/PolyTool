@@ -129,8 +129,11 @@ python -m polytool wallet-scan \
    - **Dossier Detectors** — strategy classification labels (e.g., MOMENTUM, DCA).
    - **Dossier Hypothesis Candidates** — top CLV-ranked segment candidates (if present).
    - **Dossier Memo** — LLM research packet body (if present and non-placeholder).
-3. Each document is ingested into the KnowledgeStore as `source_family="dossier_report"`.
+3. Each document is ingested into the KnowledgeStore as `source_family="dossier_report"` AND
+   derived claims are automatically extracted (`post_ingest_extract=True`), making findings
+   queryable via hybrid retrieval (`query_knowledge_store_for_rrf`).
 4. Content-hash dedup ensures re-running with the same dossier produces no duplicate rows.
+   Re-ingesting the same dossier is idempotent: claim count does not change on the second run.
 
 ### Provenance fields
 
@@ -145,12 +148,20 @@ Each ingested document preserves full provenance in its metadata:
 
 ### Queryable via RIS
 
-After ingestion, findings are queryable via the standard RIS commands:
+After ingestion, findings are queryable through **both** the source document and derived
+claim paths:
 
 ```bash
+# Hybrid retrieval (queries derived_claims — this is the primary retrieval path)
+python -m polytool rag-query --question "MOMENTUM strategy wallets" --hybrid --knowledge-store default
+
+# Standard vector-only retrieval
 python -m polytool rag-query --question "MOMENTUM strategy wallets" --knowledge-store default
-python -m polytool research-dossier-extract --batch --dossier-base artifacts/dossiers/users
 ```
+
+Dossier findings surface in hybrid retrieval results because `--extract-dossier` now runs
+claim extraction automatically. The provenance chain is preserved end-to-end:
+`derived_claim.source_document_id` → `source_documents` row with `source_family="dossier_report"`.
 
 ### Notes
 
@@ -159,6 +170,8 @@ python -m polytool research-dossier-extract --batch --dossier-base artifacts/dos
 - If `dossier.json` is absent from the scan run root (e.g., `--lite` profile didn't
   generate one), the extractor skips silently (non-fatal).
 - Errors in the extractor never abort the scan loop.
+- Claim extraction uses the rule-based extractor (no LLM calls). LLM-assisted extraction
+  is deferred.
 
 ---
 
