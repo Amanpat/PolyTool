@@ -1053,3 +1053,32 @@ See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase 4 section) and
 - 26 new offline tests in `tests/test_ris_academic_ingest_v1.py` (all passing)
 - See `docs/features/FEATURE-ris-academic-ingest-v1.md` and
   `docs/dev_logs/2026-04-02_ris_r1_academic_ingestion_completion.md`
+
+## RIS Report Persistence and Catalog (quick-260402-xbt, 2026-04-02)
+
+Report persistence layer for the RIS synthesis engine. Reports are saved as
+markdown artifacts under `artifacts/research/reports/` with a JSONL index for
+list/search. Manual weekly-digest command generates summary digests from precheck
+and eval artifact data.
+
+- `packages/research/synthesis/report_ledger.py` -- ReportEntry, persist_report,
+  list_reports, search_reports, generate_digest
+- `tools/cli/research_report.py` -- save/list/search/digest subcommands
+- Storage: local-first JSONL index at `artifacts/research/reports/report_index.jsonl`
+- ClickHouse indexing: deferred (JSONL is sufficient for current operator scale)
+- APScheduler/n8n automation: deferred to RIS_06
+
+CLI:
+
+```
+python -m polytool research-report save --title "Market Edge Analysis" --body "Report content..."
+python -m polytool research-report list --window 7d
+python -m polytool research-report search --query "market maker"
+python -m polytool research-report digest --window 7
+```
+
+Tests: 21 new offline tests in `tests/test_ris_report_catalog.py`. 3334 total passing,
+0 failed.
+
+See `docs/features/FEATURE-ris-report-persistence.md` and
+`docs/dev_logs/2026-04-02_ris_r3_report_storage_and_catalog.md`.
