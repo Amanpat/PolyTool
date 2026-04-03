@@ -175,21 +175,22 @@ def get_provider(name: str = "manual", **kwargs) -> EvalProvider:
             return ManualProvider()
         elif name == "ollama":
             return OllamaProvider(**kwargs)
-    else:
-        # Cloud guard: require explicit operator opt-in
+    elif name in _CLOUD_PROVIDERS:
+        # Known cloud provider: require explicit operator opt-in
         if os.environ.get(_CLOUD_GUARD_ENV_VAR, "") != "1":
             raise PermissionError(
                 f"Cloud provider '{name}' requires {_CLOUD_GUARD_ENV_VAR}=1 to be set. "
                 "Local providers (manual, ollama) work without this flag."
             )
-        # Env var is set — provider is recognized but not yet implemented
-        if name in _CLOUD_PROVIDERS:
-            raise ValueError(
-                f"Cloud provider '{name}' is recognized but not yet implemented. "
-                "Cloud provider implementations are a RIS v2 deliverable."
-            )
+        # Env var is set — recognized but not yet implemented
         raise ValueError(
-            f"Unknown provider '{name}'. Local providers: manual, ollama. "
+            f"Cloud provider '{name}' is recognized but not yet implemented. "
+            "Cloud provider implementations are a RIS v2 deliverable."
+        )
+    else:
+        # Completely unknown provider name
+        raise ValueError(
+            f"unknown provider '{name}'. Local providers: manual, ollama. "
             f"Cloud providers (require {_CLOUD_GUARD_ENV_VAR}=1): {', '.join(sorted(_CLOUD_PROVIDERS))}."
         )
 
