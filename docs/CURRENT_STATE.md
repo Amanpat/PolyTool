@@ -1280,10 +1280,10 @@ covering precheck round-trip, ingest-then-query, acquire dry-run, file ingest,
 and contradiction detection.
 
 **v2 deferred items (explicitly out of scope):**
-- Dossier-to-external-knowledge extraction (RIS_07 Section 1): **v1 shipped** — CLI + batch extract via research-dossier-extract. Auto-trigger after wallet-scan remains v2 deferred.
+- Dossier-to-external-knowledge extraction (RIS_07 Section 1): **v1 shipped** — CLI + batch extract via research-dossier-extract. Auto-trigger via --extract-dossier also shipped (quick-260403-lim).
 - SimTrader auto-promotion loop (RIS_07 Section 3): bridge functions shipped (quick-260403-jyg), auto-hypothesis generation loop v2 deferred.
 - Auto-discovery -> knowledge loop (RIS_07 Section 2)
-- MCP auto-routing for rag-query
+- MCP auto-routing for rag-query: **v1 shipped** — polymarket_rag_query uses hybrid KS retrieval when DB exists (quick-260403-lir)
 
 10 new tests in `tests/test_ris_integration_workflow.py`. 3660 total passing, 0 new failures.
 
@@ -1311,7 +1311,7 @@ structured research findings and ingested as `source_family="dossier_report"`.
 - Full regression: 3660 tests passing, 0 failures
 
 **Deferred:**
-- Auto-trigger after wallet-scan | **Wired via --extract-dossier flag (2026-04-03)** — see RIS Final Dossier Operationalization section below
+- Auto-trigger after wallet-scan: **Shipped** via --extract-dossier flag (quick-260403-lim)
 - RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
 - LLM-assisted memo extraction (authority conflict blocks this)
 
@@ -1343,16 +1343,35 @@ output of the wallet-scan workflow via an opt-in `--extract-dossier` flag.
 - 40 new tests; 3685 total passing, 4 pre-existing failures unchanged
 
 **Still deferred:**
-- RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
+- RAG query integration via Chroma/FTS5 (KnowledgeStore hybrid routing shipped in quick-260403-lir; direct Chroma embed not yet wired)
 - LLM-assisted memo extraction (authority conflict)
 - Parallel scan workers
 
 See `docs/features/wallet-scan-v0.md` (Dossier Extraction section) and
 `docs/dev_logs/2026-04-03_ris_final_dossier_operationalization.md`.
 
+## RIS Bridge CLI and MCP KnowledgeStore Routing (quick-260403-lir, 2026-04-03)
+
+Closed the two final implementation gaps in RIS v1:
+
+1. CLI entry points for `register_research_hypothesis` and `record_validation_outcome`
+   (the core bridge logic existed but had no `polytool` commands).
+2. `mcp_server.polymarket_rag_query` now uses hybrid KnowledgeStore retrieval when the
+   default KS DB (`kb/rag/knowledge/knowledge.sqlite3`) is present. Falls back to
+   vector-only when DB absent. Response includes `ks_active` bool.
+
+**New/updated files:**
+- `tools/cli/research_bridge.py` -- register-hypothesis + record-outcome subcommands
+- `tools/cli/mcp_server.py` -- hybrid KS retrieval with ks_active flag
+- `tests/test_ris_bridge_cli_and_mcp.py` -- 11 offline tests
+
+11 new tests. 3689 total passing, 4 pre-existing failures unchanged.
+
+See `docs/dev_logs/2026-04-03_ris_final_bridge_and_mcp_fix.md`.
+
 ## RIS v1 — Complete (2026-04-03)
 
-All practical v1 scope RIS subsystems are shipped and passing 3660 tests.
+All practical v1 scope RIS subsystems are shipped and passing 3689 tests.
 
 **v1 Complete:**
 - R0: Knowledge store foundation (SQLite + Chroma, BGE-M3 embeddings)
@@ -1363,17 +1382,18 @@ All practical v1 scope RIS subsystems are shipped and passing 3660 tests.
 - R5: Dossier pipeline (DossierExtractor, DossierAdapter, research-dossier-extract CLI, batch mode)
 - Dev agent integration (CLAUDE.md RIS section, operator recipes A-E, 10 integration tests)
 - SimTrader bridge (brief_to_candidate, precheck_to_candidate, register_research_hypothesis, record_validation_outcome)
+- wallet-scan --extract-dossier auto-trigger hook (quick-260403-lim)
+- Bridge CLI (research-register-hypothesis, research-record-outcome) + MCP KnowledgeStore hybrid routing (quick-260403-lir)
 
 **v2 Deferred (require Phase 3+ or additional infra):**
-- Auto-trigger dossier extraction after wallet-scan (hook not wired)
-- Auto-discovery -> knowledge loop (requires auto-trigger prerequisite)
+- Auto-discovery -> knowledge loop (requires candidate scanner integration)
 - SimTrader auto-promotion loop (bridge shipped; auto-loop not wired)
 - LLM-based synthesis (DeepSeek V3 prose generation)
 - n8n migration from APScheduler
 - ClickHouse ingestion_log table + Grafana panels
 - ChatGPT architect / Google Drive connector
-- MCP rag-query -> KnowledgeStore routing
 - Weekly digest automation
 - SSRN ingestion, Twitter/X ingestion
+- LLM-assisted dossier memo extraction (authority conflict)
 
-All 3660 tests pass. Codex review: docs-only changes, skip tier.
+All 3689 tests pass. Codex review: docs-only changes, skip tier.
