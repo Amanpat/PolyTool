@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-1sc: RIS_06 monitoring and health — run_log JSONL, 6 health checks, LogSink+WebhookSink alert abstraction, research-health CLI, 40 offline tests; 3555 passing
+Last activity: 2026-04-03 - Completed quick task 260403-1s3: RIS_06 APScheduler scheduler v1 — JOB_REGISTRY (8 jobs, no Twitter/X), start_research_scheduler() injectable hooks, research-scheduler CLI (status/start/run-job), 28 offline tests; 3557 passing
 
 ## Recent Progress
+- quick-260403-1s3: RIS_06 APScheduler scheduler v1 — JOB_REGISTRY (8 named jobs, no Twitter/X), start_research_scheduler() with injectable _scheduler_factory/_job_runner, research-scheduler CLI, _JOB_FN_MAP patching pattern for reliable test isolation; 28 offline tests; 3557 passing
 - quick-260402-wj3: RIS_01 Academic Ingestion v1 closure — ArXiv topic search, BookAdapter, --extract-claims CLI flag on both CLIs; SSRN truthfully deferred; 26 new offline tests (3405 passing)
 - quick-260402-wj9: RIS_02 Social Ingestion v1 — RedditAdapter + YouTubeAdapter + clean_transcript(), LiveRedditFetcher + LiveYouTubeFetcher (opt-in PRAW/yt-dlp), research-acquire CLI reddit/youtube choices, Twitter/X explicitly deferred; 30 new offline tests; 3405 passing
 - quick-260402-rmz: Cloud provider guard + replay-grade ProviderEvent metadata + ReplayDiff workflow + research-eval subcommands (eval/replay/list-providers); 20 new offline tests (3349 passing)
