@@ -314,6 +314,7 @@ def run_job(job_id: str, _run_log_fn: Optional[Callable] = None) -> int:
 def start_research_scheduler(
     _scheduler_factory: Optional[Callable[[], Any]] = None,
     _job_runner: Optional[Callable[[str], None]] = None,
+    _run_log_fn: Optional[Callable] = None,
 ) -> Any:
     """Start the RIS background scheduler with all 8 registered jobs.
 
@@ -327,6 +328,11 @@ def start_research_scheduler(
         Optional callable that receives a job_id string and is used as the
         APScheduler job function (instead of the real job callable).
         Useful for offline testing to intercept job registrations.
+    _run_log_fn:
+        Optional callable that receives a RunRecord after each job execution.
+        Threaded through to run_job() in the real background path (else branch).
+        When None, run_job() uses the real append_run from run_log module.
+        Provide a replacement for offline testing without filesystem side-effects.
 
     Returns
     -------
@@ -374,7 +380,9 @@ def start_research_scheduler(
             # Capture jid in default arg to avoid late-binding closure issue
             job_fn: Callable[[], None] = (lambda _jid=jid: _job_runner(_jid))
         else:
-            job_fn = _JOB_FN_MAP[callable_name]
+            # Always route through run_job() so every background execution is logged.
+            # Capture jid and _run_log_fn in default args to avoid late-binding closure.
+            job_fn = (lambda _jid=jid, _rlf=_run_log_fn: run_job(_jid, _run_log_fn=_rlf))
 
         trigger_kwargs = _triggers.get(jid, {})
 

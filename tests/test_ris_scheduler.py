@@ -445,3 +445,66 @@ class TestRunJobRunLog:
         # Evaluate health — pipeline_failed should be GREEN (successful run)
         results = {r.check_name: r for r in evaluate_health(runs)}
         assert results["pipeline_failed"].status == "GREEN"
+
+
+# ---------------------------------------------------------------------------
+# TestSchedulerBackgroundPath — verify real APScheduler path routes through run_job()
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerBackgroundPath:
+    """Verify that real APScheduler path (no _job_runner) routes through run_job()."""
+
+    def test_background_path_writes_run_log(self) -> None:
+        """Registered job fn calls run_job(), which produces a RunRecord."""
+        from packages.research.scheduling import scheduler as sched_mod
+        from packages.research.monitoring.run_log import RunRecord
+
+        records: list = []
+        fake = _FakeScheduler()
+
+        # Patch the actual callable so no network calls happen
+        mock_fn = MagicMock(return_value=None)
+        original = sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"]
+        sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = mock_fn
+        try:
+            sched_mod.start_research_scheduler(
+                _scheduler_factory=lambda: fake,
+                # No _job_runner — exercises the else branch (real path)
+                _run_log_fn=records.append,
+            )
+            # Find the academic_ingest job and invoke it manually
+            job = next(j for j in fake.jobs if j["id"] == "academic_ingest")
+            job["fn"]()
+        finally:
+            sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = original
+
+        assert len(records) == 1
+        rec = records[0]
+        assert isinstance(rec, RunRecord)
+        assert rec.pipeline == "academic_ingest"
+        assert rec.exit_status == "ok"
+
+    def test_background_path_records_error_status(self) -> None:
+        """When callable raises, the RunRecord has exit_status='error'."""
+        from packages.research.scheduling import scheduler as sched_mod
+        from packages.research.monitoring.run_log import RunRecord
+
+        records: list = []
+        fake = _FakeScheduler()
+
+        mock_fn = MagicMock(side_effect=RuntimeError("boom"))
+        original = sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"]
+        sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = mock_fn
+        try:
+            sched_mod.start_research_scheduler(
+                _scheduler_factory=lambda: fake,
+                _run_log_fn=records.append,
+            )
+            job = next(j for j in fake.jobs if j["id"] == "academic_ingest")
+            job["fn"]()
+        finally:
+            sched_mod._JOB_FN_MAP["_job_run_academic_ingestion"] = original
+
+        assert len(records) == 1
+        assert records[0].exit_status == "error"
