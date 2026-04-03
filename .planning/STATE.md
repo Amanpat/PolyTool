@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-02 — Completed quick task 260402-qud: RIS Phase 4 claim extraction hardening — narrowed except Exception to sqlite3.IntegrityError in build_intra_doc_relations, added exact SUPPORTS/CONTRADICTS relation assertions (13 occurrences vs ~2 before), evidence shape/idempotency tests, 7 CLI smoke tests for research-extract-claims; 66 targeted + 3272 full suite passing
+Last activity: 2026-04-03 — Completed quick task 260402-rm1: RIS Phase 5 live source acquisition adapters — stdlib-only LiveAcademicFetcher/LiveGitHubFetcher/LiveBlogFetcher, AcquisitionReviewWriter (JSONL audit log), research-acquire CLI, pytest.mark.live marker; 57 new offline tests + 3 live-marked smoke tests; 3328 passing
 
 ## Recent Progress
 - Quick-002: Resolution provider chain (OnChainCTF + Subgraph + cascade), 13 new tests, ROADMAP renumbered (217 tests passing)
@@ -15,6 +15,7 @@ Last activity: 2026-04-02 — Completed quick task 260402-qud: RIS Phase 4 claim
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260402-rm1: stdlib-only HTTP in live fetchers; injectable _http_fn for offline test isolation; local regex copies in fetchers.py to avoid circular import; dedup check pre-pipeline, ingest proceeds regardless (idempotent); review record written even on ingest failure for complete audit trail
 - quick-260402-ogq: Deterministic claim IDs via SHA-256(doc_id+sentence+chunk_id+extractor_id) as created_at override; empirical regex requires 3+ digit numbers (2-digit falsely wins over normative keywords); evidence deduplication via pre-insert SELECT (add_evidence has no INSERT OR IGNORE); post_ingest_extract opt-in and non-fatal; no LLM calls (authority conflict unresolved)
 - quick-260402-m6t: LLM scoring retained as primary quality signal; feature extraction adds deterministic layer before it; SOURCE_FAMILY_OFFSETS empty until >= 50 artifacts span >= 3 families; 0.85 Jaccard threshold not yet calibrated; artifact persistence opt-in via constructor (backward compatible)
 - quick-260402-m6p: StructuredMarkdownExtractor preserves body unchanged, structural data in metadata only; pdfplumber/python-docx are optional deps checked at extract() call-time; StubPDFExtractor/StubDocxExtractor retained but removed from registry; reseed uses DELETE-before-ingest via store._conn (same pattern as source_family UPDATE); .md auto-detect -> structured_markdown (not plain_text)
