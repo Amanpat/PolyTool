@@ -1148,3 +1148,25 @@ report storage/catalog, ClickHouse report indexing, past failures search.
 
 See `docs/features/FEATURE-ris-synthesis-engine-v1.md` and
 `docs/dev_logs/2026-04-03_ris_r3_report_and_precheck_synthesis.md`.
+
+## RIS Operator Stats and Metrics Export (quick-260403-1sg, 2026-04-03)
+
+Operator metrics surface for the RIS pipeline. `research-stats summary` and `research-stats export` are now operational.
+
+**New module:** `packages/research/metrics.py`
+
+- `RisMetricsSnapshot` dataclass -- all counts in one view (docs, claims, gate split, precheck decisions, reports, acquisition)
+- `collect_ris_metrics(...)` -- reads from KS SQLite, eval_artifacts.jsonl, precheck_ledger.jsonl, report_index.jsonl, acquisition_review.jsonl; no network, no ClickHouse
+- `format_metrics_summary(snapshot)` -- human-readable multi-line string with sections: Knowledge Store, Eval Gate, Prechecks, Reports, Acquisition
+
+**New CLI:** `research-stats`
+
+- `research-stats summary` -- print metrics snapshot (or --json for raw JSON)
+- `research-stats export` -- write `artifacts/research/metrics_snapshot.json` for Grafana Infinity plugin polling
+
+**Deferred:** ClickHouse write path, APScheduler integration for periodic export, pre-built Grafana dashboard JSON.
+
+15 offline deterministic tests in `tests/test_ris_ops_metrics.py`. 3489 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-ops-cli-and-metrics.md` and
+`docs/dev_logs/2026-04-03_ris_r4_ops_cli_and_metrics.md`.
