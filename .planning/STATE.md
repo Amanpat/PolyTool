@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-n2w: Close the final RIS truth-alignment gaps so Codex can call RIS overall v1 COMPLETE
+Last activity: 2026-04-03 - Completed quick task 260403-n2o: Dossier claim extraction + hybrid retrieval (derived_claims populated, provenance chain intact, 3695 tests passing)
 
 ## Recent Progress
+- quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
 - quick-260403-lir: RIS bridge CLI + MCP KS routing — research-register-hypothesis + research-record-outcome CLI subcommands; polymarket_rag_query with hybrid KS retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing
 - quick-260403-jy8: RIS R5 Dossier Pipeline — DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, research-dossier-extract CLI (single-dir + batch + dry-run); 31 new offline tests; 3660 passing
 - quick-260403-jyl: RIS_07 dev-agent integration + fast-research preservation — CLAUDE.md RIS section (pre-build workflow + 3-path preservation recipes), FEATURE-ris-dev-agent-integration-v1.md (5 operator recipes), 10 offline integration tests; RIS_07 closed at v1 scope; 3660 passing
@@ -26,6 +27,7 @@ Last activity: 2026-04-03 - Completed quick task 260403-n2w: Close the final RIS
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260403-n2o: Patch metadata_json with body key inline in ingest_dossier_findings (not PlainTextExtractor) for minimal blast radius; call extract_and_link directly after patch (not via post_ingest_extract=True pipeline flag — needed to interpose the patch step); swallow extract_and_link exceptions (non-fatal extractor contract)
 - quick-260403-lir: Keep polymarket.rag.* imports lazy in mcp_server for MCP subprocess safety; fix test patching by adding packages/ to sys.path in fixture; KnowledgeStore at module level in research_bridge.py for patchability
 - quick-260403-jy8: DossierAdapter in adapters.py (not dossier_extractor.py) to avoid circular import; dedup SQL uses "SELECT id" (PK col, not doc_id); TODO regex ^[-*]\s*TODO\b catches bullet+TODO+trailing text; source_url always "internal://manual" (PlainTextExtractor contract) — file:// in metadata.dossier_path
 - quick-260403-jyg: research hypothesis ID uses sha256({"kind":"research_candidate","name":name})[:16] not stable_hypothesis_id() (which expects dimension_key/segment_key shapes); record_validation_outcome() is operator-triggered (no auto-loop at v1); evidence_doc_ids flow brief.cited_sources -> candidate -> registry event source field
