@@ -5,9 +5,11 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-03 - Completed quick task 260403-jyl: RIS_07 dev-agent integration + fast-research preservation — CLAUDE.md RIS section (pre-build workflow + 3-path preservation recipes), FEATURE-ris-dev-agent-integration-v1.md (5 operator recipes), 10 offline integration tests; RIS_07 closed at v1 scope; 3660 passing
+Last activity: 2026-04-03 - Completed quick task 260403-jy8: RIS R5 dossier pipeline + discovery loop — DossierExtractor, DossierAdapter, batch_extract_dossiers, research-dossier-extract CLI, 31 new offline tests; 3660 passing
 
 ## Recent Progress
+- quick-260403-jy8: RIS R5 Dossier Pipeline — DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, research-dossier-extract CLI (single-dir + batch + dry-run); 31 new offline tests; 3660 passing
+- quick-260403-jyl: RIS_07 dev-agent integration + fast-research preservation — CLAUDE.md RIS section (pre-build workflow + 3-path preservation recipes), FEATURE-ris-dev-agent-integration-v1.md (5 operator recipes), 10 offline integration tests; RIS_07 closed at v1 scope; 3660 passing
 - quick-260403-jyg: RIS SimTrader Bridge v1 — brief_to_candidate/precheck_to_candidate/register_research_hypothesis/record_validation_outcome; KnowledgeStore.update_claim_validation_status(); packages/research/integration/ new module; 37 new offline tests; 3644 passing
 - quick-260403-it1: RIS manual producer health fix — research-ingest and research-acquire wired into append_run(); [DEFERRED] labeling for model_unavailable and rejection_audit_disagreement; 14 new tests; 3582 passing
 - quick-260403-2ow: RIS_06 run_log wiring — append_run() wired into run_job() via injectable _run_log_fn hook (non-fatal write failures); 3 new E2E tests (run_job->run_log->health_checks); 3566 passing
@@ -23,6 +25,7 @@ Last activity: 2026-04-03 - Completed quick task 260403-jyl: RIS_07 dev-agent in
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260403-jy8: DossierAdapter in adapters.py (not dossier_extractor.py) to avoid circular import; dedup SQL uses "SELECT id" (PK col, not doc_id); TODO regex ^[-*]\s*TODO\b catches bullet+TODO+trailing text; source_url always "internal://manual" (PlainTextExtractor contract) — file:// in metadata.dossier_path
 - quick-260403-jyg: research hypothesis ID uses sha256({"kind":"research_candidate","name":name})[:16] not stable_hypothesis_id() (which expects dimension_key/segment_key shapes); record_validation_outcome() is operator-triggered (no auto-loop at v1); evidence_doc_ids flow brief.cited_sources -> candidate -> registry event source field
 - quick-260403-it1: non-fatal append_run() pattern (health surface failures never affect CLI return codes); [DEFERRED] label with deferred=True in data dict (machine-readable for JSON consumers); dry-run exemption — research-acquire --dry-run exits before run_log write
 - quick-260402-rmz: three-way get_provider() branch (local/cloud-guard/unknown) preserves ValueError('unknown provider') backward compat; cloud providers recognized but not-yet-implemented (RIS v2); ProviderEvent raw_output=None by default for lightweight JSONL; backward-compat CLI routing via _KNOWN_SUBCOMMANDS check
