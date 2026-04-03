@@ -1311,7 +1311,7 @@ structured research findings and ingested as `source_family="dossier_report"`.
 - Full regression: 3660 tests passing, 0 failures
 
 **Deferred:**
-- Auto-trigger after wallet-scan (not wired into `wallet-scan` hook)
+- Auto-trigger after wallet-scan | **Wired via --extract-dossier flag (2026-04-03)** — see RIS Final Dossier Operationalization section below
 - RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
 - LLM-assisted memo extraction (authority conflict blocks this)
 
@@ -1319,6 +1319,36 @@ structured research findings and ingested as `source_family="dossier_report"`.
 
 See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase R5 section) and
 `docs/dev_logs/2026-04-03_ris_r5_dossier_and_discovery_loop.md`.
+
+## RIS Final Dossier Operationalization (quick-260403-lim, 2026-04-03)
+
+Closed the dossier/discovery-loop gap: dossier findings are now a first-class
+output of the wallet-scan workflow via an opt-in `--extract-dossier` flag.
+
+**New/updated files:**
+- `tools/cli/wallet_scan.py` -- PostScanExtractor hook, --extract-dossier flag, _make_dossier_extractor factory
+- `tests/test_wallet_scan.py` -- 9 new tests in TestWalletScannerDossierHook (31 total)
+- `tests/test_wallet_scan_dossier_integration.py` -- 9 end-to-end integration tests
+- `docs/features/wallet-scan-v0.md` -- Dossier Extraction section added
+- `docs/dev_logs/2026-04-03_ris_final_dossier_operationalization.md` -- dev log
+
+**What shipped:**
+- `WalletScanner` accepts `post_scan_extractor: Optional[PostScanExtractor]`
+- Extractor called after each successful scan with (scan_run_root, slug, wallet)
+- Non-fatal: exceptions caught and printed to stderr; scan loop never aborts
+- `--extract-dossier` flag (default off; backward compatible)
+- `--extract-dossier-db` flag for custom KnowledgeStore path
+- End-to-end test proves: dossier.json -> extract -> ingest -> source_documents >= 1 row
+- Content-hash dedup confirmed end-to-end (idempotent reingest)
+- 40 new tests; 3685 total passing, 4 pre-existing failures unchanged
+
+**Still deferred:**
+- RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
+- LLM-assisted memo extraction (authority conflict)
+- Parallel scan workers
+
+See `docs/features/wallet-scan-v0.md` (Dossier Extraction section) and
+`docs/dev_logs/2026-04-03_ris_final_dossier_operationalization.md`.
 
 ## RIS v1 — Complete (2026-04-03)
 

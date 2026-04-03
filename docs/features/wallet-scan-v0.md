@@ -108,6 +108,60 @@ prior results.
 
 ---
 
+## Dossier Extraction (--extract-dossier)
+
+**Added 2026-04-03.** When a wallet scan also produces a `dossier.json` in the
+scan run root (from the `scan` command's dossier pipeline), passing
+`--extract-dossier` triggers automatic extraction and RIS ingestion after each
+successful per-wallet scan.
+
+```bash
+python -m polytool wallet-scan \
+  --input wallets.txt \
+  --extract-dossier \
+  [--extract-dossier-db kb/rag/knowledge/knowledge.sqlite3]
+```
+
+### What happens
+
+1. After each successful scan, `dossier.json` in the scan run root is parsed.
+2. Up to 3 research documents are extracted per wallet:
+   - **Dossier Detectors** — strategy classification labels (e.g., MOMENTUM, DCA).
+   - **Dossier Hypothesis Candidates** — top CLV-ranked segment candidates (if present).
+   - **Dossier Memo** — LLM research packet body (if present and non-placeholder).
+3. Each document is ingested into the KnowledgeStore as `source_family="dossier_report"`.
+4. Content-hash dedup ensures re-running with the same dossier produces no duplicate rows.
+
+### Provenance fields
+
+Each ingested document preserves full provenance in its metadata:
+
+| Field | Description |
+|-------|-------------|
+| `wallet` | Proxy wallet address from dossier header |
+| `user_slug` | Resolved user slug |
+| `run_id` | Scan run directory name |
+| `dossier_path` | Absolute path to the scan run root (as string) |
+
+### Queryable via RIS
+
+After ingestion, findings are queryable via the standard RIS commands:
+
+```bash
+python -m polytool rag-query --question "MOMENTUM strategy wallets" --knowledge-store default
+python -m polytool research-dossier-extract --batch --base-dir artifacts/dossiers/users
+```
+
+### Notes
+
+- The hook is **opt-in** (`--extract-dossier` default: false). All existing wallet-scan
+  runs without this flag are unaffected.
+- If `dossier.json` is absent from the scan run root (e.g., `--lite` profile didn't
+  generate one), the extractor skips silently (non-fatal).
+- Errors in the extractor never abort the scan loop.
+
+---
+
 ## Next step: alpha-distill
 
 Feed the output of `wallet-scan` into `alpha-distill` to aggregate cross-user
