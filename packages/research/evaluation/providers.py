@@ -4,16 +4,32 @@ Providers are responsible for scoring a document against the evaluation rubric.
 ManualProvider is the default — it returns a placeholder score so the pipeline
 works with zero external dependencies.
 
-Cloud providers (gemini, deepseek) deferred to RIS v2. See RIS_03_EVALUATION_GATE.md.
+Phase 5 additions:
+- Cloud provider guard: non-local providers require RIS_ENABLE_CLOUD_PROVIDERS=1
+- get_provider_metadata(): returns provider_name, model_id, generation_params
+- Local providers (manual, ollama) work without any env vars or flags.
+
+Cloud providers (gemini, deepseek, openai, anthropic) are gated behind
+RIS_ENABLE_CLOUD_PROVIDERS=1 and not yet implemented (RIS v2 deliverable).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from abc import ABC, abstractmethod
 
 from packages.research.evaluation.types import EvalDocument
+
+# Local providers never require the cloud guard env var.
+_LOCAL_PROVIDERS = frozenset({"manual", "ollama"})
+
+# Env var that enables cloud provider access (explicit operator opt-in required).
+_CLOUD_GUARD_ENV_VAR = "RIS_ENABLE_CLOUD_PROVIDERS"
+
+# Known cloud provider names (recognized but not yet implemented).
+_CLOUD_PROVIDERS = frozenset({"gemini", "deepseek", "openai", "anthropic"})
 
 
 class EvalProvider(ABC):
@@ -51,6 +67,16 @@ class ManualProvider(EvalProvider):
     def name(self) -> str:
         return "manual"
 
+    @property
+    def model_id(self) -> str:
+        """Model identifier for metadata capture."""
+        return "manual_placeholder"
+
+    @property
+    def generation_params(self) -> dict:
+        """Generation params for metadata capture (empty for manual provider)."""
+        return {}
+
     def score(self, doc: EvalDocument, prompt: str) -> str:
         """Return a hardcoded placeholder scoring response (all dims=3, total=12)."""
         payload = {
@@ -81,6 +107,16 @@ class OllamaProvider(EvalProvider):
     @property
     def name(self) -> str:
         return "ollama"
+
+    @property
+    def model_id(self) -> str:
+        """Model identifier for metadata capture."""
+        return self._model
+
+    @property
+    def generation_params(self) -> dict:
+        """Generation params for metadata capture."""
+        return {"format": "json", "stream": False}
 
     def score(self, doc: EvalDocument, prompt: str) -> str:
         """Score a document using Ollama.
@@ -115,21 +151,70 @@ class OllamaProvider(EvalProvider):
 def get_provider(name: str = "manual", **kwargs) -> EvalProvider:
     """Factory function to get an evaluation provider by name.
 
-    Supported providers:
+    Local providers (manual, ollama) work without any env vars or flags.
+
+    Cloud providers require explicit opt-in via RIS_ENABLE_CLOUD_PROVIDERS=1.
+    Cloud providers are not yet implemented (RIS v2 deliverable) — setting
+    the env var passes the guard but then raises ValueError for unimplemented
+    providers. This establishes the opt-in pattern for future implementations.
+
+    Supported (implemented):
     - "manual"  — ManualProvider (no LLM, placeholder scores)
     - "ollama"  — OllamaProvider (local Ollama LLM)
 
-    Cloud providers (gemini, deepseek) deferred to RIS v2. See RIS_03_EVALUATION_GATE.md.
+    Recognized but not yet implemented (cloud, require RIS_ENABLE_CLOUD_PROVIDERS=1):
+    - "gemini", "deepseek", "openai", "anthropic"
 
     Raises:
-        ValueError: If the provider name is not recognized.
+        PermissionError: If a cloud provider name is used without the env var set.
+        ValueError: If the provider name is unrecognized, or if a known cloud
+            provider is requested with the env var set (not yet implemented).
     """
-    if name == "manual":
-        return ManualProvider()
-    elif name == "ollama":
-        return OllamaProvider(**kwargs)
+    if name in _LOCAL_PROVIDERS:
+        if name == "manual":
+            return ManualProvider()
+        elif name == "ollama":
+            return OllamaProvider(**kwargs)
     else:
+        # Cloud guard: require explicit operator opt-in
+        if os.environ.get(_CLOUD_GUARD_ENV_VAR, "") != "1":
+            raise PermissionError(
+                f"Cloud provider '{name}' requires {_CLOUD_GUARD_ENV_VAR}=1 to be set. "
+                "Local providers (manual, ollama) work without this flag."
+            )
+        # Env var is set — provider is recognized but not yet implemented
+        if name in _CLOUD_PROVIDERS:
+            raise ValueError(
+                f"Cloud provider '{name}' is recognized but not yet implemented. "
+                "Cloud provider implementations are a RIS v2 deliverable."
+            )
         raise ValueError(
-            f"unknown provider '{name}'. Supported: manual, ollama. "
-            "Cloud providers (gemini, deepseek) are deferred to RIS v2."
+            f"Unknown provider '{name}'. Local providers: manual, ollama. "
+            f"Cloud providers (require {_CLOUD_GUARD_ENV_VAR}=1): {', '.join(sorted(_CLOUD_PROVIDERS))}."
         )
+
+
+def get_provider_metadata(provider: EvalProvider) -> dict:
+    """Return metadata dict for a provider instance.
+
+    Used by the evaluator to capture replay-grade metadata on every scoring
+    event. Returns a consistent dict regardless of provider type.
+
+    Args:
+        provider: An EvalProvider instance.
+
+    Returns:
+        Dict with keys: provider_name (str), model_id (str), generation_params (dict).
+    """
+    meta: dict = {
+        "provider_name": provider.name,
+        "model_id": "",
+        "generation_params": {},
+    }
+    if isinstance(provider, ManualProvider):
+        meta["model_id"] = provider.model_id
+        meta["generation_params"] = provider.generation_params
+    elif isinstance(provider, OllamaProvider):
+        meta["model_id"] = provider.model_id
+        meta["generation_params"] = provider.generation_params
+    return meta

@@ -2,12 +2,18 @@
 
 Provides the scoring prompt builder, LLM response parser, and the
 score_document() convenience function.
+
+Phase 5 additions (backward compatible):
+- SCORING_PROMPT_TEMPLATE_ID: constant identifying the active prompt template.
+- score_document_with_metadata(): returns (ScoringResult, raw_output, prompt_hash)
+  for replay-grade auditability.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
 from packages.research.evaluation.types import (
     EvalDocument,
@@ -18,6 +24,11 @@ from packages.research.evaluation.types import (
 
 if TYPE_CHECKING:
     from packages.research.evaluation.providers import EvalProvider
+
+# Identifier for the current scoring prompt template.
+# Increment this (e.g., "scoring_v2") when the prompt rubric changes substantially
+# to allow detection of evaluation drift across artifact records.
+SCORING_PROMPT_TEMPLATE_ID = "scoring_v1"
 
 
 def build_scoring_prompt(doc: EvalDocument) -> str:
@@ -221,3 +232,30 @@ def score_document(doc: EvalDocument, provider: "EvalProvider") -> ScoringResult
     prompt = build_scoring_prompt(doc)
     raw_json = provider.score(doc, prompt)
     return parse_scoring_response(raw_json, provider.name)
+
+
+def score_document_with_metadata(
+    doc: EvalDocument, provider: "EvalProvider"
+) -> Tuple[ScoringResult, str, str]:
+    """Score a document and return replay-grade metadata alongside the result.
+
+    Same scoring logic as score_document() but also returns the raw provider
+    output and a prompt hash for auditability. Used by DocumentEvaluator when
+    persisting EvalArtifacts with Phase 5 provider_event metadata.
+
+    Args:
+        doc: The document to evaluate.
+        provider: The LLM provider to use for scoring.
+
+    Returns:
+        Tuple of (ScoringResult, raw_output, prompt_hash) where:
+        - ScoringResult: parsed scoring dimensions and gate decision.
+        - raw_output: the raw string returned by provider.score().
+        - prompt_hash: first 12 hex chars of sha256(prompt_text), used as
+          prompt_template_version in ProviderEvent for drift detection.
+    """
+    prompt = build_scoring_prompt(doc)
+    prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
+    raw_output = provider.score(doc, prompt)
+    result = parse_scoring_response(raw_output, provider.name)
+    return result, raw_output, prompt_hash
