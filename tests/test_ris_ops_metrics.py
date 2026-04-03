@@ -5,8 +5,10 @@ All tests use tmp_path or in-memory data. No network, no ClickHouse.
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -444,3 +446,106 @@ def test_import_does_not_raise():
     assert hasattr(m, "collect_ris_metrics")
     assert hasattr(m, "RisMetricsSnapshot")
     assert hasattr(m, "format_metrics_summary")
+
+
+# ---------------------------------------------------------------------------
+# CLI-level tests for research-stats command
+# ---------------------------------------------------------------------------
+
+from tools.cli.research_stats import main as stats_main
+
+
+def _make_path_override_args(tmp_path: Path) -> list[str]:
+    """Return common CLI path-override args pointing to tmp_path subdirs."""
+    db_path = tmp_path / "ks.sqlite3"
+    _create_ks_db(db_path, docs=[], claims=[])
+    return [
+        "--db", str(db_path),
+        "--eval-artifacts-dir", str(tmp_path / "no_eval"),
+        "--precheck-ledger", str(tmp_path / "no_ledger.jsonl"),
+        "--report-dir", str(tmp_path / "no_reports"),
+        "--acquisition-review-dir", str(tmp_path / "no_reviews"),
+    ]
+
+
+class TestResearchStatsCLI:
+    """CLI-level tests for the research-stats command (main() entrypoint)."""
+
+    def test_cli_summary_returns_0(self, tmp_path):
+        """main(['summary', ...overrides]) returns 0 and prints 'Knowledge Store'."""
+        path_args = _make_path_override_args(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = stats_main(["summary"] + path_args)
+        assert rc == 0
+        output = buf.getvalue()
+        assert "Knowledge Store" in output
+
+    def test_cli_summary_json_returns_valid_json(self, tmp_path):
+        """main(['summary', '--json', ...overrides]) returns 0 with valid JSON containing key fields."""
+        path_args = _make_path_override_args(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = stats_main(["summary", "--json"] + path_args)
+        assert rc == 0
+        parsed = json.loads(buf.getvalue())
+        assert "generated_at" in parsed
+        assert "total_docs" in parsed
+
+    def test_cli_export_writes_file(self, tmp_path):
+        """main(['export', '--out', PATH, ...overrides]) returns 0 and creates a valid JSON file."""
+        path_args = _make_path_override_args(tmp_path)
+        out_path = tmp_path / "out.json"
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = stats_main(["export", "--out", str(out_path)] + path_args)
+        assert rc == 0
+        assert out_path.exists()
+        content = json.loads(out_path.read_text(encoding="utf-8"))
+        assert "generated_at" in content
+
+    def test_cli_missing_subcommand_returns_1(self, tmp_path):
+        """main([]) with no subcommand returns exit code 1."""
+        rc = stats_main([])
+        assert rc == 1
+
+    def test_cli_export_creates_parent_dirs(self, tmp_path):
+        """main(['export', '--out', nested/path/out.json, ...overrides]) creates parent dirs."""
+        path_args = _make_path_override_args(tmp_path)
+        out_path = tmp_path / "sub" / "dir" / "out.json"
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = stats_main(["export", "--out", str(out_path)] + path_args)
+        assert rc == 0
+        assert out_path.exists()
+
+    def test_cli_summary_with_populated_data(self, tmp_path):
+        """With pre-populated KS db and eval artifacts, summary --json returns total_docs > 0."""
+        db_path = tmp_path / "ks.sqlite3"
+        _create_ks_db(
+            db_path,
+            docs=[
+                {"id": "d1", "source_family": "academic"},
+                {"id": "d2", "source_family": "blog"},
+            ],
+            claims=[{"id": "c1"}],
+        )
+        eval_dir = tmp_path / "eval"
+        _write_eval_artifacts(eval_dir, [
+            {"gate": "ACCEPT", "source_family": "academic"},
+            {"gate": "REVIEW", "source_family": "blog"},
+        ])
+        path_args = [
+            "--db", str(db_path),
+            "--eval-artifacts-dir", str(eval_dir),
+            "--precheck-ledger", str(tmp_path / "no_ledger.jsonl"),
+            "--report-dir", str(tmp_path / "no_reports"),
+            "--acquisition-review-dir", str(tmp_path / "no_reviews"),
+        ]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = stats_main(["summary", "--json"] + path_args)
+        assert rc == 0
+        parsed = json.loads(buf.getvalue())
+        assert parsed["total_docs"] > 0
+        assert parsed["gate_distribution"] != {}
