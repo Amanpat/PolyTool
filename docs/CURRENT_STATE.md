@@ -1263,3 +1263,29 @@ status in the KnowledgeStore, closing the research-to-validation loop.
 
 See `docs/features/FEATURE-ris-simtrader-bridge-v1.md` and
 `docs/dev_logs/2026-04-03_ris_r5_simtrader_bridge.md`.
+
+## RIS_07 Dev Agent Integration and Fast-Research Preservation (quick-260403-jyl, 2026-04-03)
+
+RIS_07 integration layer closed at practical v1 scope. CLAUDE.md now contains a
+Research Intelligence System section with dev-agent pre-build workflow (precheck ->
+query -> build) and fast-research preservation recipes (research-acquire for URLs,
+research-ingest --text for manual findings).
+
+**New/updated files:**
+- `CLAUDE.md` -- RIS section added with truthful CLI command references
+- `docs/features/FEATURE-ris-dev-agent-integration-v1.md` -- operator recipes, v2 deferred items
+
+**Integration tests:** 10 new tests in `tests/test_ris_integration_workflow.py`
+covering precheck round-trip, ingest-then-query, acquire dry-run, file ingest,
+and contradiction detection.
+
+**v2 deferred items (explicitly out of scope):**
+- Dossier-to-external-knowledge extraction (RIS_07 Section 1)
+- SimTrader bridge / auto-hypothesis generation (RIS_07 Section 3)
+- Auto-discovery -> knowledge loop (RIS_07 Section 2)
+- MCP auto-routing for rag-query
+
+10 new tests in `tests/test_ris_integration_workflow.py`. 3660 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-dev-agent-integration-v1.md` and
+`docs/dev_logs/2026-04-03_ris_07_dev_agent_integration.md`.
