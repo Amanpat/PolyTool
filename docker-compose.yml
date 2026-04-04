@@ -110,33 +110,44 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: polytool-simtrader-studio
+    container_name: polytool-cli
     env_file:
       - .env
-    command: [
-      "python",
-      "-m",
-      "polytool",
-      "simtrader",
-      "studio",
-      "--host",
-      "0.0.0.0",
-      "--port",
-      "8765"
-    ]
-    ports:
-      - "${SIMTRADER_STUDIO_PORT:-8765}:8765"
+    profiles:
+      - cli
     volumes:
-      - .:/workspace
-      - ./artifacts:/workspace/artifacts
-      - ./.tmp:/workspace/.tmp
+      - ./artifacts:/app/artifacts
+      - ./config:/app/config:ro
+      - ./kb:/app/kb
+      - ./kill_switch.json:/app/kill_switch.json:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - polytool
+
+  ris-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: polytool-ris-scheduler
+    env_file:
+      - .env
+    command: ["python", "-m", "polytool", "research-scheduler", "start"]
+    restart: unless-stopped
+    volumes:
+      - ./kb:/app/kb
+      - ./artifacts:/app/artifacts
+    depends_on:
+      clickhouse:
+        condition: service_healthy
     networks:
       - polytool
 
   pair-bot-paper:
     build:
       context: .
-      dockerfile: Dockerfile.bot
+      dockerfile: Dockerfile
     container_name: polytool-pair-bot-paper
     env_file:
       - .env
@@ -155,7 +166,7 @@ services:
   pair-bot-live:
     build:
       context: .
-      dockerfile: Dockerfile.bot
+      dockerfile: Dockerfile
     container_name: polytool-pair-bot-live
     env_file:
       - .env

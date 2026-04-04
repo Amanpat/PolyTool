@@ -4,14 +4,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /workspace
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libffi-dev curl \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY . /workspace
+RUN groupadd -r polytool && useradd -r -g polytool -m polytool
 
+WORKDIR /app
+
+# Install py-clob-client first for layer caching (no source code needed yet)
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -e ".[simtrader,studio]" \
-    && pip install --no-cache-dir pytest numpy chromadb
+    && pip install --no-cache-dir py-clob-client
 
-EXPOSE 8765
+# Copy full project, then install all extras
+COPY . .
+RUN pip install --no-cache-dir ".[all,ris]"
 
-CMD ["python", "-m", "polytool", "simtrader", "studio", "--host", "0.0.0.0", "--port", "8765"]
+RUN chown -R polytool:polytool /app
+
+USER polytool
+
+# No ENTRYPOINT or CMD — each compose service sets its own command
