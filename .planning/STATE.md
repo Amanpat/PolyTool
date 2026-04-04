@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-04 - Completed quick task 260404-jfz: Docker full-stack containerization — universal Dockerfile, ris-scheduler service, polytool CLI profile, convenience scripts
+Last activity: 2026-04-04 - Completed quick task 260404-jgk: RIS implementation audit — read-only codebase inspection across all 5 RIS layers, produced RIS_AUDIT_REPORT.md (491 lines), RIS_OPERATOR_GUIDE.md (506 lines), dev log (169 lines)
 
 ## Recent Progress
 - quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
@@ -27,6 +27,7 @@ Last activity: 2026-04-04 - Completed quick task 260404-jfz: Docker full-stack c
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260404-jgk: Dedup threshold operative value is 0.85 (code) not 0.92 (older feature docs); KnowledgeStore is SQLite (knowledge_store.py), Chroma is separate vector index (index.py); cloud LLM providers (Gemini/DeepSeek/OpenAI/Anthropic) raise ValueError — v2 deliverables; Discord alert sink uses LogSink/WebhookSink protocol, NOT wired to existing discord.py; RIS ~80% implemented, 1272 RIS-related tests
 - quick-260403-n2o: Patch metadata_json with body key inline in ingest_dossier_findings (not PlainTextExtractor) for minimal blast radius; call extract_and_link directly after patch (not via post_ingest_extract=True pipeline flag — needed to interpose the patch step); swallow extract_and_link exceptions (non-fatal extractor contract)
 - quick-260403-lir: Keep polymarket.rag.* imports lazy in mcp_server for MCP subprocess safety; fix test patching by adding packages/ to sys.path in fixture; KnowledgeStore at module level in research_bridge.py for patchability
 - quick-260403-jy8: DossierAdapter in adapters.py (not dossier_extractor.py) to avoid circular import; dedup SQL uses "SELECT id" (PK col, not doc_id); TODO regex ^[-*]\s*TODO\b catches bullet+TODO+trailing text; source_url always "internal://manual" (PlainTextExtractor contract) — file:// in metadata.dossier_path
@@ -183,3 +184,4 @@ Last activity: 2026-04-04 - Completed quick task 260404-jfz: Docker full-stack c
 | 260403-nra | Close the final RIS truth-drift blockers: fix wallet-scan docs/help to match shipped behavior — post_ingest_extract→post_extract_claims+extract_and_link(), rag-query --hybrid flag added, research-query stale reference removed from help text | 2026-04-03 | 7259527 | [260403-nra-close-the-final-ris-truth-drift-blockers](./quick/260403-nra-close-the-final-ris-truth-drift-blockers/) |
 | 260403-o5h | Remove the final RIS truth blocker: added --hybrid to stale rag-query --knowledge-store example in dossier operationalization dev log (line 167); no historical sections touched; dev log written | 2026-04-03 | 1841a1a | [260403-o5h-remove-the-final-ris-truth-blocker-fix-r](./quick/260403-o5h-remove-the-final-ris-truth-blocker-fix-r/) |
 | 260404-jfz | Docker full-stack containerization: universal Dockerfile (.[all,ris], non-root user), ris-scheduler service added to compose, polytool as CLI runner (profiles: [cli]), pair-bots migrated from Dockerfile.bot to universal image, convenience scripts, .env.example extended | 2026-04-04 | aace63d | [260404-jfz-polytool-docker-readiness-full-stack-con](./quick/260404-jfz-polytool-docker-readiness-full-stack-con/) |
+| 260404-jgk | RIS implementation audit: read-only codebase inspection across all 5 RIS layers + 14 CLIs; produced RIS_AUDIT_REPORT.md (491 lines), RIS_OPERATOR_GUIDE.md (506 lines), dev log (169 lines); key findings: ~80% implemented, dedup threshold 0.85 not 0.92, cloud LLMs v2, Discord not wired, 1272 RIS tests | 2026-04-04 | f1873b6 | [260404-jgk-ris-implementation-audit-operator-guide](./quick/260404-jgk-ris-implementation-audit-operator-guide/) |
