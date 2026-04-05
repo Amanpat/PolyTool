@@ -181,9 +181,34 @@ services:
       - ./artifacts:/app/artifacts
     restart: unless-stopped
 
+  n8n:
+    image: n8nio/n8n:1.88.0
+    container_name: polytool-n8n
+    profiles:
+      - ris-n8n
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-changeme_32chars_min_replace_this}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - TZ=${GENERIC_TIMEZONE:-UTC}
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_MCP_BEARER_TOKEN=${N8N_MCP_BEARER_TOKEN:-replace_with_mcp_bearer_token}
+      - POLYTOOL_HOST=http://host.docker.internal:${MCP_PORT:-8001}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - polytool
+    restart: unless-stopped
+
 volumes:
   clickhouse_data:
   grafana_data:
+  n8n_data:
 
 networks:
   polytool:
