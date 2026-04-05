@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260404-rtv: RIS n8n pilot — ADR 0013 (scoped pilot), n8n compose service (n8nio/n8n:1.88.0, ris-n8n profile), 3 workflow templates (health check, scheduler status, manual acquire), import helper, RIS_OPERATOR_GUIDE.md n8n section, dev log
+Last activity: 2026-04-05 - Completed quick task 260404-sb4: RIS n8n pilot roadmap closeout — 8 scheduler job workflow templates (all JOB_REGISTRY jobs), import-workflows.sh comment update (11 total), RIS_OPERATOR_GUIDE.md 8-row matrix + mutual exclusion note, CURRENT_STATE.md pilot complete entry, dev log
 
 ## Recent Progress
+- quick-260404-sb4: RIS n8n pilot roadmap complete — 8 scheduler job workflow templates (academic_ingest, reddit_polymarket, reddit_others, blog_ingest, youtube_ingest, github_ingest, freshness_refresh, weekly_digest), all using research-scheduler run-job <id>, all active=false; 11 total workflows in infra/n8n/workflows/; operator guide 8-row matrix + mutual exclusion guidance; CURRENT_STATE.md updated; dev log with coverage matrix and honest NOT-runtime-verified note
 - quick-260404-rtv: RIS n8n pilot — ADR 0013 (scoped pilot, not Phase 3), n8n compose service (n8nio/n8n:1.88.0, ris-n8n profile, mutual exclusion by convention), 3 workflow templates, import-workflows.sh, RIS_OPERATOR_GUIDE.md n8n section with MCP HTTP bearer token instructions
 - quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
 - quick-260403-lir: RIS bridge CLI + MCP KS routing — research-register-hypothesis + research-record-outcome CLI subcommands; polymarket_rag_query with hybrid KS retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing
@@ -28,6 +29,7 @@ Last activity: 2026-04-05 - Completed quick task 260404-rtv: RIS n8n pilot — A
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260404-sb4: All 8 scheduler job n8n workflows use research-scheduler run-job <id> surface (not reconstructed raw research-acquire args) to avoid job logic duplication; mixed trigger types: interval-based use rule.interval array, specific-time use rule.cronExpression string; runtime verification explicitly documented as NOT done (template JSON only)
 - quick-260404-jgk: Dedup threshold operative value is 0.85 (code) not 0.92 (older feature docs); KnowledgeStore is SQLite (knowledge_store.py), Chroma is separate vector index (index.py); cloud LLM providers (Gemini/DeepSeek/OpenAI/Anthropic) raise ValueError — v2 deliverables; Discord alert sink uses LogSink/WebhookSink protocol, NOT wired to existing discord.py; RIS ~80% implemented, 1272 RIS-related tests
 - quick-260403-n2o: Patch metadata_json with body key inline in ingest_dossier_findings (not PlainTextExtractor) for minimal blast radius; call extract_and_link directly after patch (not via post_ingest_extract=True pipeline flag — needed to interpose the patch step); swallow extract_and_link exceptions (non-fatal extractor contract)
 - quick-260403-lir: Keep polymarket.rag.* imports lazy in mcp_server for MCP subprocess safety; fix test patching by adding packages/ to sys.path in fixture; KnowledgeStore at module level in research_bridge.py for patchability
