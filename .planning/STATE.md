@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-jyv: Root image final slimming — narrowed extras from .[all,ris] to .[ris,mcp,simtrader,historical,historical-import,live]; dropped rag(~450MB)/studio(~15MB)/dev(~10MB); fixed stale CURRENT_STATE.md Dockerfile.bot orphan bullet; compose config PASS; python --help PASS
+Last activity: 2026-04-05 - Completed quick task 260405-kh2: Fix root Dockerfile layer order — add setuptools stub RUN layer before deps-only pip install so polytool/ and README.md exist during build; docker compose build ris-scheduler PASS; python --help PASS
 
 ## Recent Progress
 - quick-260405-jyv: Root image final slimming — extras narrowed to .[ris,mcp,simtrader,historical,historical-import,live]; rag/studio/dev dropped (~475MB); CURRENT_STATE.md stale orphan bullet fixed; compose config PASS; python --help PASS
@@ -202,3 +202,4 @@ Last activity: 2026-04-05 - Completed quick task 260405-jyv: Root image final sl
 | 260405-j2t | Docker build performance hygiene: .dockerignore shrinks context 660MB→~12MB (.claude/, kb/, tests/, docs/, .planning/ excluded); root Dockerfile selective COPY + two-phase pip + BuildKit cache mounts; services/api/Dockerfile BuildKit mounts; Dockerfile.bot orphan documented | 2026-04-05 | b8d20a8 | [260405-j2t-docker-build-performance-hygiene-smaller](./quick/260405-j2t-docker-build-performance-hygiene-smaller/) |
 | 260405-jle | Docker image slimming: root Dockerfile multi-stage (gcc/libffi-dev builder-only, runtime copies site-packages+bin only); Dockerfile.bot modernized (3.11-slim, [live,simtrader], ~500MB pair-bot savings); pair-bot-paper/live compose services point to Dockerfile.bot | 2026-04-05 | f8ed640 | [260405-jle-docker-image-slimming-multi-stage-builds](./quick/260405-jle-docker-image-slimming-multi-stage-builds/) |
 | 260405-jyv | Root image final slimming: extras narrowed from .[all,ris] to .[ris,mcp,simtrader,historical,historical-import,live]; dropped rag(~450MB)/studio(~15MB)/dev(~10MB) (~475MB total savings); CURRENT_STATE.md stale Dockerfile.bot orphan bullet fixed | 2026-04-05 | 8333988 | [260405-jyv-root-image-final-slimming-narrow-extras-](./quick/260405-jyv-root-image-final-slimming-narrow-extras-/) |
+| 260405-kh2 | Fix root Dockerfile layer order: add setuptools stub RUN layer (mkdir polytool + 24 subdirs + touch __init__.py, echo README.md) before deps-only pip install; root cause: pip install ran before COPY polytool/; docker compose build ris-scheduler PASS; python --help PASS | 2026-04-05 | ab3591a | [260405-kh2-fix-the-root-dockerfile-so-docker-compos](./quick/260405-kh2-fix-the-root-dockerfile-so-docker-compos/) |
