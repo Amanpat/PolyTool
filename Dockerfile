@@ -19,13 +19,37 @@ WORKDIR /app
 # Layer 1: dependency manifests only — changes rarely
 COPY pyproject.toml ./
 
-# Stub README.md and package __init__ so setuptools can resolve metadata
-# during the deps-only install. Real source is copied below and --no-deps
-# reinstall fixes entry points. README.md is excluded from .dockerignore so
-# it must be created inline.
+# Stub README.md and all declared package directories so setuptools can resolve
+# metadata during the deps-only install. Real source is copied below and the
+# --no-deps reinstall fixes entry points. README.md is excluded from
+# .dockerignore so it must be created inline. All packages listed in
+# [tool.setuptools] packages = [...] need a stub __init__.py to satisfy
+# setuptools package-directory checks.
 RUN echo "# PolyTool" > README.md \
-    && mkdir -p polytool \
-    && touch polytool/__init__.py
+    && mkdir -p polytool/reports \
+    && mkdir -p packages/polymarket/rag \
+    && mkdir -p packages/polymarket/hypotheses \
+    && mkdir -p packages/polymarket/notifications \
+    && mkdir -p packages/polymarket/market_selection \
+    && mkdir -p packages/polymarket/historical_import \
+    && mkdir -p packages/polymarket/simtrader/studio \
+    && mkdir -p packages/polymarket/simtrader/tape \
+    && mkdir -p packages/polymarket/simtrader/orderbook \
+    && mkdir -p packages/polymarket/simtrader/replay \
+    && mkdir -p packages/polymarket/simtrader/broker \
+    && mkdir -p packages/polymarket/simtrader/batch \
+    && mkdir -p packages/polymarket/simtrader/execution \
+    && mkdir -p packages/polymarket/simtrader/portfolio \
+    && mkdir -p packages/polymarket/simtrader/shadow \
+    && mkdir -p packages/polymarket/simtrader/strategies \
+    && mkdir -p packages/polymarket/simtrader/strategy \
+    && mkdir -p packages/polymarket/simtrader/sweeps \
+    && mkdir -p packages/polymarket/crypto_pairs \
+    && mkdir -p packages/research/hypotheses \
+    && mkdir -p packages/research/scheduling \
+    && mkdir -p tools/cli \
+    && mkdir -p tools/guard \
+    && find polytool packages tools -type d -exec touch {}/__init__.py \;
 
 # Layer 2: install ALL dependencies (cached unless pyproject.toml changes)
 # [ris]              = apscheduler (scheduler runtime)
