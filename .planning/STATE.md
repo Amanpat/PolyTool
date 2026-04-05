@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-kpg: Close out root Dockerfile build fix — full default-compose build verified (api + ris-scheduler); all 3 steps PASS; dev log + CURRENT_STATE.md updated
+Last activity: 2026-04-05 - Completed quick task 260405-l8q: Build 8 RIS pipeline n8n workflow JSON files for import
 
 ## Recent Progress
 - quick-260405-jyv: Root image final slimming — extras narrowed to .[ris,mcp,simtrader,historical,historical-import,live]; rag/studio/dev dropped (~475MB); CURRENT_STATE.md stale orphan bullet fixed; compose config PASS; python --help PASS
@@ -204,3 +204,4 @@ Last activity: 2026-04-05 - Completed quick task 260405-kpg: Close out root Dock
 | 260405-jyv | Root image final slimming: extras narrowed from .[all,ris] to .[ris,mcp,simtrader,historical,historical-import,live]; dropped rag(~450MB)/studio(~15MB)/dev(~10MB) (~475MB total savings); CURRENT_STATE.md stale Dockerfile.bot orphan bullet fixed | 2026-04-05 | 8333988 | [260405-jyv-root-image-final-slimming-narrow-extras-](./quick/260405-jyv-root-image-final-slimming-narrow-extras-/) |
 | 260405-kh2 | Fix root Dockerfile layer order: add setuptools stub RUN layer (mkdir polytool + 24 subdirs + touch __init__.py, echo README.md) before deps-only pip install; root cause: pip install ran before COPY polytool/; docker compose build ris-scheduler PASS; python --help PASS | 2026-04-05 | ab3591a | [260405-kh2-fix-the-root-dockerfile-so-docker-compos](./quick/260405-kh2-fix-the-root-dockerfile-so-docker-compos/) |
 | 260405-kpg | Close out root Dockerfile build fix: full default-compose build verified (docker compose build exits 0 for api + ris-scheduler; python -m polytool --help exits 0 in container); verification-only, no code changes; dev log + CURRENT_STATE.md updated | 2026-04-05 | da586db | [260405-kpg-close-out-the-root-dockerfile-build-fix-](./quick/260405-kpg-close-out-the-root-dockerfile-build-fix-/) |
+| 260405-l8q | Build 8 RIS pipeline n8n workflow JSON files for import: academic (12h), reddit (6h), blog (4h), youtube (Mon 04:00), github (Wed 04:00), health-monitor (30min, RED detection), weekly-digest (Sun 08:00), manual-ingest (webhook); all active:true, Discord alerting via DISCORD_WEBHOOK_URL | 2026-04-05 | b7e59b4 | [260405-l8q-build-8-ris-pipeline-n8n-workflow-json-f](./quick/260405-l8q-build-8-ris-pipeline-n8n-workflow-json-f/) |
