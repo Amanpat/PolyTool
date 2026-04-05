@@ -22,6 +22,23 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
+## Infrastructure Fixes (quick-260405-gef, 2026-04-05)
+
+- **pair-bot-live profile gate fix**: `docker-compose.yml` `pair-bot-live` service
+  was missing `profiles: ["pair-bot"]`, causing the live trading bot to start in the
+  default stack. Fixed: added `profiles: ["pair-bot"]`. Service now requires explicit
+  `--profile pair-bot` activation. `.env.example` updated with pair-bot profile
+  documentation. Dev log: `docs/dev_logs/2026-04-05_docker_build_matrix_closeout.md`.
+
+- **API Dockerfile curl fix**: `services/api/Dockerfile` now installs `curl` via apt
+  so the docker-compose healthcheck (`curl -f http://localhost:8000/health`) passes.
+  Previously the healthcheck failed with `curl: not found` because `python:3.11-slim`
+  does not include curl.
+
+- **Full build matrix verified (2026-04-05)**: All 5 compose paths tested clean:
+  default stack, pair-bot profile, ris-n8n profile, cli profile, full combination.
+  3695 tests passing, no Python regressions.
+
 ## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
