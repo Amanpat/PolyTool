@@ -20,9 +20,18 @@ WORKDIR /app
 COPY pyproject.toml ./
 
 # Layer 2: install ALL dependencies (cached unless pyproject.toml changes)
+# [ris]              = apscheduler (scheduler runtime)
+# [mcp]              = mcp SDK (MCP server)
+# [simtrader]        = websocket-client (replay/shadow)
+# [historical]       = duckdb (historical queries)
+# [historical-import]= pyarrow (historical import)
+# [live]             = py-clob-client (live execution)
+# Excluded: [rag] (sentence-transformers/chromadb ~450MB, all imports lazy),
+#           [studio] (fastapi/uvicorn, API has own Dockerfile),
+#           [dev] (pytest, not for runtime images)
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
-    && pip install ".[all,ris]"
+    && pip install ".[ris,mcp,simtrader,historical,historical-import,live]"
 
 # Layer 3: copy source code (changes often, but deps are cached above)
 COPY polytool/ ./polytool/
@@ -32,7 +41,7 @@ COPY services/ ./services/
 
 # Re-install with --no-deps so package entry points and metadata are correct
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-deps ".[all,ris]"
+    pip install --no-deps ".[ris,mcp,simtrader,historical,historical-import,live]"
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 # Lean runtime image: no gcc, no libffi-dev, no build tools.

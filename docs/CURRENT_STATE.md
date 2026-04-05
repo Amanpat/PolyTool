@@ -57,11 +57,14 @@ roadmap language alone.
   and pip. Subsequent rebuilds pull from local wheel cache instead of re-downloading
   from PyPI. `# syntax=docker/dockerfile:1` directive added to both files.
 
-- **Dockerfile.bot identified as orphaned (quick-260405-j2t, 2026-04-05)**: No
-  compose service references `Dockerfile.bot`. It uses Python 3.12 (inconsistent
-  with 3.11 elsewhere) and installs `[live,simtrader]` extras (pair-bot services
-  use root Dockerfile with `[all,ris]`). Status documented; file not deleted.
-  Cleanup commands documented in dev log.
+- **Dockerfile.bot adopted for pair-bot (quick-260405-jle, 2026-04-05)**:
+  `pair-bot-paper` and `pair-bot-live` compose services now build from
+  `Dockerfile.bot` (python:3.11-slim, `[live,simtrader]` only, multi-stage).
+  Root `Dockerfile` narrowed to `[ris,mcp,simtrader,historical,historical-import,live]`
+  (quick-260405-jyv) — drops `[rag]` (~450MB sentence-transformers/chromadb, all
+  imports lazy), `[studio]` (API has own Dockerfile), and `[dev]` (pytest not for
+  runtime). See dev logs `2026-04-05_docker_image_slimming.md` and
+  `2026-04-05_root_image_final_slimming.md`.
 
 ## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
 
