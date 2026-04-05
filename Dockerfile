@@ -19,6 +19,14 @@ WORKDIR /app
 # Layer 1: dependency manifests only — changes rarely
 COPY pyproject.toml ./
 
+# Stub README.md and package __init__ so setuptools can resolve metadata
+# during the deps-only install. Real source is copied below and --no-deps
+# reinstall fixes entry points. README.md is excluded from .dockerignore so
+# it must be created inline.
+RUN echo "# PolyTool" > README.md \
+    && mkdir -p polytool \
+    && touch polytool/__init__.py
+
 # Layer 2: install ALL dependencies (cached unless pyproject.toml changes)
 # [ris]              = apscheduler (scheduler runtime)
 # [mcp]              = mcp SDK (MCP server)
