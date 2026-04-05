@@ -566,6 +566,25 @@ curl -X POST "http://localhost:5678/webhook/ris-acquire" \
 a secret. Do not share or commit it. If compromised, delete and recreate the workflow
 in n8n to generate a new token.
 
+### Scheduled Job Workflows
+
+Eight workflow templates cover every job in the JOB_REGISTRY. All use `research-scheduler run-job <id>` so n8n and APScheduler call the same job logic.
+
+| Job ID | n8n Workflow File | CLI Command | Cron Schedule | Caveats |
+|--------|------------------|-------------|---------------|---------|
+| academic_ingest | ris_academic_ingest.json | `research-scheduler run-job academic_ingest` | every 12h | ArXiv only |
+| reddit_polymarket | ris_reddit_polymarket.json | `research-scheduler run-job reddit_polymarket` | every 6h | Requires praw + Reddit API creds |
+| reddit_others | ris_reddit_others.json | `research-scheduler run-job reddit_others` | daily 03:00 | Requires praw + Reddit API creds |
+| blog_ingest | ris_blog_ingest.json | `research-scheduler run-job blog_ingest` | every 4h | None |
+| youtube_ingest | ris_youtube_ingest.json | `research-scheduler run-job youtube_ingest` | Mondays 04:00 | Requires yt-dlp |
+| github_ingest | ris_github_ingest.json | `research-scheduler run-job github_ingest` | Wednesdays 04:00 | Optional: GITHUB_TOKEN for rate limits |
+| freshness_refresh | ris_freshness_refresh.json | `research-scheduler run-job freshness_refresh` | Sundays 02:00 | Re-scans ArXiv only |
+| weekly_digest | ris_weekly_digest.json | `research-scheduler run-job weekly_digest` | Sundays 08:00 | Internally calls research-report digest --window 7 |
+
+**Scheduler mutual exclusion:** When n8n cron workflows are active, stop APScheduler first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both simultaneously causes each RIS job to run twice per period. See the scheduler selection table above for the full switching procedure.
+
+**Runtime verification note:** These workflows have NOT been runtime-verified against a live n8n instance. Template import and activation was verified via `docker compose config` and CLI help checks only. Runtime verification requires Docker and a running n8n container (`bash scripts/docker-start.sh --with-n8n`).
+
 ### Claude Code MCP connection via n8n
 
 The polytool MCP server uses HTTP transport and is accessible at:

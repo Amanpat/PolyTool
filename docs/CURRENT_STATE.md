@@ -1429,3 +1429,24 @@ All practical v1 scope RIS subsystems are shipped and passing 3695 tests.
 - LLM-assisted dossier memo extraction (authority conflict)
 
 All 3695 tests pass. Codex review: docs-only changes, skip tier.
+
+## RIS n8n Pilot Roadmap Complete (quick-260404-sb4, 2026-04-05)
+
+- **RIS n8n pilot complete** (quick-260404-sb4, 2026-04-05): 11 workflow templates in
+  `infra/n8n/workflows/` (health check, scheduler status, webhook acquire, + 8 scheduler job
+  templates for all JOB_REGISTRY jobs). All ship with `active=false`. Import via
+  `bash infra/n8n/import-workflows.sh`. Scoped to RIS ingestion only per ADR 0013
+  (`docs/adr/0013-ris-n8n-pilot-scoped.md`). NOT Phase 3 automation. Runtime smoke test
+  requires Docker + running n8n container.
+
+The 8 new scheduler job workflows cover:
+`academic_ingest` (every 12h), `reddit_polymarket` (every 6h), `reddit_others` (daily 03:00),
+`blog_ingest` (every 4h), `youtube_ingest` (Mondays 04:00), `github_ingest` (Wednesdays 04:00),
+`freshness_refresh` (Sundays 02:00), `weekly_digest` (Sundays 08:00).
+
+All workflows use `research-scheduler run-job <id>` CLI surface. No strategy, gate, risk, or
+live capital logic is in scope. See `docs/RIS_OPERATOR_GUIDE.md` n8n section for the full
+8-row job-to-workflow matrix and scheduler mutual exclusion guidance.
+
+Note: The v2 deferred item "n8n migration from APScheduler" above refers to broad Phase 3
+automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 item.
