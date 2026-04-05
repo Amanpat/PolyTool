@@ -22,7 +22,7 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Infrastructure Fixes (quick-260405-gef, 2026-04-05)
+## Infrastructure Fixes (quick-260405-gef + quick-260405-j2t, 2026-04-05)
 
 - **pair-bot-live profile gate fix**: `docker-compose.yml` `pair-bot-live` service
   was missing `profiles: ["pair-bot"]`, causing the live trading bot to start in the
@@ -38,6 +38,30 @@ roadmap language alone.
 - **Full build matrix verified (2026-04-05)**: All 5 compose paths tested clean:
   default stack, pair-bot profile, ris-n8n profile, cli profile, full combination.
   3695 tests passing, no Python regressions.
+
+- **Docker build context tightened (quick-260405-j2t, 2026-04-05)**: `.dockerignore`
+  rewritten to exclude ~660 MB+ of non-build files: `docs/`, `tests/`, `kb/`,
+  `.planning/`, `infra/`, `scripts/`, `config/`, `docker_data/`, `.claude/`, `.env*`,
+  `kill_switch.json`, `*.log`, `LICENSE`, `README.md`, `CLAUDE.md`. Build context
+  reduced to ~12 MB of actual source code. Dev log:
+  `docs/dev_logs/2026-04-05_docker_perf_hygiene.md`.
+
+- **Dockerfile cache optimization (quick-260405-j2t, 2026-04-05)**: Root `Dockerfile`
+  now uses selective `COPY` (only `polytool/`, `packages/`, `tools/`, `services/`)
+  instead of `COPY . .`. Two-phase pip install: deps cached on `pyproject.toml`,
+  fast `--no-deps` reinstall after source copy. Source edits no longer invalidate
+  the dependency install layer.
+
+- **BuildKit cache mounts added (quick-260405-j2t, 2026-04-05)**: Both
+  `Dockerfile` and `services/api/Dockerfile` now use `--mount=type=cache` for apt
+  and pip. Subsequent rebuilds pull from local wheel cache instead of re-downloading
+  from PyPI. `# syntax=docker/dockerfile:1` directive added to both files.
+
+- **Dockerfile.bot identified as orphaned (quick-260405-j2t, 2026-04-05)**: No
+  compose service references `Dockerfile.bot`. It uses Python 3.12 (inconsistent
+  with 3.11 elsewhere) and installs `[live,simtrader]` extras (pair-bot services
+  use root Dockerfile with `[all,ris]`). Status documented; file not deleted.
+  Cleanup commands documented in dev log.
 
 ## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
 
