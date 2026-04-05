@@ -68,7 +68,7 @@
   },
   "pinData": {},
   "staticData": null,
-  "tags": ["ris", "scheduler", "weekly_digest"],
+  "tags": [],
   "triggerCount": 0,
   "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job weekly_digest. Runs weekly research digest generation on Sundays at 08:00. CAVEAT: Internally calls research-report digest --window 7. All report storage is local-first JSONL (no ClickHouse). MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job weekly_digest."
 }

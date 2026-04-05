@@ -73,7 +73,7 @@
   },
   "pinData": {},
   "staticData": null,
-  "tags": ["ris", "scheduler", "blog_ingest"],
+  "tags": [],
   "triggerCount": 0,
   "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job blog_ingest. Runs Blog/RSS ingestion every 4 hours. No optional dependencies required. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job blog_ingest."
 }

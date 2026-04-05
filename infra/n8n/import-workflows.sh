@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Import all RIS n8n workflow templates into a running n8n instance.
-# Usage: bash infra/n8n/import-workflows.sh [N8N_URL] [N8N_USER] [N8N_PASS]
+# Usage: bash infra/n8n/import-workflows.sh [CONTAINER_NAME]
 #
-# Requires: curl, jq
-# n8n must be running: bash scripts/docker-start.sh --with-n8n
+# Uses `n8n import:workflow` CLI (no API key required) via docker exec.
+# The container must be running: docker compose --profile ris-n8n up -d n8n
 #
 # Scope: RIS pilot workflows only -- all RIS pilot workflows (11 total).
 # Includes: health check, scheduler status, manual acquire, and 8 scheduler job templates
@@ -12,41 +12,32 @@
 # See docs/adr/0013-ris-n8n-pilot-scoped.md for allowed workflow scope.
 set -euo pipefail
 
-N8N_URL="${1:-http://localhost:5678}"
-N8N_USER="${2:-${N8N_BASIC_AUTH_USER:-admin}}"
-N8N_PASS="${3:-${N8N_BASIC_AUTH_PASSWORD:-changeme}}"
-WORKFLOW_DIR="$(dirname "$0")/workflows"
+CONTAINER="${1:-polytool-n8n}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKFLOW_DIR="$SCRIPT_DIR/workflows"
 
-if ! command -v curl &>/dev/null; then
-  echo "ERROR: curl is required." >&2
-  exit 1
-fi
-if ! command -v jq &>/dev/null; then
-  echo "ERROR: jq is required." >&2
+if ! docker ps --filter "name=${CONTAINER}" --filter status=running -q | grep -q .; then
+  echo "ERROR: Container '${CONTAINER}' is not running." >&2
+  echo "       Start it with: docker compose --profile ris-n8n up -d n8n" >&2
   exit 1
 fi
 
-echo "Importing n8n workflows from $WORKFLOW_DIR into $N8N_URL ..."
+echo "Importing n8n workflows from $WORKFLOW_DIR into container '${CONTAINER}' ..."
 echo ""
 
 SUCCESS=0
 FAIL=0
 
 for wf in "$WORKFLOW_DIR"/*.json; do
-  name=$(jq -r '.name' "$wf")
-  echo "  Importing: $name ($wf) ..."
-  response=$(curl -s -w "\n%{http_code}" \
-    -u "$N8N_USER:$N8N_PASS" \
-    -X POST "$N8N_URL/api/v1/workflows" \
-    -H "Content-Type: application/json" \
-    -d @"$wf")
-  http_code=$(echo "$response" | tail -1)
-  body=$(echo "$response" | head -n -1)
-  if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
-    echo "    OK (HTTP $http_code)"
+  name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('name','unknown'))" "$wf" 2>/dev/null || basename "$wf" .json)
+  dest="/tmp/$(basename "$wf")"
+  echo "  Importing: $name ..."
+  if docker cp "$wf" "${CONTAINER}:${dest}" 2>/dev/null && \
+     MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" n8n import:workflow --input="$dest" 2>/dev/null; then
+    echo "    OK"
     SUCCESS=$((SUCCESS + 1))
   else
-    echo "    WARN: HTTP $http_code -- $body"
+    echo "    WARN: import failed for $wf"
     FAIL=$((FAIL + 1))
   fi
 done
@@ -55,7 +46,7 @@ echo ""
 echo "Import complete: $SUCCESS succeeded, $FAIL failed."
 echo ""
 echo "Next steps:"
-echo "  1. Log in to $N8N_URL (user: $N8N_USER)"
+echo "  1. Log in to http://localhost:5678"
 echo "  2. Review each imported workflow in the n8n UI."
 echo "  3. Activate only the workflows you want running (all ship with active=false)."
 echo "  4. For the webhook workflow, copy the webhook URL and treat it as a secret."

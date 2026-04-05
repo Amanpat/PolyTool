@@ -45,7 +45,7 @@
   },
   "pinData": {},
   "staticData": null,
-  "tags": ["ris", "scheduler"],
+  "tags": [],
   "triggerCount": 0,
   "notes": "RIS PILOT SCOPE: Calls research-scheduler status CLI only. Useful when APScheduler is the active scheduler and the operator wants to inspect job state from the n8n UI without switching to n8n scheduling. Do NOT add strategy, gate, risk, or live capital logic. See docs/adr/0013-ris-n8n-pilot-scoped.md. Command: docker exec polytool-ris-scheduler python -m polytool research-scheduler status. Shows registered jobs and their last run times."
 }

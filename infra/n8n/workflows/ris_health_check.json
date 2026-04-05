@@ -73,7 +73,7 @@
   },
   "pinData": {},
   "staticData": null,
-  "tags": ["ris", "health"],
+  "tags": [],
   "triggerCount": 0,
   "notes": "RIS PILOT SCOPE: Calls research-health CLI only. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: docker exec polytool-ris-scheduler python -m polytool research-health. Outputs 6 health check results (pipeline_failed, no_new_docs_48h, accept_rate_low, accept_rate_high, model_unavailable, rejection_audit_disagreement)."
 }

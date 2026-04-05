@@ -203,6 +203,8 @@ services:
       - N8N_MCP_BEARER_TOKEN=${N8N_MCP_BEARER_TOKEN:-replace_with_mcp_bearer_token}
       - POLYTOOL_HOST=http://host.docker.internal:${MCP_PORT:-8001}
       - N8N_EXEC_CONTAINER=${N8N_EXEC_CONTAINER:-polytool-ris-scheduler}
+    group_add:
+      - "0"
     volumes:
       - n8n_data:/home/node/.n8n
       - /var/run/docker.sock:/var/run/docker.sock
