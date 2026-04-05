@@ -1,0 +1,51 @@
+{
+  "name": "RIS Scheduler Status",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-sched-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "python -m polytool research-scheduler status"
+      },
+      "id": "exec-scheduler-status",
+      "name": "Run research-scheduler status",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 300]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-scheduler status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "ris-scheduler-status",
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": ["ris", "scheduler"],
+  "triggerCount": 0,
+  "notes": "RIS PILOT SCOPE: Calls research-scheduler status CLI only. Useful when APScheduler is the active scheduler and the operator wants to inspect job state from the n8n UI without switching to n8n scheduling. Do NOT add strategy, gate, risk, or live capital logic. See docs/adr/0013-ris-n8n-pilot-scoped.md. Command: python -m polytool research-scheduler status. Shows registered jobs and their last run times."
+}

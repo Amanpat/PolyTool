@@ -459,6 +459,145 @@ All are optional. RIS works without them, but those source families will be unav
 
 ---
 
+## n8n RIS Pilot (Opt-In)
+
+**Scope boundary:** n8n is approved for RIS ingestion jobs only per ADR 0013
+(`docs/adr/0013-ris-n8n-pilot-scoped.md`). It is not a Phase 3 automation layer and
+does not grant access to strategy, gate, risk, or live capital surfaces.
+
+### Scheduler selection
+
+The repo has two scheduling options for RIS background jobs. They are mutually exclusive:
+
+| Option | Mechanism | When active |
+|--------|-----------|-------------|
+| APScheduler | `ris-scheduler` container (no profile) | Default — always starts with `docker compose up` |
+| n8n | `n8n` container (profile: `ris-n8n`) | Opt-in — started with `--with-n8n` flag |
+
+**Running both simultaneously causes double-scheduling** (each RIS job runs twice per
+period). This is an operator error. The system does not auto-prevent it.
+
+To use n8n as the scheduler:
+1. Stop APScheduler: `docker compose stop ris-scheduler`
+2. Start n8n: `bash scripts/docker-start.sh --with-n8n`
+3. Set `RIS_SCHEDULER_BACKEND=n8n` in `.env` to document the active choice (informational only).
+
+To switch back to APScheduler:
+```bash
+docker compose stop n8n
+docker compose up -d ris-scheduler
+```
+Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
+
+### Start / import / activate (step-by-step)
+
+1. Copy `.env.example` n8n section into `.env`. Set real values for:
+   - `N8N_BASIC_AUTH_PASSWORD` (use a strong password)
+   - `N8N_ENCRYPTION_KEY` (minimum 32 characters — used to encrypt stored credentials)
+   - `N8N_MCP_BEARER_TOKEN` (random token for Claude Code MCP connection)
+   Keep `N8N_BASIC_AUTH_USER=admin` or change to your preferred username.
+
+2. Stop APScheduler if switching to n8n:
+   ```bash
+   docker compose stop ris-scheduler
+   ```
+
+3. Start n8n:
+   ```bash
+   bash scripts/docker-start.sh --with-n8n
+   ```
+   The script prints a warning if double-scheduling is possible.
+
+4. Verify n8n is up:
+   ```bash
+   curl -s http://localhost:5678/healthz
+   # Expected: {"status":"ok"}
+   ```
+
+5. Import workflow templates:
+   ```bash
+   bash infra/n8n/import-workflows.sh
+   ```
+   Requires `curl` and `jq`. Pass alternative URL/user/pass as positional args if needed.
+
+6. Log in to http://localhost:5678 with your admin credentials.
+
+7. Review each imported workflow. All workflows import with `"active": false`.
+   Activate only the workflows you want running by toggling the Active switch in the UI.
+
+8. For cron-triggered workflows: confirm the trigger interval does not overlap with any
+   manual `research-scheduler` runs you have scheduled elsewhere.
+
+### Manual verification
+
+After import:
+- Open the `RIS Health Check` workflow in the n8n UI.
+- Click `Execute workflow` (manual trigger button).
+- In the Execute Command node output, confirm you see `research-health` CLI output with
+  health check results (`pipeline_failed`, `no_new_docs_48h`, etc.).
+
+After activating a cron trigger:
+- Check the `Executions` tab after the first scheduled run.
+- Confirm exit code `0` in the Execute Command node output.
+
+If a workflow fails:
+- Open the failed execution and check the Execute Command node output.
+- Common causes:
+  - `python` not found on PATH inside the container: ensure the workflow is running
+    in the polytool container environment, or adjust the command to use the full path.
+  - CLOB credentials not set: this should not affect RIS-only workflows; if it does,
+    check that the correct container is being targeted.
+  - `--source-family` invalid (manual acquire): must be one of `academic`, `github`,
+    `blog`, `news`, `book`, `reddit`, `youtube`.
+
+### Webhook usage (ris_manual_acquire)
+
+The `RIS Manual Acquire (Webhook)` workflow accepts a POST request to trigger URL
+ingestion without CLI access:
+
+```bash
+# After activating the workflow and copying the webhook URL from the n8n UI:
+curl -X POST "http://localhost:5678/webhook/ris-acquire" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://arxiv.org/abs/2106.01345", "source_family": "academic"}'
+```
+
+**Security note:** The webhook URL contains an n8n-generated path token. Treat it as
+a secret. Do not share or commit it. If compromised, delete and recreate the workflow
+in n8n to generate a new token.
+
+### Claude Code MCP connection via n8n
+
+The polytool MCP server uses HTTP transport and is accessible at:
+`http://localhost:{MCP_PORT}/mcp-server/http`
+
+To connect n8n workflows to the polytool MCP server:
+
+1. Start the MCP server separately (not bundled in Docker by default):
+   ```bash
+   python -m polytool mcp-server --port 8001
+   ```
+   Or set `MCP_PORT` in `.env` if using a different port.
+
+2. In n8n, add a credential of type **Header Auth**:
+   - Name: `Authorization`
+   - Value: `Bearer <your N8N_MCP_BEARER_TOKEN from .env>`
+
+3. In a workflow, add an **HTTP Request** node:
+   - URL: `http://host.docker.internal:{MCP_PORT}/mcp-server/http`
+   - Method: POST
+   - Authentication: select the Header Auth credential created above
+   - Body: MCP JSON-RPC payload (see MCP server docs)
+
+4. `host.docker.internal` resolves to the host machine from inside a Docker container.
+   If this does not resolve on your system (Linux Docker without the extra-hosts config),
+   set `POLYTOOL_HOST` in `.env` to the appropriate host IP.
+
+**Important:** Do NOT use the `N8N_MCP_ENABLED` environment variable — that approach is
+not implemented. The supported path is the HTTP transport above.
+
+---
+
 ## File Layout Reference
 
 ```
