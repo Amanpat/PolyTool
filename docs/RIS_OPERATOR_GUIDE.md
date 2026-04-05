@@ -273,12 +273,15 @@ all ingestion can be done manually with `research-acquire` and `research-ingest`
 # Start the scheduler (runs in foreground; use nohup or a process manager for background)
 python -m polytool research-scheduler start
 
-# Stop the scheduler
-python -m polytool research-scheduler stop
+# Check scheduler status (registered jobs + last run times)
+python -m polytool research-scheduler status
 
-# List all registered jobs
-python -m polytool research-scheduler list
+# Trigger a job immediately without waiting for cron
+python -m polytool research-scheduler run-job <job_name>
 ```
+
+Note: `research-scheduler stop` and `research-scheduler list` are not implemented.
+To stop APScheduler, stop the container: `docker compose stop ris-scheduler`.
 
 **Scheduled jobs:**
 

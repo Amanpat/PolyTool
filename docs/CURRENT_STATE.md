@@ -1450,3 +1450,28 @@ live capital logic is in scope. See `docs/RIS_OPERATOR_GUIDE.md` n8n section for
 
 Note: The v2 deferred item "n8n migration from APScheduler" above refers to broad Phase 3
 automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 item.
+
+## RIS n8n Runtime Path Fixed and Smoke Tested (quick-260404-t5l, 2026-04-05)
+
+- **Runtime fix complete** (quick-260404-t5l, 2026-04-05): All 11 n8n workflow templates now use
+  `docker exec polytool-ris-scheduler python -m polytool ...` (docker-beside-docker pattern).
+  Previously bare `python -m polytool ...` commands failed inside the n8n container (no Python).
+
+- **Custom n8n image**: `polytool-n8n:1.88.0` built from `infra/n8n/Dockerfile`. Extends
+  `n8nio/n8n:1.88.0` with `docker-cli` installed via `apk add docker-cli`. Mount:
+  `/var/run/docker.sock` + `group_add: ["0"]` (required on Docker Desktop / WSL2).
+
+- **Smoke test results**: Build OK, docker-cli v27.3.1 confirmed inside n8n container, exec
+  bridge to ris-scheduler verified (research-health output received), 11/11 workflows imported.
+
+- **Import script fixed**: `infra/n8n/import-workflows.sh` now uses `n8n import:workflow` CLI
+  (n8n 1.88.0 deprecated basic-auth REST API for workflow import).
+
+- **Workflow JSON tag format fixed**: String tags (`["ris", ...]`) stripped to `[]` (n8n 1.88.0
+  SQLite schema requires tag objects with `id` field; string tags cause constraint violation).
+
+- **Doc fixes**: Removed stale `research-scheduler stop` / `research-scheduler list` from
+  `docs/RIS_OPERATOR_GUIDE.md`; updated ADR 0013 (3 -> 11 workflow table, custom image section,
+  Docker socket security risk row).
+
+See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.

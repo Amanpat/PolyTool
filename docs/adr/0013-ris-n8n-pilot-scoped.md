@@ -90,22 +90,35 @@ choice in `.env`. It is informational only — no code reads this variable.
 
 ### Image and versioning
 
-- Pinned tag: `n8nio/n8n:1.88.0`
-- The tag MUST NOT be `latest`.
-- To upgrade: update the tag in `docker-compose.yml`, test compose validity, commit.
+- Custom image: `polytool-n8n:1.88.0` (built from `infra/n8n/Dockerfile`)
+- Base: `n8nio/n8n:1.88.0` + `docker-cli` (alpine `apk add docker-cli`)
+- Pinned base tag: MUST NOT be `latest`.
+- To upgrade: update the base tag in `infra/n8n/Dockerfile`, rebuild (`docker compose --profile ris-n8n build n8n`), commit.
+- Runtime pattern: **docker-beside-docker** -- n8n mounts `/var/run/docker.sock` and
+  routes all Execute Command nodes through `docker exec polytool-ris-scheduler python -m polytool ...`
 
 ### Workflow templates
 
-Three version-controlled workflow JSON templates are provided in `infra/n8n/workflows/`:
+Eleven version-controlled workflow JSON templates are provided in `infra/n8n/workflows/`:
 
 | File | CLI command | Trigger |
 |------|-------------|---------|
 | `ris_health_check.json` | `research-health` | Manual + cron (every 6h) |
 | `ris_scheduler_status.json` | `research-scheduler status` | Manual |
 | `ris_manual_acquire.json` | `research-acquire --url ...` | Webhook (POST) |
+| `ris_academic_ingest.json` | `research-scheduler run-job academic_ingest` | Manual + cron (every 12h) |
+| `ris_blog_ingest.json` | `research-scheduler run-job blog_ingest` | Manual + cron (every 4h) |
+| `ris_reddit_polymarket.json` | `research-scheduler run-job reddit_polymarket` | Manual + cron (every 6h) |
+| `ris_reddit_others.json` | `research-scheduler run-job reddit_others` | Manual + cron (daily 03:00) |
+| `ris_youtube_ingest.json` | `research-scheduler run-job youtube_ingest` | Manual + cron (Mon 04:00) |
+| `ris_github_ingest.json` | `research-scheduler run-job github_ingest` | Manual + cron (Wed 04:00) |
+| `ris_freshness_refresh.json` | `research-scheduler run-job freshness_refresh` | Manual + cron (Sun 02:00) |
+| `ris_weekly_digest.json` | `research-scheduler run-job weekly_digest` | Manual + cron (Sun 08:00) |
 
 All templates ship with `"active": false`. Operator activates manually from the n8n UI
 after import and verification.
+
+Import all 11 with: `bash infra/n8n/import-workflows.sh [container_name]`
 
 ## Consequences
 
@@ -124,6 +137,7 @@ after import and verification.
 | Workflow scope creep (strategy/gate logic added to n8n) | This ADR documents hard boundaries. Any violation requires a new ADR and human approval. |
 | n8n image update pulling in breaking changes | Tag is pinned. Updates require explicit commit. |
 | Webhook URL treated as a non-secret | Operator docs note that the webhook URL path contains an n8n-generated token and must be treated as a secret. |
+| Docker socket mount grants n8n full Docker daemon access | The socket mount (`/var/run/docker.sock`) allows `docker exec` into any running container, not just `polytool-ris-scheduler`. This is the standard docker-beside-docker tradeoff. Accepted because: (a) n8n runs on the local/trusted network only (not internet-exposed), (b) workflow scope is enforced by ADR boundaries and code review, (c) alternative (installing Python+PolyTool into the n8n image) couples release cycles and bloats the image. On Docker Desktop/WSL2, `group_add: ["0"]` is required because the socket is owned by root:root. On production Linux, use `group_add: ["<docker-gid>"]` where docker-gid matches the host docker group. |
 
 ### What this ADR does NOT do
 
