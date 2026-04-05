@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260404-sb4: RIS n8n pilot roadmap closeout — 8 scheduler job workflow templates (all JOB_REGISTRY jobs), import-workflows.sh comment update (11 total), RIS_OPERATOR_GUIDE.md 8-row matrix + mutual exclusion note, CURRENT_STATE.md pilot complete entry, dev log
+Last activity: 2026-04-05 - Completed quick task 260404-t5l: Fix RIS n8n runtime path (docker-beside-docker custom image, group_add socket fix, import script fix, tag format fix) + smoke test (11/11 workflows imported, exec bridge verified)
 
 ## Recent Progress
+- quick-260404-t5l: RIS n8n runtime path fixed — custom polytool-n8n:1.88.0 image with docker-cli, docker-beside-docker pattern, group_add:["0"] for Docker Desktop socket, import-workflows.sh rewritten to use n8n CLI, string tags stripped from all 11 workflow JSONs; smoke test: build OK, exec bridge PASS, 11/11 imports PASS; stale stop/list commands removed from RIS_OPERATOR_GUIDE; ADR-0013 expanded (11 workflows, custom image, Docker socket risk)
 - quick-260404-sb4: RIS n8n pilot roadmap complete — 8 scheduler job workflow templates (academic_ingest, reddit_polymarket, reddit_others, blog_ingest, youtube_ingest, github_ingest, freshness_refresh, weekly_digest), all using research-scheduler run-job <id>, all active=false; 11 total workflows in infra/n8n/workflows/; operator guide 8-row matrix + mutual exclusion guidance; CURRENT_STATE.md updated; dev log with coverage matrix and honest NOT-runtime-verified note
 - quick-260404-rtv: RIS n8n pilot — ADR 0013 (scoped pilot, not Phase 3), n8n compose service (n8nio/n8n:1.88.0, ris-n8n profile, mutual exclusion by convention), 3 workflow templates, import-workflows.sh, RIS_OPERATOR_GUIDE.md n8n section with MCP HTTP bearer token instructions
 - quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
