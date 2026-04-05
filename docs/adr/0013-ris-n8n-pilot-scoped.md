@@ -44,6 +44,7 @@ The following CLI surfaces may be called from n8n workflows:
 - `python -m polytool research-ingest ...`
 - `python -m polytool research-health`
 - `python -m polytool research-scheduler status`
+- `python -m polytool research-scheduler run-job <job_id>`
 - `python -m polytool research-stats summary`
 
 ### Hard out-of-scope boundaries

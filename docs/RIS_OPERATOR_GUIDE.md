@@ -497,7 +497,7 @@ Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
 1. Copy `.env.example` n8n section into `.env`. Set real values for:
    - `N8N_BASIC_AUTH_PASSWORD` (use a strong password)
    - `N8N_ENCRYPTION_KEY` (minimum 32 characters — used to encrypt stored credentials)
-   - `N8N_MCP_BEARER_TOKEN` (random token for Claude Code MCP connection)
+   - `N8N_MCP_BEARER_TOKEN` (not operative — MCP uses stdio, not HTTP; see note below)
    Keep `N8N_BASIC_AUTH_USER=admin` or change to your preferred username.
 
 2. Stop APScheduler if switching to n8n:
@@ -595,36 +595,36 @@ Eight workflow templates cover every job in the JOB_REGISTRY. All use `research-
 container, exec bridge to `polytool-ris-scheduler` verified (research-health output
 received), 11/11 workflows imported successfully via `bash infra/n8n/import-workflows.sh`.
 
-### Claude Code MCP connection via n8n
+### Claude Code MCP connection
 
-The polytool MCP server uses HTTP transport and is accessible at:
-`http://localhost:{MCP_PORT}/mcp-server/http`
+The polytool MCP server uses **stdio transport only** (not HTTP). It is designed for
+Claude Desktop integration via a stdio pipe — not for HTTP access from n8n or other
+network-connected services.
 
-To connect n8n workflows to the polytool MCP server:
+To start the MCP server for Claude Desktop:
 
-1. Start the MCP server separately (not bundled in Docker by default):
-   ```bash
-   python -m polytool mcp
-   ```
-   Or set `MCP_PORT` in `.env` if using a different port. The subcommand is `mcp`
-   (not `mcp-server`). Run `python -m polytool mcp --help` to confirm.
+```bash
+python -m polytool mcp
+# Optional: add --log-level DEBUG for verbose output to stderr
+```
 
-2. In n8n, add a credential of type **Header Auth**:
-   - Name: `Authorization`
-   - Value: `Bearer <your N8N_MCP_BEARER_TOKEN from .env>`
+The server only accepts `--log-level`. There is no `--port`, `--host`, or HTTP endpoint.
+Run `python -m polytool mcp --help` to confirm.
 
-3. In a workflow, add an **HTTP Request** node:
-   - URL: `http://host.docker.internal:{MCP_PORT}/mcp-server/http`
-   - Method: POST
-   - Authentication: select the Header Auth credential created above
-   - Body: MCP JSON-RPC payload (see MCP server docs)
+**n8n does NOT use MCP.** All n8n workflows call CLI commands directly via the
+docker-exec bridge pattern:
+```
+docker exec polytool-ris-scheduler python -m polytool <command>
+```
+This is the only supported integration path for n8n and is documented in the workflow
+templates section above.
 
-4. `host.docker.internal` resolves to the host machine from inside a Docker container.
-   If this does not resolve on your system (Linux Docker without the extra-hosts config),
-   set `POLYTOOL_HOST` in `.env` to the appropriate host IP.
+**N8N_MCP_BEARER_TOKEN** in `.env.example` is not operative. HTTP transport for MCP is
+not implemented. The env var remains in `.env.example` as a placeholder for a future
+HTTP transport option.
 
-**Important:** Do NOT use the `N8N_MCP_ENABLED` environment variable — that approach is
-not implemented. The supported path is the HTTP transport above.
+[PLANNED] HTTP transport for MCP is not implemented. If added in the future, this
+section will be updated with the correct configuration.
 
 ---
 
