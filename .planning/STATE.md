@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-gef: Docker compose build matrix verification — pair-bot-live profile gate + API healthcheck curl fix + 5-path matrix verified (3695 tests passing)
+Last activity: 2026-04-05 - Completed quick task 260405-j2t: Docker build performance hygiene — .dockerignore shrinks context 660 MB → ~12 MB, BuildKit cache mounts on all Dockerfiles, Dockerfile.bot orphan documented
 
 ## Recent Progress
+- quick-260405-j2t: Docker build perf hygiene — .dockerignore excludes .claude/(517MB), kb/(122MB), tests/, docs/, .planning/ etc; root Dockerfile selective COPY + two-phase pip + BuildKit cache mounts; services/api/Dockerfile BuildKit header+mounts; Dockerfile.bot orphan documented; compose config PASS; python --help PASS
 - quick-260405-gef: Docker compose build matrix — pair-bot-live missing profiles:["pair-bot"] (safety bug, live bot was in default stack); api Dockerfile missing curl (healthcheck failing); 5-path matrix PASS: default, pair-bot, ris-n8n, cli, full combo; 3695 passing
 - quick-260405-g4j: RIS n8n final truth reconcile — MCP section rewritten to stdio-only (removed HTTP/bearer/port claims); ADR 0013 allowed-scope updated to include research-scheduler run-job; no runtime changes
 - quick-260404-uav: RIS n8n docs reconciliation — 5 drifts fixed in RIS_OPERATOR_GUIDE post runtime smoke test: last-verified date, import step curl/jq→docker exec CLI, NOT-runtime-verified→smoke test confirmed, PATH warning→docker-exec bridge explanation, mcp-server --port 8001→mcp; ADR 0013 + CURRENT_STATE confirmed clean
@@ -196,3 +197,4 @@ Last activity: 2026-04-05 - Completed quick task 260405-gef: Docker compose buil
 | 260404-uav | RIS n8n docs reconciliation: fixed 5 drifts in RIS_OPERATOR_GUIDE (last-verified date, import step curl/jq→docker exec CLI, NOT-runtime-verified→smoke test confirmed, PATH warning→docker-exec bridge, mcp-server→mcp); ADR 0013 + CURRENT_STATE confirmed clean | 2026-04-05 | 90eebc6 | [260404-uav-ris-n8n-docs-reconciliation-fix-5-doc-dr](./quick/260404-uav-ris-n8n-docs-reconciliation-fix-5-doc-dr/) |
 | 260405-g4j | Reconcile the final two doc-truth drifts in the RIS n8n pilot: MCP section rewritten stdio-only (removed HTTP/bearer/port claims); ADR 0013 allowed-scope updated to include research-scheduler run-job | 2026-04-05 | b980a5f | [260405-g4j-reconcile-the-final-two-doc-truth-drifts](./quick/260405-g4j-reconcile-the-final-two-doc-truth-drifts/) |
 | 260405-gef | Docker compose build matrix verification: pair-bot-live gated behind pair-bot profile (safety fix); API Dockerfile missing curl for healthcheck; 5-path matrix PASS (default, pair-bot, ris-n8n, cli, full combo); 3695 tests passing | 2026-04-05 | 3aba670 | [260405-gef-docker-compose-build-matrix-verification](./quick/260405-gef-docker-compose-build-matrix-verification/) |
+| 260405-j2t | Docker build performance hygiene: .dockerignore shrinks context 660MB→~12MB (.claude/, kb/, tests/, docs/, .planning/ excluded); root Dockerfile selective COPY + two-phase pip + BuildKit cache mounts; services/api/Dockerfile BuildKit mounts; Dockerfile.bot orphan documented | 2026-04-05 | b8d20a8 | [260405-j2t-docker-build-performance-hygiene-smaller](./quick/260405-j2t-docker-build-performance-hygiene-smaller/) |
