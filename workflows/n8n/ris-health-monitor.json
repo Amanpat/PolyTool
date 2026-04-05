@@ -1,0 +1,150 @@
+{
+  "name": "RIS Health Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "RIS health monitor - every 30min. Alerts Discord only on RED status."
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000002",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-polytool-1 python -m polytool research-health"
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000003",
+      "name": "Run research-health",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json.stdout || '';\nconst stderr = $input.first().json.stderr || '';\nconst exitCode = $input.first().json.exitCode;\nconst hasRed = output.toUpperCase().includes('RED') || exitCode !== 0;\nconst lines = output.split('\\n').filter(l => l.trim());\nreturn [{\n  json: {\n    hasRed,\n    exitCode,\n    output: output.substring(0, 1500),\n    stderr: stderr.substring(0, 500),\n    redLines: lines.filter(l => l.toUpperCase().includes('RED'))\n  }\n}];"
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000004",
+      "name": "Parse Health Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "f6a7b8c9-d0e1-2345-fabc-000000000011",
+              "leftValue": "={{ $json.hasRed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000005",
+      "name": "IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1020, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"content\": \"RIS Health Alert - RED Status Detected\",\n  \"embeds\": [{\n    \"title\": \"RIS Health Monitor: RED\",\n    \"description\": \"Red checks:\\n{{ $json.redLines.join('\\\\n') }}\\n\\nFull output:\\n{{ $json.output }}\",\n    \"color\": 16711680\n  }]\n}"
+      },
+      "id": "f6a7b8c9-d0e1-2345-fabc-000000000006",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 200]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-health": {
+      "main": [
+        [
+          {
+            "node": "Parse Health Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Health Output": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
+      "main": [
+        [
+          {
+            "node": "Discord Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "ris-health-monitor-v2",
+  "meta": {
+    "instanceId": "polytool-ris-v2"
+  },
+  "pinData": {},
+  "staticData": null
+}

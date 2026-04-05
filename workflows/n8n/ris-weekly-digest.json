@@ -1,0 +1,127 @@
+{
+  "name": "RIS Weekly Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "Weekly digest - Sunday 08:00. Sends research report + stats to Discord."
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "cronExpression": "0 8 * * 0"
+        }
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000002",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-polytool-1 python -m polytool research-report --topic \"weekly research digest\""
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000003",
+      "name": "Run research-report",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-polytool-1 python -m polytool research-stats summary"
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000004",
+      "name": "Run research-stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [760, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $('Run research-report').first().json;\nconst stats = $('Run research-stats').first().json;\nreturn [{\n  json: {\n    digest: report.stdout || '(no output)',\n    stats: stats.stdout || '(no output)',\n    anyError: (report.exitCode !== 0 || stats.exitCode !== 0),\n    reportExit: report.exitCode,\n    statsExit: stats.exitCode\n  }\n}];"
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000005",
+      "name": "Combine Outputs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"content\": \"RIS Weekly Digest\",\n  \"embeds\": [\n    {\n      \"title\": \"Weekly Research Report\",\n      \"description\": \"{{ $json.digest.substring(0, 2000) }}\",\n      \"color\": 3447003\n    },\n    {\n      \"title\": \"Research Stats Summary\",\n      \"description\": \"{{ $json.stats.substring(0, 2000) }}\",\n      \"color\": 3447003\n    }\n  ]\n}"
+      },
+      "id": "a7b8c9d0-e1f2-3456-abcd-000000000006",
+      "name": "Send Digest to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-report": {
+      "main": [
+        [
+          {
+            "node": "Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-stats": {
+      "main": [
+        [
+          {
+            "node": "Combine Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Outputs": {
+      "main": [
+        [
+          {
+            "node": "Send Digest to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "ris-weekly-digest-v2",
+  "meta": {
+    "instanceId": "polytool-ris-v2"
+  },
+  "pinData": {},
+  "staticData": null
+}
