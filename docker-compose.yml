@@ -147,7 +147,7 @@ services:
   pair-bot-paper:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.bot
     container_name: polytool-pair-bot-paper
     env_file:
       - .env
@@ -166,7 +166,7 @@ services:
   pair-bot-live:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.bot
     container_name: polytool-pair-bot-live
     env_file:
       - .env
