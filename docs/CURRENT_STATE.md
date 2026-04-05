@@ -66,6 +66,12 @@ roadmap language alone.
   runtime). See dev logs `2026-04-05_docker_image_slimming.md` and
   `2026-04-05_root_image_final_slimming.md`.
 
+- **Root Dockerfile layer-order fix verified (quick-260405-kpg, 2026-04-05)**:
+  Full default-compose build (`docker compose build`) passes with exit 0 after the
+  stub-RUN layer fix from quick-260405-kh2. Both `api` and `ris-scheduler` services
+  build cleanly. `python -m polytool --help` exits 0 inside the ris-scheduler container.
+  Dev log: `docs/dev_logs/2026-04-05_root_dockerfile_build_fix_closeout.md`.
+
 ## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
