@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "command": "=python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
+        "command": "=docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
       },
       "id": "exec-acquire",
       "name": "Run research-acquire",
@@ -94,5 +94,5 @@
   "staticData": null,
   "tags": ["ris", "acquire", "webhook"],
   "triggerCount": 0,
-  "notes": "RIS PILOT SCOPE: Accepts POST webhook with {url, source_family} body and calls research-acquire CLI. SECURITY: Treat the webhook URL path as a secret -- it contains an n8n-generated token. Valid source_family values: academic, github, blog, news, book, reddit, youtube. The CLI validates source_family before fetching; invalid values are rejected. Do NOT add strategy, gate, risk, or live capital logic. See docs/adr/0013-ris-n8n-pilot-scoped.md. Example POST body: {\"url\": \"https://arxiv.org/abs/2106.01345\", \"source_family\": \"academic\"}"
+  "notes": "RIS PILOT SCOPE: Accepts POST webhook with {url, source_family} body and calls research-acquire CLI. SECURITY: Treat the webhook URL path as a secret -- it contains an n8n-generated token. Valid source_family values: academic, github, blog, news, book, reddit, youtube. The CLI validates source_family before fetching; invalid values are rejected. Do NOT add strategy, gate, risk, or live capital logic. See docs/adr/0013-ris-n8n-pilot-scoped.md. Command: docker exec polytool-ris-scheduler python -m polytool research-acquire --url ... Example POST body: {\"url\": \"https://arxiv.org/abs/2106.01345\", \"source_family\": \"academic\"}"
 }

@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "command": "python -m polytool research-scheduler run-job github_ingest"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job github_ingest"
       },
       "id": "exec-github",
       "name": "Run research-scheduler run-job github_ingest",
@@ -70,5 +70,5 @@
   "staticData": null,
   "tags": ["ris", "scheduler", "github_ingest"],
   "triggerCount": 0,
-  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job github_ingest. Runs GitHub README ingestion weekly on Wednesdays at 04:00. CAVEAT: Optional -- set GITHUB_TOKEN env var for higher API rate limits. Without it the job still runs but may be rate-limited by GitHub. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: python -m polytool research-scheduler run-job github_ingest."
+  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job github_ingest. Runs GitHub README ingestion weekly on Wednesdays at 04:00. CAVEAT: Optional -- set GITHUB_TOKEN env var for higher API rate limits. Without it the job still runs but may be rate-limited by GitHub. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job github_ingest."
 }

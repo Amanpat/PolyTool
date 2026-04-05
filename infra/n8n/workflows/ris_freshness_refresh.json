@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "command": "python -m polytool research-scheduler run-job freshness_refresh"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job freshness_refresh"
       },
       "id": "exec-freshness",
       "name": "Run research-scheduler run-job freshness_refresh",
@@ -70,5 +70,5 @@
   "staticData": null,
   "tags": ["ris", "scheduler", "freshness_refresh"],
   "triggerCount": 0,
-  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job freshness_refresh. Runs freshness tier recalculation weekly on Sundays at 02:00. CAVEAT: Internally re-scans recent academic content (ArXiv only). No optional dependencies required. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: python -m polytool research-scheduler run-job freshness_refresh."
+  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job freshness_refresh. Runs freshness tier recalculation weekly on Sundays at 02:00. CAVEAT: Internally re-scans recent academic content (ArXiv only). No optional dependencies required. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job freshness_refresh."
 }

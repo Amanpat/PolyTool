@@ -182,7 +182,10 @@ services:
     restart: unless-stopped
 
   n8n:
-    image: n8nio/n8n:1.88.0
+    build:
+      context: ./infra/n8n
+      dockerfile: Dockerfile
+    image: polytool-n8n:1.88.0
     container_name: polytool-n8n
     profiles:
       - ris-n8n
@@ -199,8 +202,10 @@ services:
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_MCP_BEARER_TOKEN=${N8N_MCP_BEARER_TOKEN:-replace_with_mcp_bearer_token}
       - POLYTOOL_HOST=http://host.docker.internal:${MCP_PORT:-8001}
+      - N8N_EXEC_CONTAINER=${N8N_EXEC_CONTAINER:-polytool-ris-scheduler}
     volumes:
       - n8n_data:/home/node/.n8n
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - polytool
     restart: unless-stopped
