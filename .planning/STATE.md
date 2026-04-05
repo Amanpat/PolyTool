@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-g4j: Reconcile the final two doc-truth drifts in the RIS n8n pilot
+Last activity: 2026-04-05 - Completed quick task 260405-gef: Docker compose build matrix verification — pair-bot-live profile gate + API healthcheck curl fix + 5-path matrix verified (3695 tests passing)
 
 ## Recent Progress
+- quick-260405-gef: Docker compose build matrix — pair-bot-live missing profiles:["pair-bot"] (safety bug, live bot was in default stack); api Dockerfile missing curl (healthcheck failing); 5-path matrix PASS: default, pair-bot, ris-n8n, cli, full combo; 3695 passing
 - quick-260405-g4j: RIS n8n final truth reconcile — MCP section rewritten to stdio-only (removed HTTP/bearer/port claims); ADR 0013 allowed-scope updated to include research-scheduler run-job; no runtime changes
 - quick-260404-uav: RIS n8n docs reconciliation — 5 drifts fixed in RIS_OPERATOR_GUIDE post runtime smoke test: last-verified date, import step curl/jq→docker exec CLI, NOT-runtime-verified→smoke test confirmed, PATH warning→docker-exec bridge explanation, mcp-server --port 8001→mcp; ADR 0013 + CURRENT_STATE confirmed clean
 - quick-260404-t5l: RIS n8n runtime path fixed — custom polytool-n8n:1.88.0 image with docker-cli, docker-beside-docker pattern, group_add:["0"] for Docker Desktop socket, import-workflows.sh rewritten to use n8n CLI, string tags stripped from all 11 workflow JSONs; smoke test: build OK, exec bridge PASS, 11/11 imports PASS; stale stop/list commands removed from RIS_OPERATOR_GUIDE; ADR-0013 expanded (11 workflows, custom image, Docker socket risk)
@@ -32,6 +33,7 @@ Last activity: 2026-04-05 - Completed quick task 260405-g4j: Reconcile the final
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260405-gef: curl installed in services/api/Dockerfile via apt-get (not via alternative healthcheck command) to keep compose config unchanged; pair-bot-live restart:unless-stopped retained post profile-fix (expected restarts when live creds absent is correct behavior)
 - quick-260404-sb4: All 8 scheduler job n8n workflows use research-scheduler run-job <id> surface (not reconstructed raw research-acquire args) to avoid job logic duplication; mixed trigger types: interval-based use rule.interval array, specific-time use rule.cronExpression string; runtime verification explicitly documented as NOT done (template JSON only)
 - quick-260404-jgk: Dedup threshold operative value is 0.85 (code) not 0.92 (older feature docs); KnowledgeStore is SQLite (knowledge_store.py), Chroma is separate vector index (index.py); cloud LLM providers (Gemini/DeepSeek/OpenAI/Anthropic) raise ValueError — v2 deliverables; Discord alert sink uses LogSink/WebhookSink protocol, NOT wired to existing discord.py; RIS ~80% implemented, 1272 RIS-related tests
 - quick-260403-n2o: Patch metadata_json with body key inline in ingest_dossier_findings (not PlainTextExtractor) for minimal blast radius; call extract_and_link directly after patch (not via post_ingest_extract=True pipeline flag — needed to interpose the patch step); swallow extract_and_link exceptions (non-fatal extractor contract)
