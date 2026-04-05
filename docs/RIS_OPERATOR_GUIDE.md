@@ -1,6 +1,6 @@
 # RIS Operator Guide
 
-Last verified: 2026-04-04
+Last verified: 2026-04-05
 Applies to: RIS v1
 
 This guide covers **what works today**. Every feature that is not yet implemented is
@@ -521,7 +521,9 @@ Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
    ```bash
    bash infra/n8n/import-workflows.sh
    ```
-   Requires `curl` and `jq`. Pass alternative URL/user/pass as positional args if needed.
+   The script uses `docker exec polytool-n8n n8n import:workflow --input=<file>` (no
+   curl or REST API required). Pass an alternative container name as the first positional
+   arg if you renamed the container.
 
 6. Log in to http://localhost:5678 with your admin credentials.
 
@@ -546,8 +548,10 @@ After activating a cron trigger:
 If a workflow fails:
 - Open the failed execution and check the Execute Command node output.
 - Common causes:
-  - `python` not found on PATH inside the container: ensure the workflow is running
-    in the polytool container environment, or adjust the command to use the full path.
+  - `python` not found: this is expected if the command runs directly in the n8n
+    container. All workflow commands use the docker-exec bridge pattern:
+    `docker exec polytool-ris-scheduler python -m polytool ...`. If a command is
+    missing the `docker exec polytool-ris-scheduler` prefix, add it.
   - CLOB credentials not set: this should not affect RIS-only workflows; if it does,
     check that the correct container is being targeted.
   - `--source-family` invalid (manual acquire): must be one of `academic`, `github`,
@@ -586,7 +590,10 @@ Eight workflow templates cover every job in the JOB_REGISTRY. All use `research-
 
 **Scheduler mutual exclusion:** When n8n cron workflows are active, stop APScheduler first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both simultaneously causes each RIS job to run twice per period. See the scheduler selection table above for the full switching procedure.
 
-**Runtime verification note:** These workflows have NOT been runtime-verified against a live n8n instance. Template import and activation was verified via `docker compose config` and CLI help checks only. Runtime verification requires Docker and a running n8n container (`bash scripts/docker-start.sh --with-n8n`).
+**Runtime verification note:** These workflows ARE runtime-verified as of quick-260404-t5l
+(2026-04-05). Smoke test results: build OK, docker-cli v27.3.1 confirmed inside n8n
+container, exec bridge to `polytool-ris-scheduler` verified (research-health output
+received), 11/11 workflows imported successfully via `bash infra/n8n/import-workflows.sh`.
 
 ### Claude Code MCP connection via n8n
 
@@ -597,9 +604,10 @@ To connect n8n workflows to the polytool MCP server:
 
 1. Start the MCP server separately (not bundled in Docker by default):
    ```bash
-   python -m polytool mcp-server --port 8001
+   python -m polytool mcp
    ```
-   Or set `MCP_PORT` in `.env` if using a different port.
+   Or set `MCP_PORT` in `.env` if using a different port. The subcommand is `mcp`
+   (not `mcp-server`). Run `python -m polytool mcp --help` to confirm.
 
 2. In n8n, add a credential of type **Header Auth**:
    - Name: `Authorization`
