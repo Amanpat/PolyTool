@@ -179,6 +179,8 @@ services:
     ]
     volumes:
       - ./artifacts:/app/artifacts
+    profiles:
+      - pair-bot
     restart: unless-stopped
 
   n8n:
