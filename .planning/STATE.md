@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-04 - Completed quick task 260404-jgk: RIS implementation audit — read-only codebase inspection across all 5 RIS layers, produced RIS_AUDIT_REPORT.md (491 lines), RIS_OPERATOR_GUIDE.md (506 lines), dev log (169 lines)
+Last activity: 2026-04-05 - Completed quick task 260404-rtv: RIS n8n pilot — ADR 0013 (scoped pilot), n8n compose service (n8nio/n8n:1.88.0, ris-n8n profile), 3 workflow templates (health check, scheduler status, manual acquire), import helper, RIS_OPERATOR_GUIDE.md n8n section, dev log
 
 ## Recent Progress
+- quick-260404-rtv: RIS n8n pilot — ADR 0013 (scoped pilot, not Phase 3), n8n compose service (n8nio/n8n:1.88.0, ris-n8n profile, mutual exclusion by convention), 3 workflow templates, import-workflows.sh, RIS_OPERATOR_GUIDE.md n8n section with MCP HTTP bearer token instructions
 - quick-260403-n2o: RIS final dossier queryability fix — wallet-scan --extract-dossier now produces derived_claims (not just source_documents); metadata_json body-patch + direct extract_and_link; hybrid retrieval surfaces dossier findings; 6 new tests in TestDossierClaimExtraction; 3695 passing
 - quick-260403-lir: RIS bridge CLI + MCP KS routing — research-register-hypothesis + research-record-outcome CLI subcommands; polymarket_rag_query with hybrid KS retrieval when default DB exists (ks_active flag); 11 new offline tests; 3689 passing
 - quick-260403-jy8: RIS R5 Dossier Pipeline — DossierExtractor (parse dossier.json/memo.md/hypothesis_candidates.json), DossierAdapter in ADAPTER_REGISTRY, content-hash dedup, research-dossier-extract CLI (single-dir + batch + dry-run); 31 new offline tests; 3660 passing
