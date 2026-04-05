@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-j2t: Docker build performance hygiene — .dockerignore shrinks context 660 MB → ~12 MB, BuildKit cache mounts on all Dockerfiles, Dockerfile.bot orphan documented
+Last activity: 2026-04-05 - Completed quick task 260405-jle: Docker image slimming — multi-stage root Dockerfile (gcc/libffi-dev builder-only), modernized Dockerfile.bot (python:3.11-slim, [live,simtrader] only, ~500MB pair-bot savings), pair-bot compose services point to Dockerfile.bot; compose config PASS; python --help PASS
 
 ## Recent Progress
+- quick-260405-jle: Docker image slimming — root Dockerfile multi-stage (build tools builder-only, runtime copies only site-packages+bin); Dockerfile.bot modernized (3.11-slim, [live,simtrader], BuildKit, selective COPY, no ENTRYPOINT); pair-bot-paper/live compose services point to Dockerfile.bot; compose config PASS; python --help PASS
 - quick-260405-j2t: Docker build perf hygiene — .dockerignore excludes .claude/(517MB), kb/(122MB), tests/, docs/, .planning/ etc; root Dockerfile selective COPY + two-phase pip + BuildKit cache mounts; services/api/Dockerfile BuildKit header+mounts; Dockerfile.bot orphan documented; compose config PASS; python --help PASS
 - quick-260405-gef: Docker compose build matrix — pair-bot-live missing profiles:["pair-bot"] (safety bug, live bot was in default stack); api Dockerfile missing curl (healthcheck failing); 5-path matrix PASS: default, pair-bot, ris-n8n, cli, full combo; 3695 passing
 - quick-260405-g4j: RIS n8n final truth reconcile — MCP section rewritten to stdio-only (removed HTTP/bearer/port claims); ADR 0013 allowed-scope updated to include research-scheduler run-job; no runtime changes
