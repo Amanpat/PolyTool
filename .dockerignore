@@ -1,20 +1,54 @@
+# Version control
 .git
 .github
+
+# Python bytecode / build artifacts
 .venv
-.pytest_cache
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 *.egg-info
+polytool.egg-info/
 
+# Test / lint caches
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov/
+
+# Artifacts (large, gitignored, mounted as volumes)
 artifacts/
-.tmp/
-kb/tmp_tests/
+kb/
+docker_data/
 
+# Not needed at build time (docs, tests, infra, scripts, config)
+docs/
+tests/
+infra/
+scripts/
+config/
+.planning/
+.claude/
+.tmp/
+
+# Node / frontend
 node_modules/
 dist/
 build/
 
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Misc
 mcp_stdout.txt
 mcp_stderr.txt
+kill_switch.json
+*.log
+logs/
+tmp/
+LICENSE
+README.md
+CLAUDE.md
