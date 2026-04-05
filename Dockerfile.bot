@@ -1,30 +1,64 @@
-FROM python:3.12-slim
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: builder ─────────────────────────────────────────────────────────
+# Install build-time system deps and compile only the pair-bot Python packages
+# ([live,simtrader] = py-clob-client + websocket-client + base deps).
+# gcc/libffi-dev NEVER appear in the runtime image.
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN groupadd -r botuser && useradd -r -g botuser botuser
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends gcc libffi-dev
 
 WORKDIR /app
 
-# Install py-clob-client first (cached layer — no source code needed)
+# Layer 1: dependency manifests only — changes rarely
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir py-clob-client
 
-# Copy full project, then install polytool with all deps
-COPY . .
-RUN pip install --no-cache-dir ".[live,simtrader]"
+# Layer 2: install only pair-bot deps (cached unless pyproject.toml changes)
+# [live]       = py-clob-client>=0.17
+# [simtrader]  = websocket-client>=1.6
+# base deps    = requests, clickhouse-connect, jsonschema
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+    && pip install ".[live,simtrader]"
 
+# Layer 3: copy pair-bot source code (no services/ — pair-bot does not need API code)
+COPY polytool/ ./polytool/
+COPY packages/ ./packages/
+COPY tools/ ./tools/
+
+# Re-install with --no-deps so package entry points and metadata are correct
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-deps ".[live,simtrader]"
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+# Lean runtime image: no gcc, no libffi-dev, no RAG/MCP/studio/dev/historical
+# packages. Only [live,simtrader] deps + base.
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy pre-built Python packages from builder (no build tools included)
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Copy entry point scripts (polytool, etc.)
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy pair-bot application source (no services/)
+COPY --from=builder /app/polytool ./polytool/
+COPY --from=builder /app/packages ./packages/
+COPY --from=builder /app/tools ./tools/
+
+RUN groupadd -r botuser && useradd -r -g botuser -m botuser
 RUN chown -R botuser:botuser /app
 USER botuser
 
-ENTRYPOINT ["python", "-m", "polytool", "crypto-pair-run"]
-
-# Default: paper mode, 30 minutes, BTC
-CMD ["--duration-minutes", "30", "--symbol", "BTC", "--reference-feed-provider", "coinbase"]
+# No ENTRYPOINT or CMD — compose services set their own command arrays
