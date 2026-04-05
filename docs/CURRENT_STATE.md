@@ -1475,3 +1475,18 @@ automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 it
   Docker socket security risk row).
 
 See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.
+
+## RIS n8n Docs Reconciliation (quick-260404-uav, 2026-04-05)
+
+- **Docs-only cleanup** (quick-260404-uav, 2026-04-05): Fixed 5 doc drifts in
+  `docs/RIS_OPERATOR_GUIDE.md` that predated the quick-260404-t5l runtime fix.
+
+- **Drifts fixed**: (1) last-verified date updated to 2026-04-05; (2) import step
+  annotation updated from curl/jq/REST to docker exec CLI; (3) "NOT been
+  runtime-verified" replaced with confirmed smoke test summary; (4) python-PATH warning
+  replaced with docker-exec bridge explanation; (5) MCP command corrected from
+  `mcp-server --port 8001` to `mcp`.
+
+- **ADR 0013 and CURRENT_STATE.md**: Confirmed clean — no contradictions found.
+
+See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
