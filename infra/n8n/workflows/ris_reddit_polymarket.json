@@ -1,0 +1,79 @@
+{
+  "name": "RIS Reddit Polymarket Ingest",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-reddit-pm-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "trigger-reddit-pm-cron",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "command": "python -m polytool research-scheduler run-job reddit_polymarket"
+      },
+      "id": "exec-reddit-pm",
+      "name": "Run research-scheduler run-job reddit_polymarket",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 390]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-scheduler run-job reddit_polymarket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Run research-scheduler run-job reddit_polymarket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "ris-reddit-polymarket",
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": ["ris", "scheduler", "reddit_polymarket"],
+  "triggerCount": 0,
+  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job reddit_polymarket. Runs r/polymarket subreddit ingestion every 6 hours. CAVEAT: Requires praw installed and REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET env vars set. Without these, the job exits non-zero but does not crash n8n. MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: python -m polytool research-scheduler run-job reddit_polymarket."
+}

@@ -5,7 +5,10 @@
 # Requires: curl, jq
 # n8n must be running: bash scripts/docker-start.sh --with-n8n
 #
-# Scope: RIS pilot workflows only (health check, scheduler status, manual acquire).
+# Scope: RIS pilot workflows only -- all RIS pilot workflows (11 total).
+# Includes: health check, scheduler status, manual acquire, and 8 scheduler job templates
+# (academic_ingest, reddit_polymarket, reddit_others, blog_ingest, youtube_ingest,
+#  github_ingest, freshness_refresh, weekly_digest).
 # See docs/adr/0013-ris-n8n-pilot-scoped.md for allowed workflow scope.
 set -euo pipefail
 

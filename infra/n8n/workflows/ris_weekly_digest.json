@@ -1,0 +1,74 @@
+{
+  "name": "RIS Weekly Digest",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger-digest-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "cronExpression": "0 8 * * 0"
+        }
+      },
+      "id": "trigger-digest-cron",
+      "name": "Sundays at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "command": "python -m polytool research-scheduler run-job weekly_digest"
+      },
+      "id": "exec-digest",
+      "name": "Run research-scheduler run-job weekly_digest",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 390]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-scheduler run-job weekly_digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sundays at 08:00": {
+      "main": [
+        [
+          {
+            "node": "Run research-scheduler run-job weekly_digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "id": "ris-weekly-digest",
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": ["ris", "scheduler", "weekly_digest"],
+  "triggerCount": 0,
+  "notes": "RIS PILOT SCOPE: Calls research-scheduler run-job weekly_digest. Runs weekly research digest generation on Sundays at 08:00. CAVEAT: Internally calls research-report digest --window 7. All report storage is local-first JSONL (no ClickHouse). MUTUAL EXCLUSION: Do NOT activate this cron trigger while APScheduler (ris-scheduler container) is running -- this causes double-scheduling. Stop APScheduler first: docker compose stop ris-scheduler. Do NOT add strategy, gate, risk, or live capital logic to this workflow. See docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries. Command: python -m polytool research-scheduler run-job weekly_digest."
+}
