@@ -1,0 +1,130 @@
+{
+  "name": "RIS Sub: Weekly Digest",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-digest-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "cronExpression": "0 8 * * 0"
+        }
+      },
+      "id": "sub-digest-cron",
+      "name": "Sundays at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-report digest --window 7"
+      },
+      "id": "sub-digest-report",
+      "name": "Run research-report digest",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 390]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary"
+      },
+      "id": "sub-digest-stats",
+      "name": "Run research-stats summary",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [760, 390]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=**RIS Weekly Digest**\n\n**Research Report:**\n{{ $('Run research-report digest').item.json.stdout }}\n\n**Stats Summary:**\n{{ $json.stdout }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sub-digest-discord",
+      "name": "Send to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1020, 390]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run research-report digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sundays at 08:00": {
+      "main": [
+        [
+          {
+            "node": "Run research-report digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-report digest": {
+      "main": [
+        [
+          {
+            "node": "Run research-stats summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-stats summary": {
+      "main": [
+        [
+          {
+            "node": "Send to Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [
+    {
+      "id": "lsdE5zgirb6IHxH5",
+      "name": "RIS"
+    }
+  ],
+  "triggerCount": 0,
+  "notes": "RIS Sub-workflow: Weekly digest on Sundays at 08:00 UTC. Runs research-report digest --window 7 then research-stats summary, then always sends combined output to Discord via DISCORD_WEBHOOK_URL env var. REQUIRES: DISCORD_WEBHOOK_URL set in n8n environment variables. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+}

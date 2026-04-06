@@ -1,0 +1,82 @@
+{
+  "name": "RIS Sub: Reddit",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-reddit-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "sub-reddit-cron",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job reddit_polymarket"
+      },
+      "id": "sub-reddit-exec",
+      "name": "Run reddit_polymarket",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 390]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run reddit_polymarket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 6 Hours": {
+      "main": [
+        [
+          {
+            "node": "Run reddit_polymarket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [
+    {
+      "id": "lsdE5zgirb6IHxH5",
+      "name": "RIS"
+    }
+  ],
+  "triggerCount": 0,
+  "notes": "RIS Sub-workflow: Runs research-scheduler run-job reddit_polymarket every 6 hours. Part of the RIS orchestrated workflow system. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+}

@@ -1,0 +1,82 @@
+{
+  "name": "RIS Sub: Academic",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "sub-academic-manual",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12
+            }
+          ]
+        }
+      },
+      "id": "sub-academic-cron",
+      "name": "Every 12 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job academic_ingest"
+      },
+      "id": "sub-academic-exec",
+      "name": "Run academic_ingest",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 390]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run academic_ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 12 Hours": {
+      "main": [
+        [
+          {
+            "node": "Run academic_ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [
+    {
+      "id": "lsdE5zgirb6IHxH5",
+      "name": "RIS"
+    }
+  ],
+  "triggerCount": 0,
+  "notes": "RIS Sub-workflow: Runs research-scheduler run-job academic_ingest every 12 hours. Part of the RIS orchestrated workflow system. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+}
