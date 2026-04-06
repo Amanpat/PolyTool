@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-l8q: Build 8 RIS pipeline n8n workflow JSON files for import
+Last activity: 2026-04-05 - Completed quick task 260405-vbn: Bump n8n base image from 1.88.0 to 1.123.28; fixed DHI apk compat via Docker static binary
 
 ## Recent Progress
+- quick-260405-vbn: n8n version bump 1.88.0 -> 1.123.28 (latest stable 1.x); DHI compat fix: replaced apk add with Docker static binary (docker-29.3.1); build PASS, healthz OK, docker-cli v29.3.1 confirmed, 11/11 workflows imported; docs updated (ADR-0013 + CURRENT_STATE.md)
 - quick-260405-jyv: Root image final slimming — extras narrowed to .[ris,mcp,simtrader,historical,historical-import,live]; rag/studio/dev dropped (~475MB); CURRENT_STATE.md stale orphan bullet fixed; compose config PASS; python --help PASS
 - quick-260405-jle: Docker image slimming — root Dockerfile multi-stage (build tools builder-only, runtime copies only site-packages+bin); Dockerfile.bot modernized (3.11-slim, [live,simtrader], BuildKit, selective COPY, no ENTRYPOINT); pair-bot-paper/live compose services point to Dockerfile.bot; compose config PASS; python --help PASS
 - quick-260405-j2t: Docker build perf hygiene — .dockerignore excludes .claude/(517MB), kb/(122MB), tests/, docs/, .planning/ etc; root Dockerfile selective COPY + two-phase pip + BuildKit cache mounts; services/api/Dockerfile BuildKit header+mounts; Dockerfile.bot orphan documented; compose config PASS; python --help PASS
@@ -205,3 +206,4 @@ Last activity: 2026-04-05 - Completed quick task 260405-l8q: Build 8 RIS pipelin
 | 260405-kh2 | Fix root Dockerfile layer order: add setuptools stub RUN layer (mkdir polytool + 24 subdirs + touch __init__.py, echo README.md) before deps-only pip install; root cause: pip install ran before COPY polytool/; docker compose build ris-scheduler PASS; python --help PASS | 2026-04-05 | ab3591a | [260405-kh2-fix-the-root-dockerfile-so-docker-compos](./quick/260405-kh2-fix-the-root-dockerfile-so-docker-compos/) |
 | 260405-kpg | Close out root Dockerfile build fix: full default-compose build verified (docker compose build exits 0 for api + ris-scheduler; python -m polytool --help exits 0 in container); verification-only, no code changes; dev log + CURRENT_STATE.md updated | 2026-04-05 | da586db | [260405-kpg-close-out-the-root-dockerfile-build-fix-](./quick/260405-kpg-close-out-the-root-dockerfile-build-fix-/) |
 | 260405-l8q | Build 8 RIS pipeline n8n workflow JSON files for import: academic (12h), reddit (6h), blog (4h), youtube (Mon 04:00), github (Wed 04:00), health-monitor (30min, RED detection), weekly-digest (Sun 08:00), manual-ingest (webhook); all active:true, Discord alerting via DISCORD_WEBHOOK_URL | 2026-04-05 | b7e59b4 | [260405-l8q-build-8-ris-pipeline-n8n-workflow-json-f](./quick/260405-l8q-build-8-ris-pipeline-n8n-workflow-json-f/) |
+| 260405-vbn | n8n version bump 1.88.0 -> 1.123.28 (latest stable 1.x); DHI compat fix: replaced apk add docker-cli with Docker static binary (docker-29.3.1); build PASS, healthz {"status":"ok"}, docker-cli v29.3.1 confirmed, 11/11 workflows imported; ADR-0013 + CURRENT_STATE.md updated | 2026-04-05 | bc7ccc9 | [260405-vbn-update-the-repo-s-pinned-n8n-docker-imag](./quick/260405-vbn-update-the-repo-s-pinned-n8n-docker-imag/) |
