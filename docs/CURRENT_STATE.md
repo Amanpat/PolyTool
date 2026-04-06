@@ -1507,8 +1507,8 @@ automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 it
   `docker exec polytool-ris-scheduler python -m polytool ...` (docker-beside-docker pattern).
   Previously bare `python -m polytool ...` commands failed inside the n8n container (no Python).
 
-- **Custom n8n image**: `polytool-n8n:1.123.28` built from `infra/n8n/Dockerfile`. Extends
-  `n8nio/n8n:1.123.28` with `docker-cli` installed via `apk add docker-cli`. Mount:
+- **Custom n8n image**: `polytool-n8n:2.14.2` built from `infra/n8n/Dockerfile`. Extends
+  `n8nio/n8n:2.14.2` with `docker-cli` installed via Docker static binary (wget + tar). Mount:
   `/var/run/docker.sock` + `group_add: ["0"]` (required on Docker Desktop / WSL2).
 
 - **Smoke test results**: Build OK, docker-cli v27.3.1 confirmed inside n8n container, exec
@@ -1551,3 +1551,21 @@ See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
 - Build and startup verified: `docker compose --profile ris-n8n build n8n` and
   `docker compose --profile ris-n8n up -d n8n` both pass.
 - See `docs/dev_logs/2026-04-05_n8n_version_bump.md` for full evidence.
+
+## n8n 2.x Migration: 1.123.28 -> 2.14.2 (quick-260406-ido, 2026-04-06)
+
+- Pinned n8n base image upgraded from `n8nio/n8n:1.123.28` to `n8nio/n8n:2.14.2`
+  (latest stable 2.x as of 2026-04-06; `2.15.0` was prerelease=True on GitHub).
+- Motivation: n8n 2.x provides instance-level MCP UI components and signals the
+  direction toward HTTP-accessible MCP tooling (Enterprise tier for backend endpoint).
+- Docker static binary install for docker-cli retained (same as 1.123.28 DHI fix).
+- `N8N_RUNNERS_ENABLED=true` replaced with `N8N_RUNNERS_MODE=internal` (2.x API).
+- `N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD` are no-ops in 2.x (retained in compose for
+  reference; owner setup wizard required on fresh `n8n_data` volume).
+- Build verified: image built from 2.14.2 base, docker-cli v29.3.1 confirmed.
+- Container starts: `{"status":"ok"}` from `/healthz`.
+- Workflow import: 11/11 workflows imported successfully.
+- MCP backend endpoint: Enterprise feature only; not available in community edition.
+  `/mcp-server/http` path is routed to the SPA frontend (200 HTML). `N8N_MCP_BEARER_TOKEN`
+  kept in compose as informational placeholder.
+- See `docs/dev_logs/2026-04-06_n8n_2x_instance_mcp_upgrade.md` for full evidence.

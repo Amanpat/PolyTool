@@ -91,12 +91,18 @@ choice in `.env`. It is informational only — no code reads this variable.
 
 ### Image and versioning
 
-- Custom image: `polytool-n8n:1.123.28` (built from `infra/n8n/Dockerfile`)
-- Base: `n8nio/n8n:1.123.28` + `docker-cli` (alpine `apk add docker-cli`)
+- Custom image: `polytool-n8n:2.14.2` (built from `infra/n8n/Dockerfile`)
+- Base: `n8nio/n8n:2.14.2` + `docker-cli` (Docker static binary via `wget + tar`, not `apk add`)
 - Pinned base tag: MUST NOT be `latest`.
+- n8n 2.x provides instance-level MCP UI components (`/mcp-server/http` path rendered
+  by the SPA). The HTTP MCP backend endpoint is an Enterprise feature — not available in
+  the community edition. `N8N_MCP_BEARER_TOKEN` remains in compose but is informational.
 - To upgrade: update the base tag in `infra/n8n/Dockerfile`, rebuild (`docker compose --profile ris-n8n build n8n`), commit.
 - Runtime pattern: **docker-beside-docker** -- n8n mounts `/var/run/docker.sock` and
   routes all Execute Command nodes through `docker exec polytool-ris-scheduler python -m polytool ...`
+- **Auth change in 2.x:** `N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD` are removed (no-op in 2.x).
+  First-run owner setup is required at `http://localhost:5678/setup` on a fresh install.
+  Existing `n8n_data` volume retains previously established owner credentials.
 
 ### Workflow templates
 

@@ -1,6 +1,6 @@
 # RIS Operator Guide
 
-Last verified: 2026-04-05
+Last verified: 2026-04-06
 Applies to: RIS v1
 
 This guide covers **what works today**. Every feature that is not yet implemented is
@@ -590,12 +590,14 @@ Eight workflow templates cover every job in the JOB_REGISTRY. All use `research-
 
 **Scheduler mutual exclusion:** When n8n cron workflows are active, stop APScheduler first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both simultaneously causes each RIS job to run twice per period. See the scheduler selection table above for the full switching procedure.
 
-**Runtime verification note:** These workflows ARE runtime-verified as of quick-260404-t5l
-(2026-04-05). Smoke test results: build OK, docker-cli v27.3.1 confirmed inside n8n
-container, exec bridge to `polytool-ris-scheduler` verified (research-health output
-received), 11/11 workflows imported successfully via `bash infra/n8n/import-workflows.sh`.
+**Runtime verification note:** These workflows ARE runtime-verified. Smoke test results
+from quick-260406-ido (2026-04-06, n8n 2.14.2): build OK, docker-cli v29.3.1 confirmed
+inside n8n container, exec bridge to `polytool-ris-scheduler` verified, 11/11 workflows
+imported successfully via `bash infra/n8n/import-workflows.sh`.
 
 ### Claude Code MCP connection
+
+#### polytool MCP server (stdio — for Claude Desktop)
 
 The polytool MCP server uses **stdio transport only** (not HTTP). It is designed for
 Claude Desktop integration via a stdio pipe — not for HTTP access from n8n or other
@@ -611,7 +613,7 @@ python -m polytool mcp
 The server only accepts `--log-level`. There is no `--port`, `--host`, or HTTP endpoint.
 Run `python -m polytool mcp --help` to confirm.
 
-**n8n does NOT use MCP.** All n8n workflows call CLI commands directly via the
+**n8n does NOT use polytool MCP.** All n8n workflows call CLI commands directly via the
 docker-exec bridge pattern:
 ```
 docker exec polytool-ris-scheduler python -m polytool <command>
@@ -619,12 +621,27 @@ docker exec polytool-ris-scheduler python -m polytool <command>
 This is the only supported integration path for n8n and is documented in the workflow
 templates section above.
 
-**N8N_MCP_BEARER_TOKEN** in `.env.example` is not operative. HTTP transport for MCP is
-not implemented. The env var remains in `.env.example` as a placeholder for a future
-HTTP transport option.
+#### n8n 2.x built-in MCP server (HTTP — Enterprise only)
 
-[PLANNED] HTTP transport for MCP is not implemented. If added in the future, this
-section will be updated with the correct configuration.
+n8n 2.x ships with MCP UI components and the conceptual endpoint `/mcp-server/http`.
+However, the HTTP backend for this endpoint is an **Enterprise feature** and is NOT
+available in the community edition image (`n8nio/n8n:2.14.2`).
+
+Probing results from 2026-04-06 (community edition, n8n 2.14.2):
+- `GET /mcp-server/http` → 200 HTML (SPA frontend, not a backend API endpoint)
+- `GET /rest/mcp` → 404
+- `GET /api/v1/mcp` → 404
+
+**N8N_MCP_BEARER_TOKEN** in `docker-compose.yml` and `.env.example` is informational
+only. It is NOT operative in the community edition. The env var is retained as a
+placeholder for if/when an Enterprise license is added.
+
+To summarize the two distinct MCP paths:
+
+| MCP Path | Transport | Available | Auth |
+|----------|-----------|-----------|------|
+| polytool MCP (`python -m polytool mcp`) | stdio | YES (community) | Claude Desktop config |
+| n8n built-in MCP (`/mcp-server/http`) | HTTP | Enterprise only | Bearer token (N8N_MCP_BEARER_TOKEN) |
 
 ---
 
