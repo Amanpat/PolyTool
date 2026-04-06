@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-06 - Completed quick task 260406-lnp: Safely consolidate repo to single main branch
+Last activity: 2026-04-06 - Completed quick task 260406-mnu: Reconcile project docs so they truthfully describe the current RIS n8n pilot
 
 ## Recent Progress
 - quick-260406-lnp: Repo consolidated to main-only workflow; 68 local branches (14 regular + 54 worktree-agent) + 13 remote branches deleted; 54 worktrees removed; 4 stashes cleared; safety tag safety/pre-main-consolidation-20260406 pushed; CLAUDE.md branch policy updated to main-only; CURRENT_STATE.md workflow note added; commit 8cc44d7; python --help PASS
@@ -214,3 +214,4 @@ Last activity: 2026-04-06 - Completed quick task 260406-lnp: Safely consolidate 
 | 260406-jtl | Repo prep for Claude Code n8n instance-level MCP: .mcp.json n8n-instance-mcp HTTP entry, N8N_BASE_URL/N8N_MCP_TOKEN in .env.example, infra/n8n/README.md, RIS_OPERATOR_GUIDE.md 6-step setup, dev log | 2026-04-06 | d06ce63 | [260406-jtl-repo-prep-for-claude-code-n8n-instance-l](./quick/260406-jtl-repo-prep-for-claude-code-n8n-instance-l/) |
 | 260406-le7 | Diagnose and fix n8n instance-level MCP connection for Claude Code: removed broken env-var .mcp.json entry, cleaned JWT secret from .env.example, corrected Enterprise-only doc claims, dev log with exact operator steps | 2026-04-06 | 7d8b0c7 | [260406-le7-diagnose-and-fix-n8n-instance-level-mcp-](./quick/260406-le7-diagnose-and-fix-n8n-instance-level-mcp-/) |
 | 260406-lnp | Safely consolidate repo to single-branch main workflow: safety tag created, 68 local + 13 remote branches deleted, 54 worktrees removed, 4 stashes cleared, CLAUDE.md branch policy updated to main-only, docs updated | 2026-04-06 | a21b7b0 | [260406-lnp-safely-consolidate-repo-to-single-branch](./quick/260406-lnp-safely-consolidate-repo-to-single-branch/) |
+| 260406-mnu | Reconcile project docs so they truthfully describe the current RIS n8n pilot: 7 contradictions removed across CLAUDE.md, ARCHITECTURE.md, PLAN_OF_RECORD.md, CURRENT_STATE.md, README.md, ROADMAP_v5_1.md; stale "no n8n until Phase 3" language replaced with scoped-pilot truth; APScheduler fallback preserved; dev log written | 2026-04-06 | ed6994d | [260406-mnu-reconcile-project-docs-so-they-truthfull](./quick/260406-mnu-reconcile-project-docs-so-they-truthfull/) |
