@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-06 - Completed quick task 260406-mnu: Reconcile project docs so they truthfully describe the current RIS n8n pilot
+Last activity: 2026-04-06 - Completed quick task 260406-mno: Close the repo-side RIS n8n pilot gaps for Phase N4
 
 ## Recent Progress
 - quick-260406-lnp: Repo consolidated to main-only workflow; 68 local branches (14 regular + 54 worktree-agent) + 13 remote branches deleted; 54 worktrees removed; 4 stashes cleared; safety tag safety/pre-main-consolidation-20260406 pushed; CLAUDE.md branch policy updated to main-only; CURRENT_STATE.md workflow note added; commit 8cc44d7; python --help PASS
@@ -215,3 +215,4 @@ Last activity: 2026-04-06 - Completed quick task 260406-mnu: Reconcile project d
 | 260406-le7 | Diagnose and fix n8n instance-level MCP connection for Claude Code: removed broken env-var .mcp.json entry, cleaned JWT secret from .env.example, corrected Enterprise-only doc claims, dev log with exact operator steps | 2026-04-06 | 7d8b0c7 | [260406-le7-diagnose-and-fix-n8n-instance-level-mcp-](./quick/260406-le7-diagnose-and-fix-n8n-instance-level-mcp-/) |
 | 260406-lnp | Safely consolidate repo to single-branch main workflow: safety tag created, 68 local + 13 remote branches deleted, 54 worktrees removed, 4 stashes cleared, CLAUDE.md branch policy updated to main-only, docs updated | 2026-04-06 | a21b7b0 | [260406-lnp-safely-consolidate-repo-to-single-branch](./quick/260406-lnp-safely-consolidate-repo-to-single-branch/) |
 | 260406-mnu | Reconcile project docs so they truthfully describe the current RIS n8n pilot: 7 contradictions removed across CLAUDE.md, ARCHITECTURE.md, PLAN_OF_RECORD.md, CURRENT_STATE.md, README.md, ROADMAP_v5_1.md; stale "no n8n until Phase 3" language replaced with scoped-pilot truth; APScheduler fallback preserved; dev log written | 2026-04-06 | ed6994d | [260406-mnu-reconcile-project-docs-so-they-truthfull](./quick/260406-mnu-reconcile-project-docs-so-they-truthfull/) |
+| 260406-mno | Close the repo-side RIS n8n pilot gaps for Phase N4: fixed = prefix bug in ris_manual_acquire.json, deleted orphaned workflows/n8n/ v2 set, added APScheduler mutual exclusion comments, smoke script (74 checks PASS), RIS_N8N_SMOKE_TEST.md runbook, dev log | 2026-04-06 | 974a768 | [260406-mno-close-the-repo-side-ris-n8n-pilot-gaps-f](./quick/260406-mno-close-the-repo-side-ris-n8n-pilot-gaps-f/) |
