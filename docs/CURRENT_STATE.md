@@ -9,6 +9,10 @@ governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
 records implemented repo truth; do not infer v5 phase completion from strategic
 roadmap language alone.
 
+- **Branch workflow:** main-only as of 2026-04-06. All prior feature branches
+  (feat/ws-clob-feed, phase-1, simtrader, roadmap*, etc.) consolidated into main.
+  Safety tag: `safety/pre-main-consolidation-20260406`.
+
 ## Roadmap Items Not Yet Implemented (v5 framing)
 
 - The v4 control plane is not shipped: no n8n orchestration layer, no broad

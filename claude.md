@@ -267,8 +267,10 @@ If a task touches these areas, Claude Code should stop and ask for operator dire
 
 ### Branch policy
 
-- Stay on the `phase-1` branch until Phase 1 is complete.
-- Do not create new branches unless the user explicitly changes this rule.
+- Single branch: `main`. Commit and push directly to `main`.
+- Do not create routine feature branches unless the operator explicitly requests one.
+- Historical note: prior to 2026-04-06 the repo used long-lived feature branches
+  (phase-1, simtrader, roadmap*, feat/*). All were consolidated into main.
 
 ### Documentation policy
 
