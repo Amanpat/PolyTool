@@ -1507,17 +1507,17 @@ automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 it
   `docker exec polytool-ris-scheduler python -m polytool ...` (docker-beside-docker pattern).
   Previously bare `python -m polytool ...` commands failed inside the n8n container (no Python).
 
-- **Custom n8n image**: `polytool-n8n:1.88.0` built from `infra/n8n/Dockerfile`. Extends
-  `n8nio/n8n:1.88.0` with `docker-cli` installed via `apk add docker-cli`. Mount:
+- **Custom n8n image**: `polytool-n8n:1.123.28` built from `infra/n8n/Dockerfile`. Extends
+  `n8nio/n8n:1.123.28` with `docker-cli` installed via `apk add docker-cli`. Mount:
   `/var/run/docker.sock` + `group_add: ["0"]` (required on Docker Desktop / WSL2).
 
 - **Smoke test results**: Build OK, docker-cli v27.3.1 confirmed inside n8n container, exec
   bridge to ris-scheduler verified (research-health output received), 11/11 workflows imported.
 
 - **Import script fixed**: `infra/n8n/import-workflows.sh` now uses `n8n import:workflow` CLI
-  (n8n 1.88.0 deprecated basic-auth REST API for workflow import).
+  (n8n 1.123.28 deprecated basic-auth REST API for workflow import).
 
-- **Workflow JSON tag format fixed**: String tags (`["ris", ...]`) stripped to `[]` (n8n 1.88.0
+- **Workflow JSON tag format fixed**: String tags (`["ris", ...]`) stripped to `[]` (n8n 1.123.28
   SQLite schema requires tag objects with `id` field; string tags cause constraint violation).
 
 - **Doc fixes**: Removed stale `research-scheduler stop` / `research-scheduler list` from
@@ -1540,3 +1540,14 @@ See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.
 - **ADR 0013 and CURRENT_STATE.md**: Confirmed clean — no contradictions found.
 
 See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
+
+## n8n Version Bump: 1.88.0 -> 1.123.28 (quick-260405-vbn, 2026-04-05)
+
+- Pinned n8n base image updated from `n8nio/n8n:1.88.0` to `n8nio/n8n:1.123.28`
+  (latest stable 1.x release as of 2026-04-05).
+- Evidence: Docker Hub tag `1.123.28` published 2026-04-02; GitHub release
+  `n8n@1.123.28` (non-prerelease) published same day.
+- Staying on 1.x line; 2.x migration deferred (would require new ADR).
+- Build and startup verified: `docker compose --profile ris-n8n build n8n` and
+  `docker compose --profile ris-n8n up -d n8n` both pass.
+- See `docs/dev_logs/2026-04-05_n8n_version_bump.md` for full evidence.

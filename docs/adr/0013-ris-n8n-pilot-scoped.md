@@ -91,8 +91,8 @@ choice in `.env`. It is informational only — no code reads this variable.
 
 ### Image and versioning
 
-- Custom image: `polytool-n8n:1.88.0` (built from `infra/n8n/Dockerfile`)
-- Base: `n8nio/n8n:1.88.0` + `docker-cli` (alpine `apk add docker-cli`)
+- Custom image: `polytool-n8n:1.123.28` (built from `infra/n8n/Dockerfile`)
+- Base: `n8nio/n8n:1.123.28` + `docker-cli` (alpine `apk add docker-cli`)
 - Pinned base tag: MUST NOT be `latest`.
 - To upgrade: update the base tag in `infra/n8n/Dockerfile`, rebuild (`docker compose --profile ris-n8n build n8n`), commit.
 - Runtime pattern: **docker-beside-docker** -- n8n mounts `/var/run/docker.sock` and
