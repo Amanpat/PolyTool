@@ -1,0 +1,428 @@
+{
+  "name": "RIS Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "orch-health-cron",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 160]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-health"
+      },
+      "id": "orch-health-cmd",
+      "name": "Run research-health",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 160]
+    },
+    {
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary"
+      },
+      "id": "orch-stats-cmd",
+      "name": "Run research-stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [760, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const healthOut = $('Run research-health').first().json.stdout || '';\nconst statsOut = $input.first().json.stdout || '';\nconst hasAlert = healthOut.includes('RED') || healthOut.includes('CRITICAL') || healthOut.includes('FAIL') || healthOut.includes('pipeline_failed') || healthOut.includes('ERROR');\nreturn [{ json: { hasAlert, healthOutput: healthOut, statsOutput: statsOut } }];"
+      },
+      "id": "orch-parse-health",
+      "name": "Parse Health Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hasAlert }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "orch-if-alert",
+      "name": "IF Alert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1280, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "=**RIS Health Alert**\n\n**Health Check Output:**\n```\n{{ $('Parse Health Output').item.json.healthOutput }}\n```\n\n**Stats:**\n```\n{{ $('Parse Health Output').item.json.statsOutput }}\n```"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "orch-discord-alert",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ris-trigger",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "orch-trigger-webhook",
+      "name": "RIS Trigger Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 440],
+      "webhookId": "ris-trigger-webhook"
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "dataType": "string",
+        "value1": "={{ $json.body.pipeline }}",
+        "rules": {
+          "rules": [
+            {"value2": "academic", "outputKey": "academic"},
+            {"value2": "reddit", "outputKey": "reddit"},
+            {"value2": "blog", "outputKey": "blog"},
+            {"value2": "youtube", "outputKey": "youtube"},
+            {"value2": "github", "outputKey": "github"},
+            {"value2": "digest", "outputKey": "digest"},
+            {"value2": "freshness", "outputKey": "freshness"}
+          ]
+        },
+        "fallbackOutput": -1
+      },
+      "id": "orch-switch-pipeline",
+      "name": "Switch Pipeline",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [500, 440]
+    },
+    {
+      "parameters": {
+        "workflowId": "wGZFmbBk5TuKeiu4",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-academic",
+      "name": "Exec Academic",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 280]
+    },
+    {
+      "parameters": {
+        "workflowId": "66DODhOnrEdqc0Tk",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-reddit",
+      "name": "Exec Reddit",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 360]
+    },
+    {
+      "parameters": {
+        "workflowId": "xhv5Dnru2nW7TchB",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-blog",
+      "name": "Exec Blog",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 440]
+    },
+    {
+      "parameters": {
+        "workflowId": "e6P3lkcJdwlRPgfj",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-youtube",
+      "name": "Exec YouTube",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 520]
+    },
+    {
+      "parameters": {
+        "workflowId": "ZJFoRcDFNdgzKP7m",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-github",
+      "name": "Exec GitHub",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 600]
+    },
+    {
+      "parameters": {
+        "workflowId": "Nes9RKXadMsYcHE8",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-digest",
+      "name": "Exec Digest",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 680]
+    },
+    {
+      "parameters": {
+        "workflowId": "SrEdvxt5sRFRQYrV",
+        "mode": "define",
+        "startNode": ""
+      },
+      "id": "orch-exec-freshness",
+      "name": "Exec Freshness",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [760, 760]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ris-ingest",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "orch-ingest-webhook",
+      "name": "RIS Ingest Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 960],
+      "webhookId": "ris-ingest-webhook"
+    },
+    {
+      "parameters": {
+        "command": "=docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
+      },
+      "id": "orch-ingest-cmd",
+      "name": "Run research-acquire",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 960]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "result",
+              "value": "={{ $json.stdout }}"
+            },
+            {
+              "name": "exit_code",
+              "value": "={{ $json.exitCode }}"
+            },
+            {
+              "name": "url_ingested",
+              "value": "={{ $('RIS Ingest Webhook').item.json.body.url }}"
+            },
+            {
+              "name": "source_family",
+              "value": "={{ $('RIS Ingest Webhook').item.json.body.source_family }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "orch-ingest-format",
+      "name": "Format Ingest Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [760, 960]
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-health": {
+      "main": [
+        [
+          {
+            "node": "Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-stats": {
+      "main": [
+        [
+          {
+            "node": "Parse Health Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Health Output": {
+      "main": [
+        [
+          {
+            "node": "IF Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Alert": {
+      "main": [
+        [
+          {
+            "node": "Discord Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "RIS Trigger Webhook": {
+      "main": [
+        [
+          {
+            "node": "Switch Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Exec Academic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Blog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Freshness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RIS Ingest Webhook": {
+      "main": [
+        [
+          {
+            "node": "Run research-acquire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run research-acquire": {
+      "main": [
+        [
+          {
+            "node": "Format Ingest Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "polytool-ris-pilot",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [
+    {
+      "id": "lsdE5zgirb6IHxH5",
+      "name": "RIS"
+    }
+  ],
+  "triggerCount": 0,
+  "notes": "RIS Orchestrator with 3 independent paths:\nPath A: Health Monitor (every 30min) - research-health + research-stats, Discord alert if RED/CRITICAL/FAIL\nPath B: Manual Pipeline Trigger (POST /webhook/ris-trigger) - switch on pipeline param, executes sub-workflows\nPath C: URL Ingest (POST /webhook/ris-ingest) - research-acquire with url+source_family\nREQUIRES: DISCORD_WEBHOOK_URL in n8n environment variables for Path A alerts.\nMUTUAL EXCLUSION: Do NOT activate Path B sub-workflow triggers while APScheduler is running.\nSee docs/adr/0013-ris-n8n-pilot-scoped.md for scope boundaries."
+}

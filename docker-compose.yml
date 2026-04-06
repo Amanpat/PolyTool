@@ -199,6 +199,7 @@ services:
     environment:
       # N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD are removed in n8n 2.x (no-op; kept for reference).
       # n8n 2.x uses owner setup wizard on first run at http://localhost:5678/setup.
+      - N8N_PUBLIC_API_ENABLED=true
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
@@ -212,6 +213,9 @@ services:
       - N8N_MCP_BEARER_TOKEN=${N8N_MCP_BEARER_TOKEN:-replace_with_mcp_bearer_token}
       - POLYTOOL_HOST=http://host.docker.internal:${MCP_PORT:-8001}
       - N8N_EXEC_CONTAINER=${N8N_EXEC_CONTAINER:-polytool-ris-scheduler}
+      # NODES_EXCLUDE=[] re-enables n8n-nodes-base.executeCommand (disabled by default in n8n 2.x).
+      # Required for RIS workflows that use docker exec via Execute Command nodes.
+      - NODES_EXCLUDE=[]
     group_add:
       - "0"
     volumes:
