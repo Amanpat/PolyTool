@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-06 - Completed quick task 260406-nbe: Resolve git-surface blockers for Phase N4 sign-off
+Last activity: 2026-04-06 - Completed quick task 260406-ovg: Build RIS n8n Workflow System (8 workflows deployed, Switch V2 routing fix, NODES_EXCLUDE=[] fix, 6-field cron fix)
 
 ## Recent Progress
+- quick-260406-ovg: RIS n8n workflow system — 8 workflows deployed (7 sub-workflows + 1 orchestrator), Switch V2 dynamic routing (7 pipelines), NODES_EXCLUDE=[] to re-enable executeCommand in n8n 2.x, 6-field cron fix for ScheduleTrigger, expression interpolation fix for Path C; all activated; routing verified; commits 18532dc + 0d078fb
 - quick-260406-lnp: Repo consolidated to main-only workflow; 68 local branches (14 regular + 54 worktree-agent) + 13 remote branches deleted; 54 worktrees removed; 4 stashes cleared; safety tag safety/pre-main-consolidation-20260406 pushed; CLAUDE.md branch policy updated to main-only; CURRENT_STATE.md workflow note added; commit 8cc44d7; python --help PASS
 - quick-260406-ido: n8n 2.x migration 1.123.28 -> 2.14.2 (latest stable 2.x; 2.15.0 was prerelease); N8N_RUNNERS_ENABLED -> N8N_RUNNERS_MODE=internal; N8N_BASIC_AUTH_* commented as no-op in 2.x; docker-cli v29.3.1 confirmed via static binary; build PASS, healthz OK, 11/11 workflows imported; MCP documented as Enterprise-only in community edition; ADR-0013 + CURRENT_STATE + RIS_OPERATOR_GUIDE updated
 - quick-260405-vbn: n8n version bump 1.88.0 -> 1.123.28 (latest stable 1.x); DHI compat fix: replaced apk add with Docker static binary (docker-29.3.1); build PASS, healthz OK, docker-cli v29.3.1 confirmed, 11/11 workflows imported; docs updated (ADR-0013 + CURRENT_STATE.md)
