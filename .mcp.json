@@ -5,6 +5,13 @@
       "args": [
         "serve"
       ]
+    },
+    "n8n-instance-mcp": {
+      "type": "http",
+      "url": "${N8N_BASE_URL}/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer ${N8N_MCP_TOKEN}"
+      }
     }
   }
 }
