@@ -62,24 +62,27 @@ workflow manually in the n8n UI before it will run on its schedule.
 
 ## Claude Code MCP
 
-The repo root `.mcp.json` contains a project-scoped MCP server entry for n8n:
+Instance-level MCP works on community edition n8n >= 2.14.2. The `/mcp-server/http`
+endpoint requires a valid JWT bearer token from the n8n Settings UI.
 
-```json
-"n8n-instance-mcp": {
-  "type": "http",
-  "url": "${N8N_BASE_URL}/mcp-server/http",
-  "headers": {
-    "Authorization": "Bearer ${N8N_MCP_TOKEN}"
-  }
-}
+**Note:** Claude Code does NOT expand `${VAR}` template strings in HTTP-type `.mcp.json`
+entries. The previous `n8n-instance-mcp` entry (with `${N8N_BASE_URL}` and
+`${N8N_MCP_TOKEN}`) has been removed from `.mcp.json` because those literals were sent
+as-is, causing connection failure.
+
+To register the n8n MCP server, use `claude mcp add` with the `-s local` scope:
+
+```bash
+claude mcp add --transport http \
+  --header "Authorization: Bearer <token-from-n8n-settings>" \
+  n8n-instance-mcp http://localhost:5678/mcp-server/http \
+  -s local
 ```
 
-Claude Code reads `.mcp.json` on startup. When `N8N_BASE_URL` and `N8N_MCP_TOKEN` are
-set in your local `.env`, Claude Code will attempt to connect to the n8n MCP endpoint.
-
-**Instance-level MCP requires n8n Enterprise edition.** The community edition (2.14.2)
-does not expose the `/mcp-server/http` backend. The config is forward-looking: when
-Enterprise licensing is available, fill in the env vars and restart Claude Code.
+Set `N8N_MCP_TOKEN` in your `.env` (gitignored) for reference, but the actual
+registration requires the `claude mcp add` command above. See
+`docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md` for root cause
+analysis and the token from n8n Settings -> Instance-level MCP.
 
 For full manual setup steps, see:
 **`docs/RIS_OPERATOR_GUIDE.md` → "Claude Code MCP connection" → "Instance-level MCP setup"**

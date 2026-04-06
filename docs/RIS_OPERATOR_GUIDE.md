@@ -621,32 +621,42 @@ docker exec polytool-ris-scheduler python -m polytool <command>
 This is the only supported integration path for n8n and is documented in the workflow
 templates section above.
 
-#### n8n 2.x built-in MCP server (HTTP — Enterprise only)
+#### n8n 2.x built-in MCP server (HTTP — bearer token auth)
 
-n8n 2.x ships with MCP UI components and the conceptual endpoint `/mcp-server/http`.
-However, the HTTP backend for this endpoint is an **Enterprise feature** and is NOT
-available in the community edition image (`n8nio/n8n:2.14.2`).
+n8n 2.x ships with an instance-level MCP server at `/mcp-server/http`. The HTTP
+backend works on **community edition n8n >= 2.14.2** — it is NOT Enterprise-only.
 
 Probing results from 2026-04-06 (community edition, n8n 2.14.2):
-- `GET /mcp-server/http` → 200 HTML (SPA frontend, not a backend API endpoint)
-- `GET /rest/mcp` → 404
-- `GET /api/v1/mcp` → 404
+- `GET /mcp-server/http` → 200 HTML (SPA catch-all — GET with no body hits the frontend)
+- `POST /mcp-server/http` with `Content-Type: application/json` + `Accept: application/json,
+  text/event-stream` + valid JWT → 200 OK, MCP initialize response:
+  `{"serverInfo":{"name":"n8n MCP Server","version":"1.1.0"}}`
+- `POST /mcp-server/http` without `Accept` header → 406 Not Acceptable
+- `POST /mcp-server/http` with malformed token → 401 Unauthorized: jwt malformed
 
-**N8N_MCP_BEARER_TOKEN** in `docker-compose.yml` and `.env.example` is informational
-only. It is NOT operative in the community edition. The env var is retained as a
-placeholder for if/when an Enterprise license is added.
+Authentication requires a JWT bearer token generated from the n8n UI
+(Settings -> Instance-level MCP). The token is a static HS256-signed JWT
+with `iss=n8n`, `aud=mcp-server-api`.
+
+**N8N_MCP_BEARER_TOKEN** in `docker-compose.yml` and `.env.example` is the
+compose-side env var that n8n reads at container startup.
+
+**Important note on Claude Code env-var expansion:** Claude Code does NOT expand
+`${VAR}` template strings in HTTP-type `.mcp.json` entries. The `n8n-instance-mcp`
+entry has been removed from `.mcp.json`. Use `claude mcp add` with the `-s local`
+scope (see "Instance-level MCP setup" below) — this keeps the token out of tracked
+files entirely.
 
 To summarize the two distinct MCP paths:
 
 | MCP Path | Transport | Available | Auth |
 |----------|-----------|-----------|------|
-| polytool MCP (`python -m polytool mcp`) | stdio | YES (community) | Claude Desktop config |
-| n8n built-in MCP (`/mcp-server/http`) | HTTP | Enterprise only | Bearer token (N8N_MCP_TOKEN) |
+| polytool MCP (`python -m polytool mcp`) | stdio | YES (n8n >= 2.14.2, community) | Claude Desktop config |
+| n8n built-in MCP (`/mcp-server/http`) | HTTP | YES (n8n >= 2.14.2, community) | Bearer token (JWT from n8n UI) |
 
-#### Instance-level MCP setup (when Enterprise is available)
+#### Instance-level MCP setup
 
-When n8n Enterprise licensing is available, follow these manual steps to enable
-Claude Code's n8n MCP connection:
+Follow these manual steps to enable Claude Code's n8n MCP connection:
 
 1. **Enable instance-level MCP in n8n UI:**
    Settings -> Instance-level MCP -> toggle ON
@@ -657,27 +667,26 @@ Claude Code's n8n MCP connection:
    Open each workflow you want Claude Code to access -> Settings -> toggle
    "Allow MCP access" ON. Only enabled workflows are visible via MCP.
 
-4. **Set env vars in your local `.env`** (not `.env.example`):
+4. **Register the MCP server using `claude mcp add`** (use `-s local` to keep
+   the token out of `.mcp.json` and git-tracked files):
+   ```bash
+   claude mcp add --transport http \
+     --header "Authorization: Bearer <paste-token-from-step-2>" \
+     n8n-instance-mcp http://localhost:5678/mcp-server/http \
+     -s local
    ```
-   N8N_BASE_URL=http://localhost:5678
-   N8N_MCP_TOKEN=<paste-access-token-from-step-2>
-   ```
+   The `-s local` flag stores the config in a user-local file, not `.mcp.json`.
 
-5. **Restart or reopen Claude Code** from the repo root so it picks up the
-   updated `.mcp.json` and env vars. Claude Code reads `.mcp.json` on startup.
-   Run it as: `claude` from the repo directory.
+5. **Restart or reopen Claude Code** from the repo root. Run as: `claude` from
+   the repo directory.
 
-6. **Verify** by asking Claude Code to list available MCP tools. The n8n
-   workflows with MCP access enabled should appear as callable tools.
-
-**Project MCP config:** `.mcp.json` at repo root contains the `n8n-instance-mcp`
-server entry. It uses `${N8N_BASE_URL}` and `${N8N_MCP_TOKEN}` env-var expansion
-— no secrets are committed.
+6. **Verify** by running `claude mcp list`. The entry should show:
+   `n8n-instance-mcp: http://localhost:5678/mcp-server/http (HTTP) - Connected`
 
 **Env var distinction:** `N8N_MCP_BEARER_TOKEN` (in `docker-compose.yml` /
 `.env.example`) is the compose-side env var that n8n reads at container startup.
-`N8N_MCP_TOKEN` (in `.env`, consumed by `.mcp.json`) is the Claude Code side.
-They may hold the same token value but are consumed by different systems.
+The Claude Code side token is passed directly via `claude mcp add --header` (not
+via env-var expansion in `.mcp.json`, which does not work for HTTP servers).
 
 See `infra/n8n/README.md` for the workflow layout and further n8n infrastructure
 details.
