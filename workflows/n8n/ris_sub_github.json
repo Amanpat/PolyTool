@@ -12,7 +12,12 @@
     {
       "parameters": {
         "rule": {
-          "cronExpression": "0 4 * * 3"
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 4 * * 3"
+            }
+          ]
         }
       },
       "id": "sub-github-cron",

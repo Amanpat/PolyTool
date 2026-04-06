@@ -12,7 +12,12 @@
     {
       "parameters": {
         "rule": {
-          "cronExpression": "0 4 * * 1"
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 4 * * 1"
+            }
+          ]
         }
       },
       "id": "sub-youtube-cron",

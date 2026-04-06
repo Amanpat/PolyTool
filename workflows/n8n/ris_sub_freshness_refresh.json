@@ -12,7 +12,12 @@
     {
       "parameters": {
         "rule": {
-          "cronExpression": "0 2 * * 0"
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 2 * * 0"
+            }
+          ]
         }
       },
       "id": "sub-freshness-cron",
