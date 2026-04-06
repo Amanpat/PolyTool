@@ -38,7 +38,7 @@ The repo is in the Phase 0 / Phase 1 era described by Roadmap V5:
 - Phase 1B: market-maker gate closure, benchmark completion, shadow, then staged live deployment.
 - Phase 1 uses Grafana for visibility, CLI-first workflows, and simple scheduling.
 - No custom frontend is needed pre-profit.
-- No n8n orchestration until Phase 3.
+- Broad n8n orchestration is deferred to Phase 3, but a scoped RIS n8n pilot (ADR 0013) is shipped and opt-in via `--profile ris-n8n`.
 - No heavy architecture expansion before raw CLI paths work end-to-end manually.
 
 ## Non-Negotiable Development Principles
@@ -116,7 +116,7 @@ CLI entrypoint falling back to a wrong default.
 - **Python core**: scanners, RAG, SimTrader, strategy logic, execution logic, research evaluation.
 - **CLI**: fastest test/debug interface and should never go away.
 - **FastAPI wrapper**: thin HTTP layer for automation later; no business logic should live here.
-- **Scheduling**: Phase 1 uses cron / APScheduler; Phase 3 may add n8n.
+- **Scheduling**: APScheduler is the default scheduler. A scoped n8n pilot handles RIS ingestion workflows (opt-in via `--profile ris-n8n`, see ADR 0013). Broad n8n orchestration remains a Phase 3 target.
 - **Visualization**: Grafana only in current pre-profit phases.
 
 ## What Is Already Built (high-confidence current state)
