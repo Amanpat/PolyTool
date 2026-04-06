@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-06 - Completed quick task 260406-ido: Upgrade n8n base image from 1.123.28 to 2.14.2; N8N_RUNNERS_MODE=internal; docs updated; 11/11 workflows; healthz OK
+Last activity: 2026-04-06 - Completed quick task 260406-le7: Diagnose and fix n8n instance-level MCP connection for Claude Code
 
 ## Recent Progress
 - quick-260406-ido: n8n 2.x migration 1.123.28 -> 2.14.2 (latest stable 2.x; 2.15.0 was prerelease); N8N_RUNNERS_ENABLED -> N8N_RUNNERS_MODE=internal; N8N_BASIC_AUTH_* commented as no-op in 2.x; docker-cli v29.3.1 confirmed via static binary; build PASS, healthz OK, 11/11 workflows imported; MCP documented as Enterprise-only in community edition; ADR-0013 + CURRENT_STATE + RIS_OPERATOR_GUIDE updated
@@ -211,3 +211,4 @@ Last activity: 2026-04-06 - Completed quick task 260406-ido: Upgrade n8n base im
 | 260405-vbn | n8n version bump 1.88.0 -> 1.123.28 (latest stable 1.x); DHI compat fix: replaced apk add docker-cli with Docker static binary (docker-29.3.1); build PASS, healthz {"status":"ok"}, docker-cli v29.3.1 confirmed, 11/11 workflows imported; ADR-0013 + CURRENT_STATE.md updated | 2026-04-05 | bc7ccc9 | [260405-vbn-update-the-repo-s-pinned-n8n-docker-imag](./quick/260405-vbn-update-the-repo-s-pinned-n8n-docker-imag/) |
 | 260406-ido | Upgrade n8n base image from 1.x to latest published 2.x for instance-level MCP support | 2026-04-06 | a18fa20 | [260406-ido-upgrade-n8n-base-image-from-1-x-to-lates](./quick/260406-ido-upgrade-n8n-base-image-from-1-x-to-lates/) |
 | 260406-jtl | Repo prep for Claude Code n8n instance-level MCP: .mcp.json n8n-instance-mcp HTTP entry, N8N_BASE_URL/N8N_MCP_TOKEN in .env.example, infra/n8n/README.md, RIS_OPERATOR_GUIDE.md 6-step setup, dev log | 2026-04-06 | d06ce63 | [260406-jtl-repo-prep-for-claude-code-n8n-instance-l](./quick/260406-jtl-repo-prep-for-claude-code-n8n-instance-l/) |
+| 260406-le7 | Diagnose and fix n8n instance-level MCP connection for Claude Code: removed broken env-var .mcp.json entry, cleaned JWT secret from .env.example, corrected Enterprise-only doc claims, dev log with exact operator steps | 2026-04-06 | 7d8b0c7 | [260406-le7-diagnose-and-fix-n8n-instance-level-mcp-](./quick/260406-le7-diagnose-and-fix-n8n-instance-level-mcp-/) |
