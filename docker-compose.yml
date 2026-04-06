@@ -187,21 +187,25 @@ services:
     build:
       context: ./infra/n8n
       dockerfile: Dockerfile
-    image: polytool-n8n:1.88.0
+    image: polytool-n8n:latest
     container_name: polytool-n8n
     profiles:
       - ris-n8n
     ports:
       - "${N8N_PORT:-5678}:5678"
     environment:
+      # N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD are removed in n8n 2.x (no-op; kept for reference).
+      # n8n 2.x uses owner setup wizard on first run at http://localhost:5678/setup.
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
       - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-changeme_32chars_min_replace_this}
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
       - TZ=${GENERIC_TIMEZONE:-UTC}
-      - N8N_RUNNERS_ENABLED=true
+      # N8N_RUNNERS_ENABLED is replaced by N8N_RUNNERS_MODE in n8n 2.x.
+      - N8N_RUNNERS_MODE=internal
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      # N8N_MCP_BEARER_TOKEN: operative in n8n 2.x for /mcp-server/http bearer auth.
       - N8N_MCP_BEARER_TOKEN=${N8N_MCP_BEARER_TOKEN:-replace_with_mcp_bearer_token}
       - POLYTOOL_HOST=http://host.docker.internal:${MCP_PORT:-8001}
       - N8N_EXEC_CONTAINER=${N8N_EXEC_CONTAINER:-polytool-ris-scheduler}
