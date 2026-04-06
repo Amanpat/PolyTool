@@ -124,7 +124,8 @@
       "mcp__ScraplingServer__stealthy_fetch",
       "Bash(gh api:*)",
       "mcp__ScraplingServer__fetch",
-      "Bash(curl -s -X POST \"https://api.thegraph.com/subgraphs/name/polymarket/polymarket-matic\" -H \"Content-Type: application/json\" -d '{\"\"\"\"query\"\"\"\": \"\"\"\"{ _meta { block { number } } }\"\"\"\"}')"
+      "Bash(curl -s -X POST \"https://api.thegraph.com/subgraphs/name/polymarket/polymarket-matic\" -H \"Content-Type: application/json\" -d '{\"\"\"\"query\"\"\"\": \"\"\"\"{ _meta { block { number } } }\"\"\"\"}')",
+      "mcp__n8n-instance-mcp__search_workflows"
     ]
   },
   "enableAllProjectMcpServers": true,
