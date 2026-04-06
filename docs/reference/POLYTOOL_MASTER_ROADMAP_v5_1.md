@@ -677,6 +677,7 @@ monthly infra cost. Green ≥2×, yellow 1-2×, red <1×.
 ## n8n Pipeline Architecture (Phase 3+)
 
 n8n is deferred to Phase 3. Until then, APScheduler or cron handles scheduling.
+> **Note (2026-04-06):** A scoped RIS n8n pilot (ADR 0013) is already shipped for RIS ingestion workflows. This pilot is opt-in (`--profile ris-n8n`) and does not constitute the Phase 3 broad n8n orchestration described below. APScheduler remains the default scheduler.
 When n8n is deployed, these are the target workflows:
 
 | Workflow | Trigger | What n8n Does |

@@ -15,9 +15,9 @@ roadmap language alone.
 
 ## Roadmap Items Not Yet Implemented (v5 framing)
 
-- The v4 control plane is not shipped: no n8n orchestration layer, no broad
+- The v4 control plane is not shipped: no broad n8n orchestration layer, no broad
   FastAPI wrapper surface, no Discord approval system, and no automated
-  feedback loop.
+  feedback loop. (A scoped RIS n8n pilot exists for RIS ingestion workflows only -- see ADR 0013 and the RIS n8n sections below.)
 - The v4 research expansion is not shipped: `candidate-scan`, research
   scraper, news/signals ingest, and signal-linked market workflows are not
   current repo features.

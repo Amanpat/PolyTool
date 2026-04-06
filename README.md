@@ -71,11 +71,9 @@ git --version
 ```bash
 git clone https://github.com/Amanpat/PolyTool.git
 cd PolyTool
-git checkout simtrader
 ```
 
-Why this branch: `simtrader` is the active development branch with the full
-execution layer. Do not use `main` — it is behind.
+The repo uses a single branch (`main`). All prior feature branches were consolidated into main as of 2026-04-06.
 
 ---
 

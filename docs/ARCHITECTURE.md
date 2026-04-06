@@ -12,7 +12,7 @@ as target-state architecture unless the components below say otherwise.
 
 | Area | Master Roadmap v5 north star | Current architecture truth |
 |------|-------------------------------|----------------------------|
-| Control plane | n8n orchestrates workflows through a thin FastAPI wrapper layer. | The repo is still CLI-first and local-first. `services/api/` exists, but the broad v4 wrapper surface and n8n control plane are not current architecture truth. |
+| Control plane | n8n orchestrates workflows through a thin FastAPI wrapper layer. | The repo is CLI-first and local-first. A scoped RIS n8n pilot (ADR 0013, n8n 2.14.2) handles RIS ingestion workflows via `--profile ris-n8n`. The broad v4 wrapper surface and full n8n control plane are not current architecture truth. |
 | Knowledge inputs | Research scraper and signals/news ingestion feed the RAG brain continuously. | Current RAG flows are driven by local docs, `kb/`, artifacts, and manually triggered source caching. Scraper and signals pipelines are not shipped architecture components here. |
 | Operator UI | PolyTool Studio v2 becomes a unified Next.js operator dashboard. | Current surfaces remain Grafana plus the existing Studio/CLI workflows. Do not read the v4 Studio rebuild as implemented architecture. |
 | RAG layout | One hybrid brain with partitions such as `user_data`, `research`, `signals`, `market_data`, and `external_knowledge`. | Current RAG metadata filters and storage locations are documented below; the full partitioned v4 brain is roadmap intent, not current topology. |
