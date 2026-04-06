@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-05 - Completed quick task 260405-vbn: Bump n8n base image from 1.88.0 to 1.123.28; fixed DHI apk compat via Docker static binary
+Last activity: 2026-04-06 - Completed quick task 260406-ido: Upgrade n8n base image from 1.123.28 to 2.14.2; N8N_RUNNERS_MODE=internal; docs updated; 11/11 workflows; healthz OK
 
 ## Recent Progress
+- quick-260406-ido: n8n 2.x migration 1.123.28 -> 2.14.2 (latest stable 2.x; 2.15.0 was prerelease); N8N_RUNNERS_ENABLED -> N8N_RUNNERS_MODE=internal; N8N_BASIC_AUTH_* commented as no-op in 2.x; docker-cli v29.3.1 confirmed via static binary; build PASS, healthz OK, 11/11 workflows imported; MCP documented as Enterprise-only in community edition; ADR-0013 + CURRENT_STATE + RIS_OPERATOR_GUIDE updated
 - quick-260405-vbn: n8n version bump 1.88.0 -> 1.123.28 (latest stable 1.x); DHI compat fix: replaced apk add with Docker static binary (docker-29.3.1); build PASS, healthz OK, docker-cli v29.3.1 confirmed, 11/11 workflows imported; docs updated (ADR-0013 + CURRENT_STATE.md)
 - quick-260405-jyv: Root image final slimming — extras narrowed to .[ris,mcp,simtrader,historical,historical-import,live]; rag/studio/dev dropped (~475MB); CURRENT_STATE.md stale orphan bullet fixed; compose config PASS; python --help PASS
 - quick-260405-jle: Docker image slimming — root Dockerfile multi-stage (build tools builder-only, runtime copies only site-packages+bin); Dockerfile.bot modernized (3.11-slim, [live,simtrader], BuildKit, selective COPY, no ENTRYPOINT); pair-bot-paper/live compose services point to Dockerfile.bot; compose config PASS; python --help PASS
