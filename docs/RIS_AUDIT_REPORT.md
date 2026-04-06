@@ -361,7 +361,7 @@ All 14 research CLI commands exist in tools/cli/. All expose `main(argv) -> int`
 | research-health | IMPLEMENTED | Returns real health check results |
 | research-stats | IMPLEMENTED | summary, docs, claims subcommands |
 | research-report | IMPLEMENTED | Deterministic report from knowledge store |
-| research-scheduler | IMPLEMENTED | start, stop, status, list subcommands |
+| research-scheduler | IMPLEMENTED | start, status, run-job subcommands |
 | research-eval | IMPLEMENTED | Standalone evaluation of a document |
 | research-seed | IMPLEMENTED | Seeds starter documents into knowledge store |
 | research-bridge | IMPLEMENTED | Registers hypotheses to SimTrader registry |

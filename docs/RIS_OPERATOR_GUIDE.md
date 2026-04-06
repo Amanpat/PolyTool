@@ -497,7 +497,8 @@ Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
 1. Copy `.env.example` n8n section into `.env`. Set real values for:
    - `N8N_BASIC_AUTH_PASSWORD` (use a strong password)
    - `N8N_ENCRYPTION_KEY` (minimum 32 characters — used to encrypt stored credentials)
-   - `N8N_MCP_BEARER_TOKEN` (not operative — MCP uses stdio, not HTTP; see note below)
+   - `N8N_MCP_BEARER_TOKEN` (compose-side env var read by n8n at startup; operative
+     when instance-level MCP is enabled in n8n Settings UI; see MCP section below)
    Keep `N8N_BASIC_AUTH_USER=admin` or change to your preferred username.
 
 2. Stop APScheduler if switching to n8n:

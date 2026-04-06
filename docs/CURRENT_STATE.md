@@ -1560,8 +1560,8 @@ See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
 
 - Pinned n8n base image upgraded from `n8nio/n8n:1.123.28` to `n8nio/n8n:2.14.2`
   (latest stable 2.x as of 2026-04-06; `2.15.0` was prerelease=True on GitHub).
-- Motivation: n8n 2.x provides instance-level MCP UI components and signals the
-  direction toward HTTP-accessible MCP tooling (Enterprise tier for backend endpoint).
+- Motivation: n8n 2.x provides instance-level MCP at `/mcp-server/http`
+  (works on community edition; requires JWT bearer token from n8n Settings UI).
 - Docker static binary install for docker-cli retained (same as 1.123.28 DHI fix).
 - `N8N_RUNNERS_ENABLED=true` replaced with `N8N_RUNNERS_MODE=internal` (2.x API).
 - `N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD` are no-ops in 2.x (retained in compose for
@@ -1569,7 +1569,23 @@ See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
 - Build verified: image built from 2.14.2 base, docker-cli v29.3.1 confirmed.
 - Container starts: `{"status":"ok"}` from `/healthz`.
 - Workflow import: 11/11 workflows imported successfully.
-- MCP backend endpoint: Enterprise feature only; not available in community edition.
-  `/mcp-server/http` path is routed to the SPA frontend (200 HTML). `N8N_MCP_BEARER_TOKEN`
-  kept in compose as informational placeholder.
+- MCP backend endpoint: works on community edition n8n >= 2.14.2 (not Enterprise-only).
+  `POST /mcp-server/http` with `Accept: application/json, text/event-stream` and valid
+  JWT bearer token returns MCP initialize response. `GET` without Accept header hits the
+  SPA frontend (200 HTML) -- this caused the earlier false "Enterprise-only" finding.
+  `N8N_MCP_BEARER_TOKEN` is the compose-side env var read by n8n at container startup.
+  See `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md` for full probe evidence.
 - See `docs/dev_logs/2026-04-06_n8n_2x_instance_mcp_upgrade.md` for full evidence.
+
+## n8n Instance MCP Connection Debug (quick-260406-le7, 2026-04-06)
+
+- Root cause: Claude Code does NOT expand `${VAR}` in HTTP-type `.mcp.json` entries.
+  The literal template strings were sent as-is, causing connection failure.
+- Key finding: n8n instance-level MCP HTTP backend works on community edition 2.14.2
+  (not Enterprise-only). Earlier GET probes hit the SPA frontend; correct POST with
+  Accept header reaches the real backend.
+- `.mcp.json`: removed the n8n-instance-mcp entry; correct fix is `claude mcp add
+  --transport http -s local` with the real token.
+- `.env.example`: real JWT token replaced with placeholder.
+- Multiple docs corrected to remove "Enterprise only" claims.
+- See `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md`.

@@ -94,9 +94,13 @@ choice in `.env`. It is informational only — no code reads this variable.
 - Custom image: `polytool-n8n:2.14.2` (built from `infra/n8n/Dockerfile`)
 - Base: `n8nio/n8n:2.14.2` + `docker-cli` (Docker static binary via `wget + tar`, not `apk add`)
 - Pinned base tag: MUST NOT be `latest`.
-- n8n 2.x provides instance-level MCP UI components (`/mcp-server/http` path rendered
-  by the SPA). The HTTP MCP backend endpoint is an Enterprise feature — not available in
-  the community edition. `N8N_MCP_BEARER_TOKEN` remains in compose but is informational.
+- n8n 2.x provides instance-level MCP at `/mcp-server/http`. The HTTP MCP backend
+  works on community edition n8n >= 2.14.2 (not Enterprise-only). Authentication
+  requires a JWT bearer token generated from n8n UI (Settings -> Instance-level MCP).
+  `N8N_MCP_BEARER_TOKEN` is the compose-side env var read by n8n at container startup.
+  Earlier probes incorrectly concluded "Enterprise-only" because GET requests without
+  the required `Accept` header hit the SPA frontend router instead of the backend
+  (see `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md`).
 - To upgrade: update the base tag in `infra/n8n/Dockerfile`, rebuild (`docker compose --profile ris-n8n build n8n`), commit.
 - Runtime pattern: **docker-beside-docker** -- n8n mounts `/var/run/docker.sock` and
   routes all Execute Command nodes through `docker exec polytool-ris-scheduler python -m polytool ...`
