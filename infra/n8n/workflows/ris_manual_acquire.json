@@ -17,7 +17,7 @@
     },
     {
       "parameters": {
-        "command": "=docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
       },
       "id": "exec-acquire",
       "name": "Run research-acquire",

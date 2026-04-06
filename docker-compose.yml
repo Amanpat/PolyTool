@@ -126,6 +126,9 @@ services:
     networks:
       - polytool
 
+  # APScheduler RIS scheduler -- always-on in default stack (no compose profile).
+  # To use n8n instead: docker compose stop ris-scheduler && docker compose --profile ris-n8n up -d n8n
+  # See docs/adr/0013-ris-n8n-pilot-scoped.md for scheduler mutual exclusion.
   ris-scheduler:
     build:
       context: .

@@ -31,6 +31,7 @@ if [ "$WITH_N8N" = "true" ]; then
   echo "Starting full stack WITH n8n RIS pilot..."
   echo "  WARNING: If ris-scheduler is also running, double-scheduling will occur."
   echo "  To prevent double-scheduling: docker compose stop ris-scheduler"
+  echo "  Tip: docker compose stop ris-scheduler  (prevents double-scheduling)"
   echo "  See docs/adr/0013-ris-n8n-pilot-scoped.md for scheduler selection guidance."
 else
   echo "Starting full stack (ClickHouse, Grafana, API, RIS scheduler)..."
