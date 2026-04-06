@@ -4,6 +4,10 @@
 **Quick task:** quick-260405-l8q
 **Branch:** feat/ws-clob-feed
 
+> **SUPERSEDED:** The `workflows/n8n/` directory described below was deleted on 2026-04-06
+> (quick-260406-mno). The canonical workflow location is `infra/n8n/workflows/`.
+> See `docs/dev_logs/2026-04-06_ris_n8n_phase_n4_repo_hardening.md`.
+
 ## What
 
 8 enhanced RIS pipeline n8n workflow JSON files, importable at localhost:5678.
