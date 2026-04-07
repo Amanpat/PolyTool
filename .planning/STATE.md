@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-07 - Completed quick task 260407-lpr: Bumped RIS roadmap suite from v1.0 to v1.1, locking ten Director-accepted Phase 2 additions (fail-closed gate, weighted composite, dedup pre-step, review queue, budget controls, per-priority thresholds, ClickHouse idempotency, n8n env-var config) into canonical spec documents before implementation begins.
+Last activity: 2026-04-07 - Completed quick task 260407-pbi: Created canonical RIS Phase 2 roadmap doc (docs/roadmaps/), patched CURRENT_STATE.md stale "never calls external LLM APIs" claim and unresolved authority conflict — both now reflect quick-260407-lpr decisions.
 
 ## Recent Progress
+- quick-260407-pbi: RIS Phase 2 docs reconciliation — created docs/roadmaps/RIS_PHASE2_evaluation_gate_monitoring_rag_testing_v1_1.md (167 lines, 10 Director-approved contract items as checklist), patched CURRENT_STATE.md x2 (stale "never" claim replaced with narrow exception note; authority conflict marked RESOLVED with quick-260407-lpr); dev log written; commits cd03891 + 62fb363 + fdae24e
 - quick-260407-lpr: RIS documentation contract freeze v1.1 — PLAN_OF_RECORD LLM policy narrow exception (Tier 1 free APIs for RIS evaluation only), RIS_OVERVIEW bumped to v1.1 with Changelog + Posture Statement, RIS_03 updated with fail-closed rule + weighted composite gate + per-priority acceptance gates + canonical-ID dedup pre-step + review queue contract, RIS_06 updated with ingestion budget controls + n8n env-var-primary config + ClickHouse write idempotency; dev log written; commits 191c261 + 6774e2b + 448fb76
 - quick-260407-inu: RIS n8n workflow full rebuild — 9 workflows (7 standard subs + weekly digest + orchestrator + global error watcher), continueOnFail on all execute/HTTP nodes, IF exit code branches, Discord alerts on failure, settings.errorWorkflow catch-all; all tagged RIS, activated; workflow_ids.env updated; commits ecd3e45 + 3b04c6a
 - quick-260406-ovg: RIS n8n workflow system — 8 workflows deployed (7 sub-workflows + 1 orchestrator), Switch V2 dynamic routing (7 pipelines), NODES_EXCLUDE=[] to re-enable executeCommand in n8n 2.x, 6-field cron fix for ScheduleTrigger, expression interpolation fix for Path C; all activated; routing verified; commits 18532dc + 0d078fb
