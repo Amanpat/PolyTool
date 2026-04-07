@@ -2,7 +2,9 @@
 
 This repo is a local-first toolchain for Polymarket analysis: data ingestion,
 ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
-RAG workflow that never calls external LLM APIs.
+RAG workflow that defaults to local-only LLM inference. (Narrow exception: Tier 1
+free cloud APIs are authorized for RIS evaluation gate scoring only — see
+PLAN_OF_RECORD Section 0 and quick-260407-lpr.)
 
 Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
 governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
@@ -791,12 +793,13 @@ Lightweight SQLite persistence layer for `external_knowledge` RAG partition ship
 Modules: `packages/polymarket/rag/knowledge_store.py`, `packages/polymarket/rag/freshness.py`.
 Config: `config/freshness_decay.json`. Tests: `tests/test_knowledge_store.py`.
 
-**Authority conflict (unresolved):** Roadmap v5.1 LLM Policy allows Tier 1 free
-cloud APIs (DeepSeek V3/R1, Gemini 2.5 Flash). PLAN_OF_RECORD Section 0 states
-"Current toolchain policy remains no external LLM API calls." The knowledge store
-includes a provider abstraction (`_llm_provider`) but cloud execution is disabled
-by default. Operator decision required before enabling cloud LLM calls for claim
-extraction or scraper evaluation.
+**Authority conflict (RESOLVED, quick-260407-lpr):** PLAN_OF_RECORD Section 0 now
+carries a narrow exception: Tier 1 free cloud APIs (Gemini Flash, DeepSeek V3) are
+authorized for RIS evaluation gate scoring only. Cloud providers are NOT yet
+implemented in code (`providers.py` has `manual` and `ollama` only;
+`RIS_ENABLE_CLOUD_PROVIDERS` env var has no effect). The knowledge store provider
+abstraction (`_llm_provider`) is wired but cloud execution remains disabled until
+the provider implementations ship.
 
 This is a data-plane addition. It does not change live trading, SimTrader, gates,
 or benchmark artifacts.
