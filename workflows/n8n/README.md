@@ -1,127 +1,73 @@
-# RIS n8n Workflow System
+# RIS n8n Workflows
 
-Research Intelligence System (RIS) automation via n8n. Part of the scoped RIS n8n pilot
-defined in `docs/adr/0013-ris-n8n-pilot-scoped.md`.
+Workflow JSON files for the Research Intelligence System (RIS) n8n automation pilot.
+All workflows are tagged `RIS` and use `settings.errorWorkflow` pointing to the Global Error Watcher.
 
-## Workflow Files
+## Workflow Inventory (as of 2026-04-07)
 
-| File | n8n ID | Purpose |
-|------|--------|---------|
-| `ris_orchestrator.json` | `pvoP1evtPWTp5LPh` | 3-path orchestrator (health, trigger, ingest) |
-| `ris_sub_academic.json` | `wGZFmbBk5TuKeiu4` | Daily academic ingest at 03:00 UTC |
-| `ris_sub_reddit.json` | `66DODhOnrEdqc0Tk` | Daily reddit ingest at 05:00 UTC |
-| `ris_sub_blog_rss.json` | `xhv5Dnru2nW7TchB` | Daily blog RSS ingest at 06:00 UTC |
-| `ris_sub_youtube.json` | `e6P3lkcJdwlRPgfj` | Weekly youtube ingest Mondays 04:00 UTC |
-| `ris_sub_github.json` | `ZJFoRcDFNdgzKP7m` | Weekly github ingest Wednesdays 04:00 UTC |
-| `ris_sub_weekly_digest.json` | `Nes9RKXadMsYcHE8` | Weekly digest + Discord report Sundays 08:00 UTC |
-| `ris_sub_freshness_refresh.json` | `SrEdvxt5sRFRQYrV` | Weekly freshness refresh Sundays 02:00 UTC |
+| File | n8n Workflow Name | ID | Schedule | Purpose |
+|---|---|---|---|---|
+| ris_sub_academic.json | RIS Sub: Academic | yDBfhk9tJQlAWJbz | Every 12h | arxiv/semantic scholar ingest |
+| ris_sub_reddit.json | RIS Sub: Reddit | 34EhYveCbJie5hub | Every 6h | reddit_polymarket ingest |
+| ris_sub_blog_rss.json | RIS Sub: Blog/RSS | fi2iglrNXcK9qXEg | Every 4h | blog_ingest |
+| ris_sub_youtube.json | RIS Sub: YouTube | rHdYkf3Q6EgUC6KQ | Weekly Mon 04:00 UTC | youtube_ingest |
+| ris_sub_github.json | RIS Sub: GitHub | 3rk0GiZM6GHJWq4z | Weekly Wed 04:00 UTC | github_ingest |
+| ris_sub_weekly_digest.json | RIS Sub: Weekly Digest | 5wGKoPm7eJ3K2eIE | Weekly Sun 08:00 UTC | research-report digest + stats |
+| ris_sub_freshness_refresh.json | RIS Sub: Freshness Refresh | vAiyicAFlnfq2RDh | Weekly Sun 02:00 UTC | freshness_refresh |
+| ris_global_error_watcher.json | RIS Global Error Watcher | WFvBwCepYu8JzKDs | Error trigger | catch-all error handler for all 8 RIS workflows |
+| ris_orchestrator.json | RIS Orchestrator | PEX5vHCexProT2sC | Every 30min + webhooks | health monitor, webhook dispatcher, URL ingest |
 
-Workflow IDs are also stored in `workflow_ids.env` for scripting.
+## Error Handling Pattern
 
-## Architecture
+Every sub-workflow follows a standard pattern:
 
-### Path A: Health Monitor (Autonomous)
+1. **Execute Command** — `continueOnFail: true` — runs the docker exec command
+2. **IF Exit Code OK** — branches on `exitCode == 0`
+   - True path: Parse Metrics (code node) → Success (noOp)
+   - False path: Format Error (code node) → Discord Alert (httpRequest, `continueOnFail: true`)
+3. **settings.errorWorkflow** — set to Global Error Watcher ID on all 8 non-error-watcher workflows
 
-```
-Every 30 Minutes -> Run research-health -> Run research-stats -> Parse Output -> IF Alert -> Discord Alert
-```
+Discord alerts use `$env.DISCORD_WEBHOOK_URL` — never hardcoded.
 
-Runs every 30 minutes. Sends Discord alert (via `DISCORD_WEBHOOK_URL` env var) if health
-output contains `RED`, `CRITICAL`, `FAIL`, `pipeline_failed`, or `ERROR`.
+## Weekly Digest Special Flow
 
-### Path B: Manual Pipeline Trigger
+The digest workflow always sends a Discord message (success or partial failure) then conditionally sends a second error-detail alert if either command failed (non-zero exit code).
 
-```
-POST /webhook/ris-trigger {"pipeline": "<name>"} -> Switch -> Exec Sub-Workflow
-```
+## Orchestrator Sections
 
-Accepts `pipeline` values: `academic`, `reddit`, `blog`, `youtube`, `github`, `digest`, `freshness`.
-Routes to the corresponding sub-workflow. Falls through to n8n fallback if unknown pipeline.
+**Section 1 — Health Monitor (every 30 min):**
+Runs `research-health` + `research-stats summary`, parses stdout for RED/CRITICAL/FAIL/ERROR indicators, sends Discord alert only on detected issues.
 
-Example:
-```bash
-curl -X POST http://localhost:5678/webhook/ris-trigger \
-  -H "Content-Type: application/json" \
-  -d '{"pipeline": "academic"}'
-```
+**Section 2 — Webhook Dispatcher (POST /ris-trigger):**
+Accepts `{"pipeline": "academic"}` etc., dispatches to the appropriate sub-workflow via Execute Workflow node, responds 200/400.
 
-### Path C: URL Ingest
+**Section 3 — URL Ingest (POST /ris-ingest):**
+Accepts `{"url": "..."}`, runs `research-acquire`, responds 200 on success or 500 with Discord alert on failure.
 
-```
-POST /webhook/ris-ingest {"url": "...", "source_family": "..."} -> research-acquire
-```
+## Global Error Watcher
 
-Runs `research-acquire --url URL --source-family FAMILY --no-eval` in the ris-scheduler container.
-Returns stdout/exit_code/url_ingested/source_family.
+`ris_global_error_watcher.json` — set as `settings.errorWorkflow` on all 8 other RIS workflows.
+Catches unhandled errors, formats context (workflow name, node, execution ID, error message), sends Discord alert.
 
-Example:
-```bash
-curl -X POST http://localhost:5678/webhook/ris-ingest \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://arxiv.org/abs/2301.00001", "source_family": "academic"}'
-```
+## Deployment History
+
+| Date | Action |
+|---|---|
+| 2026-04-06 | Initial skeletal deployment (8 workflows, no error handling) |
+| 2026-04-07 | Full rebuild — all 9 workflows redeployed with proper error handling, exit code checks, Discord alerting, continueOnFail, and Global Error Watcher |
+
+## Re-deploying
+
+All 9 JSON files are the canonical source. To redeploy:
+
+1. POST each sub-workflow JSON to `/api/v1/workflows` (sub-workflows first, orchestrator last)
+2. Inject real sub-workflow IDs into orchestrator's Execute Workflow nodes
+3. PUT `settings.errorWorkflow` on all 8 non-error-watcher workflows
+4. PUT tags: `[{"id": "lsdE5zgirb6IHxH5"}]` on all 9
+5. POST `/api/v1/workflows/{id}/activate` on all 9
+6. Update `workflow_ids.env`
 
 ## Environment Variables Required
 
-| Variable | Where | Purpose |
-|----------|-------|---------|
-| `DISCORD_WEBHOOK_URL` | n8n container env | Discord alerts for Path A and weekly digest |
-| `NODES_EXCLUDE` | n8n container env | Must be `[]` to enable executeCommand node |
-
-Both are set in `docker-compose.yml` under the `n8n` service.
-
-## n8n 2.x Compatibility Notes
-
-Several n8n 2.x behaviors required fixes during initial deployment:
-
-1. **executeCommand disabled by default**: n8n 2.x excludes `n8n-nodes-base.executeCommand`
-   in its default node exclusion list. Fixed by setting `NODES_EXCLUDE=[]` in docker-compose.yml.
-   Container must be recreated (not just restarted) with `docker compose up -d n8n` for this to take effect.
-
-2. **6-field cron format**: n8n 2.x ScheduleTrigger requires 6-field cron format
-   `[Second] [Minute] [Hour] [Day of Month] [Month] [Day of Week]`, e.g., `0 0 4 * * 1` (not `0 4 * * 1`).
-   The parameter structure is `rule.interval[{field: "cronExpression", expression: "0 0 4 * * 1"}]`.
-
-3. **Switch node V2 for >4 outputs**: Switch V1 (`typeVersion: 1`) hardcodes 4 outputs.
-   Switch V2 (`typeVersion: 2`) supports dynamic outputs via `outputKey` per rule and
-   `"mode": "rules"` in parameters.
-
-4. **Expression prefix**: executeCommand fields that interpolate `{{ }}` variables require
-   the `=` prefix: `"=docker exec ... {{ $json.body.url }}"`.
-
-5. **PUT API field restrictions**: `PUT /api/v1/workflows/{id}` rejects `notes`, `meta`,
-   `tags`, `triggerCount`, and `active` as read-only or disallowed fields. Strip them before PUT.
-   Tags are managed via `PUT /api/v1/workflows/{id}/tags`.
-
-## Mutual Exclusion
-
-These n8n workflows MUST NOT be activated while the APScheduler `polytool-ris-scheduler`
-container is running its own schedules. The sub-workflows call the same jobs via
-`research-scheduler run-job <name>`, which would cause double-execution.
-
-The n8n pilot is activated via `--profile ris-n8n`. Default deployments use APScheduler only.
-
-## Exec Container
-
-All `executeCommand` nodes target `polytool-ris-scheduler`. This container must be running
-for workflows to execute successfully. Verify:
-
-```bash
-docker ps | grep polytool-ris-scheduler
-```
-
-## Redeployment
-
-To redeploy all workflows after JSON changes:
-
-```bash
-# Load workflow IDs
-source workflows/n8n/workflow_ids.env
-
-# PUT each workflow (strip active/notes/meta/tags/triggerCount before PUT)
-# Then re-activate each workflow:
-# POST /api/v1/workflows/{id}/activate
-
-# Assign RIS tag (ID: lsdE5zgirb6IHxH5):
-# PUT /api/v1/workflows/{id}/tags [{"id": "lsdE5zgirb6IHxH5"}]
-```
+- `N8N_API_KEY` — n8n REST API key
+- `DISCORD_WEBHOOK_URL` — set as n8n environment variable in n8n settings (not in .env)
