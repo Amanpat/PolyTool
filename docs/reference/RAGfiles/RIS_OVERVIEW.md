@@ -1,7 +1,26 @@
 # PolyTool Research Intelligence System (RIS) — Overview
-**Version:** 1.0 · **Date:** March 2026 · **Status:** Approved Draft  
+**Version:** 1.1 · **Date:** April 2026 · **Status:** Approved Draft  
 **Parent:** PolyTool Master Roadmap v5.1  
 **Companion Files:** `RIS_01` through `RIS_07` (detailed subsystem specs)
+
+---
+
+## Changelog
+
+### v1.1 (2026-04-07) — Phase 2 Contract Freeze
+
+Additions accepted by Director before implementation:
+
+1. **Fail-closed evaluation rule** — documents that fail LLM scoring default to REJECT, never silent pass-through. (RIS_03)
+2. **Weighted composite gate** — canonical gate uses dimension weights (relevance=0.30, novelty=0.25, actionability=0.25, credibility=0.20); simple sum retained as diagnostic only. Per-dimension floor of 2 on relevance and credibility. (RIS_03)
+3. **Novelty dedup pre-step** — deduplicate by canonical doc_id / source_url before nearest-neighbor embedding injection into the evaluation prompt. (RIS_03)
+4. **Review queue contract** — KnowledgeStore SQLite `pending_review` table + CLI `research-review` flow for YELLOW-zone documents. (RIS_03, RIS_04)
+5. **Budget controls** — global daily cap, per-source daily cap, manual-reserve hold-back for operator-submitted URLs. (RIS_06)
+6. **Per-priority acceptance gates** — explicit pass/fail thresholds per source priority tier. (RIS_03)
+7. **Segmented retrieval benchmark** — benchmark metrics reported by query class (factual, analytical, exploratory). (RIS_05)
+8. **n8n env-var-primary config** — environment variables are the primary config source; n8n Variables are optional convenience only. (RIS_06)
+9. **ClickHouse idempotency** — `execution_id` column + ReplacingMergeTree at storage level; code-level prefilter before INSERT. (RIS_06)
+10. **Research-only posture statement** — added to Overview. (RIS_OVERVIEW)
 
 ---
 
@@ -24,6 +43,16 @@ step becomes: *"What does the research system already know about this?"*
 **What RIS is NOT:** It is not a trading bot. It does not execute trades or generate revenue
 directly. It generates *knowledge* that prevents wasted development and informs better
 strategy design.
+
+---
+
+## Posture Statement
+
+RIS is a research-only system. It ingests, evaluates, and organizes knowledge.
+It does NOT generate trading signals, place orders, or recommend positions.
+Outputs from RIS (research reports, precheck verdicts, knowledge-base entries)
+are informational inputs to human decision-making and strategy design processes.
+No RIS output should be interpreted as a trading recommendation.
 
 ---
 
@@ -163,6 +192,10 @@ Build ArXiv/SSRN ingestion, PDF extraction (MinerU/Marker), content normalizer, 
 full LLM evaluation gate. The evaluation gate is the core reusable component — all future
 sources flow through it.
 **Details:** `RIS_01_INGESTION_ACADEMIC.md`, `RIS_03_EVALUATION_GATE.md`
+
+> **v1.1 note:** Phase R1 deliverables now include the weighted composite gate,
+> fail-closed rule, novelty dedup pre-step, review queue contract, per-priority
+> acceptance gates, and budget controls. See RIS_03 and RIS_06 for full specifications.
 
 ### Phase R2 — Social Pipeline (3-5 days)
 Reddit (PRAW), Twitter/X, YouTube transcripts, blog RSS, GitHub READMEs. Reuses the
@@ -315,5 +348,5 @@ packages/research/
 
 ---
 
-*End of RIS Overview — Version 1.0 — March 2026*
+*End of RIS Overview — Version 1.1 — April 2026*
 *For detailed specifications, see companion files RIS_01 through RIS_07.*
