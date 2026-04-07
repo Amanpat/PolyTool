@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-07 - Completed quick task 260407-ioi: Rewrite the repo root README.md only. Done means a new operator can understand what PolyTool is, what is actually shipped today, how to install/configure it, and how to use the CLI through clear copy-pasteable commands. The README must include a complete user-facing CLI inventory based on current repo truth.
+Last activity: 2026-04-07 - Completed quick task 260407-inu: Rebuilt all 8 skeletal RIS n8n workflows with proper error handling (continueOnFail, exit code IF branches, Discord alerts on failure, stdout metrics parsing on success) plus a new 9th Global Error Watcher catch-all. All 9 deployed, tagged RIS, activated. workflow_ids.env updated.
 
 ## Recent Progress
+- quick-260407-inu: RIS n8n workflow full rebuild — 9 workflows (7 standard subs + weekly digest + orchestrator + global error watcher), continueOnFail on all execute/HTTP nodes, IF exit code branches, Discord alerts on failure, settings.errorWorkflow catch-all; all tagged RIS, activated; workflow_ids.env updated; commits ecd3e45 + 3b04c6a
 - quick-260406-ovg: RIS n8n workflow system — 8 workflows deployed (7 sub-workflows + 1 orchestrator), Switch V2 dynamic routing (7 pipelines), NODES_EXCLUDE=[] to re-enable executeCommand in n8n 2.x, 6-field cron fix for ScheduleTrigger, expression interpolation fix for Path C; all activated; routing verified; commits 18532dc + 0d078fb
 - quick-260406-lnp: Repo consolidated to main-only workflow; 68 local branches (14 regular + 54 worktree-agent) + 13 remote branches deleted; 54 worktrees removed; 4 stashes cleared; safety tag safety/pre-main-consolidation-20260406 pushed; CLAUDE.md branch policy updated to main-only; CURRENT_STATE.md workflow note added; commit 8cc44d7; python --help PASS
 - quick-260406-ido: n8n 2.x migration 1.123.28 -> 2.14.2 (latest stable 2.x; 2.15.0 was prerelease); N8N_RUNNERS_ENABLED -> N8N_RUNNERS_MODE=internal; N8N_BASIC_AUTH_* commented as no-op in 2.x; docker-cli v29.3.1 confirmed via static binary; build PASS, healthz OK, 11/11 workflows imported; MCP documented as Enterprise-only in community edition; ADR-0013 + CURRENT_STATE + RIS_OPERATOR_GUIDE updated
@@ -40,6 +41,7 @@ Last activity: 2026-04-07 - Completed quick task 260407-ioi: Rewrite the repo ro
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+- quick-260407-inu: Use minimal PUT body (6 fields only: name/nodes/connections/settings/staticData/pinData) for n8n workflow updates — API rejects additional properties; Global Error Watcher as settings.errorWorkflow catch-all covers node-level failures that bypass continueOnFail
 - quick-260405-gef: curl installed in services/api/Dockerfile via apt-get (not via alternative healthcheck command) to keep compose config unchanged; pair-bot-live restart:unless-stopped retained post profile-fix (expected restarts when live creds absent is correct behavior)
 - quick-260406-jtl: n8n-instance-mcp in .mcp.json uses ${N8N_BASE_URL}/${N8N_MCP_TOKEN} env-var expansion; N8N_MCP_BEARER_TOKEN (compose-side) and N8N_MCP_TOKEN (Claude Code-side) are distinct vars; config is forward-looking (inert until Enterprise license)
 - quick-260404-sb4: All 8 scheduler job n8n workflows use research-scheduler run-job <id> surface (not reconstructed raw research-acquire args) to avoid job logic duplication; mixed trigger types: interval-based use rule.interval array, specific-time use rule.cronExpression string; runtime verification explicitly documented as NOT done (template JSON only)
