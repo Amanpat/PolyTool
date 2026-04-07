@@ -160,6 +160,18 @@ n8n:
 header management, and error handling. Routing to Gemini Flash vs DeepSeek V3 vs Ollama
 becomes a visual decision tree instead of Python if/else chains.
 
+### n8n Configuration Hierarchy
+
+Environment variables are the primary configuration source for RIS n8n workflows.
+n8n Variables (set via n8n UI or API) are an optional convenience layer that may
+mirror env vars for operator visibility but are NEVER the source of truth.
+
+Resolution order: `process.env.RIS_*` -> n8n Variables (if set) -> hardcoded defaults.
+
+This ensures that `docker compose` env files and `.env` remain the single config
+surface. Operators who prefer the n8n UI can set Variables, but code must always
+read env vars first.
+
 ---
 
 ## CLI Command Reference
@@ -333,6 +345,52 @@ commitment is:
 4. **Update eval prompt if needed** (10 minutes) — add calibration examples
 
 Total: ~30 minutes per week. Everything else runs on cron/n8n automatically.
+
+---
+
+## Ingestion Budget Controls
+
+### Global Daily Cap
+Maximum documents evaluated per calendar day across all sources. Default: 200.
+Configurable via `RIS_DAILY_EVAL_CAP` env var or `polytool.yaml` key
+`ris.budget.daily_cap`.
+
+### Per-Source Daily Cap
+Maximum documents per source type per day. Defaults:
+- academic: 50
+- reddit: 40
+- twitter: 30
+- blog: 30
+- youtube: 20
+- github: 20
+- manual: 10 (see Manual Reserve below)
+
+Configurable via `polytool.yaml` key `ris.budget.per_source.<source_type>`.
+
+### Manual Reserve
+Of the global daily cap, 10 slots are reserved for operator-submitted URLs
+(`research-acquire --url ...`). These slots cannot be consumed by automated
+ingestion. If the global cap is reached but manual reserve is not exhausted,
+manual submissions still proceed. Configurable via `RIS_MANUAL_RESERVE` env var
+or `polytool.yaml` key `ris.budget.manual_reserve`.
+
+---
+
+## ClickHouse Write Idempotency
+
+RIS writes to ClickHouse (evaluation metrics, ingestion events) must be idempotent.
+
+**Storage-level:** Tables receiving RIS writes use `ReplacingMergeTree` with
+`execution_id` (UUID, set per pipeline run) as the dedup key. ClickHouse will
+eventually merge duplicates on the same `execution_id + doc_id` pair.
+
+**Code-level prefilter:** Before issuing an INSERT batch, query ClickHouse for
+existing `execution_id` values from the current run. Skip rows already present.
+This prevents duplicate rows from accumulating between ReplacingMergeTree merges
+and avoids relying solely on eventual merge timing.
+
+This dual-layer approach follows the same pattern used by the existing trade
+dedup pipeline (`trade_uid` + ReplacingMergeTree).
 
 ---
 

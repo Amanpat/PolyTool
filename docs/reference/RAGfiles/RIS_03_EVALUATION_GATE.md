@@ -52,6 +52,16 @@ Document (from normalizer)
 
 ---
 
+### Fail-Closed Rule
+
+If the LLM scorer returns an unparseable response, times out, or raises an exception,
+the document defaults to REJECT and is logged to the rejection JSONL with
+`reason: 'scorer_failure'`. Documents never silently pass through the gate.
+The only path to the knowledge store is a valid, parsed score above the acceptance
+threshold.
+
+---
+
 ## Scoring Rubric
 
 ### Scale: 1-5 per dimension (total /20)
@@ -110,6 +120,27 @@ How trustworthy is this source?
 | 1 | Known unreliable, contradicted by data, spam |
 
 ### Thresholds
+
+**v1.1 canonical gate:** The primary acceptance gate uses a weighted composite score:
+`composite = relevance * 0.30 + novelty * 0.25 + actionability * 0.25 + credibility * 0.20`.
+Composite range is 1.0 to 5.0. Acceptance threshold: composite >= 3.0.
+Per-dimension floors: relevance >= 2 AND credibility >= 2 (a document scoring 1 on
+either dimension is auto-rejected regardless of composite).
+The simple-sum /20 score is retained as a diagnostic metric in evaluation output but
+is NOT the decision gate.
+
+### Per-Priority Acceptance Gates
+
+Source priority tiers have explicit pass/fail thresholds:
+
+| Priority | Composite Threshold | Floor Override | Rationale |
+|----------|--------------------:|----------------|-----------|
+| Critical (operator-submitted) | >= 2.5 | None | Operator intent presumed; lower bar |
+| High (academic, curated blogs) | >= 3.0 | Standard floors | Default quality bar |
+| Medium (Reddit, Twitter, RSS) | >= 3.2 | Standard floors | Noisier sources need higher bar |
+| Low (auto-discovered) | >= 3.5 | Standard floors | Highest bar for unsupervised intake |
+
+If a source does not have an assigned priority, it defaults to Medium.
 
 | Band | Score Range | Action |
 |------|------------|--------|
@@ -326,7 +357,43 @@ polytool research promote-rejected --doc-id ext_2026-03-30_reddit_abc123
 
 ---
 
+## Review Queue Contract
+
+YELLOW-zone documents (composite < 3.0 but not floor-rejected, or scorer disagreement)
+are written to a `pending_review` table in the KnowledgeStore SQLite database
+(`kb/rag/knowledge/knowledge.sqlite3`). Schema:
+
+```sql
+CREATE TABLE IF NOT EXISTS pending_review (
+    doc_id TEXT PRIMARY KEY,
+    source_url TEXT,
+    source_type TEXT,
+    title TEXT,
+    scores_json TEXT,        -- full scorer output
+    eval_model TEXT,
+    queued_at TEXT,           -- ISO-8601
+    reviewed_at TEXT,         -- NULL until reviewed
+    disposition TEXT          -- NULL | 'accept' | 'reject'
+);
+```
+
+Operator action path: `python -m polytool research-review [--pending] [--accept DOC_ID] [--reject DOC_ID]`.
+Accepted documents are promoted to the knowledge store with `validation_status: 'human_accepted'`.
+Rejected documents are moved to the rejection log with `reason: 'human_rejected'`.
+Unreviewed items older than 30 days are auto-expired to rejection log with
+`reason: 'review_expired'`.
+
+---
+
 ## Deduplication
+
+**v1.1 addition — canonical-ID dedup pre-step:** Before computing embedding similarity,
+check the incoming document's `doc_id` and `source_url` against existing entries in the
+knowledge store. If either matches an existing document, skip evaluation entirely and
+log as `reason: 'canonical_id_duplicate'`. This catches exact re-submissions (same URL
+fetched twice, same doc_id from re-run) without incurring an embedding computation.
+The embedding-based near-duplicate check (>0.92 cosine similarity) remains as the
+second dedup layer for content-similar documents from different sources.
 
 Before evaluation, check if the document is a near-duplicate of something already indexed.
 
