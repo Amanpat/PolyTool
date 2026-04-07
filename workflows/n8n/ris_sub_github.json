@@ -2,14 +2,31 @@
   "name": "RIS Sub: GitHub",
   "nodes": [
     {
-      "parameters": {},
-      "id": "sub-github-manual",
+      "id": "github-sticky",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 160],
+      "parameters": {
+        "content": "## RIS Sub: GitHub Ingest\n**Schedule:** Weekly Wednesday 04:00 UTC\n**Command:** `research-scheduler run-job github_ingest`\n\n**Flow:** Trigger -> Execute Command [continueOnFail] -> IF exit code 0\n- Success: Parse metrics\n- Failure: Format error -> Discord alert",
+        "height": 180,
+        "width": 400
+      }
+    },
+    {
+      "id": "github-manual",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [240, 400],
+      "parameters": {}
     },
     {
+      "id": "github-schedule",
+      "name": "Wednesdays at 04:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 560],
       "parameters": {
         "rule": {
           "interval": [
@@ -19,64 +36,115 @@
             }
           ]
         }
-      },
-      "id": "sub-github-cron",
-      "name": "Wednesdays at 04:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1,
-      "position": [240, 480]
+      }
     },
     {
-      "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job github_ingest"
-      },
-      "id": "sub-github-exec",
+      "id": "github-exec",
       "name": "Run github_ingest",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 390]
+      "position": [500, 480],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job github_ingest"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "github-if",
+      "name": "IF Exit Code OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 480],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "exitcode-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "github-parse",
+      "name": "Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 360],
+      "parameters": {
+        "jsCode": "const stdout = $('Run github_ingest').first().json.stdout || '';\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'github_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "github-success",
+      "name": "Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1280, 360],
+      "parameters": {}
+    },
+    {
+      "id": "github-format-error",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 600],
+      "parameters": {
+        "jsCode": "const execNode = $('Run github_ingest').first().json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: github_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500 chars):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "github-discord",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 600],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
     }
   ],
   "connections": {
     "Manual Trigger": {
-      "main": [
-        [
-          {
-            "node": "Run github_ingest",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Run github_ingest", "type": "main", "index": 0}]]
     },
     "Wednesdays at 04:00": {
+      "main": [[{"node": "Run github_ingest", "type": "main", "index": 0}]]
+    },
+    "Run github_ingest": {
+      "main": [[{"node": "IF Exit Code OK", "type": "main", "index": 0}]]
+    },
+    "IF Exit Code OK": {
       "main": [
-        [
-          {
-            "node": "Run github_ingest",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Parse Metrics", "type": "main", "index": 0}],
+        [{"node": "Format Error", "type": "main", "index": 0}]
       ]
+    },
+    "Parse Metrics": {
+      "main": [[{"node": "Success", "type": "main", "index": 0}]]
+    },
+    "Format Error": {
+      "main": [[{"node": "Discord Alert", "type": "main", "index": 0}]]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
-  },
-  "meta": {
-    "instanceId": "polytool-ris-pilot",
-    "templateCredsSetupCompleted": true
-  },
-  "pinData": {},
-  "staticData": null,
-  "tags": [
-    {
-      "id": "lsdE5zgirb6IHxH5",
-      "name": "RIS"
-    }
-  ],
-  "triggerCount": 0,
-  "notes": "RIS Sub-workflow: Runs research-scheduler run-job github_ingest weekly on Wednesdays at 04:00 UTC. Part of the RIS orchestrated workflow system. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+  }
 }

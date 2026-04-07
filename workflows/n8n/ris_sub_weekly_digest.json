@@ -2,14 +2,31 @@
   "name": "RIS Sub: Weekly Digest",
   "nodes": [
     {
-      "parameters": {},
-      "id": "sub-digest-manual",
+      "id": "digest-sticky",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 120],
+      "parameters": {
+        "content": "## RIS Sub: Weekly Digest\n**Schedule:** Weekly Sunday 08:00 UTC\n**Commands:** `research-report digest --window 7` + `research-stats summary`\n\n**Flow (special - always sends Discord):**\nTrigger -> Run report [continueOnFail] -> Run stats [continueOnFail]\n-> Format digest message -> Discord digest (always) [continueOnFail]\n-> IF either command failed -> Format error -> Discord error alert [continueOnFail]",
+        "height": 200,
+        "width": 500
+      }
+    },
+    {
+      "id": "digest-manual",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [240, 400],
+      "parameters": {}
     },
     {
+      "id": "digest-schedule",
+      "name": "Sundays at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 560],
       "parameters": {
         "rule": {
           "interval": [
@@ -19,117 +36,147 @@
             }
           ]
         }
-      },
-      "id": "sub-digest-cron",
-      "name": "Sundays at 08:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1,
-      "position": [240, 480]
+      }
     },
     {
-      "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-report digest --window 7"
-      },
-      "id": "sub-digest-report",
+      "id": "digest-exec-report",
       "name": "Run research-report digest",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 390]
+      "position": [500, 480],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-report digest --window 7"
+      },
+      "continueOnFail": true
     },
     {
-      "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary"
-      },
-      "id": "sub-digest-stats",
+      "id": "digest-exec-stats",
       "name": "Run research-stats summary",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [760, 390]
+      "position": [760, 480],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary"
+      },
+      "continueOnFail": true
     },
     {
+      "id": "digest-format-msg",
+      "name": "Format Digest Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 480],
+      "parameters": {
+        "jsCode": "const reportNode = $('Run research-report digest').first().json;\nconst statsNode = $('Run research-stats summary').first().json;\nconst reportOut = (reportNode.stdout || '(no output)').substring(0, 1500);\nconst statsOut = (statsNode.stdout || '(no output)').substring(0, 800);\nconst reportExit = reportNode.exitCode;\nconst statsExit = statsNode.exitCode;\nconst hasError = (reportExit !== 0) || (statsExit !== 0);\nconst timestamp = new Date().toISOString();\nconst content = `**RIS Weekly Digest** (${timestamp})\\n\\n**Research Report (7 days):**\\n\\`\\`\\`\\n${reportOut}\\n\\`\\`\\`\\n\\n**Stats Summary:**\\n\\`\\`\\`\\n${statsOut}\\n\\`\\`\\``;\nreturn [{ json: { content, hasError, reportExit, statsExit } }];"
+      }
+    },
+    {
+      "id": "digest-discord-always",
+      "name": "Discord Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 480],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "content",
-              "value": "=**RIS Weekly Digest**\n\n**Research Report:**\n{{ $('Run research-report digest').item.json.stdout }}\n\n**Stats Summary:**\n{{ $json.stdout }}"
-            }
-          ]
-        },
-        "options": {}
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
       },
-      "id": "sub-digest-discord",
-      "name": "Send to Discord",
+      "continueOnFail": true
+    },
+    {
+      "id": "digest-if-error",
+      "name": "IF Command Failed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 480],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "error-check",
+              "leftValue": "={{ $('Format Digest Message').first().json.hasError }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "digest-format-error",
+      "name": "Format Error Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1800, 360],
+      "parameters": {
+        "jsCode": "const reportNode = $('Run research-report digest').first().json;\nconst statsNode = $('Run research-stats summary').first().json;\nconst reportExit = reportNode.exitCode;\nconst statsExit = statsNode.exitCode;\nconst reportErr = (reportNode.stderr || '').substring(0, 800);\nconst statsErr = (statsNode.stderr || '').substring(0, 800);\nconst content = `**RIS Digest Command Error**\\n\\nresearch-report exit: ${reportExit}\\nresearch-stats exit: ${statsExit}\\n\\n**report stderr:**\\n\\`\\`\\`\\n${reportErr}\\n\\`\\`\\`\\n\\n**stats stderr:**\\n\\`\\`\\`\\n${statsErr}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "digest-discord-error",
+      "name": "Discord Error Alert",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [1020, 390]
+      "typeVersion": 4.2,
+      "position": [2060, 360],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "digest-no-error",
+      "name": "No Error",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1800, 600],
+      "parameters": {}
     }
   ],
   "connections": {
     "Manual Trigger": {
-      "main": [
-        [
-          {
-            "node": "Run research-report digest",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Run research-report digest", "type": "main", "index": 0}]]
     },
     "Sundays at 08:00": {
-      "main": [
-        [
-          {
-            "node": "Run research-report digest",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Run research-report digest", "type": "main", "index": 0}]]
     },
     "Run research-report digest": {
-      "main": [
-        [
-          {
-            "node": "Run research-stats summary",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Run research-stats summary", "type": "main", "index": 0}]]
     },
     "Run research-stats summary": {
+      "main": [[{"node": "Format Digest Message", "type": "main", "index": 0}]]
+    },
+    "Format Digest Message": {
+      "main": [[{"node": "Discord Digest", "type": "main", "index": 0}]]
+    },
+    "Discord Digest": {
+      "main": [[{"node": "IF Command Failed", "type": "main", "index": 0}]]
+    },
+    "IF Command Failed": {
       "main": [
-        [
-          {
-            "node": "Send to Discord",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Format Error Message", "type": "main", "index": 0}],
+        [{"node": "No Error", "type": "main", "index": 0}]
       ]
+    },
+    "Format Error Message": {
+      "main": [[{"node": "Discord Error Alert", "type": "main", "index": 0}]]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
-  },
-  "meta": {
-    "instanceId": "polytool-ris-pilot",
-    "templateCredsSetupCompleted": true
-  },
-  "pinData": {},
-  "staticData": null,
-  "tags": [
-    {
-      "id": "lsdE5zgirb6IHxH5",
-      "name": "RIS"
-    }
-  ],
-  "triggerCount": 0,
-  "notes": "RIS Sub-workflow: Weekly digest on Sundays at 08:00 UTC. Runs research-report digest --window 7 then research-stats summary, then always sends combined output to Discord via DISCORD_WEBHOOK_URL env var. REQUIRES: DISCORD_WEBHOOK_URL set in n8n environment variables. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+  }
 }

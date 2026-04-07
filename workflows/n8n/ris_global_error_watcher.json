@@ -1,0 +1,61 @@
+{
+  "name": "RIS Global Error Watcher",
+  "nodes": [
+    {
+      "id": "errwatch-sticky",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 120],
+      "parameters": {
+        "content": "## RIS Global Error Watcher\nCatch-all error handler for all 8 RIS workflows.\n\nSet this workflow as `settings.errorWorkflow` on every RIS workflow.\n\n**Flow:** Error Trigger -> Format error context -> Discord alert [continueOnFail]",
+        "height": 160,
+        "width": 420
+      }
+    },
+    {
+      "id": "errwatch-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 340],
+      "parameters": {}
+    },
+    {
+      "id": "errwatch-format",
+      "name": "Format Error Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 340],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst workflowName = data.workflow?.name || data.workflowName || 'Unknown Workflow';\nconst errorMsg = data.execution?.error?.message || data.error?.message || JSON.stringify(data.execution?.error || data.error || 'Unknown error');\nconst executionId = data.execution?.id || data.executionId || 'unknown';\nconst nodeName = data.execution?.error?.node?.name || data.error?.node?.name || 'unknown node';\nconst content = `**RIS Unhandled Error**\\n\\nWorkflow: ${workflowName}\\nNode: ${nodeName}\\nExecution ID: ${executionId}\\n\\nError:\\n\\`\\`\\`\\n${String(errorMsg).substring(0, 1500)}\\n\\`\\`\\``;\nreturn [{ json: { content, workflowName, executionId } }];"
+      }
+    },
+    {
+      "id": "errwatch-discord",
+      "name": "Discord Error Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 340],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{"node": "Format Error Context", "type": "main", "index": 0}]]
+    },
+    "Format Error Context": {
+      "main": [[{"node": "Discord Error Alert", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

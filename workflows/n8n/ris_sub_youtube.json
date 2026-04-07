@@ -2,14 +2,31 @@
   "name": "RIS Sub: YouTube",
   "nodes": [
     {
-      "parameters": {},
-      "id": "sub-youtube-manual",
+      "id": "youtube-sticky",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [80, 160],
+      "parameters": {
+        "content": "## RIS Sub: YouTube Ingest\n**Schedule:** Weekly Monday 04:00 UTC\n**Command:** `research-scheduler run-job youtube_ingest`\n\n**Flow:** Trigger -> Execute Command [continueOnFail] -> IF exit code 0\n- Success: Parse metrics\n- Failure: Format error -> Discord alert",
+        "height": 180,
+        "width": 400
+      }
+    },
+    {
+      "id": "youtube-manual",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [240, 400],
+      "parameters": {}
     },
     {
+      "id": "youtube-schedule",
+      "name": "Mondays at 04:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 560],
       "parameters": {
         "rule": {
           "interval": [
@@ -19,64 +36,115 @@
             }
           ]
         }
-      },
-      "id": "sub-youtube-cron",
-      "name": "Mondays at 04:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1,
-      "position": [240, 480]
+      }
     },
     {
-      "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job youtube_ingest"
-      },
-      "id": "sub-youtube-exec",
+      "id": "youtube-exec",
       "name": "Run youtube_ingest",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 390]
+      "position": [500, 480],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job youtube_ingest"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "youtube-if",
+      "name": "IF Exit Code OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 480],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "exitcode-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "youtube-parse",
+      "name": "Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 360],
+      "parameters": {
+        "jsCode": "const stdout = $('Run youtube_ingest').first().json.stdout || '';\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'youtube_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "youtube-success",
+      "name": "Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1280, 360],
+      "parameters": {}
+    },
+    {
+      "id": "youtube-format-error",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1020, 600],
+      "parameters": {
+        "jsCode": "const execNode = $('Run youtube_ingest').first().json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: youtube_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500 chars):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "youtube-discord",
+      "name": "Discord Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1280, 600],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
     }
   ],
   "connections": {
     "Manual Trigger": {
-      "main": [
-        [
-          {
-            "node": "Run youtube_ingest",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Run youtube_ingest", "type": "main", "index": 0}]]
     },
     "Mondays at 04:00": {
+      "main": [[{"node": "Run youtube_ingest", "type": "main", "index": 0}]]
+    },
+    "Run youtube_ingest": {
+      "main": [[{"node": "IF Exit Code OK", "type": "main", "index": 0}]]
+    },
+    "IF Exit Code OK": {
       "main": [
-        [
-          {
-            "node": "Run youtube_ingest",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Parse Metrics", "type": "main", "index": 0}],
+        [{"node": "Format Error", "type": "main", "index": 0}]
       ]
+    },
+    "Parse Metrics": {
+      "main": [[{"node": "Success", "type": "main", "index": 0}]]
+    },
+    "Format Error": {
+      "main": [[{"node": "Discord Alert", "type": "main", "index": 0}]]
     }
   },
-  "active": false,
   "settings": {
     "executionOrder": "v1"
-  },
-  "meta": {
-    "instanceId": "polytool-ris-pilot",
-    "templateCredsSetupCompleted": true
-  },
-  "pinData": {},
-  "staticData": null,
-  "tags": [
-    {
-      "id": "lsdE5zgirb6IHxH5",
-      "name": "RIS"
-    }
-  ],
-  "triggerCount": 0,
-  "notes": "RIS Sub-workflow: Runs research-scheduler run-job youtube_ingest weekly on Mondays at 04:00 UTC. Part of the RIS orchestrated workflow system. MUTUAL EXCLUSION: Do NOT activate while APScheduler ris-scheduler container is running. See docs/adr/0013-ris-n8n-pilot-scoped.md."
+  }
 }
