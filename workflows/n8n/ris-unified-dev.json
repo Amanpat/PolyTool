@@ -1,0 +1,2110 @@
+{
+  "name": "RIS \u2014 Research Intelligence System",
+  "nodes": [
+    {
+      "id": "s1-sticky",
+      "name": "S1: Health Monitor - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        0
+      ],
+      "parameters": {
+        "content": "## Section 1: Health Monitor -- Every 30 minutes\nChecks pipeline health. Discord alert only when RED/CRITICAL detected. Silent when healthy.",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s1-schedule",
+      "name": "Health: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        80
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s1-run-health",
+      "name": "Health: Run research-health",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        80
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-health 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s1-run-stats",
+      "name": "Health: Run research-stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        850,
+        80
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s1-parse",
+      "name": "Health: Parse Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        80
+      ],
+      "parameters": {
+        "jsCode": "const healthOut = ($('Health: Run research-health').item.json.stdout || '').toString();\nconst statsOut = ($('Health: Run research-stats').item.json.stdout || '').toString();\nconst healthExit = $('Health: Run research-health').item.json.exitCode || 0;\nconst statsExit = $('Health: Run research-stats').item.json.exitCode || 0;\nconst hasRed = healthOut.toLowerCase().includes('red') || healthOut.toLowerCase().includes('critical') || healthOut.toLowerCase().includes('fail') || healthOut.toLowerCase().includes('pipeline_failed') || healthOut.toLowerCase().includes('error') || healthExit !== 0 || statsExit !== 0;\nreturn [{ json: { hasRed, healthOutput: healthOut.substring(0,1200), statsOutput: statsOut.substring(0,800), timestamp: new Date().toISOString(), healthExitCode: healthExit, statsExitCode: statsExit } }];"
+      }
+    },
+    {
+      "id": "s1-if-red",
+      "name": "Health: RED?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        80
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s1-red-check",
+              "leftValue": "={{ $json.hasRed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s1-format-alert",
+      "name": "Health: Format Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        20
+      ],
+      "parameters": {
+        "jsCode": "const d = $('Health: Parse Output').item.json;\nconst content = `**RIS Health Alert**\\n\\nHealth exit: ${d.healthExitCode} | Stats exit: ${d.statsExitCode}\\n\\n**Health Output:**\\n\\`\\`\\`\\n${d.healthOutput}\\n\\`\\`\\`\\n\\n**Stats:**\\n\\`\\`\\`\\n${d.statsOutput}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s1-discord",
+      "name": "Health: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1950,
+        20
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s1-ok",
+      "name": "Health: OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1700,
+        180
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s2-sticky",
+      "name": "S2: Academic - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        350
+      ],
+      "parameters": {
+        "content": "## Section 2: Academic Pipeline -- Every 12h",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s2-schedule",
+      "name": "Academic: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        430
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 12
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s2-manual",
+      "name": "Academic: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        550
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s2-run",
+      "name": "Academic: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        490
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job academic_ingest 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s2-if",
+      "name": "Academic: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        490
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s2-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s2-parse",
+      "name": "Academic: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        410
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'academic_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s2-done",
+      "name": "Academic: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        410
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "43ed09b8",
+              "name": "section",
+              "value": "Academic",
+              "type": "string"
+            },
+            {
+              "id": "8e6ee39d",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s2-format-err",
+      "name": "Academic: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        570
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: academic_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s2-discord",
+      "name": "Academic: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        570
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s3-sticky",
+      "name": "S3: Reddit - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        700
+      ],
+      "parameters": {
+        "content": "## Section 3: Reddit Pipeline -- Every 6h",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s3-schedule",
+      "name": "Reddit: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        780
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s3-manual",
+      "name": "Reddit: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        900
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s3-run",
+      "name": "Reddit: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        840
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job reddit_polymarket 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s3-if",
+      "name": "Reddit: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        840
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s3-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s3-parse",
+      "name": "Reddit: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        760
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'reddit_polymarket', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s3-done",
+      "name": "Reddit: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        760
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4283c249",
+              "name": "section",
+              "value": "Reddit",
+              "type": "string"
+            },
+            {
+              "id": "c0451e4d",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s3-format-err",
+      "name": "Reddit: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        920
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: reddit_polymarket**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s3-discord",
+      "name": "Reddit: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        920
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s4-sticky",
+      "name": "S4: Blog - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        1050
+      ],
+      "parameters": {
+        "content": "## Section 4: Blog Pipeline -- Every 4h",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s4-schedule",
+      "name": "Blog: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1130
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s4-manual",
+      "name": "Blog: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1250
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s4-run",
+      "name": "Blog: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        1190
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job blog_ingest 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s4-if",
+      "name": "Blog: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        1190
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s4-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s4-parse",
+      "name": "Blog: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1110
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'blog_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s4-done",
+      "name": "Blog: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        1110
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1bf070b6",
+              "name": "section",
+              "value": "Blog",
+              "type": "string"
+            },
+            {
+              "id": "b282c55d",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s4-format-err",
+      "name": "Blog: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1270
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: blog_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s4-discord",
+      "name": "Blog: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        1270
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s5-sticky",
+      "name": "S5: YouTube - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        1400
+      ],
+      "parameters": {
+        "content": "## Section 5: YouTube Pipeline -- Weekly Mon 04:00 UTC",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s5-schedule",
+      "name": "YouTube: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1480
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 4 * * 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s5-manual",
+      "name": "YouTube: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1600
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s5-run",
+      "name": "YouTube: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        1540
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job youtube_ingest 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s5-if",
+      "name": "YouTube: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        1540
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s5-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s5-parse",
+      "name": "YouTube: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1460
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'youtube_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s5-done",
+      "name": "YouTube: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        1460
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "572ca22c",
+              "name": "section",
+              "value": "YouTube",
+              "type": "string"
+            },
+            {
+              "id": "9a27c004",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s5-format-err",
+      "name": "YouTube: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1620
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: youtube_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s5-discord",
+      "name": "YouTube: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        1620
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s6-sticky",
+      "name": "S6: GitHub - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        1750
+      ],
+      "parameters": {
+        "content": "## Section 6: GitHub Pipeline -- Weekly Wed 04:00 UTC",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s6-schedule",
+      "name": "GitHub: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1830
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 4 * * 3"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s6-manual",
+      "name": "GitHub: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        1950
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s6-run",
+      "name": "GitHub: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        1890
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job github_ingest 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s6-if",
+      "name": "GitHub: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        1890
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s6-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s6-parse",
+      "name": "GitHub: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1810
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'github_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s6-done",
+      "name": "GitHub: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        1810
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "81dc3c48",
+              "name": "section",
+              "value": "GitHub",
+              "type": "string"
+            },
+            {
+              "id": "6e9d9ad4",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s6-format-err",
+      "name": "GitHub: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        1970
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: github_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s6-discord",
+      "name": "GitHub: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        1970
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s7-sticky",
+      "name": "S7: Freshness - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        2100
+      ],
+      "parameters": {
+        "content": "## Section 7: Freshness Pipeline -- Weekly Sun 02:00 UTC",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s7-schedule",
+      "name": "Freshness: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        2180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 2 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s7-manual",
+      "name": "Freshness: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        2300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s7-run",
+      "name": "Freshness: Run Job",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        2240
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-scheduler run-job freshness_refresh 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s7-if",
+      "name": "Freshness: Exit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        2240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s7-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s7-parse",
+      "name": "Freshness: Parse Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        2160
+      ],
+      "parameters": {
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'freshness_refresh', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+      }
+    },
+    {
+      "id": "s7-done",
+      "name": "Freshness: Done",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1450,
+        2160
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8e5097f9",
+              "name": "section",
+              "value": "Freshness",
+              "type": "string"
+            },
+            {
+              "id": "a7232067",
+              "name": "status",
+              "value": "complete",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s7-format-err",
+      "name": "Freshness: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        2320
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: freshness_refresh**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s7-discord",
+      "name": "Freshness: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        2320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s8-sticky",
+      "name": "S8: Digest - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        2450
+      ],
+      "parameters": {
+        "content": "## Section 8: Weekly Digest -- Sunday 08:00 UTC\nGenerates report + stats, sends to Discord.",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s8-schedule",
+      "name": "Digest: Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        2530
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 8 * * 0"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "s8-manual",
+      "name": "Digest: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        2650
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "s8-run-report",
+      "name": "Digest: Run Report",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        2590
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-report digest --window 7 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s8-if",
+      "name": "Digest: Report OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        2590
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s8-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s8-run-stats",
+      "name": "Digest: Run Stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1150,
+        2510
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s8-parse",
+      "name": "Digest: Parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1450,
+        2510
+      ],
+      "parameters": {
+        "jsCode": "const report = ($('Digest: Run Report').item.json.stdout || '').toString();\nconst stats = ($json.stdout || '').toString();\nconst content = `**RIS Weekly Research Digest**\\n\\n**Report:**\\n\\`\\`\\`\\n${report.substring(0,1200)}\\n\\`\\`\\`\\n\\n**Stats:**\\n\\`\\`\\`\\n${stats.substring(0,400)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s8-discord",
+      "name": "Digest: Discord Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        2510
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s8-format-err",
+      "name": "Digest: Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        2670
+      ],
+      "parameters": {
+        "jsCode": "const execNode = $('Digest: Run Report').item.json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Digest Error**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+      }
+    },
+    {
+      "id": "s8-discord-err",
+      "name": "Digest: Alert Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1450,
+        2670
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s9-sticky",
+      "name": "S9: Ingest - Label",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        150,
+        2800
+      ],
+      "parameters": {
+        "content": "## Section 9: URL Ingestion -- POST /webhook/ris-ingest\nPOST with {\"url\": \"...\", \"source_family\": \"...\"}",
+        "height": 50,
+        "width": 1750
+      }
+    },
+    {
+      "id": "s9-webhook",
+      "name": "Ingest: Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        2920
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ris-ingest",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "s9-run",
+      "name": "Ingest: Run Acquire",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        550,
+        2920
+      ],
+      "parameters": {
+        "command": "=docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "s9-if",
+      "name": "Ingest: OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        850,
+        2920
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s9-exit-check",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "s9-fmt-ok",
+      "name": "Ingest: Format Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        2840
+      ],
+      "parameters": {
+        "jsCode": "const webhook = $('Ingest: Webhook').item.json;\nconst exec = $('Ingest: Run Acquire').item.json;\nreturn [{ json: { status: 'ingested', url: webhook.body.url, source_family: webhook.body.source_family, output: (exec.stdout || '').substring(0,500), timestamp: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "s9-respond-ok",
+      "name": "Ingest: Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        2840
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      }
+    },
+    {
+      "id": "s9-fmt-err",
+      "name": "Ingest: Format Fail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1150,
+        3000
+      ],
+      "parameters": {
+        "jsCode": "const webhook = $('Ingest: Webhook').item.json;\nconst exec = $json;\nreturn [{ json: { status: 'failed', url: (webhook.body || {}).url, error: (exec.stderr || exec.stdout || 'Unknown error').substring(0,500), exitCode: exec.exitCode, timestamp: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "s9-respond-err",
+      "name": "Ingest: Respond 500",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1450,
+        3000
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "responseCode": 500
+      }
+    }
+  ],
+  "connections": {
+    "Health: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Health: Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Run research-health": {
+      "main": [
+        [
+          {
+            "node": "Health: Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Run research-stats": {
+      "main": [
+        [
+          {
+            "node": "Health: Parse Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Parse Output": {
+      "main": [
+        [
+          {
+            "node": "Health: RED?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: RED?": {
+      "main": [
+        [
+          {
+            "node": "Health: Format Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health: OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Format Alert": {
+      "main": [
+        [
+          {
+            "node": "Health: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Academic: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Manual": {
+      "main": [
+        [
+          {
+            "node": "Academic: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Run Job": {
+      "main": [
+        [
+          {
+            "node": "Academic: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "Academic: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Academic: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "Academic: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Academic: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Academic: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Manual": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Run Job": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reddit: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reddit: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Reddit: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Blog: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Manual": {
+      "main": [
+        [
+          {
+            "node": "Blog: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Run Job": {
+      "main": [
+        [
+          {
+            "node": "Blog: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "Blog: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Blog: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "Blog: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Blog: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Schedule": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Manual": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Run Job": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "YouTube: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Format Error": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Schedule": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Manual": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Run Job": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GitHub: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Format Error": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Manual": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Run Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Run Job": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Exit OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Exit OK?": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Parse Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Freshness: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Parse Metrics": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Freshness: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Freshness: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Digest: Run Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Manual": {
+      "main": [
+        [
+          {
+            "node": "Digest: Run Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Run Report": {
+      "main": [
+        [
+          {
+            "node": "Digest: Report OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Report OK?": {
+      "main": [
+        [
+          {
+            "node": "Digest: Run Stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Digest: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Run Stats": {
+      "main": [
+        [
+          {
+            "node": "Digest: Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Parse": {
+      "main": [
+        [
+          {
+            "node": "Digest: Discord Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Digest: Alert Discord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest: Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ingest: Run Acquire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest: Run Acquire": {
+      "main": [
+        [
+          {
+            "node": "Ingest: OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest: OK?": {
+      "main": [
+        [
+          {
+            "node": "Ingest: Format Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ingest: Format Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest: Format Success": {
+      "main": [
+        [
+          {
+            "node": "Ingest: Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ingest: Format Fail": {
+      "main": [
+        [
+          {
+            "node": "Ingest: Respond 500",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
