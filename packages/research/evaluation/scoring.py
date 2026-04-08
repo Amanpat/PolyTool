@@ -1,4 +1,4 @@
-"""RIS v1 evaluation gate — 4-dimension scoring rubric and prompt construction.
+"""RIS evaluation gate -- 4-dimension scoring rubric and prompt construction.
 
 Provides the scoring prompt builder, LLM response parser, and the
 score_document() convenience function.
@@ -7,6 +7,12 @@ Phase 5 additions (backward compatible):
 - SCORING_PROMPT_TEMPLATE_ID: constant identifying the active prompt template.
 - score_document_with_metadata(): returns (ScoringResult, raw_output, prompt_hash)
   for replay-grade auditability.
+
+Phase 2 additions:
+- SCORING_PROMPT_TEMPLATE_ID bumped to "scoring_v2" (prompt rubric changed).
+- parse_scoring_response() now computes composite_score (weighted) and populates
+  reject_reason="scorer_failure" on parse failure. simple_sum_score = total (diagnostic).
+- build_scoring_prompt() updated to describe weighted composite gate instead of simple sum.
 """
 
 from __future__ import annotations
@@ -26,9 +32,27 @@ if TYPE_CHECKING:
     from packages.research.evaluation.providers import EvalProvider
 
 # Identifier for the current scoring prompt template.
-# Increment this (e.g., "scoring_v2") when the prompt rubric changes substantially
-# to allow detection of evaluation drift across artifact records.
-SCORING_PROMPT_TEMPLATE_ID = "scoring_v1"
+# Bumped to scoring_v2 because the GATE THRESHOLDS section now describes
+# weighted composite scoring instead of simple sum.
+SCORING_PROMPT_TEMPLATE_ID = "scoring_v2"
+
+
+def _compute_composite(relevance: int, novelty: int, actionability: int, credibility: int) -> float:
+    """Compute the weighted composite score.
+
+    Formula: rel*0.30 + nov*0.25 + act*0.25 + cred*0.20
+
+    Weights come from config at call time to respect env-var overrides.
+    """
+    from packages.research.evaluation.config import get_eval_config
+    cfg = get_eval_config()
+    w = cfg.weights
+    return (
+        relevance * w.get("relevance", 0.30)
+        + novelty * w.get("novelty", 0.25)
+        + actionability * w.get("actionability", 0.25)
+        + credibility * w.get("credibility", 0.20)
+    )
 
 
 def build_scoring_prompt(doc: EvalDocument) -> str:
@@ -40,6 +64,8 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
     - 4-dimension scoring rubric (1-5 scale)
     - Epistemic type tagging instructions
     - Expected JSON output format
+
+    Phase 2: GATE THRESHOLDS section updated to describe weighted composite.
     """
     family = SOURCE_FAMILIES.get(doc.source_type, "manual")
     guidance = SOURCE_FAMILY_GUIDANCE.get(family, SOURCE_FAMILY_GUIDANCE["manual"])
@@ -90,10 +116,11 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
         "  2 = Unverified claim, single data point, promotional content",
         "  1 = Known unreliable, contradicted by data, spam",
         "",
-        "GATE THRESHOLDS:",
-        "  ACCEPT: total >= 12/20",
-        "  REVIEW: 8-11/20",
-        "  REJECT: < 8/20",
+        "GATE THRESHOLDS (weighted composite):",
+        "  Acceptance is determined by a weighted composite score:",
+        "    composite = relevance*0.30 + novelty*0.25 + actionability*0.25 + credibility*0.20",
+        "  Score each dimension 1-5 honestly -- the system computes the gate automatically.",
+        "  Per-dimension floors: relevance >= 2 and credibility >= 2 are required for acceptance.",
         "",
         "EPISTEMIC TYPE TAGGING (pick one):",
         "  EMPIRICAL    = contains verifiable data or measured results",
@@ -107,8 +134,7 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
         "3. Tag the epistemic type: EMPIRICAL | THEORETICAL | ANECDOTAL | SPECULATIVE",
         "4. Write a 2-3 sentence summary of the document's key contribution.",
         "5. List 1-3 key findings as bullet points.",
-        "6. Set gate: ACCEPT (>=12), REVIEW (8-11), REJECT (<8).",
-        "7. Evaluate substance, not grammar. Typos and informal language do not reduce scores.",
+        "6. Evaluate substance, not grammar. Typos and informal language do not reduce scores.",
         "",
         "DOCUMENT TO EVALUATE:",
         f"Source type: {doc.source_type}",
@@ -138,27 +164,37 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
 def parse_scoring_response(raw_json: str, model_name: str) -> ScoringResult:
     """Parse an LLM JSON response into a ScoringResult.
 
-    Handles missing fields gracefully — defaults all missing dimension scores
-    to 1. Computes total from individual dimensions if not present.
+    Phase 2 behavior:
+    - Computes composite_score using weights from config.
+    - Sets simple_sum_score = total (diagnostic only).
+    - On parse failure (malformed JSON): returns ScoringResult with
+      reject_reason="scorer_failure", all dims=1, composite_score=0.0.
+    - On valid JSON with missing dims: dims default to 1 (floor check
+      will likely reject).
 
     Args:
         raw_json: Raw JSON string from the LLM provider.
         model_name: Name of the model used for scoring (set as eval_model).
 
     Returns:
-        ScoringResult with parsed or default values.
+        ScoringResult with parsed or default values. Gate is computed lazily
+        by the gate property using composite_score + floors + priority_tier.
     """
     try:
         data = json.loads(raw_json)
         if not isinstance(data, dict):
             raise ValueError("Expected JSON object")
     except (json.JSONDecodeError, ValueError):
-        # Return safe defaults on parse failure
+        # Fail-closed: parse failure -> scorer_failure reject
+        composite = _compute_composite(1, 1, 1, 1)
         return ScoringResult(
             relevance=1, novelty=1, actionability=1, credibility=1,
             total=4,
+            composite_score=composite,
+            priority_tier="priority_3",
+            reject_reason="scorer_failure",
             epistemic_type="UNKNOWN",
-            summary="Parse error — could not evaluate document.",
+            summary="Parse error -- could not evaluate document.",
             key_findings=[],
             eval_model=model_name,
         )
@@ -204,12 +240,18 @@ def parse_scoring_response(raw_json: str, model_name: str) -> ScoringResult:
     # Use eval_model from response if present, else use passed model_name
     eval_model = str(data.get("eval_model", model_name)) or model_name
 
+    # Compute weighted composite score
+    composite = _compute_composite(relevance, novelty, actionability, credibility)
+
     return ScoringResult(
         relevance=relevance,
         novelty=novelty,
         actionability=actionability,
         credibility=credibility,
         total=total,
+        composite_score=composite,
+        priority_tier="priority_3",  # default; caller sets priority_tier after construction
+        reject_reason=None,
         epistemic_type=epistemic_type,
         summary=summary,
         key_findings=key_findings,

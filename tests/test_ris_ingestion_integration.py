@@ -107,7 +107,12 @@ def test_pipeline_ingest_no_eval(memory_store):
 
 
 def test_pipeline_ingest_with_eval(memory_store):
-    """Ingest with evaluator: gate_decision is set and gate is ACCEPT for valid content."""
+    """Ingest with evaluator: gate_decision is set and gate is REVIEW for valid content.
+
+    Phase 2 behavior: ManualProvider all-3s yields composite=3.0 < P3 threshold 3.2,
+    so the gate is REVIEW rather than ACCEPT. REVIEW documents are still ingested
+    (not rejected) — they pass the pipeline but are flagged for human review.
+    """
     from packages.research.ingestion.pipeline import IngestPipeline
     from packages.research.evaluation.evaluator import DocumentEvaluator
 
@@ -116,7 +121,7 @@ def test_pipeline_ingest_with_eval(memory_store):
 
     assert result.rejected is False
     assert result.gate_decision is not None
-    assert result.gate_decision.gate == "ACCEPT"
+    assert result.gate_decision.gate == "REVIEW"
     assert result.chunk_count > 0
 
 

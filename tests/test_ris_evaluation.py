@@ -128,40 +128,70 @@ class TestHardStops:
 # ---------------------------------------------------------------------------
 
 class TestScoringResultGate:
-    def _make_scoring(self, total: int):
+    def _make_scoring(self, composite: float, relevance: int = 3, credibility: int = 3,
+                      priority_tier: str = "priority_3", reject_reason=None):
+        """Build a ScoringResult with explicit composite_score for gate testing.
+
+        Phase 2: gate is driven by composite_score + floors + priority_tier.
+        The total field is retained as a diagnostic but does not drive gate decisions.
+        """
         from packages.research.evaluation.types import ScoringResult
         return ScoringResult(
-            relevance=3, novelty=3, actionability=3, credibility=3,
-            total=total,
+            relevance=relevance, novelty=3, actionability=3, credibility=credibility,
+            total=relevance + 3 + 3 + credibility,
+            composite_score=composite,
+            priority_tier=priority_tier,
+            reject_reason=reject_reason,
             epistemic_type="EMPIRICAL",
             summary="Test summary.",
             key_findings=["Finding 1"],
             eval_model="manual_placeholder",
         )
 
-    def test_gate_accept_at_15(self):
-        r = self._make_scoring(15)
+    def test_gate_accept_above_p3_threshold(self):
+        # composite >= 3.2 and floors met -> ACCEPT for priority_3
+        r = self._make_scoring(composite=3.5)
         assert r.gate == "ACCEPT"
 
-    def test_gate_accept_at_12(self):
-        r = self._make_scoring(12)
+    def test_gate_accept_at_p3_threshold(self):
+        # composite == 3.2 exactly -> ACCEPT
+        r = self._make_scoring(composite=3.2)
         assert r.gate == "ACCEPT"
 
-    def test_gate_review_at_10(self):
-        r = self._make_scoring(10)
+    def test_gate_review_below_p3_threshold(self):
+        # composite=3.0 < 3.2 -> REVIEW (floors still met)
+        r = self._make_scoring(composite=3.0)
         assert r.gate == "REVIEW"
 
-    def test_gate_review_at_8(self):
-        r = self._make_scoring(8)
+    def test_gate_review_at_2_5(self):
+        # composite=2.5 < 3.2 -> REVIEW
+        r = self._make_scoring(composite=2.5)
         assert r.gate == "REVIEW"
 
-    def test_gate_reject_at_5(self):
-        r = self._make_scoring(5)
+    def test_gate_reject_floor_fail_relevance(self):
+        # relevance=1 fails floor (floor=2) -> REJECT
+        r = self._make_scoring(composite=3.5, relevance=1)
         assert r.gate == "REJECT"
 
-    def test_gate_reject_at_7(self):
-        r = self._make_scoring(7)
+    def test_gate_reject_floor_fail_credibility(self):
+        # credibility=1 fails floor (floor=2) -> REJECT
+        r = self._make_scoring(composite=3.5, credibility=1)
         assert r.gate == "REJECT"
+
+    def test_gate_reject_scorer_failure(self):
+        # reject_reason="scorer_failure" always REJECTs regardless of composite
+        r = self._make_scoring(composite=4.5, reject_reason="scorer_failure")
+        assert r.gate == "REJECT"
+
+    def test_gate_priority_1_waives_floors(self):
+        # priority_1 with floor-failing relevance=1 -> floors waived -> gate by threshold
+        r = self._make_scoring(composite=3.5, relevance=1, priority_tier="priority_1")
+        assert r.gate == "ACCEPT"
+
+    def test_gate_priority_1_low_composite(self):
+        # priority_1 threshold=2.5; composite=2.6 -> ACCEPT (no floor check)
+        r = self._make_scoring(composite=2.6, relevance=1, priority_tier="priority_1")
+        assert r.gate == "ACCEPT"
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +253,19 @@ class TestDocumentEvaluator:
         assert decision.hard_stop is not None
         assert decision.hard_stop.passed is False
 
-    def test_valid_doc_with_manual_provider_returns_accept(self):
+    def test_valid_doc_with_manual_provider_returns_review(self):
+        """ManualProvider returns all-3s -> composite=3.0 < P3 threshold 3.2 -> REVIEW.
+
+        Phase 2 behavior: ManualProvider no longer auto-accepts. All-3s composite
+        (3*0.30 + 3*0.25 + 3*0.25 + 3*0.20 = 3.0) falls below the priority_3
+        threshold of 3.2, so documents score as REVIEW rather than ACCEPT.
+        This forces operator review instead of silent acceptance.
+        """
         from packages.research.evaluation.evaluator import DocumentEvaluator
         doc = _make_doc()
         evaluator = DocumentEvaluator()
         decision = evaluator.evaluate(doc)
-        assert decision.gate == "ACCEPT"
+        assert decision.gate == "REVIEW"
         assert decision.scores is not None
         assert decision.hard_stop is not None
         assert decision.hard_stop.passed is True

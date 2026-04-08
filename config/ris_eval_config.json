@@ -1,0 +1,39 @@
+{
+  "_comment": "RIS Phase 2 evaluation config. Env vars override these values. See SPEC-ris-phase2-operational-contracts.md.",
+  "scoring": {
+    "weights": {
+      "relevance": 0.30,
+      "novelty": 0.25,
+      "actionability": 0.25,
+      "credibility": 0.20
+    },
+    "floors": {
+      "relevance": 2,
+      "credibility": 2
+    },
+    "floor_waive_tiers": ["priority_1"]
+  },
+  "acceptance_gates": {
+    "priority_1": { "threshold": 2.5 },
+    "priority_2": { "threshold": 3.0 },
+    "priority_3": { "threshold": 3.2 },
+    "priority_4": { "threshold": 3.5 }
+  },
+  "budget": {
+    "_comment": "Budget caps placeholder -- implemented in a later Phase 2 plan.",
+    "daily_global_cap": 200,
+    "manual_reserve": 10,
+    "per_source": {
+      "academic": 50,
+      "reddit": 40,
+      "twitter": 30,
+      "blog": 30,
+      "youtube": 20,
+      "github": 20,
+      "manual": 10
+    }
+  },
+  "defaults": {
+    "default_priority_tier": "priority_3"
+  }
+}

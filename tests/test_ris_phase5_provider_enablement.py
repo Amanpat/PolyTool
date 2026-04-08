@@ -127,7 +127,8 @@ def test_eval_artifact_has_provider_event(tmp_path):
     )
 
     decision = evaluate_document(doc, provider_name="manual", artifacts_dir=tmp_path)
-    assert decision.gate == "ACCEPT"
+    # ManualProvider all-3s -> composite=3.0 < P3 threshold 3.2 -> REVIEW (Phase 2 behavior)
+    assert decision.gate == "REVIEW"
 
     arts = load_eval_artifacts(tmp_path)
     assert len(arts) == 1
@@ -137,7 +138,7 @@ def test_eval_artifact_has_provider_event(tmp_path):
     assert pe is not None, "provider_event should be set for scoring path"
     assert pe["provider_name"] == "manual"
     assert pe["model_id"] == "manual_placeholder"
-    assert pe["prompt_template_id"] == "scoring_v1"
+    assert pe["prompt_template_id"] == "scoring_v2"
     assert len(pe["output_hash"]) == 16
     assert len(pe["prompt_template_version"]) == 12
     assert pe["source_chunk_refs"] == ["test_pe_001"]
@@ -387,10 +388,10 @@ def test_cli_replay_no_args_fails(capsys):
 
 
 def test_scoring_prompt_template_id():
-    """SCORING_PROMPT_TEMPLATE_ID must equal 'scoring_v1'."""
+    """SCORING_PROMPT_TEMPLATE_ID must equal 'scoring_v2' (Phase 2: prompt rubric changed)."""
     from packages.research.evaluation.scoring import SCORING_PROMPT_TEMPLATE_ID
 
-    assert SCORING_PROMPT_TEMPLATE_ID == "scoring_v1"
+    assert SCORING_PROMPT_TEMPLATE_ID == "scoring_v2"
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +454,8 @@ def test_document_evaluator_records_provider_event(tmp_path):
     evaluator = DocumentEvaluator(provider=ManualProvider(), artifacts_dir=tmp_path)
     decision = evaluator.evaluate(doc)
 
-    assert decision.gate == "ACCEPT"
+    # ManualProvider all-3s -> composite=3.0 < P3 threshold 3.2 -> REVIEW (Phase 2 behavior)
+    assert decision.gate == "REVIEW"
 
     arts = load_eval_artifacts(tmp_path)
     assert len(arts) == 1
@@ -463,7 +465,7 @@ def test_document_evaluator_records_provider_event(tmp_path):
     pe = art.get("provider_event")
     assert pe is not None
     assert pe["provider_name"] == "manual"
-    assert pe["prompt_template_id"] == "scoring_v1"
+    assert pe["prompt_template_id"] == "scoring_v2"
     assert pe["output_hash"] is not None
 
     # event_id must be present
