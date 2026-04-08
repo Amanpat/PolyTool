@@ -127,6 +127,18 @@ def main(argv: list) -> int:
         help="Evaluation provider (default: manual).",
     )
     parser.add_argument(
+        "--priority-tier",
+        metavar="TIER",
+        dest="priority_tier",
+        default=None,
+        choices=["priority_1", "priority_2", "priority_3", "priority_4"],
+        help=(
+            "Priority tier for gate thresholds (default: config default, usually priority_3). "
+            "priority_1 applies lower threshold (trusted sources); "
+            "priority_4 applies higher threshold (low-trust sources)."
+        ),
+    )
+    parser.add_argument(
         "--extract-claims",
         dest="extract_claims",
         action="store_true",
@@ -274,7 +286,10 @@ def main(argv: list) -> int:
             from packages.research.evaluation.evaluator import DocumentEvaluator
             from packages.research.evaluation.providers import get_provider
             provider = get_provider(args.provider)
-            evaluator = DocumentEvaluator(provider=provider)
+            evaluator = DocumentEvaluator(
+                provider=provider,
+                priority_tier=getattr(args, "priority_tier", None),
+            )
 
         pipeline = IngestPipeline(store=store, evaluator=evaluator)
 

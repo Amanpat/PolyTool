@@ -8,6 +8,11 @@ Phase 3 additions (backward compatible):
 - Near-duplicate detection before LLM scoring (skipped if no existing_hashes provided)
 - Per-family feature extraction (always runs, stored in artifact)
 - Structured JSONL artifact persistence (skipped if no artifacts_dir provided)
+
+Phase 2 additions (backward compatible):
+- priority_tier parameter: sets priority tier on ScoringResult (default: config default)
+- Fail-closed scoring: any exception from provider.score() returns REJECT with
+  reject_reason="scorer_failure" instead of propagating the exception.
 """
 
 from __future__ import annotations
@@ -59,12 +64,15 @@ class DocumentEvaluator:
         artifacts_dir: Optional[Path] = None,
         existing_hashes: Optional[set] = None,
         existing_shingles: Optional[list] = None,
+        priority_tier: Optional[str] = None,
     ):
         from packages.research.evaluation.providers import ManualProvider
         self._provider = provider if provider is not None else ManualProvider()
         self._artifacts_dir = Path(artifacts_dir) if artifacts_dir is not None else None
         self._existing_hashes: set = existing_hashes if existing_hashes is not None else set()
         self._existing_shingles: list = existing_shingles if existing_shingles is not None else []
+        # priority_tier: None means use the config default (resolved at evaluation time)
+        self._priority_tier = priority_tier
 
     def evaluate(self, doc: EvalDocument) -> GateDecision:
         """Evaluate a document through the quality gate.
@@ -174,7 +182,36 @@ class DocumentEvaluator:
         features_result = extract_features(doc)
 
         # Step 4: score with provider (Phase 5: captures raw_output and prompt_hash)
-        scores, raw_output, prompt_hash = score_document_with_metadata(doc, self._provider)
+        # Phase 2: fail-closed — any exception from provider returns REJECT with scorer_failure
+        from packages.research.evaluation.config import get_eval_config
+        from packages.research.evaluation.scoring import _compute_composite
+        try:
+            scores, raw_output, prompt_hash = score_document_with_metadata(doc, self._provider)
+        except Exception:
+            composite = _compute_composite(1, 1, 1, 1)
+            from packages.research.evaluation.types import ScoringResult
+            scores = ScoringResult(
+                relevance=1, novelty=1, actionability=1, credibility=1,
+                total=4,
+                composite_score=composite,
+                priority_tier=self._priority_tier or get_eval_config().default_priority_tier,
+                reject_reason="scorer_failure",
+                epistemic_type="UNKNOWN",
+                summary="Provider exception — could not evaluate document.",
+                key_findings=[],
+                eval_model=self._provider.name,
+            )
+            raw_output = ""
+            prompt_hash = ""
+
+        # Set priority_tier on scores (Phase 2: default from config if not specified)
+        if self._priority_tier is not None:
+            scores = dataclasses.replace(scores, priority_tier=self._priority_tier)
+        elif scores.priority_tier == "priority_3":
+            # Apply config default in case it differs from hardcoded "priority_3"
+            cfg_default = get_eval_config().default_priority_tier
+            if cfg_default != "priority_3":
+                scores = dataclasses.replace(scores, priority_tier=cfg_default)
 
         # Step 5: persist artifact (Phase 5: includes ProviderEvent metadata)
         if self._artifacts_dir is not None:
@@ -188,6 +225,11 @@ class DocumentEvaluator:
                 "summary": scores.summary,
                 "key_findings": scores.key_findings,
                 "eval_model": scores.eval_model,
+                # Phase 2 fields
+                "composite_score": scores.composite_score,
+                "simple_sum_score": scores.simple_sum_score,
+                "priority_tier": scores.priority_tier,
+                "reject_reason": scores.reject_reason,
             }
             near_dup_dict = dataclasses.asdict(near_dup_result) if near_dup_result else None
 
@@ -235,6 +277,7 @@ def evaluate_document(
     doc: EvalDocument,
     provider_name: str = "manual",
     artifacts_dir: Optional[Path] = None,
+    priority_tier: Optional[str] = None,
     **kwargs,
 ) -> GateDecision:
     """Module-level convenience function for one-shot document evaluation.
@@ -246,11 +289,18 @@ def evaluate_document(
         doc: The document to evaluate.
         provider_name: Provider identifier (default: "manual").
         artifacts_dir: Optional path for artifact persistence.
+        priority_tier: Priority tier for gate thresholds (default: config default).
+            Use "priority_1" for trusted/high-signal documents (lower threshold).
+            Use "priority_4" for low-trust sources (higher threshold).
         **kwargs: Passed to get_provider() (e.g., model= for OllamaProvider).
 
     Returns:
         GateDecision with gate (ACCEPT|REVIEW|REJECT), scores, and metadata.
     """
     provider = get_provider(provider_name, **kwargs)
-    evaluator = DocumentEvaluator(provider=provider, artifacts_dir=artifacts_dir)
+    evaluator = DocumentEvaluator(
+        provider=provider,
+        artifacts_dir=artifacts_dir,
+        priority_tier=priority_tier,
+    )
     return evaluator.evaluate(doc)

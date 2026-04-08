@@ -90,6 +90,18 @@ def main(argv: list) -> int:
         help="Output raw JSON instead of human-readable text.",
     )
     parser.add_argument(
+        "--priority-tier",
+        metavar="TIER",
+        dest="priority_tier",
+        default=None,
+        choices=["priority_1", "priority_2", "priority_3", "priority_4"],
+        help=(
+            "Priority tier for gate thresholds (default: config default, usually priority_3). "
+            "priority_1 applies lower threshold (trusted sources); "
+            "priority_4 applies higher threshold (low-trust sources)."
+        ),
+    )
+    parser.add_argument(
         "--extract-claims",
         dest="extract_claims",
         action="store_true",
@@ -155,7 +167,10 @@ def main(argv: list) -> int:
             from packages.research.evaluation.evaluator import DocumentEvaluator
             from packages.research.evaluation.providers import get_provider
             provider = get_provider(args.provider)
-            evaluator = DocumentEvaluator(provider=provider)
+            evaluator = DocumentEvaluator(
+                provider=provider,
+                priority_tier=getattr(args, "priority_tier", None),
+            )
 
         pipeline = IngestPipeline(store=store, evaluator=evaluator)
 
@@ -244,6 +259,11 @@ def main(argv: list) -> int:
                 "novelty": s.novelty,
                 "actionability": s.actionability,
                 "credibility": s.credibility,
+                # Phase 2 fields
+                "composite_score": s.composite_score,
+                "simple_sum_score": s.simple_sum_score,
+                "priority_tier": s.priority_tier,
+                "reject_reason": s.reject_reason,
             }
         print(json.dumps(output, indent=2))
     else:

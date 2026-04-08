@@ -166,6 +166,15 @@ def _build_eval_parser(prog: str = "research-eval eval") -> argparse.ArgumentPar
             "When --json is also set, the output includes provider_event metadata."
         ),
     )
+    parser.add_argument(
+        "--priority-tier", metavar="TIER", dest="priority_tier", default=None,
+        choices=["priority_1", "priority_2", "priority_3", "priority_4"],
+        help=(
+            "Priority tier for gate thresholds (default: config default, usually priority_3). "
+            "priority_1 applies lower threshold (2.5) for trusted sources; "
+            "priority_4 applies higher threshold (3.5) for low-trust sources."
+        ),
+    )
     return parser
 
 
@@ -228,7 +237,12 @@ def _cmd_eval(argv: list) -> int:
 
         print(f"Using provider: {args.provider}", file=sys.stderr)
 
-        decision = evaluate_document(doc, provider_name=args.provider, artifacts_dir=artifacts_dir)
+        decision = evaluate_document(
+            doc,
+            provider_name=args.provider,
+            artifacts_dir=artifacts_dir,
+            priority_tier=getattr(args, "priority_tier", None),
+        )
 
         # Extract features for optional JSON output enrichment
         features_result = extract_features(doc) if args.output_json else None
@@ -258,6 +272,11 @@ def _cmd_eval(argv: list) -> int:
                 "summary": decision.scores.summary,
                 "key_findings": decision.scores.key_findings,
                 "eval_model": decision.scores.eval_model,
+                # Phase 2 fields
+                "composite_score": decision.scores.composite_score,
+                "simple_sum_score": decision.scores.simple_sum_score,
+                "priority_tier": decision.scores.priority_tier,
+                "reject_reason": decision.scores.reject_reason,
             }
         if decision.hard_stop and not decision.hard_stop.passed:
             output["hard_stop"] = {
