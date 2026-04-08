@@ -227,19 +227,30 @@ are assembled deterministically from claim metadata.
 python -m polytool research-health
 ```
 
-Returns a snapshot of 6 health check results. Sample output:
+Returns a snapshot of 7 health check results. Sample output:
 
 ```
-pipeline_failed: GREEN (no failures in last 48h)
-no_new_docs_48h: GREEN (3 new docs)
-accept_rate_low: GREEN (accept rate 85%)
-accept_rate_high: GREEN
-model_unavailable: GREEN [stub - deferred]
-rejection_audit_disagreement: GREEN [stub - deferred]
+CHECK                                    STATUS   MESSAGE
+--------------------------------------------------------------------
+pipeline_failed                          GREEN    No current pipeline failures detected.
+no_new_docs_48h                          GREEN    3 document(s) accepted in the monitored window.
+accept_rate_low                          GREEN    Accept rate is healthy: 85.0% (17/20).
+accept_rate_high                         GREEN    Accept rate is 85.0% (17/20) -- within expected bounds.
+model_unavailable                        GREEN    No provider failures detected.
+review_queue_backlog                     GREEN    Review queue manageable: 5 items pending.
+rejection_audit_disagreement             GREEN    [DEFERRED] Rejection audit check requires audit runner. Not yet wired.
+
+Overall: HEALTHY
 ```
 
-The last two checks (model_unavailable, rejection_audit_disagreement) are stubs that always
-return GREEN regardless of state. They are deferred to RIS v2.
+The overall status field distinguishes four states:
+- **HEALTHY** -- all checks GREEN, no issues.
+- **DEGRADED** -- at least one YELLOW, no RED (e.g. accept rate low, queue growing).
+- **BLOCKED_ON_SETUP** -- RED is caused by unconfigured providers (no API keys set).
+- **FAILURE** -- at least one RED from a real operational issue.
+
+`model_unavailable` is now a real check driven by provider failure data from eval artifacts.
+`rejection_audit_disagreement` remains deferred (requires audit runner).
 
 #### research-stats
 
@@ -394,8 +405,7 @@ The following features are documented in specs or the roadmap but are **not impl
 - **Multi-hop query planning** — Query planner is single-hop only.
 - **past_failures in precheck** — Field exists but is always empty; populated in v2.
 - **Auto-promotion from research to hypothesis** — Manual bridge calls required.
-- **model_unavailable health check** — Returns GREEN stub, does not actually detect Ollama outage.
-- **rejection_audit_disagreement health check** — Returns GREEN stub.
+- **rejection_audit_disagreement health check** — Returns GREEN stub (deferred until audit runner is implemented).
 
 ---
 
@@ -470,6 +480,15 @@ does not grant access to strategy, gate, risk, or live capital surfaces.
 
 ### Scheduler selection
 
+Current operator truth:
+
+- APScheduler remains the default scheduler.
+- n8n is an opt-in sidecar for the RIS pilot, not the default scheduler handoff.
+- Use `python infra/n8n/import_workflows.py` as the canonical import command.
+- Use `GET /webhook/ris-health` and `POST /webhook/ris-ingest` as the smoke path.
+- n8n Execute Command nodes run through `docker exec polytool-ris-scheduler python -m polytool ...`.
+- Only stop APScheduler if you intentionally enable n8n schedule triggers in the UI and want n8n to own recurring runs.
+
 The repo has two scheduling options for RIS background jobs. They are mutually exclusive:
 
 | Option | Mechanism | When active |
@@ -477,40 +496,38 @@ The repo has two scheduling options for RIS background jobs. They are mutually e
 | APScheduler | `ris-scheduler` container (no profile) | Default — always starts with `docker compose up` |
 | n8n | `n8n` container (profile: `ris-n8n`) | Opt-in — started with `--with-n8n` flag |
 
+Use `docker compose --profile ris-n8n up -d n8n` for the current startup path. Older
+`--with-n8n` wrapper references are historical.
+
 **Running both simultaneously causes double-scheduling** (each RIS job runs twice per
 period). This is an operator error. The system does not auto-prevent it.
 
-To use n8n as the scheduler:
-1. Stop APScheduler: `docker compose stop ris-scheduler`
-2. Start n8n: `bash scripts/docker-start.sh --with-n8n`
-3. Set `RIS_SCHEDULER_BACKEND=n8n` in `.env` to document the active choice (informational only).
+Use n8n alongside APScheduler for the normal operator path. Only if you deliberately
+enable n8n schedule triggers should you stop APScheduler first:
 
-To switch back to APScheduler:
 ```bash
-docker compose stop n8n
-docker compose up -d ris-scheduler
+docker compose stop ris-scheduler
 ```
-Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
 
-### Start / import / activate (step-by-step)
+### Start / import / smoke (step-by-step)
 
 1. Copy `.env.example` n8n section into `.env`. Set real values for:
+   - `N8N_API_KEY` (required by `python infra/n8n/import_workflows.py`)
    - `N8N_BASIC_AUTH_PASSWORD` (use a strong password)
    - `N8N_ENCRYPTION_KEY` (minimum 32 characters — used to encrypt stored credentials)
    - `N8N_MCP_BEARER_TOKEN` (compose-side env var read by n8n at startup; operative
      when instance-level MCP is enabled in n8n Settings UI; see MCP section below)
    Keep `N8N_BASIC_AUTH_USER=admin` or change to your preferred username.
 
-2. Stop APScheduler if switching to n8n:
+2. Start the default stack and leave APScheduler running:
    ```bash
-   docker compose stop ris-scheduler
+   docker compose up -d
    ```
 
 3. Start n8n:
    ```bash
-   bash scripts/docker-start.sh --with-n8n
+   docker compose --profile ris-n8n up -d n8n
    ```
-   The script prints a warning if double-scheduling is possible.
 
 4. Verify n8n is up:
    ```bash
@@ -518,37 +535,38 @@ Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
    # Expected: {"status":"ok"}
    ```
 
-5. Import the canonical RIS pilot workflow:
+5. Import the canonical RIS pilot workflow set:
    ```bash
-   bash infra/n8n/import-workflows.sh
+   python infra/n8n/import_workflows.py
    ```
-   The script uses `docker exec polytool-n8n n8n import:workflow --input=<file>` (no
-   curl or REST API required) and imports `workflows/n8n/ris-unified-dev.json`.
-   `infra/n8n/workflows/` is legacy/reference-only and is not the default import target.
-   Pass an alternative container name as the first positional arg if you renamed the
-   container.
+   This imports `workflows/n8n/ris-unified-dev.json` plus
+   `workflows/n8n/ris-health-webhook.json`, updates `workflows/n8n/workflow_ids.env`,
+   and activates both workflows. `infra/n8n/workflows/` is legacy/reference-only and is
+   not the default import target.
 
 6. Log in to http://localhost:5678 with your admin credentials.
 
-7. Review the imported `RIS -- Research Intelligence System` workflow. This is the
-   single unified canvas for the scoped RIS pilot.
+7. Review the imported `RIS -- Research Intelligence System` workflow and the
+   `RIS -- Health Webhook` support workflow.
 
-8. Activate the workflow only if you want n8n, not APScheduler, driving RIS schedules.
-
-9. For the scheduled sections inside that workflow, confirm the trigger intervals do not
-   overlap with any manual `research-scheduler` runs you have scheduled elsewhere.
+8. Leave schedule triggers disabled unless you explicitly want n8n to replace
+   APScheduler for recurring runs.
 
 ### Manual verification
 
 After import:
-- Open the `RIS -- Research Intelligence System` workflow in the n8n UI.
-- Use one of the section-level manual triggers (for example Academic, Reddit, or Blog/RSS).
-- In the Execute Command node output, confirm you see the expected CLI output for that
-  section.
-
-After activating the workflow:
-- Check the `Executions` tab after the first scheduled run.
-- Confirm exit code `0` in the Execute Command node output.
+- Smoke the dedicated health workflow:
+  ```bash
+  curl http://localhost:5678/webhook/ris-health
+  ```
+- Smoke the unified ingest webhook:
+  ```bash
+  curl -X POST "http://localhost:5678/webhook/ris-ingest" \
+    -H "Content-Type: application/json" \
+    -d '{"url":"https://arxiv.org/abs/2106.01345","source_family":"academic"}'
+  ```
+- If you inspect the UI, confirm Execute Command nodes use:
+  `docker exec polytool-ris-scheduler python -m polytool ...`
 
 If a section fails:
 - Open the failed execution and check the Execute Command node output.
@@ -568,15 +586,13 @@ The unified workflow includes a URL Ingestion section that accepts a POST reques
 trigger URL ingestion without CLI access:
 
 ```bash
-# After activating the workflow and copying the webhook URL from the n8n UI:
 curl -X POST "http://localhost:5678/webhook/ris-ingest" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://arxiv.org/abs/2106.01345", "source_family": "academic"}'
 ```
 
-**Security note:** The webhook URL contains an n8n-generated path token. Treat it as
-a secret. Do not share or commit it. If compromised, delete and recreate the workflow
-in n8n to generate a new token.
+**Operator note:** This local smoke path uses the fixed dev endpoint
+`http://localhost:5678/webhook/ris-ingest`. Keep n8n on the trusted local network only.
 
 ### Unified Workflow Sections
 
@@ -600,13 +616,13 @@ Historical multi-file JSONs in `workflows/n8n/*.json` and `infra/n8n/workflows/*
 are reference-only and are not imported by default.
 
 **Scheduler mutual exclusion:** When n8n scheduled sections are active, stop APScheduler
-first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both
-simultaneously causes each RIS job to run twice per period. See the scheduler selection
-table above for the full switching procedure.
+first (`docker compose stop ris-scheduler`) to avoid double-scheduling. The normal
+operator path leaves APScheduler running because the committed workflow keeps n8n
+schedule triggers disabled by default.
 
 **Repo truth note:** Earlier smoke tests imported the older 11-workflow pilot. The
 current canonical repo source is the unified single-canvas workflow above, and
-`bash infra/n8n/import-workflows.sh` now imports that single file by default.
+`python infra/n8n/import_workflows.py` now imports the canonical workflow set by default.
 
 ### Claude Code MCP connection
 

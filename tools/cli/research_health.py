@@ -70,10 +70,26 @@ def main(argv: list) -> int:
         print(f"Error loading run log: {exc}", file=sys.stderr)
         runs = []
 
+    # Collect Phase 2 metrics to drive real health checks
+    provider_failure_counts: dict = {}
+    review_queue: dict = {}
+    try:
+        from packages.research.metrics import collect_ris_metrics
+        snapshot = collect_ris_metrics()
+        provider_failure_counts = snapshot.provider_failure_counts
+        review_queue = snapshot.review_queue
+    except Exception:
+        pass  # Metrics collection failure is non-fatal; checks degrade gracefully
+
     # Evaluate health checks
     try:
         from packages.research.monitoring.health_checks import evaluate_health
-        results = evaluate_health(runs, window_hours=window_hours)
+        results = evaluate_health(
+            runs,
+            window_hours=window_hours,
+            provider_failure_counts=provider_failure_counts,
+            review_queue=review_queue,
+        )
     except Exception as exc:
         print(f"Error evaluating health: {exc}", file=sys.stderr)
         results = []
@@ -94,6 +110,48 @@ def main(argv: list) -> int:
         return _output_table(results, run_count, window_hours)
 
 
+def _determine_overall_category(results: list) -> str:
+    """Determine overall health category from check results.
+
+    Categories:
+        HEALTHY          -- all GREEN, no deferred checks with issues
+        DEGRADED         -- at least one YELLOW, no RED
+        BLOCKED_ON_SETUP -- RED checks that are setup-related (all provider failures
+                            are 'provider_unavailable', indicating unconfigured providers)
+        FAILURE          -- at least one RED from real operational issues
+    """
+    if not results:
+        return "HEALTHY"
+
+    red_results = [r for r in results if r.status == "RED"]
+    yellow_results = [r for r in results if r.status == "YELLOW"]
+
+    if not red_results and not yellow_results:
+        return "HEALTHY"
+
+    if not red_results:
+        return "DEGRADED"
+
+    # Check if RED is purely setup-related (providers not configured)
+    setup_related = True
+    for r in red_results:
+        if r.check_name == "model_unavailable":
+            # RED model_unavailable is setup-related if the failure pattern
+            # suggests unconfigured providers (provider_unavailable failures only)
+            pfc = r.data.get("provider_failure_counts", {})
+            non_setup_reasons = {k for k in pfc if k != "provider_unavailable"}
+            if non_setup_reasons:
+                setup_related = False
+        else:
+            # Any other RED check is a real operational failure
+            setup_related = False
+
+    if setup_related:
+        return "BLOCKED_ON_SETUP"
+
+    return "FAILURE"
+
+
 def _output_json(results: list, run_count: int) -> int:
     """Print JSON summary to stdout."""
     # Determine overall summary status
@@ -105,6 +163,8 @@ def _output_json(results: list, run_count: int) -> int:
         overall = "YELLOW"
     else:
         overall = "GREEN"
+
+    overall_category = _determine_overall_category(results) if run_count > 0 else "no_data"
 
     checks_data = [
         {
@@ -121,6 +181,7 @@ def _output_json(results: list, run_count: int) -> int:
     output = {
         "checks": checks_data,
         "summary": overall,
+        "overall_category": overall_category,
         "run_count": run_count,
         "deferred_checks": deferred_checks,
     }
@@ -143,6 +204,8 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
     else:
         overall = "GREEN"
 
+    overall_category = _determine_overall_category(results)
+
     print(f"RIS Health Summary ({window_hours}h window, {run_count} runs) — {overall}")
     print("")
     # Column widths
@@ -156,7 +219,13 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
         status_display = r.status
         print(f"{r.check_name:<{col_check}} {status_display:<{col_status}} {r.message}")
 
-    # Footer: note deferred checks so operator knows GREEN != verified healthy
+    print("")
+    print(f"Overall: {overall_category}")
+
+    if overall_category == "BLOCKED_ON_SETUP":
+        print("Configure provider API keys to resolve. See docs/RIS_OPERATOR_GUIDE.md")
+
+    # Footer: note remaining deferred checks
     deferred = [r.check_name for r in results if r.data.get("deferred")]
     if deferred:
         print("")
