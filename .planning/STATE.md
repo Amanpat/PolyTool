@@ -5,9 +5,10 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-07 - Completed quick task 260407-pbi: Created canonical RIS Phase 2 roadmap doc (docs/roadmaps/), patched CURRENT_STATE.md stale "never calls external LLM APIs" claim and unresolved authority conflict — both now reflect quick-260407-lpr decisions.
+Last activity: 2026-04-08 - Completed quick task 260408-i3a: Created docs/CODEBASE_AUDIT.md — 835-line read-only ground-truth inventory of all modules, CLI commands, databases, integrations, config/env, test coverage, and duplication.
 
 ## Recent Progress
+- quick-260408-i3a: Codebase ground-truth audit — created docs/CODEBASE_AUDIT.md (835 lines, 7 sections); enumerated 35+ core modules, 20 crypto_pairs modules, 8 SimTrader subpackages, 7 research subpackages, ~60 CLI commands, 23 ClickHouse tables, 6 WebSocket integrations, 7 REST integrations, 24 env vars; identified ClickHouse auth CLAUDE.md violations (4 files), pyproject.toml packaging gap (5 research subpackages), services/api/main.py zero test coverage, dual fee module duplication; commit b323e3f
 - quick-260407-pbi: RIS Phase 2 docs reconciliation — created docs/roadmaps/RIS_PHASE2_evaluation_gate_monitoring_rag_testing_v1_1.md (167 lines, 10 Director-approved contract items as checklist), patched CURRENT_STATE.md x2 (stale "never" claim replaced with narrow exception note; authority conflict marked RESOLVED with quick-260407-lpr); dev log written; commits cd03891 + 62fb363 + fdae24e
 - quick-260407-lpr: RIS documentation contract freeze v1.1 — PLAN_OF_RECORD LLM policy narrow exception (Tier 1 free APIs for RIS evaluation only), RIS_OVERVIEW bumped to v1.1 with Changelog + Posture Statement, RIS_03 updated with fail-closed rule + weighted composite gate + per-priority acceptance gates + canonical-ID dedup pre-step + review queue contract, RIS_06 updated with ingestion budget controls + n8n env-var-primary config + ClickHouse write idempotency; dev log written; commits 191c261 + 6774e2b + 448fb76
 - quick-260407-inu: RIS n8n workflow full rebuild — 9 workflows (7 standard subs + weekly digest + orchestrator + global error watcher), continueOnFail on all execute/HTTP nodes, IF exit code branches, Discord alerts on failure, settings.errorWorkflow catch-all; all tagged RIS, activated; workflow_ids.env updated; commits ecd3e45 + 3b04c6a
