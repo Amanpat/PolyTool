@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
@@ -66,12 +68,69 @@ def build_parser() -> argparse.ArgumentParser:
         default=50,
         help="Number of fused results to rerank in eval (default 50).",
     )
+    parser.add_argument(
+        "--suite-hash-only",
+        action="store_true",
+        help="Compute and print the SHA-256 hash of the suite file, then exit.",
+    )
     return parser
+
+
+def _print_mode_table(
+    modes: dict,
+    k: int,
+    header: str,
+    show_query_count: bool = True,
+) -> None:
+    """Print a formatted mode summary table to stdout."""
+    print(header)
+    if show_query_count:
+        print(f"{'Mode':<16} {'Queries':<9} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
+        print("-" * 90)
+    else:
+        print(f"{'Mode':<16} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
+        print("-" * 80)
+
+    for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
+        agg = modes.get(mode_name)
+        if agg is None:
+            continue
+        if show_query_count:
+            print(
+                f"{mode_name:<16} "
+                f"{agg.query_count:<9} "
+                f"{agg.mean_recall_at_k:<12.3f} "
+                f"{agg.mean_mrr_at_k:<10.3f} "
+                f"{agg.total_scope_violations:<12} "
+                f"{agg.mean_latency_ms:<10.1f} "
+                f"{agg.p50_latency_ms:<9.1f} "
+                f"{agg.p95_latency_ms:<9.1f}"
+            )
+        else:
+            print(
+                f"{mode_name:<16} "
+                f"{agg.mean_recall_at_k:<12.3f} "
+                f"{agg.mean_mrr_at_k:<10.3f} "
+                f"{agg.total_scope_violations:<12} "
+                f"{agg.mean_latency_ms:<10.1f} "
+                f"{agg.p50_latency_ms:<9.1f} "
+                f"{agg.p95_latency_ms:<9.1f}"
+            )
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # --suite-hash-only: compute and print corpus hash, then exit
+    if args.suite_hash_only:
+        suite_file = Path(args.suite)
+        if not suite_file.exists():
+            print(f"Error: Suite file not found: {suite_file}")
+            return 1
+        digest = hashlib.sha256(suite_file.read_bytes()).hexdigest()
+        print(digest)
+        return 0
 
     if args.k <= 0:
         print("Error: --k must be positive.")
@@ -133,30 +192,44 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"Error writing report: {exc}")
         return 1
 
-    # Console summary
+    # --- Overall mode summary ---
     print()
-    print(f"{'Mode':<15} {'Recall@' + str(args.k):<12} {'MRR@' + str(args.k):<10} {'Violations':<12} {'Latency (ms)':<14}")
-    print("-" * 63)
+    _print_mode_table(report.modes, args.k, "Overall Mode Summary:", show_query_count=True)
 
-    has_violations = False
-    for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
-        agg = report.modes.get(mode_name)
-        if agg is None:
-            continue
-        if agg.total_scope_violations > 0:
-            has_violations = True
-        print(
-            f"{mode_name:<15} "
-            f"{agg.mean_recall_at_k:<12.3f} "
-            f"{agg.mean_mrr_at_k:<10.3f} "
-            f"{agg.total_scope_violations:<12} "
-            f"{agg.mean_latency_ms:<14.1f}"
-        )
+    # --- Per-query-class breakdown ---
+    if report.per_class_modes:
+        print()
+        print("Per-Query-Class Breakdown:")
+        for query_class in sorted(report.per_class_modes.keys()):
+            class_modes = report.per_class_modes[query_class]
+            _print_mode_table(
+                class_modes,
+                args.k,
+                f"  Class: {query_class}",
+                show_query_count=True,
+            )
+            print()
 
     print()
-    print(f"Report: {json_path}")
+    print(f"Report:  {json_path}")
     print(f"Summary: {md_path}")
 
+    if report.corpus_hash:
+        print(f"Corpus Hash: {report.corpus_hash}")
+
+    # Print compact eval config summary
+    cfg = report.eval_config
+    if cfg:
+        print(
+            f"Config: k={cfg.get('k')} top_k_vector={cfg.get('top_k_vector')} "
+            f"top_k_lexical={cfg.get('top_k_lexical')} rrf_k={cfg.get('rrf_k')} "
+            f"embedder={cfg.get('embedder_model') or 'none'}"
+        )
+
+    has_violations = any(
+        agg.total_scope_violations > 0
+        for agg in report.modes.values()
+    )
     if has_violations:
         print("\nScope violations detected. See report for details.")
         return 2
