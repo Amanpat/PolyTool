@@ -7,10 +7,12 @@ scope-violation metrics.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
 import time
+from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,19 +39,21 @@ class EvalCase:
     must_exclude_any: list[str]
     notes: str = ""
     label: str = ""
+    query_class: str = "unclassified"
 
 
 @dataclass
 class CaseResult:
     query: str
     label: str
-    mode: str  # "vector" | "lexical" | "hybrid"
+    mode: str  # "vector" | "lexical" | "hybrid" | "hybrid+rerank"
     recall_at_k: float
     mrr_at_k: float
     scope_violations: list[dict]
     latency_ms: float
     result_count: int
     notes: str = ""
+    query_class: str = "unclassified"
 
 
 @dataclass
@@ -59,6 +63,9 @@ class ModeAggregate:
     total_scope_violations: int
     queries_with_violations: int
     mean_latency_ms: float
+    query_count: int = 0
+    p50_latency_ms: float = 0.0
+    p95_latency_ms: float = 0.0
     case_results: list[CaseResult] = field(default_factory=list)
 
 
@@ -68,6 +75,9 @@ class EvalReport:
     suite_path: str
     k: int
     modes: dict[str, ModeAggregate]
+    per_class_modes: dict[str, dict[str, ModeAggregate]] = field(default_factory=dict)
+    corpus_hash: str = ""
+    eval_config: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +108,7 @@ def load_suite(path: Path) -> list[EvalCase]:
             filters = obj.get("filters") or {}
             expect = obj.get("expect") or {}
             label = obj.get("label") or expect.get("label") or obj["query"]
+            query_class = obj.get("query_class", "unclassified")
 
             cases.append(
                 EvalCase(
@@ -107,6 +118,7 @@ def load_suite(path: Path) -> list[EvalCase]:
                     must_exclude_any=expect.get("must_exclude_any") or [],
                     notes=expect.get("notes", ""),
                     label=label,
+                    query_class=query_class,
                 )
             )
 
@@ -203,6 +215,50 @@ def _eval_single(
 
 
 # ---------------------------------------------------------------------------
+# Aggregation helper
+# ---------------------------------------------------------------------------
+
+
+def _build_aggregate(case_list: list[CaseResult]) -> ModeAggregate:
+    """Compute all ModeAggregate metrics from a list of CaseResults.
+
+    Handles the empty-list edge case by returning zero-valued aggregates.
+    """
+    n = len(case_list)
+    if n == 0:
+        return ModeAggregate(
+            mean_recall_at_k=0.0,
+            mean_mrr_at_k=0.0,
+            total_scope_violations=0,
+            queries_with_violations=0,
+            mean_latency_ms=0.0,
+            query_count=0,
+            p50_latency_ms=0.0,
+            p95_latency_ms=0.0,
+            case_results=[],
+        )
+
+    total_recall = sum(c.recall_at_k for c in case_list)
+    total_mrr = sum(c.mrr_at_k for c in case_list)
+    total_violations = sum(len(c.scope_violations) for c in case_list)
+    queries_with_viols = sum(1 for c in case_list if c.scope_violations)
+    latencies = [c.latency_ms for c in case_list]
+    total_latency = sum(latencies)
+
+    return ModeAggregate(
+        mean_recall_at_k=total_recall / n,
+        mean_mrr_at_k=total_mrr / n,
+        total_scope_violations=total_violations,
+        queries_with_violations=queries_with_viols,
+        mean_latency_ms=total_latency / n,
+        query_count=n,
+        p50_latency_ms=_percentile(latencies, 0.5),
+        p95_latency_ms=_percentile(latencies, 0.95),
+        case_results=case_list,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Full eval run
 # ---------------------------------------------------------------------------
 
@@ -231,8 +287,8 @@ def run_eval(
 ) -> EvalReport:
     """Run every case in *suite* across vector/lexical/hybrid modes.
 
-    Returns an :class:`EvalReport` with per-mode aggregates and per-case
-    detail.
+    Returns an :class:`EvalReport` with per-mode aggregates, per-class
+    aggregates, corpus hash, and eval config for reproducibility.
     """
     mode_results: dict[str, list[CaseResult]] = {m: [] for m, _ in _MODES}
 
@@ -263,6 +319,7 @@ def run_eval(
                         latency_ms=0.0,
                         result_count=0,
                         notes="skipped: no embedder",
+                        query_class=case.query_class,
                     )
                 )
                 continue
@@ -280,6 +337,7 @@ def run_eval(
                         latency_ms=0.0,
                         result_count=0,
                         notes="skipped: no reranker",
+                        query_class=case.query_class,
                     )
                 )
                 continue
@@ -317,6 +375,7 @@ def run_eval(
                         latency_ms=(time.perf_counter() - t0) * 1000,
                         result_count=0,
                         notes=error_note,
+                        query_class=case.query_class,
                     )
                 )
                 continue
@@ -335,44 +394,54 @@ def run_eval(
                     latency_ms=latency_ms,
                     result_count=len(results),
                     notes=case.notes,
+                    query_class=case.query_class,
                 )
             )
 
-    # --- Aggregate per mode ---
+    # --- Aggregate per mode (overall) ---
     modes: dict[str, ModeAggregate] = {}
     for mode_name, case_list in mode_results.items():
-        n = len(case_list)
-        if n == 0:
-            modes[mode_name] = ModeAggregate(
-                mean_recall_at_k=0.0,
-                mean_mrr_at_k=0.0,
-                total_scope_violations=0,
-                queries_with_violations=0,
-                mean_latency_ms=0.0,
-                case_results=[],
-            )
-            continue
+        modes[mode_name] = _build_aggregate(case_list)
 
-        total_recall = sum(c.recall_at_k for c in case_list)
-        total_mrr = sum(c.mrr_at_k for c in case_list)
-        total_violations = sum(len(c.scope_violations) for c in case_list)
-        queries_with_viols = sum(1 for c in case_list if c.scope_violations)
-        total_latency = sum(c.latency_ms for c in case_list)
+    # --- Aggregate per query class ---
+    # Structure: per_class_modes[query_class][mode_name] -> ModeAggregate
+    per_class_modes: dict[str, dict[str, ModeAggregate]] = {}
+    for mode_name, case_list in mode_results.items():
+        class_buckets: dict[str, list[CaseResult]] = defaultdict(list)
+        for cr in case_list:
+            class_buckets[cr.query_class].append(cr)
+        for qc, cr_list in class_buckets.items():
+            if qc not in per_class_modes:
+                per_class_modes[qc] = {}
+            per_class_modes[qc][mode_name] = _build_aggregate(cr_list)
 
-        modes[mode_name] = ModeAggregate(
-            mean_recall_at_k=total_recall / n,
-            mean_mrr_at_k=total_mrr / n,
-            total_scope_violations=total_violations,
-            queries_with_violations=queries_with_viols,
-            mean_latency_ms=total_latency / n,
-            case_results=case_list,
-        )
+    # --- Corpus hash ---
+    corpus_hash = ""
+    if suite_path:
+        suite_file = Path(suite_path)
+        if suite_file.exists():
+            corpus_hash = hashlib.sha256(suite_file.read_bytes()).hexdigest()
+
+    # --- Eval config ---
+    eval_config = {
+        "k": k,
+        "top_k_vector": top_k_vector,
+        "top_k_lexical": top_k_lexical,
+        "rrf_k": rrf_k,
+        "rerank_top_n": rerank_top_n,
+        "embedder_model": getattr(embedder, "model_name", None),
+        "reranker_model": getattr(reranker, "model_name", None),
+        "suite_path": suite_path,
+    }
 
     return EvalReport(
         timestamp=datetime.now(timezone.utc).isoformat(),
         suite_path=suite_path,
         k=k,
         modes=modes,
+        per_class_modes=per_class_modes,
+        corpus_hash=corpus_hash,
+        eval_config=eval_config,
     )
 
 
@@ -433,32 +502,64 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
         f"- **Timestamp**: {report.timestamp}",
         f"- **Suite**: {report.suite_path}",
         f"- **k**: {report.k}",
+        f"- **Corpus Hash**: `{report.corpus_hash}`" if report.corpus_hash else "",
         f"",
         f"## Per-mode Summary",
         f"",
-        f"| Mode | Recall@{report.k} | MRR@{report.k} | Scope Violations | Queries w/ Violations | Mean Latency (ms) | P50 Latency (ms) | P95 Latency (ms) |",
-        f"|------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 23}|{'-' * 20}|{'-' * 17}|{'-' * 17}|",
+        f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | Scope Violations | Queries w/ Violations | Mean Latency (ms) | P50 Latency (ms) | P95 Latency (ms) |",
+        f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 23}|{'-' * 20}|{'-' * 17}|{'-' * 17}|",
     ]
 
     for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
         agg = report.modes.get(mode_name)
         if agg is None:
             continue
-        latencies = [cr.latency_ms for cr in agg.case_results]
-        p50_latency = _percentile(latencies, 0.5)
-        p95_latency = _percentile(latencies, 0.95)
         lines.append(
             f"| {mode_name} "
+            f"| {agg.query_count} "
             f"| {agg.mean_recall_at_k:.3f} "
             f"| {agg.mean_mrr_at_k:.3f} "
             f"| {agg.total_scope_violations} "
             f"| {agg.queries_with_violations} "
             f"| {agg.mean_latency_ms:.1f} "
-            f"| {p50_latency:.1f} "
-            f"| {p95_latency:.1f} |"
+            f"| {agg.p50_latency_ms:.1f} "
+            f"| {agg.p95_latency_ms:.1f} |"
         )
 
     lines.append("")
+    lines.append("## Per-Query-Class Results")
+    lines.append("")
+
+    if report.per_class_modes:
+        for query_class in sorted(report.per_class_modes.keys()):
+            class_modes = report.per_class_modes[query_class]
+            lines.append(f"### Class: {query_class}")
+            lines.append("")
+            lines.append(
+                f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | Scope Violations | Mean Latency (ms) | P50 (ms) | P95 (ms) |"
+            )
+            lines.append(
+                f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 20}|{'-' * 10}|{'-' * 10}|"
+            )
+            for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
+                agg = class_modes.get(mode_name)
+                if agg is None:
+                    continue
+                lines.append(
+                    f"| {mode_name} "
+                    f"| {agg.query_count} "
+                    f"| {agg.mean_recall_at_k:.3f} "
+                    f"| {agg.mean_mrr_at_k:.3f} "
+                    f"| {agg.total_scope_violations} "
+                    f"| {agg.mean_latency_ms:.1f} "
+                    f"| {agg.p50_latency_ms:.1f} "
+                    f"| {agg.p95_latency_ms:.1f} |"
+                )
+            lines.append("")
+    else:
+        lines.append("_No query class annotations found in suite._")
+        lines.append("")
+
     lines.append("## Top Scope Violations")
     lines.append("")
     for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
@@ -484,12 +585,20 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
         lines.append("")
         for cr in agg.case_results:
             status = "PASS" if not cr.scope_violations else "VIOLATION"
-            lines.append(f"- **{cr.query}** [{status}] recall={cr.recall_at_k:.2f} mrr={cr.mrr_at_k:.2f} latency={cr.latency_ms:.0f}ms results={cr.result_count}")
+            lines.append(f"- **{cr.query}** [{status}] class={cr.query_class} recall={cr.recall_at_k:.2f} mrr={cr.mrr_at_k:.2f} latency={cr.latency_ms:.0f}ms results={cr.result_count}")
             if cr.scope_violations:
                 for v in cr.scope_violations:
                     lines.append(f"  - violation: pattern=`{v['pattern']}` file=`{v.get('file_path', '')}`")
             if cr.notes:
                 lines.append(f"  - note: {cr.notes}")
+        lines.append("")
+
+    if report.eval_config:
+        lines.append("## Eval Config")
+        lines.append("")
+        lines.append("```json")
+        lines.append(json.dumps(report.eval_config, indent=2, default=str))
+        lines.append("```")
         lines.append("")
 
     md_path.write_text("\n".join(lines), encoding="utf-8")

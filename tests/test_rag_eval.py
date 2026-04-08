@@ -16,7 +16,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages"))
 from polymarket.rag.chunker import chunk_text
 from polymarket.rag.embedder import BaseEmbedder
 from polymarket.rag.eval import (
+    CaseResult,
     EvalCase,
+    EvalReport,
+    ModeAggregate,
     _match_pattern,
     load_suite,
     run_eval,
@@ -590,6 +593,302 @@ class CLITests(unittest.TestCase):
 
         exit_code = rag_eval_main(["--suite", "/nonexistent/suite.jsonl"])
         self.assertEqual(exit_code, 1)
+
+
+# ---------------------------------------------------------------------------
+# Query class segmentation tests (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class QueryClassSegmentationTests(unittest.TestCase):
+    """Tests for per-query-class segmentation in eval harness (Phase 2)."""
+
+    def _build_multi_class_suite(self) -> list[EvalCase]:
+        """Return a suite with factual, analytical, and exploratory cases."""
+        return [
+            EvalCase(
+                query="What is the ClickHouse schema?",
+                filters={},
+                must_include_any=[],
+                must_exclude_any=[],
+                query_class="factual",
+            ),
+            EvalCase(
+                query="What fee model does PolyTool use?",
+                filters={},
+                must_include_any=[],
+                must_exclude_any=[],
+                query_class="factual",
+            ),
+            EvalCase(
+                query="How does market maker handle inventory risk?",
+                filters={},
+                must_include_any=[],
+                must_exclude_any=[],
+                query_class="analytical",
+            ),
+            EvalCase(
+                query="What strategies exist for prediction market profitability?",
+                filters={},
+                must_include_any=[],
+                must_exclude_any=[],
+                query_class="exploratory",
+            ),
+        ]
+
+    def _build_fake_report(self, suite: list[EvalCase]) -> EvalReport:
+        """Build a minimal EvalReport from a suite without a real index."""
+        import hashlib
+        case_results: list[CaseResult] = []
+        for case in suite:
+            case_results.append(
+                CaseResult(
+                    query=case.query,
+                    label=case.label or case.query,
+                    mode="lexical",
+                    recall_at_k=1.0,
+                    mrr_at_k=1.0,
+                    scope_violations=[],
+                    latency_ms=10.0,
+                    result_count=1,
+                    query_class=case.query_class,
+                )
+            )
+        agg = ModeAggregate(
+            mean_recall_at_k=1.0,
+            mean_mrr_at_k=1.0,
+            total_scope_violations=0,
+            queries_with_violations=0,
+            mean_latency_ms=10.0,
+            query_count=len(case_results),
+            p50_latency_ms=10.0,
+            p95_latency_ms=10.0,
+            case_results=case_results,
+        )
+        # Build per_class_modes
+        from collections import defaultdict
+        class_buckets: dict[str, list[CaseResult]] = defaultdict(list)
+        for cr in case_results:
+            class_buckets[cr.query_class].append(cr)
+        per_class_modes: dict[str, dict[str, ModeAggregate]] = {}
+        for qc, cr_list in class_buckets.items():
+            per_class_modes[qc] = {
+                "lexical": ModeAggregate(
+                    mean_recall_at_k=1.0,
+                    mean_mrr_at_k=1.0,
+                    total_scope_violations=0,
+                    queries_with_violations=0,
+                    mean_latency_ms=10.0,
+                    query_count=len(cr_list),
+                    p50_latency_ms=10.0,
+                    p95_latency_ms=10.0,
+                    case_results=cr_list,
+                )
+            }
+        return EvalReport(
+            timestamp="2026-04-08T00:00:00+00:00",
+            suite_path="test_suite.jsonl",
+            k=8,
+            modes={"lexical": agg},
+            per_class_modes=per_class_modes,
+            corpus_hash="a" * 64,
+            eval_config={
+                "k": 8,
+                "top_k_vector": 25,
+                "top_k_lexical": 25,
+                "rrf_k": 60,
+                "rerank_top_n": 50,
+                "embedder_model": None,
+                "reranker_model": None,
+                "suite_path": "test_suite.jsonl",
+            },
+        )
+
+    def test_eval_case_has_query_class_field(self) -> None:
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=[],
+            must_exclude_any=[],
+        )
+        self.assertEqual(case.query_class, "unclassified")
+
+    def test_eval_case_query_class_explicit(self) -> None:
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=[],
+            must_exclude_any=[],
+            query_class="factual",
+        )
+        self.assertEqual(case.query_class, "factual")
+
+    def test_case_result_has_query_class_field(self) -> None:
+        cr = CaseResult(
+            query="test",
+            label="test",
+            mode="lexical",
+            recall_at_k=1.0,
+            mrr_at_k=1.0,
+            scope_violations=[],
+            latency_ms=10.0,
+            result_count=1,
+        )
+        self.assertEqual(cr.query_class, "unclassified")
+
+    def test_mode_aggregate_has_query_count(self) -> None:
+        agg = ModeAggregate(
+            mean_recall_at_k=1.0,
+            mean_mrr_at_k=1.0,
+            total_scope_violations=0,
+            queries_with_violations=0,
+            mean_latency_ms=10.0,
+            query_count=5,
+            p50_latency_ms=10.0,
+            p95_latency_ms=10.0,
+        )
+        self.assertEqual(agg.query_count, 5)
+        self.assertGreaterEqual(agg.p50_latency_ms, 0)
+        self.assertGreaterEqual(agg.p95_latency_ms, 0)
+
+    def test_eval_report_has_per_class_modes(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        self.assertIn("per_class_modes", report.__dataclass_fields__)
+        self.assertIn("factual", report.per_class_modes)
+        self.assertIn("analytical", report.per_class_modes)
+        self.assertIn("exploratory", report.per_class_modes)
+
+    def test_eval_report_has_corpus_hash(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        self.assertEqual(len(report.corpus_hash), 64)
+
+    def test_eval_report_has_eval_config(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        self.assertIn("k", report.eval_config)
+        self.assertIn("top_k_vector", report.eval_config)
+        self.assertIn("suite_path", report.eval_config)
+
+    def test_per_class_query_counts(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        # factual has 2 cases
+        self.assertEqual(report.per_class_modes["factual"]["lexical"].query_count, 2)
+        # analytical has 1 case
+        self.assertEqual(report.per_class_modes["analytical"]["lexical"].query_count, 1)
+        # exploratory has 1 case
+        self.assertEqual(report.per_class_modes["exploratory"]["lexical"].query_count, 1)
+
+    def test_write_report_per_class_in_json(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            json_path, md_path = write_report(report, tmpdir / "reports")
+            with open(json_path, encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertIn("per_class_modes", data)
+            self.assertIn("corpus_hash", data)
+            self.assertIn("eval_config", data)
+            self.assertIn("factual", data["per_class_modes"])
+
+    def test_write_report_per_class_in_markdown(self) -> None:
+        suite = self._build_multi_class_suite()
+        report = self._build_fake_report(suite)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            json_path, md_path = write_report(report, tmpdir / "reports")
+            md_text = md_path.read_text(encoding="utf-8")
+            self.assertIn("Per-Query-Class", md_text)
+
+    def test_run_eval_per_class_modes_populated(self) -> None:
+        """Integration test: run_eval populates per_class_modes correctly."""
+        helper = _EvalIndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            lex_db = tmpdir / "kb" / "rag" / "lexical" / "lexical.sqlite3"
+
+            try:
+                suite = [
+                    EvalCase(
+                        query="xylophone",
+                        filters={},
+                        must_include_any=[],
+                        must_exclude_any=[],
+                        query_class="factual",
+                    ),
+                    EvalCase(
+                        query="risk analysis",
+                        filters={},
+                        must_include_any=[],
+                        must_exclude_any=[],
+                        query_class="analytical",
+                    ),
+                ]
+
+                report = run_eval(
+                    suite,
+                    k=8,
+                    embedder=helper.embedder,
+                    persist_directory=index_dir,
+                    collection_name=coll,
+                    lexical_db_path=lex_db,
+                    suite_path="test_suite",
+                )
+
+                self.assertIn("factual", report.per_class_modes)
+                self.assertIn("analytical", report.per_class_modes)
+                self.assertIn("lexical", report.per_class_modes["factual"])
+                self.assertEqual(
+                    report.per_class_modes["factual"]["lexical"].query_count, 1
+                )
+
+            finally:
+                helper.cleanup()
+
+
+class LoadSuiteQueryClassTests(unittest.TestCase):
+    """Tests for query_class parsing in load_suite."""
+
+    def test_load_suite_with_query_class(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(json.dumps({
+                "query": "test",
+                "query_class": "factual",
+                "expect": {"must_include_any": ["file.md"]},
+            }) + "\n")
+            f.flush()
+            path = f.name
+
+        try:
+            cases = load_suite(Path(path))
+            self.assertEqual(len(cases), 1)
+            self.assertEqual(cases[0].query_class, "factual")
+        finally:
+            os.unlink(path)
+
+    def test_load_suite_without_query_class_defaults(self) -> None:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(json.dumps({
+                "query": "test",
+                "expect": {},
+            }) + "\n")
+            f.flush()
+            path = f.name
+
+        try:
+            cases = load_suite(Path(path))
+            self.assertEqual(len(cases), 1)
+            self.assertEqual(cases[0].query_class, "unclassified")
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":
