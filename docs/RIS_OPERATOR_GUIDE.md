@@ -1,6 +1,6 @@
 # RIS Operator Guide
 
-Last verified: 2026-04-06
+Last verified: 2026-04-08
 Applies to: RIS v1
 
 This guide covers **what works today**. Every feature that is not yet implemented is
@@ -518,35 +518,39 @@ Then set `RIS_SCHEDULER_BACKEND=apscheduler` in `.env`.
    # Expected: {"status":"ok"}
    ```
 
-5. Import workflow templates:
+5. Import the canonical RIS pilot workflow:
    ```bash
    bash infra/n8n/import-workflows.sh
    ```
    The script uses `docker exec polytool-n8n n8n import:workflow --input=<file>` (no
-   curl or REST API required). Pass an alternative container name as the first positional
-   arg if you renamed the container.
+   curl or REST API required) and imports `workflows/n8n/ris-unified-dev.json`.
+   `infra/n8n/workflows/` is legacy/reference-only and is not the default import target.
+   Pass an alternative container name as the first positional arg if you renamed the
+   container.
 
 6. Log in to http://localhost:5678 with your admin credentials.
 
-7. Review each imported workflow. All workflows import with `"active": false`.
-   Activate only the workflows you want running by toggling the Active switch in the UI.
+7. Review the imported `RIS -- Research Intelligence System` workflow. This is the
+   single unified canvas for the scoped RIS pilot.
 
-8. For cron-triggered workflows: confirm the trigger interval does not overlap with any
-   manual `research-scheduler` runs you have scheduled elsewhere.
+8. Activate the workflow only if you want n8n, not APScheduler, driving RIS schedules.
+
+9. For the scheduled sections inside that workflow, confirm the trigger intervals do not
+   overlap with any manual `research-scheduler` runs you have scheduled elsewhere.
 
 ### Manual verification
 
 After import:
-- Open the `RIS Health Check` workflow in the n8n UI.
-- Click `Execute workflow` (manual trigger button).
-- In the Execute Command node output, confirm you see `research-health` CLI output with
-  health check results (`pipeline_failed`, `no_new_docs_48h`, etc.).
+- Open the `RIS -- Research Intelligence System` workflow in the n8n UI.
+- Use one of the section-level manual triggers (for example Academic, Reddit, or Blog/RSS).
+- In the Execute Command node output, confirm you see the expected CLI output for that
+  section.
 
-After activating a cron trigger:
+After activating the workflow:
 - Check the `Executions` tab after the first scheduled run.
 - Confirm exit code `0` in the Execute Command node output.
 
-If a workflow fails:
+If a section fails:
 - Open the failed execution and check the Execute Command node output.
 - Common causes:
   - `python` not found: this is expected if the command runs directly in the n8n
@@ -558,14 +562,14 @@ If a workflow fails:
   - `--source-family` invalid (manual acquire): must be one of `academic`, `github`,
     `blog`, `news`, `book`, `reddit`, `youtube`.
 
-### Webhook usage (ris_manual_acquire)
+### Webhook usage (URL Ingestion section)
 
-The `RIS Manual Acquire (Webhook)` workflow accepts a POST request to trigger URL
-ingestion without CLI access:
+The unified workflow includes a URL Ingestion section that accepts a POST request to
+trigger URL ingestion without CLI access:
 
 ```bash
 # After activating the workflow and copying the webhook URL from the n8n UI:
-curl -X POST "http://localhost:5678/webhook/ris-acquire" \
+curl -X POST "http://localhost:5678/webhook/ris-ingest" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://arxiv.org/abs/2106.01345", "source_family": "academic"}'
 ```
@@ -574,27 +578,35 @@ curl -X POST "http://localhost:5678/webhook/ris-acquire" \
 a secret. Do not share or commit it. If compromised, delete and recreate the workflow
 in n8n to generate a new token.
 
-### Scheduled Job Workflows
+### Unified Workflow Sections
 
-Eight workflow templates cover every job in the JOB_REGISTRY. All use `research-scheduler run-job <id>` so n8n and APScheduler call the same job logic.
+The canonical file `workflows/n8n/ris-unified-dev.json` contains one unified workflow
+with 9 sections on one canvas. The scheduled/manual sections still call the same RIS
+CLI surfaces as APScheduler.
 
-| Job ID | n8n Workflow File | CLI Command | Cron Schedule | Caveats |
-|--------|------------------|-------------|---------------|---------|
-| academic_ingest | ris_academic_ingest.json | `research-scheduler run-job academic_ingest` | every 12h | ArXiv only |
-| reddit_polymarket | ris_reddit_polymarket.json | `research-scheduler run-job reddit_polymarket` | every 6h | Requires praw + Reddit API creds |
-| reddit_others | ris_reddit_others.json | `research-scheduler run-job reddit_others` | daily 03:00 | Requires praw + Reddit API creds |
-| blog_ingest | ris_blog_ingest.json | `research-scheduler run-job blog_ingest` | every 4h | None |
-| youtube_ingest | ris_youtube_ingest.json | `research-scheduler run-job youtube_ingest` | Mondays 04:00 | Requires yt-dlp |
-| github_ingest | ris_github_ingest.json | `research-scheduler run-job github_ingest` | Wednesdays 04:00 | Optional: GITHUB_TOKEN for rate limits |
-| freshness_refresh | ris_freshness_refresh.json | `research-scheduler run-job freshness_refresh` | Sundays 02:00 | Re-scans ArXiv only |
-| weekly_digest | ris_weekly_digest.json | `research-scheduler run-job weekly_digest` | Sundays 08:00 | Internally calls research-report digest --window 7 |
+| Section | Trigger | CLI command | Schedule / Notes |
+|--------|---------|-------------|------------------|
+| Health Monitor | Schedule | `research-health` + `research-stats summary` | Every 30 min |
+| Academic | Manual + Schedule | `research-scheduler run-job academic_ingest` | every 12h |
+| Reddit | Manual + Schedule | `research-scheduler run-job reddit_polymarket` | every 6h |
+| Blog/RSS | Manual + Schedule | `research-scheduler run-job blog_ingest` | every 4h |
+| YouTube | Manual + Schedule | `research-scheduler run-job youtube_ingest` | Mondays 04:00 UTC |
+| GitHub | Manual + Schedule | `research-scheduler run-job github_ingest` | Wednesdays 04:00 UTC |
+| Freshness | Manual + Schedule | `research-scheduler run-job freshness_refresh` | Sundays 02:00 UTC |
+| Weekly Digest | Manual + Schedule | `research-report digest --window 7` + `research-stats summary` | Sundays 08:00 UTC |
+| URL Ingestion | Webhook | `research-acquire --url ... --source-family ...` | POST `/webhook/ris-ingest` |
 
-**Scheduler mutual exclusion:** When n8n cron workflows are active, stop APScheduler first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both simultaneously causes each RIS job to run twice per period. See the scheduler selection table above for the full switching procedure.
+Historical multi-file JSONs in `workflows/n8n/*.json` and `infra/n8n/workflows/*.json`
+are reference-only and are not imported by default.
 
-**Runtime verification note:** These workflows ARE runtime-verified. Smoke test results
-from quick-260406-ido (2026-04-06, n8n 2.14.2): build OK, docker-cli v29.3.1 confirmed
-inside n8n container, exec bridge to `polytool-ris-scheduler` verified, 11/11 workflows
-imported successfully via `bash infra/n8n/import-workflows.sh`.
+**Scheduler mutual exclusion:** When n8n scheduled sections are active, stop APScheduler
+first (`docker compose stop ris-scheduler`) to avoid double-scheduling. Running both
+simultaneously causes each RIS job to run twice per period. See the scheduler selection
+table above for the full switching procedure.
+
+**Repo truth note:** Earlier smoke tests imported the older 11-workflow pilot. The
+current canonical repo source is the unified single-canvas workflow above, and
+`bash infra/n8n/import-workflows.sh` now imports that single file by default.
 
 ### Claude Code MCP connection
 

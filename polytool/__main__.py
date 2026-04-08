@@ -89,6 +89,7 @@ research_report_main = _command_entrypoint("tools.cli.research_report")
 research_scheduler_main = _command_entrypoint("tools.cli.research_scheduler")
 research_stats_main = _command_entrypoint("tools.cli.research_stats")
 research_health_main = _command_entrypoint("tools.cli.research_health")
+research_review_main = _command_entrypoint("tools.cli.research_review")
 research_dossier_extract_main = _command_entrypoint("tools.cli.research_dossier_extract")
 research_bridge_main = _command_entrypoint("tools.cli.research_bridge")
 
@@ -152,6 +153,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-scheduler": "research_scheduler_main",
     "research-stats": "research_stats_main",
     "research-health": "research_health_main",
+    "research-review": "research_review_main",
     "research-dossier-extract": "research_dossier_extract_main",
     "research-register-hypothesis": "research_bridge_main",
     "research-record-outcome": "research_bridge_main",
@@ -218,6 +220,7 @@ def print_usage() -> None:
     print("  research-scheduler        Manage the RIS background ingestion scheduler")
     print("  research-stats            Operator metrics snapshot and local-first export for RIS pipeline")
     print("  research-health           Print RIS health status summary from stored run data")
+    print("  research-review           Inspect and resolve RIS review-queue items")
     print("  research-dossier-extract  Parse dossier artifacts -> KnowledgeStore (source_family=dossier_report)")
     print("  research-register-hypothesis  Register a research hypothesis candidate in the JSONL registry")
     print("  research-record-outcome       Record a validation outcome for KnowledgeStore claims")

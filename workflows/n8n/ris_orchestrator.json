@@ -6,7 +6,10 @@
       "name": "Section 1: Health Monitor",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [80, 60],
+      "position": [
+        80,
+        60
+      ],
       "parameters": {
         "content": "## Section 1: Health Monitor\n**Schedule:** Every 30 minutes\n**Flow:** Schedule -> research-health [continueOnFail] -> research-stats [continueOnFail] -> Parse output -> IF hasAlert -> Discord alert",
         "height": 140,
@@ -18,7 +21,10 @@
       "name": "Every 30 Minutes",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [240, 240],
+      "position": [
+        240,
+        240
+      ],
       "parameters": {
         "rule": {
           "interval": [
@@ -35,7 +41,10 @@
       "name": "Run research-health",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 240],
+      "position": [
+        500,
+        240
+      ],
       "parameters": {
         "command": "docker exec polytool-ris-scheduler python -m polytool research-health"
       },
@@ -46,7 +55,10 @@
       "name": "Run research-stats",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [760, 240],
+      "position": [
+        760,
+        240
+      ],
       "parameters": {
         "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary"
       },
@@ -57,7 +69,10 @@
       "name": "Parse Health Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1020, 240],
+      "position": [
+        1020,
+        240
+      ],
       "parameters": {
         "jsCode": "const healthOut = $('Run research-health').first().json.stdout || '';\nconst statsOut = $('Run research-stats').first().json.stdout || '';\nconst healthExit = $('Run research-health').first().json.exitCode;\nconst statsExit = $('Run research-stats').first().json.exitCode;\nconst hasAlert = healthOut.includes('RED') || healthOut.includes('CRITICAL') || healthOut.includes('FAIL') || healthOut.includes('pipeline_failed') || healthOut.includes('ERROR') || healthExit !== 0 || statsExit !== 0;\nreturn [{ json: { hasAlert, healthOutput: healthOut.substring(0, 1200), statsOutput: statsOut.substring(0, 800), healthExit, statsExit } }];"
       }
@@ -67,7 +82,10 @@
       "name": "IF Health Alert",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1280, 240],
+      "position": [
+        1280,
+        240
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -95,7 +113,10 @@
       "name": "Format Health Alert",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, 140],
+      "position": [
+        1540,
+        140
+      ],
       "parameters": {
         "jsCode": "const d = $('Parse Health Output').first().json;\nconst content = `**RIS Health Alert**\\n\\nHealth exit: ${d.healthExit} | Stats exit: ${d.statsExit}\\n\\n**Health Output:**\\n\\`\\`\\`\\n${d.healthOutput}\\n\\`\\`\\`\\n\\n**Stats:**\\n\\`\\`\\`\\n${d.statsOutput}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
       }
@@ -105,7 +126,10 @@
       "name": "Discord Health Alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1800, 140],
+      "position": [
+        1800,
+        140
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
@@ -120,7 +144,10 @@
       "name": "Health OK",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [1540, 340],
+      "position": [
+        1540,
+        340
+      ],
       "parameters": {}
     },
     {
@@ -128,7 +155,10 @@
       "name": "Section 2: Manual Pipeline Trigger",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [80, 520],
+      "position": [
+        80,
+        520
+      ],
       "parameters": {
         "content": "## Section 2: Manual Pipeline Trigger\n**Endpoint:** POST /webhook/ris-trigger\n**Body:** `{\"pipeline\": \"academic|reddit|blog|youtube|github|digest|freshness\"}`\n**Flow:** Webhook -> Switch -> Execute sub-workflow -> Respond 200\nFallback: Respond 400 unknown pipeline",
         "height": 160,
@@ -140,7 +170,10 @@
       "name": "RIS Trigger Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 740],
+      "position": [
+        240,
+        740
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "ris-trigger",
@@ -154,20 +187,44 @@
       "name": "Switch Pipeline",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 2,
-      "position": [500, 740],
+      "position": [
+        500,
+        740
+      ],
       "parameters": {
         "mode": "rules",
         "dataType": "string",
         "value1": "={{ $json.body.pipeline }}",
         "rules": {
           "rules": [
-            {"value2": "academic", "outputKey": "academic"},
-            {"value2": "reddit", "outputKey": "reddit"},
-            {"value2": "blog", "outputKey": "blog"},
-            {"value2": "youtube", "outputKey": "youtube"},
-            {"value2": "github", "outputKey": "github"},
-            {"value2": "digest", "outputKey": "digest"},
-            {"value2": "freshness", "outputKey": "freshness"}
+            {
+              "value2": "academic",
+              "outputKey": "academic"
+            },
+            {
+              "value2": "reddit",
+              "outputKey": "reddit"
+            },
+            {
+              "value2": "blog",
+              "outputKey": "blog"
+            },
+            {
+              "value2": "youtube",
+              "outputKey": "youtube"
+            },
+            {
+              "value2": "github",
+              "outputKey": "github"
+            },
+            {
+              "value2": "digest",
+              "outputKey": "digest"
+            },
+            {
+              "value2": "freshness",
+              "outputKey": "freshness"
+            }
           ]
         },
         "fallbackOutput": -1
@@ -178,9 +235,16 @@
       "name": "Exec Academic",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 540],
+      "position": [
+        760,
+        540
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_ACADEMIC", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "yDBfhk9tJQlAWJbz",
+          "mode": "id"
+        }
       }
     },
     {
@@ -188,9 +252,16 @@
       "name": "Exec Reddit",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 620],
+      "position": [
+        760,
+        620
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_REDDIT", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "34EhYveCbJie5hub",
+          "mode": "id"
+        }
       }
     },
     {
@@ -198,9 +269,16 @@
       "name": "Exec Blog",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 700],
+      "position": [
+        760,
+        700
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_BLOG", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "fi2iglrNXcK9qXEg",
+          "mode": "id"
+        }
       }
     },
     {
@@ -208,9 +286,16 @@
       "name": "Exec YouTube",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 780],
+      "position": [
+        760,
+        780
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_YOUTUBE", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "rHdYkf3Q6EgUC6KQ",
+          "mode": "id"
+        }
       }
     },
     {
@@ -218,9 +303,16 @@
       "name": "Exec GitHub",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 860],
+      "position": [
+        760,
+        860
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_GITHUB", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "3rk0GiZM6GHJWq4z",
+          "mode": "id"
+        }
       }
     },
     {
@@ -228,9 +320,16 @@
       "name": "Exec Digest",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 940],
+      "position": [
+        760,
+        940
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_DIGEST", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "5wGKoPm7eJ3K2eIE",
+          "mode": "id"
+        }
       }
     },
     {
@@ -238,9 +337,16 @@
       "name": "Exec Freshness",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
-      "position": [760, 1020],
+      "position": [
+        760,
+        1020
+      ],
       "parameters": {
-        "workflowId": {"__rl": true, "value": "PLACEHOLDER_FRESHNESS", "mode": "id"}
+        "workflowId": {
+          "__rl": true,
+          "value": "vAiyicAFlnfq2RDh",
+          "mode": "id"
+        }
       }
     },
     {
@@ -248,7 +354,10 @@
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1020, 780],
+      "position": [
+        1020,
+        780
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({ pipeline: $('RIS Trigger Webhook').first().json.body.pipeline, status: 'triggered', triggered_at: new Date().toISOString() }) }}"
@@ -259,7 +368,10 @@
       "name": "Respond Unknown Pipeline",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [760, 1120],
+      "position": [
+        760,
+        1120
+      ],
       "parameters": {
         "respondWith": "json",
         "responseCode": 400,
@@ -271,7 +383,10 @@
       "name": "Section 3: URL Ingest",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [80, 1240],
+      "position": [
+        80,
+        1240
+      ],
       "parameters": {
         "content": "## Section 3: URL Ingest\n**Endpoint:** POST /webhook/ris-ingest\n**Body:** `{\"url\": \"...\", \"source_family\": \"academic|github|blog|news|book|reddit|youtube\"}`\n**Flow:** Webhook -> research-acquire [continueOnFail] -> IF exit 0 -> Respond 200 / Format error -> Discord alert -> Respond 500",
         "height": 160,
@@ -283,7 +398,10 @@
       "name": "RIS Ingest Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 1460],
+      "position": [
+        240,
+        1460
+      ],
       "parameters": {
         "httpMethod": "POST",
         "path": "ris-ingest",
@@ -297,7 +415,10 @@
       "name": "Run research-acquire",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
-      "position": [500, 1460],
+      "position": [
+        500,
+        1460
+      ],
       "parameters": {
         "command": "=docker exec polytool-ris-scheduler python -m polytool research-acquire --url \"{{ $json.body.url }}\" --source-family \"{{ $json.body.source_family }}\" --no-eval"
       },
@@ -308,7 +429,10 @@
       "name": "IF Ingest OK",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [760, 1460],
+      "position": [
+        760,
+        1460
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -336,7 +460,10 @@
       "name": "Respond Ingest OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1020, 1360],
+      "position": [
+        1020,
+        1360
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ JSON.stringify({ status: 'ingested', url: $('RIS Ingest Webhook').first().json.body.url, source_family: $('RIS Ingest Webhook').first().json.body.source_family, stdout: $('Run research-acquire').first().json.stdout }) }}"
@@ -347,7 +474,10 @@
       "name": "Format Ingest Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1020, 1560],
+      "position": [
+        1020,
+        1560
+      ],
       "parameters": {
         "jsCode": "const execNode = $('Run research-acquire').first().json;\nconst ingestNode = $('RIS Ingest Webhook').first().json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst exitCode = execNode.exitCode;\nconst url = ingestNode.body.url || '(no url)';\nconst content = `**RIS Ingest Error**\\n\\nURL: ${url}\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\``;\nreturn [{ json: { content, exitCode, stderr } }];"
       }
@@ -357,7 +487,10 @@
       "name": "Discord Ingest Alert",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1280, 1560],
+      "position": [
+        1280,
+        1560
+      ],
       "parameters": {
         "method": "POST",
         "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
@@ -372,7 +505,10 @@
       "name": "Respond Ingest Error",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1540, 1560],
+      "position": [
+        1540,
+        1560
+      ],
       "parameters": {
         "respondWith": "json",
         "responseCode": 500,
@@ -382,79 +518,287 @@
   ],
   "connections": {
     "Every 30 Minutes": {
-      "main": [[{"node": "Run research-health", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Run research-health": {
-      "main": [[{"node": "Run research-stats", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Run research-stats": {
-      "main": [[{"node": "Parse Health Output", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Parse Health Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Parse Health Output": {
-      "main": [[{"node": "IF Health Alert", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "IF Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF Health Alert": {
       "main": [
-        [{"node": "Format Health Alert", "type": "main", "index": 0}],
-        [{"node": "Health OK", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Format Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Format Health Alert": {
-      "main": [[{"node": "Discord Health Alert", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Discord Health Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "RIS Trigger Webhook": {
-      "main": [[{"node": "Switch Pipeline", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Switch Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Switch Pipeline": {
       "main": [
-        [{"node": "Exec Academic", "type": "main", "index": 0}],
-        [{"node": "Exec Reddit", "type": "main", "index": 0}],
-        [{"node": "Exec Blog", "type": "main", "index": 0}],
-        [{"node": "Exec YouTube", "type": "main", "index": 0}],
-        [{"node": "Exec GitHub", "type": "main", "index": 0}],
-        [{"node": "Exec Digest", "type": "main", "index": 0}],
-        [{"node": "Exec Freshness", "type": "main", "index": 0}],
-        [{"node": "Respond Unknown Pipeline", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Exec Academic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Blog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exec Freshness",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Unknown Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Exec Academic": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec Reddit": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec Blog": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec YouTube": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec GitHub": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec Digest": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Exec Freshness": {
-      "main": [[{"node": "Respond OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "RIS Ingest Webhook": {
-      "main": [[{"node": "Run research-acquire", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Run research-acquire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Run research-acquire": {
-      "main": [[{"node": "IF Ingest OK", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "IF Ingest OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF Ingest OK": {
       "main": [
-        [{"node": "Respond Ingest OK", "type": "main", "index": 0}],
-        [{"node": "Format Ingest Error", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Respond Ingest OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Ingest Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Format Ingest Error": {
-      "main": [[{"node": "Discord Ingest Alert", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Discord Ingest Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Discord Ingest Alert": {
-      "main": [[{"node": "Respond Ingest Error", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond Ingest Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {

@@ -81,21 +81,23 @@ def _claim(**overrides) -> dict:
 
 class TestSchemaCreation:
     def test_all_four_tables_exist(self, ks: KnowledgeStore) -> None:
-        """KnowledgeStore creates 4 required tables."""
+        """KnowledgeStore creates the core claims tables plus review-queue tables."""
         tables = ks._list_tables()
         assert "source_documents" in tables
         assert "derived_claims" in tables
         assert "claim_evidence" in tables
         assert "claim_relations" in tables
+        assert "pending_review" in tables
+        assert "pending_review_history" in tables
 
     def test_in_memory_accepts_colon_memory_string(self) -> None:
         """KnowledgeStore accepts ':memory:' as db_path."""
         store = KnowledgeStore(":memory:")
         tables = store._list_tables()
         # sqlite_sequence is an internal SQLite table created alongside
-        # AUTOINCREMENT columns -- it is not one of our 4 app tables.
+        # AUTOINCREMENT columns -- it is not one of our 6 app tables.
         app_tables = {t for t in tables if not t.startswith("sqlite_")}
-        assert len(app_tables) == 4
+        assert len(app_tables) == 6
 
 
 # ===========================================================================

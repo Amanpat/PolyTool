@@ -2,8 +2,8 @@
 
 **A local-first Polymarket research, simulation, and execution toolchain.**
 
-PolyTool is a Python-based operator environment for discovering, validating, and
-deploying prediction-market trading strategies on Polymarket. It combines a
+PolyTool is a Python-based operator environment for researching, validating, and
+preparing gated trading workflows on Polymarket. It combines a
 research intelligence pipeline, a full-featured replay/simulation engine
 (SimTrader), a crypto pair bot, and a gated live-execution layer.
 
@@ -72,6 +72,8 @@ flowchart LR
 
 **For the live gate status:** `python tools/gates/gate_status.py`
 
+Note: Gate 4 (Dry-Run Live) PASSED means the dry-run live path is ready — it does not approve live capital. Live capital remains blocked behind Gate 2, Gate 3, and Stage 0 plus explicit operator authorization.
+
 Gate 2 failure is a strategy profitability issue on low-frequency politics/sports tapes.
 Crypto-only tapes (10) scored 7/10 positive; the full corpus of 50 did not pass.
 Path-forward options are documented in `docs/dev_logs/2026-03-29_crypto_watch_and_capture.md`.
@@ -80,7 +82,7 @@ Path-forward options are documented in `docs/dev_logs/2026-03-29_crypto_watch_an
 
 - **Live execution** (`simtrader live`, `crypto-pair-run --live`): Requires Gate 2 + Gate 3 + Stage 0 paper-live completion. Gate 2 currently FAILED.
 - **Stage 0 / Stage 1 live capital**: Blocked behind all gates passing plus operator authorization.
-- **Crypto pair bot live deployment**: Blocked (no active BTC/ETH/SOL 5m/15m markets as of 2026-03-29, pending new market availability).
+- **Crypto pair bot live deployment**: Blocked (no active BTC/ETH/SOL 5m/15m markets; run `python -m polytool crypto-pair-watch --one-shot` to check current availability).
 
 ---
 
@@ -202,7 +204,7 @@ Creates `kb/` and `artifacts/` directories (both gitignored; data stays local).
 
 ```bash
 python -m pytest -q --tb=short
-# Expected baseline: 3695 passed, 3 deselected, 25 warnings (as of 2026-04-07).
+# Recent baseline: 3695 passed, 3 deselected, 25 warnings (count grows as features are added).
 ```
 
 ### First-Time Operator Path

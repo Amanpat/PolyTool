@@ -76,6 +76,21 @@ def _utcnow_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
+def _json_dumps(value: Any) -> str:
+    """Stable JSON encoding for persisted snapshots and deterministic IDs."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _json_loads(value: Optional[str]) -> Any:
+    """Best-effort JSON decode for persisted TEXT columns."""
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 # ---------------------------------------------------------------------------
 # KnowledgeStore
 # ---------------------------------------------------------------------------
@@ -90,6 +105,10 @@ class KnowledgeStore:
         in-memory database (tests / ephemeral use).  Parent directories
         are created if they do not exist for disk-backed paths.
     """
+
+    REVIEW_STATUSES = ("pending", "deferred", "accepted", "rejected")
+    REVIEW_ACTIONS = ("enqueue", "accept", "reject", "defer")
+    FINAL_REVIEW_DECISIONS = ("accept", "reject")
 
     def __init__(self, db_path: str | Path = DEFAULT_KNOWLEDGE_DB_PATH) -> None:
         self._db_path = str(db_path)
@@ -114,7 +133,7 @@ class KnowledgeStore:
     # ------------------------------------------------------------------
 
     def _ensure_schema(self) -> None:
-        """Create all 4 tables if they do not exist."""
+        """Create or upgrade all KnowledgeStore tables if they do not exist."""
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS source_documents (
                 id              TEXT PRIMARY KEY,
@@ -164,6 +183,50 @@ class KnowledgeStore:
                     CHECK(relation_type IN ('SUPPORTS','CONTRADICTS','SUPERSEDES','EXTENDS')),
                 created_at          TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS pending_review (
+                id                          TEXT PRIMARY KEY,
+                source_document_id          TEXT REFERENCES source_documents(id),
+                source_metadata_ref         TEXT,
+                source_url                  TEXT,
+                source_type                 TEXT,
+                title                       TEXT,
+                source_family               TEXT,
+                provider_name               TEXT,
+                eval_model                  TEXT,
+                gate                        TEXT,
+                weighted_score              REAL,
+                simple_sum_score            REAL,
+                gate_snapshot_json          TEXT NOT NULL,
+                status                      TEXT NOT NULL
+                    CHECK(status IN ('pending','deferred','accepted','rejected')),
+                created_at                  TEXT NOT NULL,
+                updated_at                  TEXT NOT NULL,
+                final_decision              TEXT,
+                final_decision_at           TEXT,
+                final_decision_by           TEXT,
+                final_decision_notes        TEXT,
+                final_decision_metadata_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS pending_review_history (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                review_item_id      TEXT NOT NULL REFERENCES pending_review(id),
+                action              TEXT NOT NULL
+                    CHECK(action IN ('enqueue','accept','reject','defer')),
+                previous_status     TEXT,
+                new_status          TEXT NOT NULL,
+                actor               TEXT,
+                notes               TEXT,
+                action_metadata_json TEXT,
+                created_at          TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pending_review_status_updated
+                ON pending_review(status, updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_pending_review_history_item_created
+                ON pending_review_history(review_item_id, created_at ASC);
         """)
         self._conn.commit()
 
@@ -545,6 +608,353 @@ class KnowledgeStore:
         # Sort by effective_score descending
         results.sort(key=lambda r: r["effective_score"], reverse=True)
         return results
+
+    # ------------------------------------------------------------------
+    # Review queue helpers
+    # ------------------------------------------------------------------
+
+    def enqueue_pending_review(
+        self,
+        *,
+        source_document_id: Optional[str] = None,
+        source_metadata_ref: Optional[str] = None,
+        source_url: Optional[str] = None,
+        source_type: Optional[str] = None,
+        title: Optional[str] = None,
+        source_family: Optional[str] = None,
+        provider_name: Optional[str] = None,
+        eval_model: Optional[str] = None,
+        gate: Optional[str] = None,
+        weighted_score: Optional[float] = None,
+        simple_sum_score: Optional[float] = None,
+        gate_snapshot: Optional[Any] = None,
+        scores: Optional[Any] = None,
+        created_at: Optional[str] = None,
+        queued_by: Optional[str] = None,
+        queue_notes: Optional[str] = None,
+        queue_metadata: Optional[dict[str, Any]] = None,
+    ) -> str:
+        """Insert a review-queue item for a gray-zone document.
+
+        The generated review item ID is deterministic from the source reference
+        plus the gate snapshot so identical enqueue attempts are idempotent.
+        """
+        created_at = created_at or _utcnow_iso()
+
+        if isinstance(scores, dict):
+            if weighted_score is None:
+                weighted_score = scores.get("composite_score")
+            if simple_sum_score is None:
+                simple_sum_score = scores.get("simple_sum_score", scores.get("total"))
+            if eval_model is None:
+                eval_model = scores.get("eval_model")
+
+        snapshot_payload: dict[str, Any] = {}
+        if gate_snapshot is not None:
+            if isinstance(gate_snapshot, dict):
+                snapshot_payload.update(gate_snapshot)
+            else:
+                snapshot_payload["gate_snapshot"] = gate_snapshot
+        if scores is not None and "scores" not in snapshot_payload:
+            snapshot_payload["scores"] = scores
+        if gate is not None and "gate" not in snapshot_payload:
+            snapshot_payload["gate"] = gate
+        if provider_name is not None and "provider_name" not in snapshot_payload:
+            snapshot_payload["provider_name"] = provider_name
+        if eval_model is not None and "eval_model" not in snapshot_payload:
+            snapshot_payload["eval_model"] = eval_model
+        if weighted_score is not None and "weighted_score" not in snapshot_payload:
+            snapshot_payload["weighted_score"] = weighted_score
+        if simple_sum_score is not None and "simple_sum_score" not in snapshot_payload:
+            snapshot_payload["simple_sum_score"] = simple_sum_score
+
+        gate_snapshot_json = _json_dumps(snapshot_payload)
+        identity_payload = _json_dumps(
+            {
+                "source_document_id": source_document_id or "",
+                "source_metadata_ref": source_metadata_ref or "",
+                "source_url": source_url or "",
+                "source_type": source_type or "",
+                "title": title or "",
+                "source_family": source_family or "",
+                "provider_name": provider_name or "",
+                "eval_model": eval_model or "",
+                "gate": gate or "",
+                "weighted_score": weighted_score,
+                "simple_sum_score": simple_sum_score,
+                "gate_snapshot_json": gate_snapshot_json,
+            }
+        )
+        review_item_id = _sha256_id("pending_review", identity_payload)
+
+        before_changes = self._conn.total_changes
+        with self._conn:
+            self._conn.execute(
+                """INSERT OR IGNORE INTO pending_review
+                   (id, source_document_id, source_metadata_ref, source_url, source_type,
+                    title, source_family, provider_name, eval_model, gate,
+                    weighted_score, simple_sum_score, gate_snapshot_json,
+                    status, created_at, updated_at,
+                    final_decision, final_decision_at, final_decision_by,
+                    final_decision_notes, final_decision_metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    review_item_id,
+                    source_document_id,
+                    source_metadata_ref,
+                    source_url,
+                    source_type,
+                    title,
+                    source_family,
+                    provider_name,
+                    eval_model,
+                    gate,
+                    weighted_score,
+                    simple_sum_score,
+                    gate_snapshot_json,
+                    "pending",
+                    created_at,
+                    created_at,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+            )
+            if self._conn.total_changes > before_changes:
+                self._append_pending_review_history(
+                    review_item_id=review_item_id,
+                    action="enqueue",
+                    previous_status=None,
+                    new_status="pending",
+                    actor=queued_by,
+                    notes=queue_notes,
+                    action_metadata=queue_metadata,
+                    created_at=created_at,
+                )
+        return review_item_id
+
+    def list_pending_reviews(
+        self,
+        *,
+        statuses: Optional[list[str] | tuple[str, ...]] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict]:
+        """Return queued review items, defaulting to unresolved entries."""
+        normalized_statuses = tuple(statuses or ("pending", "deferred"))
+        if not normalized_statuses:
+            return []
+        for status in normalized_statuses:
+            if status not in self.REVIEW_STATUSES:
+                raise ValueError(
+                    f"invalid review status '{status}'. "
+                    f"Must be one of: {', '.join(self.REVIEW_STATUSES)}"
+                )
+
+        placeholders = ", ".join("?" for _ in normalized_statuses)
+        sql = f"""
+            SELECT *
+            FROM pending_review
+            WHERE status IN ({placeholders})
+            ORDER BY created_at ASC, id ASC
+        """
+        params: list[Any] = list(normalized_statuses)
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        rows = self._conn.execute(sql, params).fetchall()
+        return [
+            self._deserialize_pending_review_row(row, include_snapshot=False)
+            for row in rows
+        ]
+
+    def get_pending_review(
+        self,
+        review_item_id: str,
+        *,
+        include_history: bool = True,
+    ) -> Optional[dict]:
+        """Return one review item, optionally including its audit history."""
+        row = self._conn.execute(
+            "SELECT * FROM pending_review WHERE id = ?",
+            (review_item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        item = self._deserialize_pending_review_row(row, include_snapshot=True)
+        if include_history:
+            item["history"] = self.get_pending_review_history(review_item_id)
+        return item
+
+    def get_pending_review_history(self, review_item_id: str) -> list[dict]:
+        """Return the append-only audit trail for a review item."""
+        rows = self._conn.execute(
+            """SELECT *
+               FROM pending_review_history
+               WHERE review_item_id = ?
+               ORDER BY created_at ASC, id ASC""",
+            (review_item_id,),
+        ).fetchall()
+        history: list[dict] = []
+        for row in rows:
+            entry = dict(row)
+            entry["action_metadata"] = _json_loads(entry.pop("action_metadata_json", None))
+            history.append(entry)
+        return history
+
+    def resolve_pending_review(
+        self,
+        review_item_id: str,
+        *,
+        action: str,
+        actor: Optional[str] = None,
+        notes: Optional[str] = None,
+        action_metadata: Optional[dict[str, Any]] = None,
+    ) -> dict:
+        """Resolve or defer a queued review item with audit-friendly history."""
+        if action not in ("accept", "reject", "defer"):
+            raise ValueError("action must be one of: accept, reject, defer")
+
+        current = self.get_pending_review(review_item_id, include_history=False)
+        if current is None:
+            raise ValueError(f"pending review item not found: {review_item_id}")
+
+        current_status = current["status"]
+        if current_status in ("accepted", "rejected"):
+            if (
+                action in self.FINAL_REVIEW_DECISIONS
+                and current.get("final_decision") == action
+            ):
+                existing = self.get_pending_review(review_item_id, include_history=True)
+                assert existing is not None
+                return existing
+            raise ValueError(
+                f"pending review item already resolved as {current_status}"
+            )
+
+        if current_status == "deferred" and action == "defer":
+            existing = self.get_pending_review(review_item_id, include_history=True)
+            assert existing is not None
+            return existing
+
+        now = _utcnow_iso()
+        new_status = {
+            "accept": "accepted",
+            "reject": "rejected",
+            "defer": "deferred",
+        }[action]
+
+        final_decision = current.get("final_decision")
+        final_decision_at = current.get("final_decision_at")
+        final_decision_by = current.get("final_decision_by")
+        final_decision_notes = current.get("final_decision_notes")
+        final_decision_metadata_json = (
+            _json_dumps(action_metadata) if action_metadata is not None else None
+        )
+
+        if action in self.FINAL_REVIEW_DECISIONS:
+            final_decision = action
+            final_decision_at = now
+            final_decision_by = actor
+            final_decision_notes = notes
+        else:
+            existing_metadata = current.get("final_decision_metadata")
+            final_decision_metadata_json = (
+                _json_dumps(existing_metadata)
+                if existing_metadata is not None
+                else None
+            )
+
+        with self._conn:
+            self._conn.execute(
+                """UPDATE pending_review
+                   SET status = ?,
+                       updated_at = ?,
+                       final_decision = ?,
+                       final_decision_at = ?,
+                       final_decision_by = ?,
+                       final_decision_notes = ?,
+                       final_decision_metadata_json = ?
+                   WHERE id = ?""",
+                (
+                    new_status,
+                    now,
+                    final_decision,
+                    final_decision_at,
+                    final_decision_by,
+                    final_decision_notes,
+                    final_decision_metadata_json,
+                    review_item_id,
+                ),
+            )
+            self._append_pending_review_history(
+                review_item_id=review_item_id,
+                action=action,
+                previous_status=current_status,
+                new_status=new_status,
+                actor=actor,
+                notes=notes,
+                action_metadata=action_metadata,
+                created_at=now,
+            )
+
+        updated = self.get_pending_review(review_item_id, include_history=True)
+        assert updated is not None
+        return updated
+
+    def _append_pending_review_history(
+        self,
+        *,
+        review_item_id: str,
+        action: str,
+        previous_status: Optional[str],
+        new_status: str,
+        actor: Optional[str],
+        notes: Optional[str],
+        action_metadata: Optional[dict[str, Any]],
+        created_at: str,
+    ) -> None:
+        """Append one audit event for a review-queue mutation."""
+        if action not in self.REVIEW_ACTIONS:
+            raise ValueError(
+                f"invalid review action '{action}'. "
+                f"Must be one of: {', '.join(self.REVIEW_ACTIONS)}"
+            )
+        self._conn.execute(
+            """INSERT INTO pending_review_history
+               (review_item_id, action, previous_status, new_status,
+                actor, notes, action_metadata_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                review_item_id,
+                action,
+                previous_status,
+                new_status,
+                actor,
+                notes,
+                _json_dumps(action_metadata) if action_metadata is not None else None,
+                created_at,
+            ),
+        )
+
+    def _deserialize_pending_review_row(
+        self,
+        row: sqlite3.Row,
+        *,
+        include_snapshot: bool,
+    ) -> dict:
+        """Convert a pending_review row into a JSON-friendly dict."""
+        item = dict(row)
+        item["final_decision_metadata"] = _json_loads(
+            item.pop("final_decision_metadata_json", None)
+        )
+        if include_snapshot:
+            item["gate_snapshot"] = _json_loads(item.pop("gate_snapshot_json", None))
+        else:
+            item.pop("gate_snapshot_json", None)
+        return item
 
     # ------------------------------------------------------------------
     # Close

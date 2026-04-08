@@ -48,7 +48,7 @@ The authoritative CLI command list was obtained from two sources in priority ord
 
 **Integrations and Utilities:** mcp, examine, agent-run
 
-Total: 63 CLI commands (including the simtrader alias).
+Total: 65 CLI commands (including the simtrader alias).
 
 ---
 
@@ -89,7 +89,7 @@ No new failures introduced. Baseline confirmed before and after README rewrite (
 - "Experimental / Gated" section noting what requires caution before use
 - Optional dependency groups from `pyproject.toml`: rag, mcp, simtrader, studio, dev, historical, historical-import, live, ris, all
 - Discord alerting as the shipped notification path (DISCORD_WEBHOOK_URL in .env)
-- All 63 CLI commands in a grouped table matching --help output groupings
+- All 65 CLI commands in a grouped table matching --help output groupings
 - Docker Compose profiles: cli, pair-bot, ris-n8n documented
 - `python tools/gates/gate_status.py` as the live gate status check
 - `python -m polytool` as canonical invocation throughout (not bare `polytool`)
@@ -114,3 +114,8 @@ All conflicts documented here. No silent choices made.
 ## Codex Review Note
 
 Scope: Documentation-only change. No mandatory files (execution/, kill_switch.py, risk_manager.py, etc.) touched. Codex adversarial review: SKIP (docs category per CLAUDE.md policy).
+
+## 2026-04-07 Cleanup Note
+
+- Corrected the CLI inventory total from 63 to 65 after recounting the current top-level commands from `python -m polytool --help`.
+- Updated the README test expectation line to match the current baseline evidence from `python -m pytest -q --tb=short`: 3695 passed, 3 deselected, 25 warnings.

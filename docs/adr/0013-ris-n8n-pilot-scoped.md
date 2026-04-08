@@ -108,28 +108,32 @@ choice in `.env`. It is informational only — no code reads this variable.
   First-run owner setup is required at `http://localhost:5678/setup` on a fresh install.
   Existing `n8n_data` volume retains previously established owner credentials.
 
-### Workflow templates
+### Workflow sources
 
-Eleven version-controlled workflow JSON templates are provided in `infra/n8n/workflows/`:
+The current canonical active workflow source is
+`workflows/n8n/ris-unified-dev.json`. It is a single unified RIS pilot workflow with
+9 sections on one canvas. `bash infra/n8n/import-workflows.sh [container_name]`
+imports that file by default.
 
-| File | CLI command | Trigger |
-|------|-------------|---------|
-| `ris_health_check.json` | `research-health` | Manual + cron (every 6h) |
-| `ris_scheduler_status.json` | `research-scheduler status` | Manual |
-| `ris_manual_acquire.json` | `research-acquire --url ...` | Webhook (POST) |
-| `ris_academic_ingest.json` | `research-scheduler run-job academic_ingest` | Manual + cron (every 12h) |
-| `ris_blog_ingest.json` | `research-scheduler run-job blog_ingest` | Manual + cron (every 4h) |
-| `ris_reddit_polymarket.json` | `research-scheduler run-job reddit_polymarket` | Manual + cron (every 6h) |
-| `ris_reddit_others.json` | `research-scheduler run-job reddit_others` | Manual + cron (daily 03:00) |
-| `ris_youtube_ingest.json` | `research-scheduler run-job youtube_ingest` | Manual + cron (Mon 04:00) |
-| `ris_github_ingest.json` | `research-scheduler run-job github_ingest` | Manual + cron (Wed 04:00) |
-| `ris_freshness_refresh.json` | `research-scheduler run-job freshness_refresh` | Manual + cron (Sun 02:00) |
-| `ris_weekly_digest.json` | `research-scheduler run-job weekly_digest` | Manual + cron (Sun 08:00) |
+| Section | CLI command | Trigger |
+|---------|-------------|---------|
+| Health Monitor | `research-health` + `research-stats summary` | Schedule (every 30 min) |
+| Academic | `research-scheduler run-job academic_ingest` | Manual + schedule (every 12h) |
+| Reddit | `research-scheduler run-job reddit_polymarket` | Manual + schedule (every 6h) |
+| Blog/RSS | `research-scheduler run-job blog_ingest` | Manual + schedule (every 4h) |
+| YouTube | `research-scheduler run-job youtube_ingest` | Manual + schedule (Mon 04:00 UTC) |
+| GitHub | `research-scheduler run-job github_ingest` | Manual + schedule (Wed 04:00 UTC) |
+| Freshness | `research-scheduler run-job freshness_refresh` | Manual + schedule (Sun 02:00 UTC) |
+| Weekly Digest | `research-report digest --window 7` + `research-stats summary` | Manual + schedule (Sun 08:00 UTC) |
+| URL Ingestion | `research-acquire --url ...` | Webhook (POST `/webhook/ris-ingest`) |
 
-All templates ship with `"active": false`. Operator activates manually from the n8n UI
-after import and verification.
+Legacy JSONs are retained for reference only:
 
-Import all 11 with: `bash infra/n8n/import-workflows.sh [container_name]`
+- `workflows/n8n/*.json` from the superseded multi-workflow rebuild
+- `infra/n8n/workflows/` from the initial 11-template pilot
+
+Keep `infra/n8n/` for Docker/image/tooling only. Neither legacy location is the
+default import target.
 
 ## Consequences
 

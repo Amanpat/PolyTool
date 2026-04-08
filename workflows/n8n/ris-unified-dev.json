@@ -34,7 +34,19 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
+    },
+    {
+      "id": "s1-manual",
+      "name": "Health: Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        200
+      ],
+      "parameters": {}
     },
     {
       "id": "s1-run-health",
@@ -183,7 +195,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s2-manual",
@@ -349,7 +362,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s3-manual",
@@ -515,7 +529,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s4-manual",
@@ -681,7 +696,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s5-manual",
@@ -847,7 +863,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s6-manual",
@@ -1013,7 +1030,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s7-manual",
@@ -1179,7 +1197,8 @@
             }
           ]
         }
-      }
+      },
+      "disabled": true
     },
     {
       "id": "s8-manual",
@@ -1447,6 +1466,17 @@
   ],
   "connections": {
     "Health: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Health: Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Manual": {
       "main": [
         [
           {

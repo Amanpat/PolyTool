@@ -1,0 +1,125 @@
+{
+  "name": "RIS -- Health Webhook",
+  "nodes": [
+    {
+      "id": "health-webhook",
+      "name": "Health: Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "ris-health",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "health-run",
+      "name": "Health: Run research-health",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        520,
+        240
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-health 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "stats-run",
+      "name": "Health: Run research-stats",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        520,
+        360
+      ],
+      "parameters": {
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary 2>&1"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "health-format",
+      "name": "Health: Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const health = $('Health: Run research-health').item.json || {};\nconst stats = $('Health: Run research-stats').item.json || {};\nconst healthOutput = (health.stdout || '').toString();\nconst statsOutput = (stats.stdout || '').toString();\nconst healthExitCode = health.exitCode || 0;\nconst statsExitCode = stats.exitCode || 0;\nconst hasAlert = healthOutput.toLowerCase().includes('red') || healthOutput.toLowerCase().includes('critical') || healthOutput.toLowerCase().includes('fail') || healthOutput.toLowerCase().includes('pipeline_failed') || healthOutput.toLowerCase().includes('error') || healthExitCode !== 0 || statsExitCode !== 0;\nreturn [{ json: { command: 'research-health', status: hasAlert ? 'alert' : 'ok', healthExitCode, statsExitCode, healthOutput: healthOutput.substring(0, 1200), statsOutput: statsOutput.substring(0, 800), timestamp: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "health-respond",
+      "name": "Health: Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Health: Webhook": {
+      "main": [
+        [
+          {
+            "node": "Health: Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Run research-health": {
+      "main": [
+        [
+          {
+            "node": "Health: Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Run research-stats": {
+      "main": [
+        [
+          {
+            "node": "Health: Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Format Response": {
+      "main": [
+        [
+          {
+            "node": "Health: Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

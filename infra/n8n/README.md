@@ -17,8 +17,8 @@ See `docs/adr/0013-ris-n8n-pilot-scoped.md` for scope boundaries and decision re
 
 The docker-cli binary is installed via the DHI (Docker Hardened Image) static binary
 pattern. It allows n8n workflow nodes to run `docker exec polytool-ris-scheduler python
--m polytool <command>` — the only supported integration path for n8n into the polytool
-Python core.
+-m polytool <command>` — the current supported integration path for n8n into the
+polytool Python core.
 
 **To start the n8n service:**
 ```bash
@@ -28,35 +28,38 @@ docker compose --profile ris-n8n up -d n8n
 
 ---
 
-## Workflow JSON Layout
+## Workflow Source Layout
 
-Workflow templates live in `infra/n8n/workflows/`. These are committed JSON files
-exported from n8n.
+Runtime tooling stays in `infra/n8n/`. The canonical active RIS pilot workflow source
+lives in `workflows/n8n/`.
 
-| File | Description |
-|------|-------------|
-| `ris_academic_ingest.json` | Periodic ArXiv paper ingestion |
-| `ris_blog_ingest.json` | Blog post ingestion (every 4h) |
-| `ris_freshness_refresh.json` | Re-scan ArXiv for updated papers (Sundays 02:00) |
-| `ris_github_ingest.json` | GitHub repo ingestion (Wednesdays 04:00) |
-| `ris_health_check.json` | RIS health snapshot via research-health |
-| `ris_manual_acquire.json` | On-demand URL acquisition webhook |
-| `ris_reddit_others.json` | Reddit secondary subreddits (daily 03:00) |
-| `ris_reddit_polymarket.json` | Polymarket subreddit ingestion (every 6h) |
-| `ris_scheduler_status.json` | Scheduler status query |
-| `ris_weekly_digest.json` | Weekly digest generation (Sundays 08:00) |
-| `ris_youtube_ingest.json` | YouTube channel ingestion (Mondays 04:00) |
+| Path | Status | Notes |
+|------|--------|-------|
+| `workflows/n8n/ris-unified-dev.json` | Active canonical source | Single unified RIS pilot workflow with 9 sections on one canvas |
+| `workflows/n8n/ris-health-webhook.json` | Active canonical support workflow | Dedicated `/webhook/ris-health` smoke/operator health workflow |
+| `workflows/n8n/workflow_ids.env` | Active metadata | Tracks the currently deployed unified workflow ID |
+| Other `workflows/n8n/*.json` | Historical reference | Superseded multi-workflow rebuild artifacts; not imported by default |
+| `infra/n8n/workflows/*.json` | Legacy reference | Initial 11-template pilot set; retained for comparison only |
 
-**To import all workflows into a running n8n container:**
+**To import the canonical active workflow into a running n8n container:**
 ```bash
-bash infra/n8n/import-workflows.sh
+python infra/n8n/import_workflows.py
 ```
+
+The helper imports `workflows/n8n/ris-unified-dev.json` via the n8n REST API,
+updates `workflows/n8n/workflow_ids.env`, and activates the workflow.
+`infra/n8n/workflows/` is not the default import target.
+
+The committed unified workflow keeps its schedule triggers disabled by default
+so it can be safely activated for manual runs and the `/webhook/ris-ingest`
+path while APScheduler remains the default scheduler. Operators who want n8n
+to own scheduling must explicitly enable the relevant schedule nodes in the UI.
 
 ### Live Grouping and Activation
 
 Workflow grouping and activation happen inside the **n8n Projects UI** — not via the
-committed JSON files. The JSON files are templates only. After importing, enable each
-workflow manually in the n8n UI before it will run on its schedule.
+committed JSON files. After importing the unified workflow, enable it manually in the
+n8n UI before its scheduled sections will run.
 
 ---
 
