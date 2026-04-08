@@ -13,6 +13,37 @@ research intelligence pipeline, a full-featured replay/simulation engine
 - Not live-ready without passing validation gates. Gate 2 is currently FAILED (see below).
 - Not a complete automated trading platform. Live deployment requires passing all gates, operator review, and explicit capital authorization.
 
+### System Map
+
+The diagram below shows how the operator CLI connects to every major subsystem.
+
+```mermaid
+flowchart LR
+    O[Operator] --> CLI[PolyTool CLI]
+
+    CLI --> R1[Research Pipeline]
+    CLI --> R2[RIS]
+    CLI --> S1[SimTrader]
+    CLI --> C1[Crypto Pair Bot]
+    CLI --> D1[Data Import]
+    CLI --> M1[Market Selection]
+    CLI --> E1[Execution Layer]
+
+    R1 --> KB[(kb/)]
+    R1 --> ART[(artifacts/)]
+    R2 --> KB
+    S1 --> ART
+    C1 --> ART
+    D1 --> CH[(ClickHouse)]
+    M1 --> ART
+    E1 --> PM[Polymarket]
+
+    CH --> G[Grafana]
+    CLI --> ST[SimTrader Studio]
+    CLI --> MCP[MCP Server]
+    R2 --> N8N[n8n RIS Pilot]
+```
+
 ---
 
 ## What Is Shipped Today
@@ -171,7 +202,43 @@ Creates `kb/` and `artifacts/` directories (both gitignored; data stays local).
 
 ```bash
 python -m pytest -q --tb=short
-# Expected: 3695 passed (as of 2026-04-07), 0 failures.
+# Expected baseline: 3695 passed, 3 deselected, 25 warnings (as of 2026-04-07).
+```
+
+### First-Time Operator Path
+
+Once infrastructure is running, pick a workflow to try first.
+
+```mermaid
+flowchart TD
+    A[Clone Repo] --> B[Create .venv]
+    B --> C[Install Dependencies]
+    C --> D[Copy .env.example to .env]
+    D --> E[Set CLICKHOUSE_PASSWORD]
+    E --> F[docker compose up -d]
+    F --> G[Run python -m polytool --help]
+
+    G --> H{What do you want to do first?}
+
+    H --> I[Research Loop]
+    H --> J[RAG]
+    H --> K[SimTrader Shadow / Replay]
+    H --> L[Crypto Pair Paper Run]
+
+    I --> I1[wallet-scan]
+    I1 --> I2[alpha-distill]
+    I2 --> I3[hypothesis-register]
+
+    J --> J1[rag-refresh]
+    J1 --> J2[rag-query]
+
+    K --> K1[simtrader quickrun]
+    K --> K2[simtrader shadow]
+    K --> K3[simtrader studio]
+
+    L --> L1[crypto-pair-watch]
+    L1 --> L2[crypto-pair-scan]
+    L2 --> L3[crypto-pair-run]
 ```
 
 ---
@@ -402,6 +469,42 @@ SimTrader subcommands (via `python -m polytool simtrader <subcommand>`):
 | SimTrader Studio | `python -m polytool simtrader studio --open` | Browser UI for sessions, tapes, reports, OnDemand replay |
 | MCP | `python -m polytool mcp` | Claude Desktop integration; optional |
 | n8n (opt-in) | `docker compose --profile ris-n8n up -d` | Scoped RIS ingestion only; see ADR 0013 |
+
+### Infrastructure and Operator Surfaces Map
+
+How CLI, Docker services, and local storage connect.
+
+```mermaid
+flowchart LR
+    subgraph LocalMachine[Local Machine]
+        CLI[PolyTool CLI]
+        ENV[.env]
+        KB[(kb/)]
+        ART[(artifacts/)]
+    end
+
+    subgraph DockerCompose[Docker Compose]
+        CH[ClickHouse]
+        GF[Grafana]
+        API[API Service]
+        RIS[RIS Scheduler]
+        N8N[n8n optional]
+        PBP[pair-bot-paper optional]
+        PBL[pair-bot-live blocked]
+    end
+
+    CLI --> API
+    CLI --> CH
+    CLI --> KB
+    CLI --> ART
+    ENV --> API
+    ENV --> CH
+    CH --> GF
+    RIS --> CH
+    N8N --> RIS
+    PBP --> CH
+    PBL --> CH
+```
 
 ---
 
