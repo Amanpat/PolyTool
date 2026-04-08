@@ -58,6 +58,12 @@ class RisMetricsSnapshot:
     acquisition_new: int
     acquisition_cached: int
     acquisition_errors: int
+    # Phase 2 fields
+    provider_route_distribution: dict = field(default_factory=dict)
+    provider_failure_counts: dict = field(default_factory=dict)
+    review_queue: dict = field(default_factory=dict)
+    disposition_distribution: dict = field(default_factory=dict)
+    routing_summary: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Return a fully JSON-serializable dict representation."""
@@ -159,6 +165,17 @@ def collect_ris_metrics(
     gate_distribution: dict[str, int] = {}
     ingestion_by_family: dict[str, int] = {}
 
+    # Phase 2 fields
+    provider_route_distribution: dict[str, int] = {}
+    provider_failure_counts: dict[str, int] = {}
+    disposition_distribution: dict[str, int] = {"ACCEPT": 0, "REVIEW": 0, "REJECT": 0, "BLOCKED": 0}
+    routing_summary: dict[str, int] = {
+        "escalation_count": 0,
+        "fallback_count": 0,
+        "direct_count": 0,
+        "total_routed": 0,
+    }
+
     # Use load_eval_artifacts from the evaluation module
     from packages.research.evaluation.artifacts import load_eval_artifacts
     artifacts = load_eval_artifacts(ea_dir)
@@ -169,6 +186,78 @@ def collect_ris_metrics(
         fam = artifact.get("source_family", "")
         if fam:
             ingestion_by_family[fam] = ingestion_by_family.get(fam, 0) + 1
+
+        # --- Phase 2: routing decision ---
+        routing_decision = artifact.get("routing_decision") or {}
+        if routing_decision:
+            selected_provider = routing_decision.get("selected_provider")
+            if selected_provider:
+                provider_route_distribution[selected_provider] = (
+                    provider_route_distribution.get(selected_provider, 0) + 1
+                )
+            escalated = routing_decision.get("escalated", False)
+            used_fallback = routing_decision.get("used_fallback", False)
+            if escalated:
+                routing_summary["escalation_count"] += 1
+            elif used_fallback:
+                routing_summary["fallback_count"] += 1
+            else:
+                routing_summary["direct_count"] += 1
+            routing_summary["total_routed"] += 1
+
+        # --- Phase 2: provider events (failure counts) ---
+        for event in artifact.get("provider_events") or []:
+            status = event.get("status", "")
+            if status != "success":
+                reason = event.get("failure_reason") or "unknown"
+                provider_failure_counts[reason] = provider_failure_counts.get(reason, 0) + 1
+
+        # --- Phase 2: disposition distribution ---
+        scores = artifact.get("scores") or {}
+        if gate == "ACCEPT":
+            disposition_distribution["ACCEPT"] += 1
+        elif gate == "REVIEW":
+            disposition_distribution["REVIEW"] += 1
+        elif gate == "REJECT":
+            reject_reason = scores.get("reject_reason", "")
+            if reject_reason == "scorer_failure":
+                disposition_distribution["BLOCKED"] += 1
+            else:
+                disposition_distribution["REJECT"] += 1
+
+    # --- Phase 2: review queue from pending_review table ---
+    review_queue: dict = {}
+    if ks_path.exists():
+        try:
+            conn = sqlite3.connect(str(ks_path))
+            try:
+                status_rows = conn.execute(
+                    "SELECT status, COUNT(*) FROM pending_review GROUP BY status"
+                ).fetchall()
+                by_status: dict[str, int] = {}
+                queue_depth = 0
+                for row_status, row_count in status_rows:
+                    by_status[row_status] = int(row_count)
+                    if row_status == "pending":
+                        queue_depth = int(row_count)
+
+                gate_rows = conn.execute(
+                    "SELECT gate, COUNT(*) FROM pending_review WHERE status='pending' GROUP BY gate"
+                ).fetchall()
+                by_gate: dict[str, int] = {g: int(c) for g, c in gate_rows}
+
+                review_queue = {
+                    "queue_depth": queue_depth,
+                    "by_status": by_status,
+                    "by_gate": by_gate,
+                }
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            # pending_review table may not exist in fresh DBs
+            review_queue = {"queue_depth": 0, "by_status": {}, "by_gate": {}}
+        except (sqlite3.Error, OSError):
+            review_queue = {}
 
     # --- Precheck ledger stats ---
     precheck_decisions: dict[str, int] = {"GO": 0, "CAUTION": 0, "STOP": 0}
@@ -220,6 +309,11 @@ def collect_ris_metrics(
         acquisition_new=acquisition_new,
         acquisition_cached=acquisition_cached,
         acquisition_errors=acquisition_errors,
+        provider_route_distribution=provider_route_distribution,
+        provider_failure_counts=provider_failure_counts,
+        review_queue=review_queue,
+        disposition_distribution=disposition_distribution,
+        routing_summary=routing_summary,
     )
 
 
@@ -290,5 +384,54 @@ def format_metrics_summary(snapshot: RisMetricsSnapshot) -> str:
         f"Cached={snapshot.acquisition_cached}  "
         f"Errors={snapshot.acquisition_errors}"
     )
+
+    # Phase 2: Provider Routing
+    rs = snapshot.routing_summary
+    prd = snapshot.provider_route_distribution
+    if rs.get("total_routed", 0) > 0 or prd:
+        lines.append("")
+        lines.append("[Provider Routing]")
+        lines.append(
+            f"  Direct={rs.get('direct_count', 0)}  "
+            f"Escalated={rs.get('escalation_count', 0)}  "
+            f"Fallback={rs.get('fallback_count', 0)}  "
+            f"Total={rs.get('total_routed', 0)}"
+        )
+        if prd:
+            dist_str = "  ".join(f"{k}={v}" for k, v in sorted(prd.items()))
+            lines.append(f"  By provider: {dist_str}")
+
+    # Phase 2: Provider Failures
+    pfc = snapshot.provider_failure_counts
+    if pfc:
+        lines.append("")
+        lines.append("[Provider Failures]")
+        fail_str = "  ".join(f"{k}={v}" for k, v in sorted(pfc.items()))
+        lines.append(f"  {fail_str}")
+
+    # Phase 2: Review Queue
+    rq = snapshot.review_queue
+    if rq:
+        lines.append("")
+        lines.append("[Review Queue]")
+        depth = rq.get("queue_depth", 0)
+        by_status = rq.get("by_status", {})
+        status_str = "  ".join(f"{k}={v}" for k, v in sorted(by_status.items()))
+        if status_str:
+            lines.append(f"  Pending={depth}  (by status: {status_str})")
+        else:
+            lines.append(f"  Pending={depth}")
+
+    # Phase 2: Dispositions
+    dd = snapshot.disposition_distribution
+    if any(dd.values()):
+        lines.append("")
+        lines.append("[Dispositions]")
+        lines.append(
+            f"  ACCEPT={dd.get('ACCEPT', 0)}  "
+            f"REVIEW={dd.get('REVIEW', 0)}  "
+            f"REJECT={dd.get('REJECT', 0)}  "
+            f"BLOCKED={dd.get('BLOCKED', 0)}"
+        )
 
     return "\n".join(lines)

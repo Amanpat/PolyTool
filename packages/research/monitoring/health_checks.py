@@ -1,12 +1,13 @@
 """RIS v1 operational layer — health condition evaluators.
 
-Implements the RIS_06 health check table with 6 checks:
+Implements the RIS_06 health check table with 7 checks:
   1. pipeline_failed
   2. no_new_docs_48h
   3. accept_rate_low
   4. accept_rate_high
-  5. model_unavailable  (GREEN stub — awaiting provider event data)
-  6. rejection_audit_disagreement
+  5. model_unavailable  (real: driven by provider failure data from eval artifacts)
+  6. review_queue_backlog  (real: driven by pending_review table depth)
+  7. rejection_audit_disagreement  (deferred — requires audit runner)
 
 Each check returns a HealthCheckResult with status GREEN/YELLOW/RED.
 """
@@ -40,11 +41,11 @@ class HealthCheckResult:
 
 
 # Registry of all implemented checks (order is cosmetic; evaluate_health
-# always produces exactly these 6).
+# always produces exactly these 7).
 ALL_CHECKS: List[HealthCheck] = [
     HealthCheck(
         name="pipeline_failed",
-        description="RED when any run in the window has exit_status==error.",
+        description="RED when any pipeline's latest run exited with error; YELLOW for explicit blocked/setup states.",
     ),
     HealthCheck(
         name="no_new_docs_48h",
@@ -60,17 +61,47 @@ ALL_CHECKS: List[HealthCheck] = [
     ),
     HealthCheck(
         name="model_unavailable",
-        description="GREEN stub — deferred until provider event data is wired.",
+        description="YELLOW when any provider has >3 failures in window; RED when all configured providers have failures.",
+    ),
+    HealthCheck(
+        name="review_queue_backlog",
+        description="YELLOW when review queue depth > 20, RED when > 50.",
     ),
     HealthCheck(
         name="rejection_audit_disagreement",
-        description="YELLOW when audit disagreement rate > 30% (requires audit runner).",
+        description="YELLOW when audit disagreement rate > 30% (requires audit runner — deferred).",
     ),
 ]
 
 
+def _latest_runs_by_pipeline(runs: List[RunRecord]) -> List[RunRecord]:
+    """Return newest-first runs, keeping only the latest entry per pipeline."""
+    latest: list[RunRecord] = []
+    seen: set[str] = set()
+    for run in runs:
+        if run.pipeline in seen:
+            continue
+        latest.append(run)
+        seen.add(run.pipeline)
+    return latest
+
+
+def _summarize_pipeline_issue(run: RunRecord) -> str:
+    """Render an operator-facing summary for a failed or blocked pipeline run."""
+    operator_message = str(run.metadata.get("operator_message", "")).strip()
+    operator_status = str(run.metadata.get("operator_status", "")).strip()
+
+    if run.exit_status == "partial" and operator_status:
+        return f"{run.pipeline} blocked: {operator_message or operator_status}."
+
+    if operator_message:
+        return f"{run.pipeline} failed at {run.started_at}: {operator_message}."
+
+    return f"{run.pipeline} failed (exit_status={run.exit_status}) at {run.started_at}."
+
+
 def _check_pipeline_failed(runs: List[RunRecord]) -> HealthCheckResult:
-    """RED when the most-recent run has exit_status==error."""
+    """Evaluate the latest known state of each pipeline."""
     if not runs:
         return HealthCheckResult(
             check_name="pipeline_failed",
@@ -79,20 +110,40 @@ def _check_pipeline_failed(runs: List[RunRecord]) -> HealthCheckResult:
             data={},
         )
 
-    # Runs are newest-first (list_runs sorts that way); check them in order
-    for run in runs:
-        if run.exit_status == "error":
-            return HealthCheckResult(
-                check_name="pipeline_failed",
-                status="RED",
-                message=f"Pipeline '{run.pipeline}' failed (exit_status=error) at {run.started_at}.",
-                data={"run_id": run.run_id, "started_at": run.started_at},
-            )
+    latest_runs = _latest_runs_by_pipeline(runs)
+    current_errors = [run for run in latest_runs if run.exit_status == "error"]
+    current_blocked = [
+        run
+        for run in latest_runs
+        if run.exit_status == "partial" and run.metadata.get("operator_status")
+    ]
+
+    if current_errors:
+        issue_summaries = [_summarize_pipeline_issue(run) for run in current_errors]
+        issue_summaries.extend(_summarize_pipeline_issue(run) for run in current_blocked)
+        return HealthCheckResult(
+            check_name="pipeline_failed",
+            status="RED",
+            message="Current pipeline issues: " + " ".join(issue_summaries),
+            data={
+                "error_pipelines": [run.pipeline for run in current_errors],
+                "blocked_pipelines": [run.pipeline for run in current_blocked],
+            },
+        )
+
+    if current_blocked:
+        return HealthCheckResult(
+            check_name="pipeline_failed",
+            status="YELLOW",
+            message="Current pipeline issues: "
+            + " ".join(_summarize_pipeline_issue(run) for run in current_blocked),
+            data={"blocked_pipelines": [run.pipeline for run in current_blocked]},
+        )
 
     return HealthCheckResult(
         check_name="pipeline_failed",
         status="GREEN",
-        message="No pipeline errors detected.",
+        message="No current pipeline failures detected.",
         data={},
     )
 
@@ -186,13 +237,135 @@ def _check_accept_rate_high(runs: List[RunRecord]) -> HealthCheckResult:
     )
 
 
-def _check_model_unavailable() -> HealthCheckResult:
-    """Always GREEN — deferred until provider event data is wired."""
+def _check_model_unavailable(
+    provider_failure_counts: Optional[dict] = None,
+    routing_config: Optional[dict] = None,
+) -> HealthCheckResult:
+    """Evaluate provider availability from failure count data.
+
+    Args:
+        provider_failure_counts: dict mapping failure_reason or provider_name -> count.
+            If empty or None, returns GREEN (no failures detected).
+        routing_config: Optional dict with keys primary_provider, escalation_provider,
+            fallback_provider. Used to detect when ALL configured providers are failing.
+
+    Returns:
+        GREEN  — no failures detected.
+        YELLOW — at least one provider/reason with >3 total failures.
+        RED    — all configured providers have failures (complete outage).
+    """
+    if not provider_failure_counts:
+        return HealthCheckResult(
+            check_name="model_unavailable",
+            status="GREEN",
+            message="No provider failures detected.",
+            data={"deferred": False},
+        )
+
+    total_failures = sum(provider_failure_counts.values())
+
+    # Check if all configured providers are failing (RED condition)
+    if routing_config:
+        configured = [
+            routing_config.get("primary_provider"),
+            routing_config.get("escalation_provider"),
+            routing_config.get("fallback_provider"),
+        ]
+        configured_providers = [p for p in configured if p]
+        if configured_providers:
+            all_failing = all(p in provider_failure_counts for p in configured_providers)
+            if all_failing:
+                return HealthCheckResult(
+                    check_name="model_unavailable",
+                    status="RED",
+                    message=(
+                        f"All providers experiencing failures: "
+                        + ", ".join(
+                            f"{p}={provider_failure_counts[p]}"
+                            for p in configured_providers
+                        )
+                    ),
+                    data={
+                        "deferred": False,
+                        "provider_failure_counts": provider_failure_counts,
+                        "all_providers_failing": True,
+                    },
+                )
+
+    # YELLOW when any single reason/provider has >3 failures
+    if total_failures > 3:
+        high_counts = {k: v for k, v in provider_failure_counts.items() if v > 0}
+        return HealthCheckResult(
+            check_name="model_unavailable",
+            status="YELLOW",
+            message=(
+                f"Provider failures detected: "
+                + ", ".join(f"{k}={v}" for k, v in sorted(high_counts.items()))
+            ),
+            data={
+                "deferred": False,
+                "provider_failure_counts": provider_failure_counts,
+                "total_failures": total_failures,
+            },
+        )
+
+    # Small number of failures — still GREEN but include data
     return HealthCheckResult(
         check_name="model_unavailable",
         status="GREEN",
-        message="[DEFERRED] Model availability check requires provider event data. Not yet wired.",
-        data={"deferred": True, "check_type": "stub"},
+        message=f"Provider failure count within acceptable range ({total_failures} total).",
+        data={
+            "deferred": False,
+            "provider_failure_counts": provider_failure_counts,
+            "total_failures": total_failures,
+        },
+    )
+
+
+def _check_review_queue_backlog(review_queue: Optional[dict] = None) -> HealthCheckResult:
+    """Evaluate review queue depth from pending_review table data.
+
+    Args:
+        review_queue: dict with at minimum a 'queue_depth' key (int).
+            Empty dict or None returns GREEN (no data available).
+
+    Returns:
+        GREEN  — depth <= 20 or no data.
+        YELLOW — depth > 20.
+        RED    — depth > 50.
+    """
+    if not review_queue or "queue_depth" not in review_queue:
+        return HealthCheckResult(
+            check_name="review_queue_backlog",
+            status="GREEN",
+            message="No review queue data available.",
+            data={},
+        )
+
+    depth = int(review_queue.get("queue_depth", 0))
+    by_status = review_queue.get("by_status", {})
+
+    if depth > 50:
+        return HealthCheckResult(
+            check_name="review_queue_backlog",
+            status="RED",
+            message=f"Review queue critical backlog: {depth} items pending.",
+            data={"queue_depth": depth, "by_status": by_status},
+        )
+
+    if depth > 20:
+        return HealthCheckResult(
+            check_name="review_queue_backlog",
+            status="YELLOW",
+            message=f"Review queue growing: {depth} items pending.",
+            data={"queue_depth": depth, "by_status": by_status},
+        )
+
+    return HealthCheckResult(
+        check_name="review_queue_backlog",
+        status="GREEN",
+        message=f"Review queue manageable: {depth} items pending.",
+        data={"queue_depth": depth, "by_status": by_status},
     )
 
 
@@ -232,8 +405,11 @@ def evaluate_health(
     *,
     window_hours: int = 48,
     audit_disagreement_rate: Optional[float] = None,
+    provider_failure_counts: Optional[dict] = None,
+    review_queue: Optional[dict] = None,
+    routing_config: Optional[dict] = None,
 ) -> List[HealthCheckResult]:
-    """Evaluate all 6 RIS health checks and return one result per check.
+    """Evaluate all 7 RIS health checks and return one result per check.
 
     Args:
         runs:                    List of RunRecord objects in the evaluation window.
@@ -241,15 +417,22 @@ def evaluate_health(
         window_hours:            Window size in hours (informational — caller is
                                  responsible for pre-filtering runs to this window).
         audit_disagreement_rate: If provided, used by the rejection audit check.
+        provider_failure_counts: If provided, dict of failure counts by reason/provider.
+                                 Drives the model_unavailable check.
+        review_queue:            If provided, dict with queue_depth and by_status keys.
+                                 Drives the review_queue_backlog check.
+        routing_config:          If provided, dict with primary_provider etc. keys.
+                                 Used by model_unavailable to detect full outage.
 
     Returns:
-        List of 6 HealthCheckResult objects, one per check.
+        List of 7 HealthCheckResult objects, one per check.
     """
     return [
         _check_pipeline_failed(runs),
         _check_no_new_docs_48h(runs),
         _check_accept_rate_low(runs),
         _check_accept_rate_high(runs),
-        _check_model_unavailable(),
+        _check_model_unavailable(provider_failure_counts or {}, routing_config=routing_config),
+        _check_review_queue_backlog(review_queue or {}),
         _check_rejection_audit_disagreement(audit_disagreement_rate),
     ]

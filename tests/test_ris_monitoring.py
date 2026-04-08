@@ -287,6 +287,70 @@ class TestHealthChecks:
         results = {r.check_name: r for r in evaluate_health(runs)}
         assert results["pipeline_failed"].status == "RED"
 
+    def test_pipeline_failed_yellow_on_operator_blocked_partial(self):
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        runs = [
+            self._make_run_record(
+                pipeline="reddit_polymarket",
+                exit_status="partial",
+                metadata={
+                    "operator_status": "missing_setup",
+                    "operator_message": "Install praw and set REDDIT_* vars",
+                },
+            )
+        ]
+        results = {r.check_name: r for r in evaluate_health(runs)}
+        assert results["pipeline_failed"].status == "YELLOW"
+        assert "reddit_polymarket blocked" in results["pipeline_failed"].message
+
+    def test_pipeline_failed_ignores_stale_error_when_newer_partial_exists(self):
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        runs = [
+            self._make_run_record(
+                pipeline="reddit_polymarket",
+                started_at="2026-04-08T19:00:00+00:00",
+                exit_status="partial",
+                metadata={
+                    "operator_status": "missing_setup",
+                    "operator_message": "Install praw and set REDDIT_* vars",
+                },
+            ),
+            self._make_run_record(
+                pipeline="reddit_polymarket",
+                started_at="2026-04-08T18:00:00+00:00",
+                exit_status="error",
+            ),
+        ]
+        results = {r.check_name: r for r in evaluate_health(runs)}
+        assert results["pipeline_failed"].status == "YELLOW"
+        assert "18:00:00" not in results["pipeline_failed"].message
+
+    def test_pipeline_failed_red_includes_current_blocked_and_failed_pipelines(self):
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        runs = [
+            self._make_run_record(
+                pipeline="blog_ingest",
+                started_at="2026-04-08T20:00:00+00:00",
+                exit_status="error",
+            ),
+            self._make_run_record(
+                pipeline="reddit_polymarket",
+                started_at="2026-04-08T19:00:00+00:00",
+                exit_status="partial",
+                metadata={
+                    "operator_status": "missing_setup",
+                    "operator_message": "Install praw and set REDDIT_* vars",
+                },
+            ),
+        ]
+        results = {r.check_name: r for r in evaluate_health(runs)}
+        assert results["pipeline_failed"].status == "RED"
+        assert "blog_ingest failed" in results["pipeline_failed"].message
+        assert "reddit_polymarket blocked" in results["pipeline_failed"].message
+
     def test_pipeline_failed_green_on_ok_runs(self):
         from packages.research.monitoring.health_checks import evaluate_health
 
@@ -358,12 +422,22 @@ class TestHealthChecks:
         results = {r.check_name: r for r in evaluate_health(runs)}
         assert results["accept_rate_high"].status == "GREEN"
 
-    def test_model_unavailable_always_green(self):
+    def test_model_unavailable_green_no_failures(self):
         from packages.research.monitoring.health_checks import evaluate_health
 
+        # No provider failure data -> GREEN
         for runs in [[], [self._make_run_record()]]:
-            results = {r.check_name: r for r in evaluate_health(runs)}
-            assert results["model_unavailable"].status == "GREEN"
+            results = {r.check_name: r for r in evaluate_health(runs, provider_failure_counts={})}
+            r = results["model_unavailable"]
+            assert r.status == "GREEN"
+            assert r.data.get("deferred") is not True
+
+    def test_model_unavailable_always_green_backward_compat(self):
+        """Backward compat: no provider_failure_counts kwarg -> GREEN, not deferred."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = {r.check_name: r for r in evaluate_health([])}
+        assert results["model_unavailable"].status == "GREEN"
 
     def test_rejection_audit_disagreement_yellow(self):
         from packages.research.monitoring.health_checks import evaluate_health
@@ -386,11 +460,11 @@ class TestHealthChecks:
         results = {r.check_name: r for r in evaluate_health(runs, audit_disagreement_rate=None)}
         assert results["rejection_audit_disagreement"].status == "GREEN"
 
-    def test_evaluate_health_returns_all_six_checks(self):
+    def test_evaluate_health_returns_all_seven_checks(self):
         from packages.research.monitoring.health_checks import evaluate_health, ALL_CHECKS
 
         results = evaluate_health([])
-        assert len(results) == 6
+        assert len(results) == 7
         check_names = {r.check_name for r in results}
         expected = {
             "pipeline_failed",
@@ -398,6 +472,7 @@ class TestHealthChecks:
             "accept_rate_low",
             "accept_rate_high",
             "model_unavailable",
+            "review_queue_backlog",
             "rejection_audit_disagreement",
         }
         assert check_names == expected
@@ -549,7 +624,7 @@ class TestMonitoringInit:
         # Just checking they exist and are not None
         assert RunRecord is not None
         assert ALL_CHECKS is not None
-        assert len(ALL_CHECKS) == 6
+        assert len(ALL_CHECKS) == 7
 
 
 # ---------------------------------------------------------------------------
@@ -855,14 +930,14 @@ class TestCLIRunLogWiring:
 class TestHealthTruthfulness:
     """Tests that deferred checks are clearly labeled as [DEFERRED], not misleadingly GREEN."""
 
-    def test_model_unavailable_message_says_deferred(self):
-        """evaluate_health([]) -> model_unavailable result message contains '[DEFERRED]'."""
+    def test_model_unavailable_message_says_no_failures(self):
+        """evaluate_health([]) -> model_unavailable result message indicates no failures (not deferred)."""
         from packages.research.monitoring.health_checks import evaluate_health
 
         results = {r.check_name: r for r in evaluate_health([])}
         r = results["model_unavailable"]
-        assert "[DEFERRED]" in r.message, f"Expected [DEFERRED] in message, got: {r.message!r}"
-        assert r.data.get("deferred") is True
+        assert r.data.get("deferred") is not True
+        assert r.status == "GREEN"
 
     def test_rejection_audit_none_says_deferred(self):
         """When audit_disagreement_rate=None, message contains '[DEFERRED]'."""
@@ -875,20 +950,20 @@ class TestHealthTruthfulness:
         assert "[DEFERRED]" in r.message, f"Expected [DEFERRED] in message, got: {r.message!r}"
 
     def test_deferred_checks_still_green(self):
-        """Both deferred checks still return GREEN (no false alerts)."""
+        """Deferred check (rejection_audit_disagreement) still returns GREEN."""
         from packages.research.monitoring.health_checks import evaluate_health
 
         results = {r.check_name: r for r in evaluate_health([], audit_disagreement_rate=None)}
         assert results["model_unavailable"].status == "GREEN"
         assert results["rejection_audit_disagreement"].status == "GREEN"
 
-    def test_model_unavailable_has_check_type_stub(self):
-        """model_unavailable check has check_type='stub' in data dict."""
+    def test_model_unavailable_not_stub(self):
+        """model_unavailable check does NOT have check_type='stub' - it is now real."""
         from packages.research.monitoring.health_checks import evaluate_health
 
         results = {r.check_name: r for r in evaluate_health([])}
         r = results["model_unavailable"]
-        assert r.data.get("check_type") == "stub"
+        assert r.data.get("check_type") != "stub"
 
     def test_rejection_audit_none_has_check_type_stub(self):
         """rejection_audit_disagreement with None has check_type='stub' in data dict."""
@@ -968,7 +1043,8 @@ class TestIntegrationIngestToHealth:
 
         assert "deferred_checks" in data, "JSON output missing 'deferred_checks' key"
         deferred = data["deferred_checks"]
-        assert "model_unavailable" in deferred, f"model_unavailable not in deferred_checks: {deferred}"
+        # model_unavailable is now real (not deferred)
+        assert "model_unavailable" not in deferred, f"model_unavailable should NOT be in deferred_checks: {deferred}"
         assert "rejection_audit_disagreement" in deferred, (
             f"rejection_audit_disagreement not in deferred_checks: {deferred}"
         )
@@ -996,3 +1072,337 @@ class TestIntegrationIngestToHealth:
         captured = capsys.readouterr()
         assert "DEFERRED" in captured.out, "Expected deferred footer note in table output"
         assert "GREEN = no data, not verified healthy" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: TestMetricsPhase2 — new metrics fields
+# ---------------------------------------------------------------------------
+
+class TestMetricsPhase2:
+    """Tests for the Phase 2 RIS metrics fields added to RisMetricsSnapshot."""
+
+    def _make_eval_artifact(
+        self,
+        gate: str = "ACCEPT",
+        source_family: str = "academic",
+        selected_provider: str = "gemini",
+        escalated: bool = False,
+        used_fallback: bool = False,
+        provider_events: list = None,
+        scores: dict = None,
+    ) -> dict:
+        """Build a minimal eval artifact dict for testing."""
+        routing_decision = {
+            "mode": "cascade",
+            "primary_provider": "gemini",
+            "escalation_provider": "deepseek",
+            "fallback_provider": "ollama",
+            "selected_provider": selected_provider,
+            "selected_model": f"{selected_provider}-model",
+            "final_reason": "primary_success",
+            "attempts": 1,
+            "escalated": escalated,
+            "used_fallback": used_fallback,
+        }
+        return {
+            "doc_id": "test-doc-001",
+            "timestamp": "2026-04-08T10:00:00+00:00",
+            "gate": gate,
+            "hard_stop_result": None,
+            "near_duplicate_result": None,
+            "family_features": {},
+            "scores": scores or {},
+            "source_family": source_family,
+            "source_type": "url",
+            "provider_events": provider_events or [],
+            "routing_decision": routing_decision,
+        }
+
+    def _write_eval_artifacts(self, tmp_path: Path, artifacts: list) -> Path:
+        """Write eval artifacts JSONL to a temp dir, return the dir."""
+        ea_dir = tmp_path / "eval_artifacts"
+        ea_dir.mkdir(parents=True, exist_ok=True)
+        artifact_file = ea_dir / "eval_artifacts.jsonl"
+        lines = [json.dumps(a, ensure_ascii=False) for a in artifacts]
+        artifact_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return ea_dir
+
+    def _make_pending_review_db(self, tmp_path: Path, rows: list) -> Path:
+        """Create a sqlite3 DB with a pending_review table and given rows."""
+        import sqlite3
+        db_path = tmp_path / "knowledge.sqlite3"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_review (
+                id TEXT PRIMARY KEY,
+                status TEXT,
+                gate TEXT,
+                provider_name TEXT,
+                eval_model TEXT,
+                weighted_score REAL,
+                source_family TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS source_documents (
+                id TEXT PRIMARY KEY,
+                source_family TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS derived_claims (
+                id TEXT PRIMARY KEY
+            )
+        """)
+        for row in rows:
+            conn.execute(
+                "INSERT INTO pending_review (id, status, gate, source_family) VALUES (?, ?, ?, ?)",
+                (row["id"], row["status"], row.get("gate", "REVIEW"), row.get("source_family", "academic"))
+            )
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_provider_route_distribution(self, tmp_path):
+        """collect_ris_metrics returns provider_route_distribution counting evals per selected_provider."""
+        from packages.research.metrics import collect_ris_metrics
+
+        artifacts = [
+            self._make_eval_artifact(selected_provider="gemini"),
+            self._make_eval_artifact(selected_provider="gemini"),
+            self._make_eval_artifact(selected_provider="deepseek"),
+            self._make_eval_artifact(selected_provider="ollama"),
+        ]
+        ea_dir = self._write_eval_artifacts(tmp_path, artifacts)
+        db_path = self._make_pending_review_db(tmp_path, [])
+
+        snapshot = collect_ris_metrics(
+            db_path=db_path,
+            eval_artifacts_dir=ea_dir,
+        )
+
+        dist = snapshot.provider_route_distribution
+        assert dist.get("gemini") == 2
+        assert dist.get("deepseek") == 1
+        assert dist.get("ollama") == 1
+
+    def test_provider_failure_counts(self, tmp_path):
+        """collect_ris_metrics returns provider_failure_counts from provider_events with non-success status."""
+        from packages.research.metrics import collect_ris_metrics
+
+        provider_events_1 = [
+            {"provider_name": "gemini", "status": "error", "failure_reason": "provider_unavailable",
+             "selected": False, "route_role": "primary"},
+            {"provider_name": "deepseek", "status": "success", "failure_reason": None,
+             "selected": True, "route_role": "escalation"},
+        ]
+        provider_events_2 = [
+            {"provider_name": "gemini", "status": "error", "failure_reason": "rate_limited",
+             "selected": False, "route_role": "primary"},
+            {"provider_name": "deepseek", "status": "error", "failure_reason": "provider_unavailable",
+             "selected": False, "route_role": "escalation"},
+            {"provider_name": "ollama", "status": "success", "failure_reason": None,
+             "selected": True, "route_role": "fallback"},
+        ]
+        artifacts = [
+            self._make_eval_artifact(provider_events=provider_events_1),
+            self._make_eval_artifact(provider_events=provider_events_2),
+        ]
+        ea_dir = self._write_eval_artifacts(tmp_path, artifacts)
+        db_path = self._make_pending_review_db(tmp_path, [])
+
+        snapshot = collect_ris_metrics(
+            db_path=db_path,
+            eval_artifacts_dir=ea_dir,
+        )
+
+        failures = snapshot.provider_failure_counts
+        assert failures.get("provider_unavailable") == 2
+        assert failures.get("rate_limited") == 1
+
+    def test_review_queue_from_pending_review(self, tmp_path):
+        """collect_ris_metrics populates review_queue from pending_review table."""
+        from packages.research.metrics import collect_ris_metrics
+
+        pending_rows = [
+            {"id": "doc-1", "status": "pending", "gate": "REVIEW"},
+            {"id": "doc-2", "status": "pending", "gate": "REVIEW"},
+            {"id": "doc-3", "status": "accepted", "gate": "REVIEW"},
+            {"id": "doc-4", "status": "rejected", "gate": "REVIEW"},
+        ]
+        db_path = self._make_pending_review_db(tmp_path, pending_rows)
+        ea_dir = self._write_eval_artifacts(tmp_path, [])
+
+        snapshot = collect_ris_metrics(
+            db_path=db_path,
+            eval_artifacts_dir=ea_dir,
+        )
+
+        q = snapshot.review_queue
+        assert q.get("queue_depth") == 2, f"Expected queue_depth=2, got {q}"
+        assert q.get("by_status", {}).get("pending") == 2
+
+    def test_review_queue_empty_when_no_table(self, tmp_path):
+        """collect_ris_metrics handles missing pending_review table gracefully."""
+        from packages.research.metrics import collect_ris_metrics
+        import sqlite3
+
+        # DB without pending_review table
+        db_path = tmp_path / "knowledge.sqlite3"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("CREATE TABLE source_documents (id TEXT PRIMARY KEY, source_family TEXT)")
+        conn.execute("CREATE TABLE derived_claims (id TEXT PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        ea_dir = self._write_eval_artifacts(tmp_path, [])
+        snapshot = collect_ris_metrics(db_path=db_path, eval_artifacts_dir=ea_dir)
+
+        # Should be empty dict or have queue_depth=0, not raise
+        q = snapshot.review_queue
+        assert isinstance(q, dict)
+        assert q.get("queue_depth", 0) == 0
+
+    def test_disposition_distribution(self, tmp_path):
+        """collect_ris_metrics returns disposition_distribution with ACCEPT/REVIEW/REJECT/BLOCKED counts."""
+        from packages.research.metrics import collect_ris_metrics
+
+        artifacts = [
+            self._make_eval_artifact(gate="ACCEPT"),
+            self._make_eval_artifact(gate="ACCEPT"),
+            self._make_eval_artifact(gate="REVIEW"),
+            self._make_eval_artifact(gate="REJECT", scores={}),
+            self._make_eval_artifact(gate="REJECT", scores={"reject_reason": "scorer_failure"}),
+        ]
+        ea_dir = self._write_eval_artifacts(tmp_path, artifacts)
+        db_path = self._make_pending_review_db(tmp_path, [])
+
+        snapshot = collect_ris_metrics(db_path=db_path, eval_artifacts_dir=ea_dir)
+
+        d = snapshot.disposition_distribution
+        assert d.get("ACCEPT") == 2
+        assert d.get("REVIEW") == 1
+        assert d.get("REJECT") == 1
+        assert d.get("BLOCKED") == 1
+
+    def test_routing_summary(self, tmp_path):
+        """collect_ris_metrics returns routing_summary with escalation/fallback/direct counts."""
+        from packages.research.metrics import collect_ris_metrics
+
+        artifacts = [
+            self._make_eval_artifact(escalated=False, used_fallback=False),  # direct
+            self._make_eval_artifact(escalated=True, used_fallback=False),   # escalated
+            self._make_eval_artifact(escalated=True, used_fallback=False),   # escalated
+            self._make_eval_artifact(escalated=False, used_fallback=True),   # fallback
+        ]
+        ea_dir = self._write_eval_artifacts(tmp_path, artifacts)
+        db_path = self._make_pending_review_db(tmp_path, [])
+
+        snapshot = collect_ris_metrics(db_path=db_path, eval_artifacts_dir=ea_dir)
+
+        rs = snapshot.routing_summary
+        assert rs.get("escalation_count") == 2
+        assert rs.get("fallback_count") == 1
+        assert rs.get("direct_count") == 1
+        assert rs.get("total_routed") == 4
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Extended health check tests
+# ---------------------------------------------------------------------------
+
+class TestHealthChecksPhase2:
+    """Tests for the new Phase 2 health checks."""
+
+    def test_model_unavailable_green_no_failures(self):
+        """_check_model_unavailable with empty failure dict returns GREEN."""
+        from packages.research.monitoring.health_checks import _check_model_unavailable
+
+        result = _check_model_unavailable({})
+        assert result.status == "GREEN"
+        assert result.data.get("deferred") is not True
+        assert "No provider failures" in result.message
+
+    def test_model_unavailable_yellow_some_failures(self):
+        """_check_model_unavailable with one provider >3 failures returns YELLOW."""
+        from packages.research.monitoring.health_checks import _check_model_unavailable
+
+        result = _check_model_unavailable({"provider_unavailable": 4})
+        assert result.status == "YELLOW"
+
+    def test_model_unavailable_red_all_providers_failing(self):
+        """_check_model_unavailable when all configured providers have failures returns RED."""
+        from packages.research.monitoring.health_checks import _check_model_unavailable
+
+        routing_config = {"primary_provider": "gemini", "escalation_provider": "deepseek", "fallback_provider": "ollama"}
+        failure_counts = {"gemini": 5, "deepseek": 2, "ollama": 1}
+        result = _check_model_unavailable(failure_counts, routing_config=routing_config)
+        assert result.status == "RED"
+
+    def test_model_unavailable_yellow_partial_providers_failing(self):
+        """When only some providers have failures (not all), returns YELLOW not RED."""
+        from packages.research.monitoring.health_checks import _check_model_unavailable
+
+        routing_config = {"primary_provider": "gemini", "escalation_provider": "deepseek", "fallback_provider": "ollama"}
+        failure_counts = {"gemini": 5}  # only primary failing
+        result = _check_model_unavailable(failure_counts, routing_config=routing_config)
+        assert result.status == "YELLOW"
+        assert result.status != "RED"
+
+    def test_review_queue_backlog_green_small(self):
+        """_check_review_queue_backlog with depth<=20 returns GREEN."""
+        from packages.research.monitoring.health_checks import _check_review_queue_backlog
+
+        result = _check_review_queue_backlog({"queue_depth": 5, "by_status": {"pending": 5}})
+        assert result.status == "GREEN"
+
+    def test_review_queue_backlog_yellow_medium(self):
+        """_check_review_queue_backlog with depth>20 returns YELLOW."""
+        from packages.research.monitoring.health_checks import _check_review_queue_backlog
+
+        result = _check_review_queue_backlog({"queue_depth": 25, "by_status": {"pending": 25}})
+        assert result.status == "YELLOW"
+
+    def test_review_queue_backlog_red_critical(self):
+        """_check_review_queue_backlog with depth>50 returns RED."""
+        from packages.research.monitoring.health_checks import _check_review_queue_backlog
+
+        result = _check_review_queue_backlog({"queue_depth": 55, "by_status": {"pending": 55}})
+        assert result.status == "RED"
+
+    def test_review_queue_backlog_green_empty_dict(self):
+        """_check_review_queue_backlog with empty dict returns GREEN."""
+        from packages.research.monitoring.health_checks import _check_review_queue_backlog
+
+        result = _check_review_queue_backlog({})
+        assert result.status == "GREEN"
+        assert "No review queue data" in result.message
+
+    def test_evaluate_health_passes_provider_failures_to_model_unavailable(self):
+        """evaluate_health propagates provider_failure_counts to model_unavailable check."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        # >3 failures -> YELLOW
+        results = {r.check_name: r for r in evaluate_health(
+            [], provider_failure_counts={"provider_unavailable": 5}
+        )}
+        assert results["model_unavailable"].status == "YELLOW"
+
+    def test_evaluate_health_passes_review_queue_to_backlog_check(self):
+        """evaluate_health propagates review_queue to review_queue_backlog check."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        # depth=30 -> YELLOW
+        results = {r.check_name: r for r in evaluate_health(
+            [], review_queue={"queue_depth": 30}
+        )}
+        assert results["review_queue_backlog"].status == "YELLOW"
+
+    def test_evaluate_health_seven_results(self):
+        """evaluate_health returns exactly 7 results."""
+        from packages.research.monitoring.health_checks import evaluate_health
+
+        results = evaluate_health([])
+        assert len(results) == 7
