@@ -1,5 +1,5 @@
 {
-  "name": "RIS \u2014 Research Intelligence System",
+  "name": "RIS — Research Intelligence System",
   "nodes": [
     {
       "id": "s1-sticky",
@@ -11,7 +11,7 @@
         0
       ],
       "parameters": {
-        "content": "## Section 1: Health Monitor -- Every 30 minutes\nChecks pipeline health. Discord alert only when RED/CRITICAL detected. Silent when healthy.",
+        "content": "## Section 1: Health Monitor -- Every 30 minutes\nChecks RIS health. Sends one compact operator alert only for RED or actionable YELLOW states.",
         "height": 50,
         "width": 1750
       }
@@ -58,7 +58,7 @@
         80
       ],
       "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-health 2>&1"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-health --json"
       },
       "continueOnFail": true
     },
@@ -72,7 +72,7 @@
         80
       ],
       "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary 2>&1"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary --json"
       },
       "continueOnFail": true
     },
@@ -86,12 +86,12 @@
         80
       ],
       "parameters": {
-        "jsCode": "const healthOut = ($('Health: Run research-health').item.json.stdout || '').toString();\nconst statsOut = ($('Health: Run research-stats').item.json.stdout || '').toString();\nconst healthExit = $('Health: Run research-health').item.json.exitCode || 0;\nconst statsExit = $('Health: Run research-stats').item.json.exitCode || 0;\nconst hasRed = healthOut.toLowerCase().includes('red') || healthOut.toLowerCase().includes('critical') || healthOut.toLowerCase().includes('fail') || healthOut.toLowerCase().includes('pipeline_failed') || healthOut.toLowerCase().includes('error') || healthExit !== 0 || statsExit !== 0;\nreturn [{ json: { hasRed, healthOutput: healthOut.substring(0,1200), statsOutput: statsOut.substring(0,800), timestamp: new Date().toISOString(), healthExitCode: healthExit, statsExitCode: statsExit } }];"
+        "jsCode": "function safeParse(raw) {\n  if (!raw) {\n    return null;\n  }\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    return { __parseError: error.message };\n  }\n}\n\nconst healthExec = $('Health: Run research-health').item.json || {};\nconst statsExec = $('Health: Run research-stats').item.json || {};\nconst healthStdout = (healthExec.stdout || '').toString().trim();\nconst statsStdout = (statsExec.stdout || '').toString().trim();\nconst healthData = safeParse(healthStdout);\nconst statsData = safeParse(statsStdout);\nconst healthExitCode = Number(healthExec.exitCode || 0);\nconst statsExitCode = Number(statsExec.exitCode || 0);\nconst actionableChecks = [];\n\nif (healthData && Array.isArray(healthData.checks)) {\n  for (const check of healthData.checks) {\n    const status = (check.status || '').toUpperCase();\n    const deferred = Boolean(check.data && check.data.deferred);\n    if (status === 'RED' || (status === 'YELLOW' && !deferred)) {\n      actionableChecks.push({\n        checkName: check.check_name,\n        status,\n        message: (check.message || '').replace(/\\s+/g, ' ').trim(),\n      });\n    }\n  }\n}\n\nif (healthData && healthData.__parseError) {\n  actionableChecks.push({\n    checkName: 'health_parse',\n    status: 'RED',\n    message: `Unable to parse research-health JSON: ${healthData.__parseError}`,\n  });\n}\n\nif (statsData && statsData.__parseError) {\n  actionableChecks.push({\n    checkName: 'stats_parse',\n    status: 'RED',\n    message: `Unable to parse research-stats JSON: ${statsData.__parseError}`,\n  });\n}\n\nconst derivedStatus = healthExitCode !== 0 || statsExitCode !== 0 || actionableChecks.some((check) => check.status === 'RED')\n  ? 'RED'\n  : actionableChecks.length > 0\n    ? 'YELLOW'\n    : (healthData && healthData.summary) || 'GREEN';\n\nconst statsHeadline = statsData && !statsData.__parseError\n  ? {\n      totalDocs: Number(statsData.total_docs || 0),\n      totalClaims: Number(statsData.total_claims || 0),\n      acquisitionNew: Number(statsData.acquisition_new || 0),\n      acquisitionCached: Number(statsData.acquisition_cached || 0),\n      acquisitionErrors: Number(statsData.acquisition_errors || 0),\n      docsByFamily: statsData.docs_by_family || {},\n    }\n  : null;\n\nreturn [{\n  json: {\n    shouldAlert: derivedStatus === 'RED' || actionableChecks.length > 0,\n    overallStatus: derivedStatus,\n    runCount: Number((healthData && healthData.run_count) || 0),\n    actionableChecks,\n    statsHeadline,\n    healthExitCode,\n    statsExitCode,\n    healthStdout: healthStdout.substring(0, 1200),\n    statsStdout: statsStdout.substring(0, 800),\n    healthStderr: (healthExec.stderr || '').toString().substring(0, 500),\n    statsStderr: (statsExec.stderr || '').toString().substring(0, 500),\n    timestamp: new Date().toISOString(),\n  },\n}];"
       }
     },
     {
       "id": "s1-if-red",
-      "name": "Health: RED?",
+      "name": "Health: Alert Needed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
@@ -107,8 +107,8 @@
           },
           "conditions": [
             {
-              "id": "s1-red-check",
-              "leftValue": "={{ $json.hasRed }}",
+              "id": "s1-alert-check",
+              "leftValue": "={{ $json.shouldAlert }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -130,26 +130,8 @@
         20
       ],
       "parameters": {
-        "jsCode": "const d = $('Health: Parse Output').item.json;\nconst content = `**RIS Health Alert**\\n\\nHealth exit: ${d.healthExitCode} | Stats exit: ${d.statsExitCode}\\n\\n**Health Output:**\\n\\`\\`\\`\\n${d.healthOutput}\\n\\`\\`\\`\\n\\n**Stats:**\\n\\`\\`\\`\\n${d.statsOutput}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const data = $('Health: Parse Output').item.json;\nconst stats = data.statsHeadline || {};\nconst families = Object.entries(stats.docsByFamily || {})\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 3)\n  .map(([family, count]) => `${family}=${count}`)\n  .join(', ');\nconst lines = [\n  `RIS health ${data.overallStatus} | runs=${data.runCount} | docs=${stats.totalDocs ?? 'n/a'} | claims=${stats.totalClaims ?? 'n/a'} | new=${stats.acquisitionNew ?? 'n/a'} | cached=${stats.acquisitionCached ?? 'n/a'} | ingest_errors=${stats.acquisitionErrors ?? 'n/a'}`,\n];\nfor (const check of data.actionableChecks.slice(0, 3)) {\n  lines.push(`- ${check.status} ${check.checkName}: ${check.message}`);\n}\nif (data.actionableChecks.length > 3) {\n  lines.push(`- +${data.actionableChecks.length - 3} more actionable check(s)`);\n}\nif (families) {\n  lines.push(`families: ${families}`);\n}\nif (data.healthExitCode !== 0 || data.statsExitCode !== 0) {\n  lines.push(`command_exit: health=${data.healthExitCode}, stats=${data.statsExitCode}`);\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content: lines.join('\\n'), webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s1-discord",
-      "name": "Health: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1950,
-        20
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s1-ok",
@@ -308,26 +290,8 @@
         570
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: academic_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: academic_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s2-discord",
-      "name": "Academic: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        570
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s3-sticky",
@@ -475,26 +439,8 @@
         920
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: reddit_polymarket**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: reddit_polymarket**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s3-discord",
-      "name": "Reddit: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        920
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s4-sticky",
@@ -642,26 +588,8 @@
         1270
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: blog_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: blog_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s4-discord",
-      "name": "Blog: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        1270
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s5-sticky",
@@ -809,26 +737,8 @@
         1620
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: youtube_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: youtube_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s5-discord",
-      "name": "YouTube: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        1620
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s6-sticky",
@@ -976,26 +886,8 @@
         1970
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: github_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: github_ingest**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s6-discord",
-      "name": "GitHub: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        1970
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s7-sticky",
@@ -1143,30 +1035,12 @@
         2320
       ],
       "parameters": {
-        "jsCode": "const execNode = $json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst stdout = (execNode.stdout || '');\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: freshness_refresh**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(stdout.length - 500)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderr = (execNode.stderr || '').toString().substring(0, 1500);\nconst stdout = (execNode.stdout || '').toString();\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Pipeline Error: freshness_refresh**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\`\\n\\n**stdout (last 500):**\\n\\`\\`\\`\\n${stdout.substring(Math.max(0, stdout.length - 500))}\\n\\`\\`\\``;\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content, webhookUrl, notifyEnabled } }];"
       }
     },
     {
-      "id": "s7-discord",
-      "name": "Freshness: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        2320
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
-    },
-    {
       "id": "s8-sticky",
-      "name": "S8: Digest - Label",
+      "name": "S8: Summary - Label",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -1174,14 +1048,14 @@
         2450
       ],
       "parameters": {
-        "content": "## Section 8: Weekly Digest -- Sunday 08:00 UTC\nGenerates report + stats, sends to Discord.",
+        "content": "## Section 8: Daily Summary -- 08:00 UTC (disabled by default)\nRuns RIS health + stats, then sends one compact operator summary when a webhook is configured.",
         "height": 50,
         "width": 1750
       }
     },
     {
       "id": "s8-schedule",
-      "name": "Digest: Schedule",
+      "name": "Summary: Schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
       "position": [
@@ -1193,7 +1067,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 0 8 * * 0"
+              "expression": "0 0 8 * * *"
             }
           ]
         }
@@ -1202,7 +1076,7 @@
     },
     {
       "id": "s8-manual",
-      "name": "Digest: Manual",
+      "name": "Summary: Manual",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
@@ -1213,7 +1087,7 @@
     },
     {
       "id": "s8-run-report",
-      "name": "Digest: Run Report",
+      "name": "Summary: Run research-health",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
@@ -1221,13 +1095,13 @@
         2590
       ],
       "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-report digest --window 7 2>&1"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-health --json"
       },
       "continueOnFail": true
     },
     {
       "id": "s8-if",
-      "name": "Digest: Report OK?",
+      "name": "Summary: Health OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
@@ -1243,7 +1117,7 @@
           },
           "conditions": [
             {
-              "id": "s8-exit-check",
+              "id": "s8-health-exit-check",
               "leftValue": "={{ $json.exitCode }}",
               "rightValue": 0,
               "operator": {
@@ -1258,7 +1132,7 @@
     },
     {
       "id": "s8-run-stats",
-      "name": "Digest: Run Stats",
+      "name": "Summary: Run research-stats",
       "type": "n8n-nodes-base.executeCommand",
       "typeVersion": 1,
       "position": [
@@ -1266,13 +1140,13 @@
         2510
       ],
       "parameters": {
-        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary 2>&1"
+        "command": "docker exec polytool-ris-scheduler python -m polytool research-stats summary --json"
       },
       "continueOnFail": true
     },
     {
       "id": "s8-parse",
-      "name": "Digest: Parse",
+      "name": "Summary: Format Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -1280,30 +1154,12 @@
         2510
       ],
       "parameters": {
-        "jsCode": "const report = ($('Digest: Run Report').item.json.stdout || '').toString();\nconst stats = ($json.stdout || '').toString();\nconst content = `**RIS Weekly Research Digest**\\n\\n**Report:**\\n\\`\\`\\`\\n${report.substring(0,1200)}\\n\\`\\`\\`\\n\\n**Stats:**\\n\\`\\`\\`\\n${stats.substring(0,400)}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "function safeParse(raw) {\n  if (!raw) {\n    return null;\n  }\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    return { __parseError: error.message };\n  }\n}\n\nconst healthExec = $('Summary: Run research-health').item.json || {};\nconst statsExec = $('Summary: Run research-stats').item.json || {};\nconst healthStdout = (healthExec.stdout || '').toString().trim();\nconst statsStdout = (statsExec.stdout || '').toString().trim();\nconst healthData = safeParse(healthStdout);\nconst statsData = safeParse(statsStdout);\nconst healthChecks = Array.isArray(healthData && healthData.checks) ? healthData.checks : [];\nconst actionableChecks = healthChecks.filter((check) => {\n  const status = (check.status || '').toUpperCase();\n  const deferred = Boolean(check.data && check.data.deferred);\n  return status === 'RED' || (status === 'YELLOW' && !deferred);\n});\nconst topChecks = actionableChecks.slice(0, 2).map((check) => `${check.check_name}=${check.status}`);\nconst topFamilies = Object.entries((statsData && statsData.docs_by_family) || {})\n  .sort((a, b) => b[1] - a[1])\n  .slice(0, 3)\n  .map(([family, count]) => `${family}=${count}`)\n  .join(', ');\nconst lines = [];\n\nif (Number(statsExec.exitCode || 0) !== 0) {\n  lines.push(`RIS daily summary error | health=${(healthData && healthData.summary) || 'unknown'} | stats_exit=${statsExec.exitCode || 0}`);\n  if (statsExec.stderr) {\n    lines.push(`stats_stderr: ${(statsExec.stderr || '').toString().replace(/\\s+/g, ' ').trim().substring(0, 300)}`);\n  }\n} else if (statsData && statsData.__parseError) {\n  lines.push(`RIS daily summary error | stats_parse=${statsData.__parseError}`);\n} else {\n  lines.push(`RIS daily summary | health=${(healthData && healthData.summary) || 'unknown'} | runs=${(healthData && healthData.run_count) || 0} | docs=${statsData.total_docs || 0} | claims=${statsData.total_claims || 0} | new=${statsData.acquisition_new || 0} | cached=${statsData.acquisition_cached || 0} | ingest_errors=${statsData.acquisition_errors || 0}`);\n  if (topChecks.length) {\n    lines.push(`actionable: ${topChecks.join(', ')}`);\n  }\n  if (topFamilies) {\n    lines.push(`families: ${topFamilies}`);\n  }\n  const prechecks = statsData.precheck_decisions || {};\n  lines.push(`prechecks: GO=${prechecks.GO || 0}, CAUTION=${prechecks.CAUTION || 0}, STOP=${prechecks.STOP || 0}`);\n}\n\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content: lines.join('\\n'), webhookUrl, notifyEnabled } }];"
       }
     },
     {
-      "id": "s8-discord",
-      "name": "Digest: Discord Report",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1750,
-        2510
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
-    },
-    {
       "id": "s8-format-err",
-      "name": "Digest: Format Error",
+      "name": "Summary: Format Error",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -1311,26 +1167,8 @@
         2670
       ],
       "parameters": {
-        "jsCode": "const execNode = $('Digest: Run Report').item.json;\nconst stderr = (execNode.stderr || '').substring(0, 1500);\nconst exitCode = execNode.exitCode;\nconst content = `**RIS Digest Error**\\n\\nExit code: ${exitCode}\\n\\n**stderr:**\\n\\`\\`\\`\\n${stderr}\\n\\`\\`\\``;\nreturn [{ json: { content } }];"
+        "jsCode": "const execNode = $('Summary: Run research-health').item.json || {};\nconst stderr = (execNode.stderr || '').toString().replace(/\\s+/g, ' ').trim().substring(0, 500);\nconst exitCode = Number(execNode.exitCode || 0);\nconst lines = [\n  `RIS daily summary error | health_exit=${exitCode}`,\n];\nif (stderr) {\n  lines.push(`health_stderr: ${stderr}`);\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { content: lines.join('\\n'), webhookUrl, notifyEnabled } }];"
       }
-    },
-    {
-      "id": "s8-discord-err",
-      "name": "Digest: Alert Discord",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1450,
-        2670
-      ],
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
-      },
-      "continueOnFail": true
     },
     {
       "id": "s9-sticky",
@@ -1445,7 +1283,7 @@
         3000
       ],
       "parameters": {
-        "jsCode": "const webhook = $('Ingest: Webhook').item.json;\nconst exec = $json;\nreturn [{ json: { status: 'failed', url: (webhook.body || {}).url, error: (exec.stderr || exec.stdout || 'Unknown error').substring(0,500), exitCode: exec.exitCode, timestamp: new Date().toISOString() } }];"
+        "jsCode": "const webhook = $('Ingest: Webhook').item.json || {};\nconst exec = $json || {};\nconst body = webhook.body || {};\nconst errorText = (exec.stderr || exec.stdout || 'Unknown error').toString().replace(/\\s+/g, ' ').trim();\nconst statusPayload = {\n  status: 'failed',\n  url: body.url,\n  source_family: body.source_family,\n  error: errorText.substring(0, 500),\n  exitCode: exec.exitCode,\n  timestamp: new Date().toISOString(),\n};\nconst lines = [\n  `RIS ingest failed | family=${statusPayload.source_family || 'unknown'} | exit=${statusPayload.exitCode ?? 'n/a'}`,\n  `url: ${statusPayload.url || 'n/a'}`,\n  `error: ${statusPayload.error}`,\n];\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { ...statusPayload, content: lines.join('\\n'), webhookUrl, notifyEnabled } }];"
       }
     },
     {
@@ -1462,6 +1300,66 @@
         "responseBody": "={{ JSON.stringify($json) }}",
         "responseCode": 500
       }
+    },
+    {
+      "id": "operator-notify-if",
+      "name": "Operator: Notify Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        1180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "operator-notify-enabled",
+              "leftValue": "={{ $json.notifyEnabled }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "operator-notify-send",
+      "name": "Operator: Send Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2250,
+        1120
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhookUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ content: $json.content }) }}"
+      }
+    },
+    {
+      "id": "operator-notify-skip",
+      "name": "Operator: Notification Skipped",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2250,
+        1260
+      ],
+      "parameters": {}
     }
   ],
   "connections": {
@@ -1513,25 +1411,7 @@
       "main": [
         [
           {
-            "node": "Health: RED?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Health: RED?": {
-      "main": [
-        [
-          {
-            "node": "Health: Format Alert",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Health: OK",
+            "node": "Health: Alert Needed?",
             "type": "main",
             "index": 0
           }
@@ -1542,7 +1422,7 @@
       "main": [
         [
           {
-            "node": "Health: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1615,7 +1495,7 @@
       "main": [
         [
           {
-            "node": "Academic: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1688,7 +1568,7 @@
       "main": [
         [
           {
-            "node": "Reddit: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1761,7 +1641,7 @@
       "main": [
         [
           {
-            "node": "Blog: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1834,7 +1714,7 @@
       "main": [
         [
           {
-            "node": "YouTube: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1907,7 +1787,7 @@
       "main": [
         [
           {
-            "node": "GitHub: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -1980,91 +1860,7 @@
       "main": [
         [
           {
-            "node": "Freshness: Alert Discord",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Schedule": {
-      "main": [
-        [
-          {
-            "node": "Digest: Run Report",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Manual": {
-      "main": [
-        [
-          {
-            "node": "Digest: Run Report",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Run Report": {
-      "main": [
-        [
-          {
-            "node": "Digest: Report OK?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Report OK?": {
-      "main": [
-        [
-          {
-            "node": "Digest: Run Stats",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Digest: Format Error",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Run Stats": {
-      "main": [
-        [
-          {
-            "node": "Digest: Parse",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Parse": {
-      "main": [
-        [
-          {
-            "node": "Digest: Discord Report",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Digest: Format Error": {
-      "main": [
-        [
-          {
-            "node": "Digest: Alert Discord",
+            "node": "Operator: Notify Enabled?",
             "type": "main",
             "index": 0
           }
@@ -2127,6 +1923,131 @@
         [
           {
             "node": "Ingest: Respond 500",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Operator: Notify Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Schedule": {
+      "main": [
+        [
+          {
+            "node": "Summary: Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Manual": {
+      "main": [
+        [
+          {
+            "node": "Summary: Run research-health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Run research-health": {
+      "main": [
+        [
+          {
+            "node": "Summary: Health OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Health OK?": {
+      "main": [
+        [
+          {
+            "node": "Summary: Run research-stats",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summary: Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Run research-stats": {
+      "main": [
+        [
+          {
+            "node": "Summary: Format Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Format Message": {
+      "main": [
+        [
+          {
+            "node": "Operator: Notify Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary: Format Error": {
+      "main": [
+        [
+          {
+            "node": "Operator: Notify Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health: Alert Needed?": {
+      "main": [
+        [
+          {
+            "node": "Health: Format Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health: OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Operator: Notify Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Operator: Send Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Operator: Notification Skipped",
             "type": "main",
             "index": 0
           }
