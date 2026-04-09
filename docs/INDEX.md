@@ -39,6 +39,10 @@ Quick-reference index of all key docs and what they cover.
 | [Local RAG Workflow](LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes (`rag-refresh` = one-command rebuild) |
 | [LLM Bundle Workflow](LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |
 | [Research Sources](RESEARCH_SOURCES.md) | Curated source domains, allowlist, TTL, cache-source usage |
+| [RIS Operator Guide](RIS_OPERATOR_GUIDE.md) | Full RIS operator guide: research loop, pipeline health, n8n pilot, MCP setup |
+| [RIS + n8n Operator SOP](runbooks/RIS_N8N_OPERATOR_SOP.md) | Quick-reference cheat sheet: startup, import, health, ingest, monitoring |
+| [RIS Discord Alerts](runbooks/RIS_DISCORD_ALERTS.md) | Discord alert format reference, severity meaning, verification procedure |
+| [RIS n8n Smoke Test](runbooks/RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook for n8n workflow changes |
 
 ## Standards & Conventions
 
@@ -101,6 +105,13 @@ Quick-reference index of all key docs and what they cover.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Discord Embed Final Polish](dev_logs/2026-04-09_discord_embed_final_polish.md) | 2026-04-09 | Eliminated n/a and none placeholders, conditional fields, shortened footers, severity markers |
+| [Discord Alert Layout Refinement](dev_logs/2026-04-09_discord_alert_layout_refinement.md) | 2026-04-09 | Converted all 10 Discord notification nodes from plain-text to structured embed format |
+| [Discord Alert Integration Debug](dev_logs/2026-04-09_discord_alert_integration_debug.md) | 2026-04-09 | Debug session for Discord alert delivery via n8n: EAI_AGAIN, webhook URL injection, Send Webhook node fix |
+| [Docs and Ops Final Reconcile](dev_logs/2026-04-09_docs_and_ops_final_reconcile.md) | 2026-04-09 | Index and state doc reconcile for shipped RIS Phase 2 + Discord embeds + operator runbooks |
+| [RIS Phase 2 Cloud Provider Routing](dev_logs/2026-04-08_ris_phase2_cloud_provider_routing.md) | 2026-04-08 | Gemini + DeepSeek HTTP clients, routed evaluation chain, fail-closed on malformed JSON |
+| [RIS Phase 2 Ingest/Review Integration](dev_logs/2026-04-08_ris_phase2_ingest_review_integration.md) | 2026-04-08 | Pipeline dispositions, research-review CLI, pending_review tables |
+| [Unified n8n Alerts and Summary](dev_logs/2026-04-08_unified_n8n_alerts_and_summary.md) | 2026-04-08 | Unified n8n workflow consolidation: 9 sections on one canvas, operator notify path |
 | [Phase 1 Track A Docs Truth Sync](dev_logs/2026-03-10_phase1_tracka_docs_truth_sync.md) | 2026-03-10 | Docs-only truth sync: status date, Gate 2 tooling inventory, corpus state, INDEX gaps all corrected |
 | [Session Pack Target-Regime Fix](dev_logs/2026-03-10_session_pack_target_regime_fix.md) | 2026-03-10 | Fixed: UNKNOWN-regime markets no longer falsely claim to advance named-regime coverage via session-level `--regime` operator fallback |
 | [Phase 1 Track A Contract Exercise](dev_logs/2026-03-10_phase1_tracka_contract_exercise.md) | 2026-03-10 | Offline contract exercise: full ranked-JSON → session pack → watcher loader chain verified; corpus confirmed 0 eligible tapes, sports coverage only |
