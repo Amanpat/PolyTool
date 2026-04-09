@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-09 - Completed quick task 260409-o3d: Sync Obsidian vault to current shipped Phase 2 RIS and n8n truth
+Last activity: 2026-04-09 - Completed quick task 260409-qez: Wallet Discovery v1 scan-side — MVF module (11 dimensions, pure stdlib) + --quick flag on scan CLI with zero-LLM guarantee; 52 TDD tests (AT-06/AT-07); commits e2d0ac7 + 4282efc
 
 ## Recent Progress
 - quick-260409-khd: n8n workflow location migration — moved ris-unified-dev.json, ris-health-webhook.json, workflow_ids.env from workflows/n8n/ to infra/n8n/workflows/ (byte-identical, MD5 verified); deleted 18 legacy JSON files (11 pilot templates + 7 multi-workflow rebuild artifacts); replaced workflows/n8n/ with stub README; updated WORKFLOW_DIR in import_workflows.py, orphan check in smoke_ris_n8n.py, and all operator docs (infra/n8n/README.md, docs/RIS_OPERATOR_GUIDE.md, CURRENT_STATE.md, ADR-0013, RIS_N8N_SMOKE_TEST.md); dev log created; commits f888d41 + 950d31f
