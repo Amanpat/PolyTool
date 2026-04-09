@@ -1643,3 +1643,41 @@ See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
 - Phase 2 benchmark suite: `docs/eval/ris_retrieval_benchmark.jsonl` (9 cases).
 - 35 tests passing in rag_eval suite.
 - See `docs/dev_logs/2026-04-08_ris_phase2_retrieval_benchmark_truth.md`.
+
+## Discord Alert Embed Conversion (quick-260409-*, 2026-04-09)
+
+- All 10 Discord notification format nodes in `ris-unified-dev.json` converted from plain-text `content` payloads to structured Discord embed format.
+- Sender node updated to post `{ embeds: $json.embeds }` instead of `{ content: $json.content }`.
+- Color-coded severity: RED (errors, failures, RED health), YELLOW (warnings), GREEN (healthy summary).
+- Inline fields for numeric metrics (Runs, Docs, New, Cached, Errors); full-width for text content.
+- Reference: `docs/dev_logs/2026-04-09_discord_alert_layout_refinement.md`.
+
+## Discord Embed Final Polish (quick-260409-*, 2026-04-09)
+
+- Eliminated `n/a` and `none` placeholders -- fields omitted entirely when underlying value is absent.
+- Conditional fields: stat/output fields use truthiness guards before pushing to `fields` array.
+- Severity in titles: `Ingest Failed: {Family}`, `Pipeline Error: {Section}` (display names), `RIS Health: {STATUS}`.
+- Shortened footers: dropped `ris-unified-dev` from all footers (e.g. `RIS | health`, `RIS | ingest`).
+- URL truncation: long URLs in ingest failures truncated to `domain/...last20chars`.
+- Problem-first descriptions: health alerts state the problem, not repeat stats.
+- `[RED]`/`[YLW]` severity markers in Actionable Checks for mobile scannability.
+- Verified via live ingest failure curl test + JSON validity + grep checks for n/a/none/ris-unified-dev.
+- Reference: `docs/dev_logs/2026-04-09_discord_embed_final_polish.md`.
+
+## RIS Phase 2 -- Conditional Close (2026-04-09)
+
+RIS Phase 2 is conditionally complete as of 2026-04-09. All core deliverables are shipped and operator-verified.
+
+Shipped items:
+- Cloud provider routing: Gemini primary, DeepSeek escalation, Ollama fallback.
+- Ingest/review integration: ACCEPT/REVIEW/REJECT/BLOCKED dispositions, `research-review` CLI, `pending_review` and `pending_review_history` tables.
+- Monitoring truth: provider failure detection, review queue backlog check, 5 new `RisMetricsSnapshot` fields.
+- Retrieval benchmark: query class segmentation, per-class metrics, baseline artifacts in `report.json`.
+- Discord embed alerting via n8n: structured embeds with conditional fields, severity color coding, problem-first descriptions.
+- Operator SOPs and runbooks: `docs/runbooks/RIS_N8N_OPERATOR_SOP.md`, `docs/runbooks/RIS_DISCORD_ALERTS.md`, `docs/runbooks/RIS_N8N_SMOKE_TEST.md`.
+
+Deferred items (explicit):
+- Broad n8n orchestration -- Phase 3 per ADR 0013.
+- n8n owning scheduling -- APScheduler remains the default scheduler; n8n schedule triggers are disabled in the committed workflow JSON.
+- FastAPI wrapper for RIS endpoints -- Phase 3 deliverable.
+- Autoresearch `import-results` -- Phase 4 deliverable.
