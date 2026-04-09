@@ -66,34 +66,35 @@ Each item is a `- [ ]` to track completion. Items are ordered by dependency, not
 
 ### Evaluation Gate Items (packages/research/evaluation/)
 
-- [ ] **1. Fail-closed evaluation rule** — If LLM scoring is unavailable (network error,
+- [x] **1. Fail-closed evaluation rule** — If LLM scoring is unavailable (network error,
   API quota exceeded, provider not configured), the document queues for retry and defaults
   to REJECT. Never auto-accepts on scoring failure. No silent pass-through.
   _Spec: RIS_03 Section "Fail-Closed Rule"_
 
-- [ ] **2. Weighted composite quality gate** — Replace single-score LLM output with a
+- [x] **2. Weighted composite quality gate** — Replace single-score LLM output with a
   multi-factor weighted composite: relevance=0.30, novelty=0.25, actionability=0.25,
   credibility=0.20. Per-dimension floor of 2 on relevance and credibility. Simple sum
   retained as diagnostic output only.
   _Spec: RIS_03 Section "Weighted Composite Gate"_
 
-- [ ] **3. Novelty/dedup detection** — Before injecting document into the evaluation
+- [x] **3. Novelty/dedup detection** — Before injecting document into the evaluation
   prompt, run canonical-ID deduplication (doc_id / source_url) and nearest-neighbor
   embedding similarity check. Deduplicate first; evaluate only novel content.
   _Spec: RIS_03 Section "Canonical-ID Dedup Pre-Step"_
 
-- [ ] **4. Review queue contract** — YELLOW-zone documents (score 8-12) are queued to a
+- [x] **4. Review queue contract** — YELLOW-zone documents (score 8-12) are queued to a
   `pending_review` table in the KnowledgeStore SQLite. CLI `research-review` flow allows
   operator to promote or reject queued items. 72-hour auto-promote or auto-reject policy
   applies if operator does not respond.
   _Spec: RIS_03 Section "Review Queue Contract"; RIS_04_KNOWLEDGE_STORE.md_
+  _(Caveat: queue storage + CLI complete; 72-hour auto-expiry policy not yet implemented)_
 
-- [ ] **6. Per-priority acceptance gates** — Different GREEN/YELLOW/RED thresholds apply
+- [x] **6. Per-priority acceptance gates** — Different GREEN/YELLOW/RED thresholds apply
   per source priority tier. High-priority sources (e.g., operator-submitted URLs) use
   lower rejection thresholds than low-priority automated pipeline sources.
   _Spec: RIS_03 Section "Per-Priority Acceptance Gates"_
 
-- [ ] **7. Segmented benchmark metrics** — Evaluation accuracy tracked and reported
+- [x] **7. Segmented benchmark metrics** — Evaluation accuracy tracked and reported
   separately per source type (academic, social, manual) and per priority tier. Benchmark
   metrics reported by query class: factual, analytical, exploratory.
   _Spec: RIS_03_EVALUATION_GATE.md and RIS_05_SYNTHESIS_ENGINE.md_
@@ -107,16 +108,17 @@ Each item is a `- [ ]` to track completion. Items are ordered by dependency, not
 
 ### Infrastructure / Persistence Items
 
-- [ ] **8. Env-var-primary n8n config hierarchy** — When using the n8n RIS pilot
+- [x] **8. Env-var-primary n8n config hierarchy** — When using the n8n RIS pilot
   (`--profile ris-n8n`), `process.env.RIS_*` environment variables are the primary
   source of truth for configuration. n8n Variables are optional convenience overrides
   only. Code must not require n8n Variables to be set.
   _Spec: RIS_06 Section "n8n Configuration Hierarchy"; ADR-0013_
 
-- [ ] **9. Dual-layer ClickHouse write idempotency** — ClickHouse `ris_events` and related
+- [x] **9. Dual-layer ClickHouse write idempotency** — ClickHouse `ris_events` and related
   tables use ReplacingMergeTree engine for storage-level idempotency. Code-level prefilter
   checks `execution_id` before issuing INSERT. Both layers required.
   _Spec: RIS_06 Section "ClickHouse Write Idempotency"_
+  _(N/A -- RIS uses SQLite via KnowledgeStore, not ClickHouse; no ris_events table exists; SQLite doc_id uniqueness provides storage-level idempotency)_
 
 ### Documentation Guard Rail
 
