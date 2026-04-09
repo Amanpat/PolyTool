@@ -5,7 +5,7 @@
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-09 - Completed quick task 260409-khd: migrate canonical n8n workflow JSON source to infra/n8n/workflows/
+Last activity: 2026-04-09 - Completed quick task 260409-l77: Freeze Wallet Discovery v1 as a docs-only contract
 
 ## Recent Progress
 - quick-260409-khd: n8n workflow location migration — moved ris-unified-dev.json, ris-health-webhook.json, workflow_ids.env from workflows/n8n/ to infra/n8n/workflows/ (byte-identical, MD5 verified); deleted 18 legacy JSON files (11 pilot templates + 7 multi-workflow rebuild artifacts); replaced workflows/n8n/ with stub README; updated WORKFLOW_DIR in import_workflows.py, orphan check in smoke_ris_n8n.py, and all operator docs (infra/n8n/README.md, docs/RIS_OPERATOR_GUIDE.md, CURRENT_STATE.md, ADR-0013, RIS_N8N_SMOKE_TEST.md); dev log created; commits f888d41 + 950d31f
@@ -245,3 +245,4 @@ Last activity: 2026-04-09 - Completed quick task 260409-khd: migrate canonical n
 | 260409-jfi | Reconcile repo docs for shipped Phase 2 RIS behavior: updated RIS_OPERATOR_GUIDE.md (evaluation gate section, review queue CLI, retrieval benchmark section, env vars), README.md (research-review CLI row, RIS shipped table), docs/README.md (operator guide link), CURRENT_STATE.md (4 Phase 2 shipped-truth entries); dev log created; 3810 tests passed, zero code files changed | 2026-04-09 | c64f3d9 | [260409-jfi-reconcile-repo-docs-for-shipped-phase-2-](./quick/260409-jfi-reconcile-repo-docs-for-shipped-phase-2-/) |
 | 260409-jfm | Phase 2 RIS acceptance sweep and closeout artifact | 2026-04-09 | 30dfac6 | [260409-jfm-phase-2-ris-acceptance-sweep-and-closeou](./quick/260409-jfm-phase-2-ris-acceptance-sweep-and-closeou/) |
 | 260409-khd | n8n workflow location migration — single canonical source at infra/n8n/workflows/; 18 legacy JSON files deleted; import tooling + smoke script + 5 operator docs updated | 2026-04-09 | 950d31f | [260409-khd-migrate-canonical-n8n-workflow-source-in](./quick/260409-khd-migrate-canonical-n8n-workflow-source-in/) |
+| 260409-l77 | Freeze Wallet Discovery v1 as a docs-only contract — SPEC-wallet-discovery-v1.md (3 ClickHouse table contracts, lifecycle state machine, 7 acceptance tests), feature stub, dev log; ROADMAP.md, CURRENT_STATE.md, ARCHITECTURE.md, INDEX.md truth-synced | 2026-04-09 | 5952e50 | [260409-l77-freeze-wallet-discovery-v1-as-a-docs-onl](./quick/260409-l77-freeze-wallet-discovery-v1-as-a-docs-onl/) |
