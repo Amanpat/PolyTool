@@ -1490,12 +1490,12 @@ All 3695 tests pass. Codex review: docs-only changes, skip tier.
 ## RIS n8n Pilot Roadmap Complete (quick-260404-sb4, 2026-04-05)
 
 - **RIS n8n pilot complete** (quick-260404-sb4, 2026-04-05): the current canonical
-  active workflow source is `workflows/n8n/ris-unified-dev.json`, a single unified
-  canvas with 9 RIS-only sections. Import via `bash infra/n8n/import-workflows.sh`,
-  which now reads from `workflows/n8n`. `infra/n8n/` remains the Docker/image/tooling
-  surface, and `infra/n8n/workflows/` is retained as legacy reference only. Scoped to
-  RIS ingestion only per ADR 0013 (`docs/adr/0013-ris-n8n-pilot-scoped.md`). NOT Phase
-  3 automation. Runtime smoke test still requires Docker + a running n8n container.
+  active workflow source is `infra/n8n/workflows/ris-unified-dev.json`, a single unified
+  canvas with 9 RIS-only sections. Import via `python infra/n8n/import_workflows.py`,
+  which reads from `infra/n8n/workflows/`. `workflows/n8n/` is a stub redirect only;
+  all active JSON lives in `infra/n8n/workflows/`. Scoped to RIS ingestion only per
+  ADR 0013 (`docs/adr/0013-ris-n8n-pilot-scoped.md`). NOT Phase 3 automation. Runtime
+  smoke test still requires Docker + a running n8n container.
 
 The unified workflow covers Health Monitor, Academic, Reddit, Blog/RSS, YouTube,
 GitHub, Freshness, Weekly Digest, and URL Ingestion. The scheduled/manual sections

@@ -2,7 +2,7 @@
 """Import the canonical RIS n8n workflow set via the n8n REST API.
 
 This helper is cross-platform and matches the shape of the committed
-workflow JSON files under ``workflows/n8n``.
+workflow JSON files under ``infra/n8n/workflows``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 from urllib import error, parse, request
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-WORKFLOW_DIR = ROOT_DIR / "workflows" / "n8n"
+WORKFLOW_DIR = ROOT_DIR / "infra" / "n8n" / "workflows"
 WORKFLOW_IDS_PATH = WORKFLOW_DIR / "workflow_ids.env"
 ENV_PATH = ROOT_DIR / ".env"
 CANONICAL_WORKFLOWS = [
@@ -55,7 +55,7 @@ def write_workflow_ids(ids: dict[str, str]) -> None:
     lines = [
         "# RIS n8n Workflow IDs",
         "# Updated by infra/n8n/import_workflows.py",
-        "# Canonical import file: workflows/n8n/ris-unified-dev.json",
+        "# Canonical import file: infra/n8n/workflows/ris-unified-dev.json",
         "",
     ]
     for key, value in sorted(ids.items()):

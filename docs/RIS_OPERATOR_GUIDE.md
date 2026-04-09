@@ -660,10 +660,10 @@ docker compose stop ris-scheduler
    ```bash
    python infra/n8n/import_workflows.py
    ```
-   This imports `workflows/n8n/ris-unified-dev.json` plus
-   `workflows/n8n/ris-health-webhook.json`, updates `workflows/n8n/workflow_ids.env`,
-   and activates both workflows. `infra/n8n/workflows/` is legacy/reference-only and is
-   not the default import target.
+   The importer reads `infra/n8n/workflows/ris-unified-dev.json` and
+   `infra/n8n/workflows/ris-health-webhook.json`, imports both via the n8n REST API,
+   updates `infra/n8n/workflows/workflow_ids.env`, and activates both workflows.
+   Requires `N8N_API_KEY` in `.env` or the shell environment.
 
 6. Log in to http://localhost:5678 with your admin credentials.
 
@@ -717,7 +717,7 @@ curl -X POST "http://localhost:5678/webhook/ris-ingest" \
 
 ### Unified Workflow Sections
 
-The canonical file `workflows/n8n/ris-unified-dev.json` contains one unified workflow
+The canonical file `infra/n8n/workflows/ris-unified-dev.json` contains one unified workflow
 with 9 sections on one canvas. The scheduled/manual sections still call the same RIS
 CLI surfaces as APScheduler.
 
@@ -733,8 +733,8 @@ CLI surfaces as APScheduler.
 | Weekly Digest | Manual + Schedule | `research-report digest --window 7` + `research-stats summary` | Sundays 08:00 UTC |
 | URL Ingestion | Webhook | `research-acquire --url ... --source-family ...` | POST `/webhook/ris-ingest` |
 
-Historical multi-file JSONs in `workflows/n8n/*.json` and `infra/n8n/workflows/*.json`
-are reference-only and are not imported by default.
+Historical multi-file JSONs have been deleted. `workflows/n8n/` contains only a stub
+README redirecting to `infra/n8n/workflows/`.
 
 **Scheduler mutual exclusion:** When n8n scheduled sections are active, stop APScheduler
 first (`docker compose stop ris-scheduler`) to avoid double-scheduling. The normal

@@ -111,9 +111,9 @@ choice in `.env`. It is informational only — no code reads this variable.
 ### Workflow sources
 
 The current canonical active workflow source is
-`workflows/n8n/ris-unified-dev.json`. It is a single unified RIS pilot workflow with
-9 sections on one canvas. `bash infra/n8n/import-workflows.sh [container_name]`
-imports that file by default.
+`infra/n8n/workflows/ris-unified-dev.json`. It is a single unified RIS pilot workflow
+with 9 sections on one canvas. `python infra/n8n/import_workflows.py`
+imports that file (and `ris-health-webhook.json`) by default.
 
 | Section | CLI command | Trigger |
 |---------|-------------|---------|
@@ -127,13 +127,10 @@ imports that file by default.
 | Weekly Digest | `research-report digest --window 7` + `research-stats summary` | Manual + schedule (Sun 08:00 UTC) |
 | URL Ingestion | `research-acquire --url ...` | Webhook (POST `/webhook/ris-ingest`) |
 
-Legacy JSONs are retained for reference only:
-
-- `workflows/n8n/*.json` from the superseded multi-workflow rebuild
-- `infra/n8n/workflows/` from the initial 11-template pilot
-
-Keep `infra/n8n/` for Docker/image/tooling only. Neither legacy location is the
-default import target.
+Legacy JSONs have been deleted from both `workflows/n8n/` and `infra/n8n/workflows/`.
+`workflows/n8n/` contains only a stub README redirecting to `infra/n8n/workflows/`.
+`infra/n8n/` holds Docker/image/tooling AND the canonical active workflow JSON under
+`infra/n8n/workflows/`.
 
 ## Consequences
 

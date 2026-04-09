@@ -30,25 +30,24 @@ docker compose --profile ris-n8n up -d n8n
 
 ## Workflow Source Layout
 
-Runtime tooling stays in `infra/n8n/`. The canonical active RIS pilot workflow source
-lives in `workflows/n8n/`.
+Runtime tooling and the canonical active RIS pilot workflow source both live in `infra/n8n/`.
+`workflows/n8n/` is a stub redirect only — no JSON files live there.
 
 | Path | Status | Notes |
 |------|--------|-------|
-| `workflows/n8n/ris-unified-dev.json` | Active canonical source | Single unified RIS pilot workflow with 9 sections on one canvas |
-| `workflows/n8n/ris-health-webhook.json` | Active canonical support workflow | Dedicated `/webhook/ris-health` smoke/operator health workflow |
-| `workflows/n8n/workflow_ids.env` | Active metadata | Tracks the currently deployed unified workflow ID |
-| Other `workflows/n8n/*.json` | Historical reference | Superseded multi-workflow rebuild artifacts; not imported by default |
-| `infra/n8n/workflows/*.json` | Legacy reference | Initial 11-template pilot set; retained for comparison only |
+| `infra/n8n/workflows/ris-unified-dev.json` | Active canonical source | Single unified RIS pilot workflow with 9 sections on one canvas |
+| `infra/n8n/workflows/ris-health-webhook.json` | Active canonical support workflow | Dedicated `/webhook/ris-health` smoke/operator health workflow |
+| `infra/n8n/workflows/workflow_ids.env` | Active metadata | Tracks the currently deployed unified workflow ID |
+| `workflows/n8n/` | Stub redirect only | No JSON files; see stub README for details |
 
 **To import the canonical active workflow into a running n8n container:**
 ```bash
 python infra/n8n/import_workflows.py
 ```
 
-The helper imports `workflows/n8n/ris-unified-dev.json` via the n8n REST API,
-updates `workflows/n8n/workflow_ids.env`, and activates the workflow.
-`infra/n8n/workflows/` is not the default import target.
+The helper imports `infra/n8n/workflows/ris-unified-dev.json` plus
+`infra/n8n/workflows/ris-health-webhook.json` via the n8n REST API, updates
+`infra/n8n/workflows/workflow_ids.env`, and activates both workflows.
 
 The committed unified workflow keeps its schedule triggers disabled by default
 so it can be safely activated for manual runs and the `/webhook/ris-ingest`

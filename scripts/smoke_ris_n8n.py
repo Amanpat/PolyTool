@@ -178,15 +178,16 @@ def validate_workflows() -> None:
                     "No '-m polytool' pattern found; skipping subcommand check",
                 )
 
-    # Orphaned v2 directory should not exist
-    if ORPHAN_DIR.exists():
+    # No JSON files should remain in the old workflows/n8n/ location
+    orphan_jsons = list(ORPHAN_DIR.glob("*.json")) if ORPHAN_DIR.exists() else []
+    if orphan_jsons:
         check(
-            "orphan-v2-removed",
+            "orphan-json-removed",
             "FAIL",
-            f"{ORPHAN_DIR} still exists -- remove this orphaned v2 directory",
+            f"{len(orphan_jsons)} JSON file(s) still in {ORPHAN_DIR}",
         )
     else:
-        check("orphan-v2-removed", "PASS", "workflows/n8n/ not present")
+        check("orphan-json-removed", "PASS", "No workflow JSON in workflows/n8n/")
 
 
 # ---------------------------------------------------------------------------
