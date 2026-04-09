@@ -1402,6 +1402,15 @@ def _emit_trust_artifacts(
             clv_interval=str(clv_runtime["clv_interval"]),
             clv_fidelity=int(clv_runtime["clv_fidelity"]),
         )
+    # Compute MVF fingerprint when --quick is active and write it to dossier.json.
+    # Lazy import: discovery module is only loaded on --quick paths.
+    if bool(config.get("quick", False)):
+        from packages.polymarket.discovery.mvf import compute_mvf, mvf_to_dict  # noqa: PLC0415
+        _mvf_result = compute_mvf(positions, proxy_wallet)
+        _mvf_dossier = _load_dossier_json(output_dir)
+        _mvf_dossier["mvf"] = mvf_to_dict(_mvf_result)
+        _write_dossier_json(output_dir, _mvf_dossier)
+
     # Build a local market-metadata map from positions that already carry metadata.
     # When backfill is enabled this lets the coverage builder fill in missing
     # market_slug/question/outcome_name from sibling records in the same dossier.
@@ -1701,6 +1710,10 @@ def apply_scan_defaults(args: argparse.Namespace, argv: list[str]) -> argparse.N
     normalized_argv = list(argv) if argv else _stage_flags_from_args(args)
     explicit_stage_requested = any(flag in normalized_argv for flag in SCAN_STAGE_FLAGS)
 
+    if bool(getattr(args, "quick", False)):
+        _apply_stage_profile(args, LITE_PIPELINE_STAGE_SET, disable_non_enabled=True)
+        return args
+
     if bool(getattr(args, "full", False)):
         _apply_stage_profile(args, FULL_PIPELINE_STAGE_SET)
         return args
@@ -1746,6 +1759,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Run a fast minimal pipeline: positions + pnl + resolutions + compute-clv.",
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        default=False,
+        help=(
+            "Fast discovery scan: no LLM calls, no expensive stages. "
+            "Produces MVF fingerprint + existing detectors + PnL data. "
+            "Hard guarantee: zero cloud LLM endpoint calls under any condition. "
+            "Equivalent to --lite stages plus MVF fingerprint written to dossier.json."
+        ),
     )
     parser.add_argument(
         "--ingest-markets",
@@ -1986,6 +2010,7 @@ def build_config(args: argparse.Namespace) -> Dict[str, Any]:
         "max_pages": max_pages,
         "bucket": bucket,
         "backfill": backfill,
+        "quick": bool(getattr(args, "quick", False)),
         "ingest_markets": ingest_markets,
         "ingest_activity": ingest_activity,
         "ingest_positions": ingest_positions,
