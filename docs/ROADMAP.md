@@ -15,7 +15,7 @@ corresponding v4.2 phase is complete.
 | Phase 1A / crypto pair bot | Fastest path to first dollar; standalone, not blocked on SimTrader gates. | Substantially built as of 2026-03-29: accumulation_engine, paper_runner, live_runner, backtest_harness, and full CLI surface shipped (quick-019 through quick-052). Strategy pivoted twice: per-leg target_bid gate (quick-046), then directional momentum from gabagool22 analysis (quick-049). Paper soak BLOCKED — no active BTC/ETH/SOL 5m/15m markets as of 2026-03-29. Live deployment BLOCKED pending full soak, oracle validation (Coinbase vs Chainlink), and EU VPS confirmation. Track 2 remains STANDALONE — does not wait for Gate 2 or Gate 3. |
 | Phase 1B / live bot | Includes Gate 2 scenario sweep, Gate 3 shadow, Stage 0 paper-live, and Stage 1 capital. | Current Track A entries only prove execution primitives and gating harness work shipped. Gate 2, Gate 3, Stage 0, and Stage 1 remain open. benchmark_v1 manifest is CLOSED (2026-03-21). |
 | Database split | DuckDB = historical Parquet reads. ClickHouse = live streaming writes. | Rule adopted and in force. ClickHouse bulk import (SPEC-0018) is off the critical path; pmxt and Jon-Becker raw files exist locally for DuckDB. |
-| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, hypothesis registry foundation, and Hypothesis Validation Loop v0 only. |
+| Phase 2 / discovery + scraper | Includes `candidate-scan`, research scraper, news/signals ingest, and automation workflows. | Track B `COMPLETE` here covers wallet-scan, alpha-distill, RAG hardening, hypothesis registry foundation, and Hypothesis Validation Loop v0 only. Wallet Discovery v1 spec frozen (2026-04-09): Loop A leaderboard discovery, ClickHouse watchlist/leaderboard/queue contracts, unified scan --quick, MVF computation. Full four-loop system (B/C/D, insider scoring, cloud LLM hypotheses, auto-promotion, n8n) remains future intent with explicit blockers listed in SPEC-wallet-discovery-v1.md. |
 | Phase 3+ / Studio rebuild | Calls for a new unified Next.js Studio in later phases. | Current UI-related items in this file describe the existing operator surfaces. No custom frontend before profit. |
 
 ---
@@ -512,6 +512,21 @@ breakdown and lifecycle panels.
 tests cover edge cases.
 
 **Kill condition**: Test suite is comprehensive enough for current codebase size.
+
+---
+
+### Wallet Discovery v1 [SPEC FROZEN]
+
+- [ ] Loop A: leaderboard fetcher + churn detection + scan queue
+- [ ] ClickHouse tables: watchlist, leaderboard_snapshots, scan_queue
+- [ ] Unified `polytool scan <address>` with `--quick` (no-LLM guarantee)
+- [ ] MVF computation (11-dim, Python math only)
+
+**Spec**: docs/specs/SPEC-wallet-discovery-v1.md
+**Acceptance**: All 7 deterministic acceptance tests pass.
+
+**Deferred (explicit blockers in spec)**:
+- Loop B, C, D, insider scoring, cloud LLM wallet analysis, auto-promotion, n8n
 
 ---
 

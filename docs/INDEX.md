@@ -73,6 +73,7 @@ Quick-reference index of all key docs and what they cover.
 | [Scan Metadata Enrichment](features/FEATURE-scan-metadata-enrichment.md) | Optional live `--enrich` fetch reduces UNKNOWN reward/volume/age/competition/regime-context fields without changing the default scan path |
 | [Scan Exact Slug Export](features/FEATURE-scan-exact-slug-export.md) | `scan-gate2-candidates --watchlist-out` writes exact full slugs for the shown ranked candidates so operators do not copy truncated table values |
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
+| [Wallet Discovery v1](features/wallet-discovery-v1.md) | Spec frozen: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 
 ## Specs
 
@@ -94,6 +95,7 @@ Quick-reference index of all key docs and what they cover.
 | [SPEC-0016: Regime Integrity for Gate 2 Artifacts](specs/SPEC-0016-regime-integrity-for-gate2-artifacts.md) | Regime provenance contract for Gate 2 tape manifest: derived vs operator labels, mismatch detection, shared coverage helper |
 | [SPEC-0017: Phase 1 Gate 2 Candidate Ranking](specs/SPEC-0017-phase1-gate2-candidate-ranking.md) | Ranking factors, weights, missing-data policy, new-market logic, operator guidance |
 | [SPEC-0018: Gate 2 Capture Session Pack](specs/SPEC-0018-gate2-capture-session-pack.md) | Session pack format, CLI contract, watcher-compatible plan JSON, and post-session template |
+| [SPEC: Wallet Discovery v1](specs/SPEC-wallet-discovery-v1.md) | Wallet discovery v1 contract: Loop A, ClickHouse table contracts, lifecycle state machine, unified scan, MVF |
 
 ## Dev Logs (recent)
 

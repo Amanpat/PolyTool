@@ -46,6 +46,7 @@ The two databases never share data and never communicate.
 | Autoresearch experiment ledger, SimTrader sweep results | DuckDB | Join-heavy analytics |
 | Tape metadata, resolution signatures, signal reactions | ClickHouse | Updated continuously |
 | `price_2min` live series | ClickHouse | Live-updating; not yet started |
+| Wallet discovery state (watchlist, leaderboard snapshots, scan queue) | ClickHouse | Live discovery writes; consistent with one-sentence rule |
 
 DuckDB is zero-config (`pip install duckdb`, no server process). It reads Parquet
 directly from `/data/raw/` with no ingestion step. **Historical ClickHouse bulk import
