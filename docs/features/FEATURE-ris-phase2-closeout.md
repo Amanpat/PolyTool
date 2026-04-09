@@ -65,7 +65,7 @@ passing). Development was conducted across 6 implementation dev logs on 2026-04-
 - `tools/cli/research_stats.py` -- stats CLI with Phase 2 monitoring fields
 - `docs/eval/ris_retrieval_benchmark.jsonl` -- 9-case Phase 2 retrieval benchmark suite
 - `packages/polymarket/rag/eval.py` -- query_class segmentation, 8-metric ModeAggregate
-- `workflows/n8n/ris-unified-dev.json` -- unified n8n pilot workflow with health/summary alerts
+- `infra/n8n/workflows/ris-unified-dev.json` -- unified n8n pilot workflow with health/summary alerts
 
 ---
 
