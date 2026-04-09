@@ -4,6 +4,7 @@ Use this page as the entry point for all public docs. For a quick-reference
 table, see [INDEX.md](INDEX.md).
 
 ## Table of contents
+
 - [Start here (recommended order)](#start-here-recommended-order)
 - [Local config and CLI naming](#local-config-and-cli-naming)
 - [Core docs](#core-docs)
@@ -13,6 +14,7 @@ table, see [INDEX.md](INDEX.md).
 - [Archive (historical)](#archive-historical)
 
 ## Start here (recommended order)
+
 1. [Project overview](PROJECT_OVERVIEW.md)
 2. [Plan of Record](PLAN_OF_RECORD.md)
 3. [Architecture](ARCHITECTURE.md)
@@ -26,13 +28,16 @@ table, see [INDEX.md](INDEX.md).
 11. [Current state / what we built](CURRENT_STATE.md)
 12. [Docs best practices](DOCS_BEST_PRACTICES.md)
 13. SimTrader operator guide (optional): [README_SIMTRADER.md](README_SIMTRADER.md)
+14. [RIS Operator Guide](RIS_OPERATOR_GUIDE.md)
 
 ## Local config and CLI naming
+
 - Copy the committed example config before running local workflows: `cp polytool.example.yaml polytool.yaml`
 - Use `python -m polytool ...` as the canonical invocation.
 - The old `polyttool` (double-t) shim has been removed. Use `polytool` or `python -m polytool` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
 
 ## Core docs
+
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
 - [Hypothesis standard](HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
 - [Trust artifacts](TRUST_ARTIFACTS.md) - Roadmap 2 scan artifacts: coverage schema, warning rules, run manifest reproducibility
@@ -44,13 +49,17 @@ table, see [INDEX.md](INDEX.md).
 - [Debug: Windows pytest PermissionError tempdirs](debug/DEBUG-windows-permissionerror-pytest-tempdirs.md)
 
 ## Workflows
+
 - [SimTrader operator guide](README_SIMTRADER.md) - Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports
+- [RIS Operator Guide](RIS_OPERATOR_GUIDE.md) - Evaluation gate, review queue, ingestion, health monitoring, retrieval benchmarks
+- [RIS n8n operator path](../infra/n8n/README.md) - Current canonical n8n quickstart, import command, and smoke steps
 - [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
 - [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
 - [Research sources](RESEARCH_SOURCES.md)
 
 ## Planning & Context
+
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan with full design decisions
 - [Roadmap](ROADMAP.md) - Milestone checklist, acceptance criteria, kill conditions
 - [Project context (public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, data gaps, artifact contract
@@ -59,6 +68,7 @@ table, see [INDEX.md](INDEX.md).
 - [Documentation index](INDEX.md) - Quick-reference table of all docs
 
 ## Directories
+
 - [ADRs](adr/)
 - [Specs (canonical)](specs/)
 - [Feature docs](features/)
@@ -66,7 +76,9 @@ table, see [INDEX.md](INDEX.md).
 - [Archive policy + historical docs](archive/)
 
 ## Archive (historical)
+
 These are historical or superseded docs preserved for reference.
+
 - [Dashboards](archive/DASHBOARDS.md)
 - [LLM research packets](archive/LLM_RESEARCH_PACKETS.md)
 - [Next steps readiness report](archive/NEXT_STEPS_READINESS_REPORT.md)

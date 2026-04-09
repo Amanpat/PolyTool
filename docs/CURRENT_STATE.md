@@ -1592,3 +1592,40 @@ See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
 - `.env.example`: real JWT token replaced with placeholder.
 - Multiple docs corrected to remove "Enterprise only" claims.
 - See `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md`.
+
+## RIS Phase 2 -- Cloud Provider Routing (quick-260408-*, 2026-04-08)
+
+- Gemini and DeepSeek HTTP clients implemented in `packages/research/evaluation/providers.py`.
+- Routed evaluation chain: gemini (primary) -> deepseek (escalation) -> ollama (fallback).
+- Fail-closed on malformed JSON, missing required fields, or provider unavailability.
+- Config: `config/ris_eval_config.json` with env-var overrides (`RIS_EVAL_*`).
+- Requires `RIS_ENABLE_CLOUD_PROVIDERS=1` plus API keys (`GEMINI_API_KEY` / `DEEPSEEK_API_KEY`).
+- 120 tests passing in focused evaluation/routing suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_cloud_provider_routing.md`.
+
+## RIS Phase 2 -- Ingest/Review Integration (quick-260408-*, 2026-04-08)
+
+- Pipeline dispositions: ACCEPT (ingest), REVIEW (pending_review queue), REJECT (clean exit), BLOCKED (scorer failure queued).
+- `research-review` CLI: list, inspect, accept, reject, defer.
+- `pending_review` + `pending_review_history` tables in KnowledgeStore SQLite.
+- Acquisition review records carry disposition, gate, pending_review_id.
+- 97 tests passing in focused ingest/review suite; 3779 total.
+- See `docs/dev_logs/2026-04-08_ris_phase2_ingest_review_integration.md`.
+
+## RIS Phase 2 -- Monitoring Truth (quick-260408-oyu, 2026-04-08)
+
+- 5 new fields in `RisMetricsSnapshot`: provider_route_distribution, provider_failure_counts, review_queue, disposition_distribution, routing_summary.
+- `model_unavailable` health check replaced stub with real provider failure detection (YELLOW >3 failures, RED all providers failing).
+- New `review_queue_backlog` health check added (GREEN <= 20, YELLOW > 20, RED > 50).
+- Overall category: HEALTHY / DEGRADED / BLOCKED_ON_SETUP / FAILURE shown in `research-health` output.
+- 75 tests passing in monitoring suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_monitoring_truth.md`.
+
+## RIS Phase 2 -- Retrieval Benchmark Truth (quick-260408-oz0, 2026-04-08)
+
+- Query class segmentation: factual, analytical, exploratory.
+- 8 required metrics per Phase 2 spec tracked per class per retrieval mode.
+- Baseline artifacts: per_class_modes, corpus_hash, eval_config in report.json.
+- Phase 2 benchmark suite: `docs/eval/ris_retrieval_benchmark.jsonl` (9 cases).
+- 35 tests passing in rag_eval suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_retrieval_benchmark_truth.md`.

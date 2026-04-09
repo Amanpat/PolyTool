@@ -54,7 +54,7 @@ flowchart LR
 | SimTrader (Track A) | Shipped, gated | Tape recording, replay, shadow mode, sweeps, batch, strategies, Studio browser UI |
 | Market selection engine | Shipped | Seven-factor scorer, `market-scan` CLI |
 | Crypto pair bot (Track 2 / Phase 1A) | Shipped, standalone | Scanning, paper runs, backtesting, reporting, market watching; not yet live-deployed |
-| Research Intelligence System (RIS) | Shipped | Evaluation, ingestion, prechecking, claims extraction, scheduling, reporting, health |
+| Research Intelligence System (RIS) | Shipped | Evaluation (weighted gate, cloud routing, fail-closed), ingestion, review queue, prechecking, claims extraction, scheduling, reporting, health/monitoring, retrieval benchmarks |
 | Data import | Shipped | DuckDB historical reads, Silver tape reconstruction, benchmark manifest |
 | Execution layer | Shipped, dry-run by default | Kill switch, rate limiter, risk manager, live executor -- gated behind all gates passing |
 | Infrastructure | Shipped | ClickHouse, Grafana dashboards, Docker Compose stack |
@@ -384,6 +384,7 @@ All commands: `python -m polytool <command> [options]`
 | `research-scheduler` | Manage the RIS background ingestion scheduler |
 | `research-stats` | Operator metrics snapshot and local-first export for RIS pipeline |
 | `research-health` | Print RIS health status summary from stored run data |
+| `research-review` | Operator review queue: list, inspect, accept, reject, defer pending documents |
 | `research-dossier-extract` | Parse dossier artifacts -> KnowledgeStore |
 | `research-register-hypothesis` | Register a research hypothesis candidate in the JSONL registry |
 | `research-record-outcome` | Record a validation outcome for KnowledgeStore claims |
