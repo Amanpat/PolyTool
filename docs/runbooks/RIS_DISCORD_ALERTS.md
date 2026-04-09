@@ -1,6 +1,6 @@
 # RIS Discord Alert Style Guide and Verification Procedure
 
-**Last verified:** 2026-04-09
+**Last verified:** 2026-04-09 (polish pass — embed format v2)
 **Purpose:** Single reference for RIS Discord alert formats, severity meaning, and exact steps to verify each alert path after a workflow or webhook change.
 
 ---
@@ -32,53 +32,60 @@ These are the intended formats. If a workflow change produces messages that do n
 
 ### Health Alert
 
+Embed fields: Docs, Runs, New, Cached, Errors (all inline, only shown when non-null). Top Families and Actionable Checks as full-width fields when present.
+
 ```
-RIS health RED | runs=5 | docs=312 | claims=48 | new=0 | cached=5 | ingest_errors=2
-- RED pipeline_error: Academic ingest failed with exit code 1
-- YELLOW no_new_docs_48h: No new documents accepted in 48 hours
-families: academic, reddit
+Title:       RIS Health: RED
+Description: pipeline_error detected   (or "N checks need attention" for multiple)
+Fields:      Docs=312 | Runs=5 | New=0 | Cached=5 | Errors=2
+             Top Families: academic=280, reddit=32
+             Actionable Checks:
+               [RED] pipeline_error: Academic ingest failed with exit code 1
+               [YLW] no_new_docs_48h: No new documents accepted in 48 hours
+Footer:      RIS | health
 ```
 
-Fires only when status is RED or there are actionable YELLOW checks. GREEN health never sends.
+Severity markers in Actionable Checks use `[RED]` / `[YLW]`. Stat fields are omitted entirely when the stats command fails (no `n/a` shown). Fires only when RED or actionable YELLOW. GREEN health never sends.
 
 ### Pipeline Error
 
-Format: bold title, exit code, then `**stderr:**` and `**stdout (last 500):**` blocks in triple-backtick fences.
+Embed with conditional fields: Error Output (stderr) and Last Output (stdout tail) are omitted when empty — no `none` placeholder.
 
 ```
-**RIS Pipeline Error: academic**
-
-Exit code: 1
-
-**stderr:**
-[fenced block with stderr text]
-
-**stdout (last 500):**
-[fenced block with last 500 chars of stdout]
+Title:       Pipeline Error: Academic
+Description: Exit 1
+Fields:      Error Output: [stderr text, up to 300 chars]
+             Last Output: [last 200 chars of stdout, if non-empty]
+Footer:      RIS | academic
 ```
 
-Section names: `academic`, `reddit`, `blog`, `youtube`, `github`, `freshness`
+Section display names: `Academic`, `Reddit`, `Blog`, `YouTube`, `GitHub`, `Freshness` (title-cased). Footer uses lower-cased display name.
 
 ### Daily Summary
 
 ```
-RIS daily summary | health=GREEN | runs=48 | docs=1240 | claims=180 | new=12 | cached=36 | ingest_errors=0
-actionable: none
-families: academic, reddit, github
-prechecks: GO=8, CAUTION=2, STOP=0
+Title:       RIS Daily Summary
+Description: Health: GREEN
+Fields:      Docs=1240 | Runs=48 | New=12 | Ingest Errors=0
+             Top Families: academic=900, reddit=340
+             Prechecks: GO=8, CAUTION=2, STOP=0
+Footer:      RIS | daily-summary
 ```
 
-Schedule trigger is disabled by default in the committed workflow JSON.
+Description simplified to health status only (doc/run counts moved to fields). Schedule trigger is disabled by default in the committed workflow JSON.
 
 ### Ingest Failure
 
 ```
-RIS ingest failed | family=blog | exit=n/a
-url: http://127.0.0.1:9/unreachable
-error: Unknown error
+Title:       Ingest Failed: Blog
+Description: Family: Blog                          (when no exit code)
+             Exit 1 | Family: Blog                 (when exit code present)
+Fields:      Source: http://127.0.0.1:9/unreachable  (inline; long URLs truncated to domain+...+tail)
+             Detail: Unknown error
+Footer:      RIS | ingest
 ```
 
-Fires when a `/webhook/ris-ingest` POST results in a failure (bad URL, network error, non-zero exit).
+Exit code shown only when present (non-null). `n/a` never appears. Source field is inline; long URLs truncated to `domain/...last20chars`. Fires when a `/webhook/ris-ingest` POST results in a failure (bad URL, network error, non-zero exit).
 
 ---
 
@@ -132,6 +139,20 @@ curl -X POST "http://localhost:5678/webhook/ris-ingest" \
 
 - In n8n UI, click any section trigger (e.g. `Academic: Manual`), then "Test workflow"
 - If the CLI command fails (no network, bad config), check Discord for the **Pipeline Error** format
+
+---
+
+## Footer Pattern Reference
+
+All footers were shortened in the 2026-04-09 polish pass — `ris-unified-dev` was dropped from every footer:
+
+| Alert type | Footer text |
+|------------|-------------|
+| Health alert | `RIS \| health` |
+| Pipeline error | `RIS \| {section}` (e.g. `RIS \| academic`) |
+| Ingest failure | `RIS \| ingest` |
+| Daily summary | `RIS \| daily-summary` |
+| Summary error | `RIS \| daily-summary` |
 
 ---
 
