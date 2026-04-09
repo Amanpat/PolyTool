@@ -92,6 +92,8 @@ python -m polytool research-review defer <doc_id>
 - To use Discord: configure `WebhookSink` manually and set `DISCORD_WEBHOOK_URL` in `.env`.
 - n8n workflow failure alerts go through n8n's built-in error handling (`settings.errorWorkflow`), not the polytool Discord module.
 
+For the complete alert format reference and verification steps, see [`docs/runbooks/RIS_DISCORD_ALERTS.md`](RIS_DISCORD_ALERTS.md).
+
 ---
 
 ## Common Mistakes
@@ -113,3 +115,4 @@ python -m polytool research-review defer <doc_id>
 | [`infra/n8n/README.md`](../../infra/n8n/README.md) | n8n infrastructure, image details, MCP setup |
 | [`docs/runbooks/RIS_N8N_SMOKE_TEST.md`](RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook |
 | [`docs/adr/0013-ris-n8n-pilot-scoped.md`](../adr/0013-ris-n8n-pilot-scoped.md) | ADR: scope boundary decision |
+| [`docs/runbooks/RIS_DISCORD_ALERTS.md`](RIS_DISCORD_ALERTS.md) | Discord alert style guide and verification procedure |
