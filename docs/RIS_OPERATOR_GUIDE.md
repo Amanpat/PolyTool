@@ -1,6 +1,6 @@
 # RIS Operator Guide
 
-Last verified: 2026-04-08
+Last verified: 2026-04-09
 Applies to: RIS v1
 
 This guide covers **what works today**. Every feature that is not yet implemented is
@@ -18,6 +18,9 @@ section before assuming a bug.
 | `python -m polytool research-acquire --url URL --source-family FAMILY --no-eval` | Fetch and ingest a URL |
 | `python -m polytool research-precheck run --idea "..."` | Run GO/CAUTION/STOP precheck |
 | `python -m polytool rag-query --question "..." --hybrid --knowledge-store default` | Query knowledge store |
+| `python -m polytool research-review list` | List pending review queue items |
+| `python -m polytool research-review accept <doc_id>` | Accept and ingest a queued document |
+| `python -m polytool research-review reject <doc_id>` | Reject a queued document |
 | `python -m polytool research-health` | System health snapshot |
 | `python -m polytool research-stats summary` | Document and claim counts |
 | `python -m polytool research-scheduler status` | Scheduler job status |
@@ -219,6 +222,79 @@ Output is plain text / markdown to stdout. Pipe to a file for persistence.
 **[PLANNED]** LLM-based narrative synthesis (DeepSeek V3). Currently all report sections
 are assembled deterministically from claim metadata.
 
+### Evaluation Gate
+
+The shipped weighted composite gate scores documents across four dimensions and routes to a disposition:
+
+**Formula:** `composite = relevance*0.30 + novelty*0.25 + actionability*0.25 + credibility*0.20`
+
+**Per-dimension floors (waived for priority_1):**
+- `relevance >= 2`
+- `credibility >= 2`
+
+**Priority tier thresholds:**
+| Priority | Minimum composite |
+|----------|------------------|
+| priority_1 | >= 2.5 |
+| priority_2 | >= 3.0 |
+| priority_3 | >= 3.2 |
+| priority_4 | >= 3.5 |
+
+**Provider routing:** gemini (primary) -> deepseek (escalation) -> ollama (fallback). Configurable via `RIS_EVAL_PRIMARY_PROVIDER`, `RIS_EVAL_ESCALATION_PROVIDER`, `RIS_EVAL_FALLBACK_PROVIDER`.
+
+**Fail-closed behavior:** Any provider error, timeout, or malformed JSON response results in a REJECT with `reject_reason="scorer_failure"` and queues the document to `pending_review` as BLOCKED.
+
+**Run evaluation from CLI:**
+```bash
+python -m polytool research-eval eval \
+  --title "Document title" \
+  --body "Document body text" \
+  [--provider gemini] \
+  [--enable-cloud] \
+  [--json]
+```
+
+**Cloud providers require:**
+- `RIS_ENABLE_CLOUD_PROVIDERS=1`
+- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) for Gemini
+- `DEEPSEEK_API_KEY` for DeepSeek
+
+Without `--enable-cloud`, the ManualProvider is used (all dimensions = 3, deterministic).
+
+### Review Queue
+
+After evaluation, documents land in one of four dispositions:
+
+| Disposition | Gate | Action |
+|-------------|------|--------|
+| `accepted` | ACCEPT | Ingested into knowledge store immediately |
+| `queued_for_review` | REVIEW | Queued to `pending_review` for operator action |
+| `rejected` | REJECT | Not ingested; no queue entry |
+| `blocked` | scorer failure | Queued to `pending_review` with failure reason |
+
+**Review queue CLI:**
+
+```bash
+# List all pending review items
+python -m polytool research-review list
+
+# Inspect a specific document
+python -m polytool research-review inspect <doc_id>
+
+# Accept a queued document (triggers ingest)
+python -m polytool research-review accept <doc_id>
+
+# Reject a queued document (removes from queue, no ingest)
+python -m polytool research-review reject <doc_id>
+
+# Defer a queued document (keeps in queue for later)
+python -m polytool research-review defer <doc_id>
+```
+
+Use `--db <path>` to point at a specific knowledge store if not using the default path.
+
+The `pending_review` table has an append-only audit history (`pending_review_history`). All operator actions (accept/reject/defer) are recorded with timestamps.
+
 ### Health Monitoring
 
 #### research-health
@@ -375,6 +451,40 @@ Claim extraction uses `heuristic_v1` (deterministic, no LLM). For each document:
 
 All claims are viewable via `research-stats claims`.
 
+### Retrieval Benchmark
+
+Run the Phase 2 segmented retrieval benchmark to evaluate knowledge store retrieval quality:
+
+```bash
+# Run against the Phase 2 benchmark suite
+python -m polytool rag-eval --suite docs/eval/ris_retrieval_benchmark.jsonl
+
+# Run with reranker
+python -m polytool rag-eval \
+  --suite docs/eval/ris_retrieval_benchmark.jsonl \
+  --rerank-model cross-encoder/ms-marco-MiniLM-L-6-v2
+
+# Verify corpus identity without running eval
+python -m polytool rag-eval --suite docs/eval/ris_retrieval_benchmark.jsonl --suite-hash-only
+```
+
+**Query classes:** `factual` (direct lookup), `analytical` (multi-doc synthesis), `exploratory` (open-ended research).
+
+**8 required metrics tracked per class and retrieval mode:**
+
+| Metric | Description |
+|--------|-------------|
+| `query_count` | Number of cases in this aggregate |
+| `mean_recall_at_k` | Mean recall@k across cases |
+| `mean_mrr_at_k` | Mean MRR@k |
+| `total_scope_violations` | Total must_exclude_any matches |
+| `queries_with_violations` | Cases with at least one violation |
+| `mean_latency_ms` | Mean query latency |
+| `p50_latency_ms` | Median latency |
+| `p95_latency_ms` | P95 latency |
+
+**Artifacts written to:** `kb/rag/eval/reports/<timestamp>/report.json` and `summary.md`. The `report.json` includes `per_class_modes`, `corpus_hash`, and `eval_config` for reproducibility.
+
 ### Calibration
 
 Track evaluation drift over time:
@@ -394,8 +504,9 @@ The following features are documented in specs or the roadmap but are **not impl
 
 - **Twitter/X ingestion** — No adapter, no fetcher, not scheduled. Explicitly excluded.
 - **SSRN adapter** — No SSRN-specific fetcher. Academic adapter only covers arXiv.
-- **Cloud LLM evaluation providers** — Gemini, DeepSeek, OpenAI, Anthropic all raise
-  ValueError when called. These are "RIS v2 deliverables."
+- **Cloud LLM evaluation providers (partial)** — Gemini and DeepSeek are now implemented
+  (requires `RIS_ENABLE_CLOUD_PROVIDERS=1` plus API keys). OpenAI and Anthropic are not
+  implemented and remain deferred.
 - **LLM-based report synthesis** — DeepSeek V3 narrative generation is v2.
 - **Discord alert integration** — `packages/polymarket/notifications/discord.py` exists
   but is NOT wired to the research alert sink. Research uses `LogSink` by default. To
@@ -422,9 +533,12 @@ YouTube ingestion requires yt-dlp: `pip install yt-dlp`
 **"No module named pdfplumber"**
 PDF extraction requires pdfplumber: `pip install pdfplumber`
 
-**"Provider gemini is a RIS v2 deliverable"**
-Cloud LLM providers are not implemented. Use `--provider manual` (default) or
-`--provider ollama` if you have Ollama running.
+**Provider unavailable / timeout**
+If a cloud provider times out or is rate-limited, the evaluator routes to the next provider
+in the chain (gemini -> deepseek -> ollama). Check `research-health` for provider failure
+counts. Ensure `RIS_ENABLE_CLOUD_PROVIDERS=1` and the relevant API key env vars are set
+(`GEMINI_API_KEY` or `GOOGLE_API_KEY` for Gemini; `DEEPSEEK_API_KEY` for DeepSeek).
+Use `--provider ollama` if you only have a local Ollama instance available.
 
 **Precheck always returns CAUTION**
 With the default ManualProvider, precheck falls back to CAUTION (hardcoded placeholder).
@@ -456,7 +570,14 @@ run in a persistent terminal. No auto-start on boot is wired.
 | `REDDIT_CLIENT_SECRET` | Required for Reddit | Reddit API app secret |
 | `REDDIT_USER_AGENT` | Optional | Custom user agent string |
 | `SENTENCE_TRANSFORMERS_HOME` | Optional | Cache dir for embedding model |
-| `RIS_ENABLE_CLOUD_PROVIDERS` | No effect | Cloud providers still raise ValueError |
+| `RIS_ENABLE_CLOUD_PROVIDERS` | Optional | Set to `1` to enable Gemini/DeepSeek cloud routing for evaluation gate scoring |
+| `GEMINI_API_KEY` | Required for Gemini | Gemini API key (also accepted as `GOOGLE_API_KEY`) |
+| `DEEPSEEK_API_KEY` | Required for DeepSeek | DeepSeek API key |
+| `RIS_EVAL_PRIMARY_PROVIDER` | Optional | Override primary eval provider (default: `gemini`) |
+| `RIS_EVAL_ESCALATION_PROVIDER` | Optional | Override escalation provider (default: `deepseek`) |
+| `RIS_EVAL_FALLBACK_PROVIDER` | Optional | Override fallback provider (default: `ollama`) |
+| `RIS_EVAL_ESCALATE_REVIEW_DECISIONS` | Optional | Set to `1` to escalate REVIEW-gated results to next provider |
+| `RIS_EVAL_FALLBACK_ON_PROVIDER_UNAVAILABLE` | Optional | Set to `1` to fall through to next provider on unavailability |
 
 ### Optional dependencies
 
