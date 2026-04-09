@@ -117,10 +117,38 @@ Before starting any feature or strategy implementation:
 
 ---
 
+## n8n Pilot (ADR 0013)
+
+RIS has a scoped n8n sidecar for ingestion workflows, opt-in via `--profile ris-n8n`. This is NOT Phase 3 broad orchestration.
+
+| Item | Value |
+|------|-------|
+| Canonical workflow home | `infra/n8n/workflows/` |
+| Import command | `python infra/n8n/import_workflows.py` |
+| Workflows | `ris-unified-dev.json`, `ris-health-webhook.json` |
+| Default scheduler | APScheduler (n8n schedule triggers disabled in committed JSON) |
+| Discord alerting | Embed-formatted via n8n webhook nodes (not polytool discord.py) |
+
+Operator docs: `docs/runbooks/RIS_N8N_OPERATOR_SOP.md`, `docs/runbooks/RIS_DISCORD_ALERTS.md`
+
+---
+
+## Phase 2 Shipped Capabilities
+
+- Weighted composite evaluation gate (fail-closed, per-priority thresholds)
+- Cloud provider routing: Gemini primary, DeepSeek escalation, Ollama fallback
+- Ingest/review integration: ACCEPT/REVIEW/REJECT/BLOCKED dispositions, `research-review` CLI
+- Monitoring: provider failure detection, review queue backlog check, 7 health checks
+- Retrieval benchmark: query class segmentation, per-class metrics, baseline artifacts
+- Discord embed alerting via n8n (structured embeds, severity color coding, conditional fields)
+
+---
+
 ## Cross-References
 
 - [[RAG]] — ChromaDB + SQLite FTS5 retrieval layer
 - [[LLM-Policy]] — Evaluation uses Tier 1 free LLM providers
 - [[Issue-Pyproject-Packaging-Gap]] — 5 subpackages missing from pyproject.toml
 - [[Issue-Duplicate-Hypothesis-Registry]] — JSON-backed vs SQLite-backed registry
+- [[Decision - RIS n8n Pilot Scope]] — Pilot boundary, canonical paths, APScheduler default
 

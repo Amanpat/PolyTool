@@ -66,9 +66,17 @@ Gate scripts (`tools/gates/`) fire `notify_gate_result()` inside `_write_gate_re
 
 ---
 
+## n8n Discord Alerting (separate from polytool discord.py)
+
+The RIS n8n pilot sends Discord alerts via n8n webhook nodes using structured embed format. This is a separate alert path from the `discord.py` functions above. n8n alerts cover health checks, pipeline errors, ingest failures, and daily summaries. See `docs/runbooks/RIS_DISCORD_ALERTS.md`.
+
+---
+
 ## Cross-References
 
 - [[SimTrader]] — LiveRunner uses the notifier duck-type
 - [[Gates]] — Gate scripts hook into notify_gate_result
 - [[Track-1B-Market-Maker]] — Discord alerting is a Phase 1B delivered item
+- [[RIS]] — n8n pilot uses separate Discord alert path from polytool discord.py
+- [[Decision - RIS n8n Pilot Scope]] — Pilot scope boundary
 

@@ -57,7 +57,7 @@ Master Map of Content for the PolyTool Obsidian vault. All notes are derived fro
 - [[Phase-1A-Crypto-Pair-Bot]] — Crypto pair bot (blocked)
 - [[Phase-1B-Market-Maker-Gates]] — Gate closure → live deployment (todo)
 - [[Phase-1C-Sports-Model]] — Sports directional model (todo)
-- [[Phase-2-Discovery-Engine]] — Discovery engine + research scraper (partial)
+- [[Phase-2-Discovery-Engine]] — Discovery engine + research scraper (conditionally closed)
 - [[Phase-3-Hybrid-RAG-Kalshi-n8n]] — Hybrid RAG + Kalshi + n8n (todo)
 - [[Phase-4-Autoresearch]] — Autoresearch + validation automation (todo)
 - [[Phase-5-Advanced-Strategies]] — Advanced strategies (todo)

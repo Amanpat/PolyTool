@@ -32,7 +32,7 @@ Source: roadmap v5.1 Phase 3.
 ## Key Notes
 
 - FastAPI wrapper is a Phase 3 deliverable — do not build before Phase 1 raw CLI paths work
-- A scoped n8n RIS pilot (ADR 0013) is already shipped as opt-in via `--profile ris-n8n`. Broad n8n orchestration remains Phase 3.
+- A scoped n8n RIS pilot (ADR 0013) is shipped and operational via `--profile ris-n8n`. Canonical workflow home is `infra/n8n/workflows/`. APScheduler remains the default scheduler. Broad n8n orchestration (replacing APScheduler project-wide) remains Phase 3. See [[Decision - RIS n8n Pilot Scope]].
 - Kalshi: CFTC-regulated (US-legal). Polymarket restricts US access. Resolution condition parsing is required to avoid cross-platform position risk.
 
 ---
@@ -42,4 +42,5 @@ Source: roadmap v5.1 Phase 3.
 - [[RAG]] — ChromaDB and SQLite FTS5 backends that Phase 3 upgrades
 - [[FastAPI-Service]] — The island that Phase 3 brings online
 - [[LLM-Policy]] — Multi-LLM specialist routing policy
+- [[Decision - RIS n8n Pilot Scope]] — Current n8n scope boundary
 
