@@ -92,6 +92,7 @@ research_health_main = _command_entrypoint("tools.cli.research_health")
 research_review_main = _command_entrypoint("tools.cli.research_review")
 research_dossier_extract_main = _command_entrypoint("tools.cli.research_dossier_extract")
 research_bridge_main = _command_entrypoint("tools.cli.research_bridge")
+discovery_main = _command_entrypoint("tools.cli.discovery")
 
 
 _COMMAND_HANDLER_NAMES = {
@@ -157,6 +158,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-dossier-extract": "research_dossier_extract_main",
     "research-register-hypothesis": "research_bridge_main",
     "research-record-outcome": "research_bridge_main",
+    "discovery": "discovery_main",
 }
 
 _FULL_ARGV_COMMANDS = {
@@ -255,6 +257,10 @@ def print_usage() -> None:
     print("  capture-new-market-tapes  Record Gold tapes for benchmark_v1 new_market targets (batch)")
     print("  close-benchmark-v1        End-to-end benchmark closure: preflight + Silver + new-market + manifest")
     print("  summarize-gap-fill        Read-only diagnostic summary for gap_fill_run.json artifacts")
+    print("")
+    print("--- Wallet Discovery (v1 / Loop A) ------------------------------------")
+    print("  discovery             Wallet discovery commands — run 'discovery --help'")
+    print("    run-loop-a          Fetch leaderboard -> churn detection -> enqueue new wallets")
     print("")
     print("--- Integrations & Utilities ------------------------------------------")
     print("  mcp                   Start the MCP server for Claude Desktop integration")
