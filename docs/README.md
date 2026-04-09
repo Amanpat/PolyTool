@@ -53,6 +53,7 @@ table, see [INDEX.md](INDEX.md).
 - [SimTrader operator guide](README_SIMTRADER.md) - Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports
 - [RIS Operator Guide](RIS_OPERATOR_GUIDE.md) - Evaluation gate, review queue, ingestion, health monitoring, retrieval benchmarks
 - [RIS n8n operator path](../infra/n8n/README.md) - Current canonical n8n quickstart, import command, and smoke steps
+- [RIS + n8n Operator SOP cheat sheet](runbooks/RIS_N8N_OPERATOR_SOP.md) - Compact command reference for daily RIS+n8n operations
 - [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
 - [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)

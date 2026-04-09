@@ -599,6 +599,8 @@ All are optional. RIS works without them, but those source families will be unav
 (`docs/adr/0013-ris-n8n-pilot-scoped.md`). It is not a Phase 3 automation layer and
 does not grant access to strategy, gate, risk, or live capital surfaces.
 
+> **Quick reference:** For a compact command cheat sheet, see [RIS + n8n Operator SOP](runbooks/RIS_N8N_OPERATOR_SOP.md).
+
 ### Scheduler selection
 
 Current operator truth:

@@ -95,5 +95,6 @@ For full manual setup steps, see:
 
 - ADR: `docs/adr/0013-ris-n8n-pilot-scoped.md`
 - Operator guide: `docs/RIS_OPERATOR_GUIDE.md`
+- Operator SOP cheat sheet: `docs/runbooks/RIS_N8N_OPERATOR_SOP.md`
 - Env template: `.env.example` (n8n section near the bottom)
 - MCP config: `.mcp.json` at repo root
