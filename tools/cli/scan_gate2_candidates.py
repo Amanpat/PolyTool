@@ -75,6 +75,9 @@ class CandidateResult:
     max_depth_yes: float    # peak best-ask size for first asset (YES)
     max_depth_no: float     # peak best-ask size for second asset (NO)
     source: str = "live"    # "live" or "tape"
+    events_scanned: int = 0         # total events in tape (density signal)
+    confidence_class: str = ""      # GOLD / SILVER / BRONZE / UNKNOWN (tape mode only)
+    recorded_by: str = ""           # tool that recorded the tape (tape mode only)
     # Optional enrichment fields (populated by enrich_live_candidate_context or scan_live_markets)
     market_meta: Optional[dict] = field(default=None)
     ranking_orderbook: Optional[dict] = field(default=None)
@@ -344,6 +347,7 @@ def scan_tapes(
         EVENT_TYPE_BOOK,
         EVENT_TYPE_PRICE_CHANGE,
     )
+    from tools.cli.tape_manifest import _read_recorded_by, classify_tape_confidence
 
     threshold = 1.0 - buffer
     results: list[CandidateResult] = []
@@ -461,6 +465,12 @@ def scan_tapes(
             logger.debug("Skipping %s: no scoreable ticks", tape_dir.name)
             continue
 
+        tape_recorded_by = _read_recorded_by(tape_dir)
+        tape_confidence = classify_tape_confidence(
+            tape_recorded_by,
+            len(events),
+            total_ticks,
+        )
         results.append(CandidateResult(
             slug=slug,
             total_ticks=total_ticks,
@@ -471,6 +481,9 @@ def scan_tapes(
             max_depth_yes=max_depth_a,
             max_depth_no=max_depth_b,
             source="tape",
+            events_scanned=len(events),
+            confidence_class=tape_confidence,
+            recorded_by=tape_recorded_by,
         ))
 
     return results
@@ -486,11 +499,17 @@ _COL_EDGE = 6
 _COL_DEPTH = 6
 _COL_BEST_EDGE = 9
 _COL_MAX_DEPTH = 16
+_COL_EVENTS = 7
+_COL_CONF = 5
+
+_CONF_ABBREV = {"GOLD": "GOLD", "SILVER": "SILV", "BRONZE": "BRNZ", "UNKNOWN": "UNKN"}
 
 
 def _header_line() -> str:
     return (
         f"{'Market':<{_COL_SLUG}} | "
+        f"{'Events':>{_COL_EVENTS}} | "
+        f"{'Conf':>{_COL_CONF}} | "
         f"{'Exec':>{_COL_EXEC}} | "
         f"{'Edge':>{_COL_EDGE}} | "
         f"{'Depth':>{_COL_DEPTH}} | "
@@ -527,9 +546,13 @@ def print_table(
         else:
             edge_val = "   N/A"
         depth_val = f"{r.max_depth_yes:.0f} / {r.max_depth_no:.0f}"
+        events_str = str(r.events_scanned) if r.events_scanned else "-"
+        conf_str = _CONF_ABBREV.get(r.confidence_class, r.confidence_class[:_COL_CONF]) if r.confidence_class else "-"
         slug_col = r.slug[:_COL_SLUG]
         print(
             f"{slug_col:<{_COL_SLUG}} | "
+            f"{events_str:>{_COL_EVENTS}} | "
+            f"{conf_str:>{_COL_CONF}} | "
             f"{exec_str:>{_COL_EXEC}} | "
             f"{edge_str:>{_COL_EDGE}} | "
             f"{depth_str:>{_COL_DEPTH}} | "
@@ -627,6 +650,8 @@ def score_and_rank_candidates(
 def _ranked_header_line() -> str:
     return (
         f"{'Market':<{_COL_SLUG}} | "
+        f"{'Events':>{_COL_EVENTS}} | "
+        f"{'Conf':>{_COL_CONF}} | "
         f"{'Status':>{_COL_STATUS}} | "
         f"{'Score':>{_COL_SCORE}} | "
         f"{'Exec':>{_COL_EXEC}} | "
@@ -692,9 +717,15 @@ def print_ranked_table(
         regsrc_str = (getattr(s, "regime_source", None) or "?")[:_COL_REGSRC]
         regime_str = (s.regime or "?")[:_COL_REGIME]
         slug_col = s.slug[:_COL_SLUG]
+        raw_events = getattr(s, "events_scanned", 0)
+        events_str = str(raw_events) if raw_events else "-"
+        raw_conf = getattr(s, "confidence_class", "")
+        conf_str = _CONF_ABBREV.get(raw_conf, raw_conf[:_COL_CONF]) if raw_conf else "-"
 
         print(
             f"{slug_col:<{_COL_SLUG}} | "
+            f"{events_str:>{_COL_EVENTS}} | "
+            f"{conf_str:>{_COL_CONF}} | "
             f"{status_abbrev:>{_COL_STATUS}} | "
             f"{score_str:>{_COL_SCORE}} | "
             f"{str(s.executable_ticks):>{_COL_EXEC}} | "

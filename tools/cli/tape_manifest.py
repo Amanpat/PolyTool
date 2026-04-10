@@ -111,6 +111,8 @@ class TapeRecord:
     final_regime: str = ""       # authoritative regime; same as regime for new records
     regime_source: str = ""      # "derived" | "operator" | "fallback_unknown"
     regime_mismatch: bool = False  # True when derived and operator disagree (both named)
+    # Diagnostic enrichment (populated by enrich_tape_diagnostics)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -126,6 +128,191 @@ class CorpusSummary:
     generated_at: str
     corpus_note: str = ""
     regime_coverage: dict = field(default_factory=dict)  # from coverage_from_classified_regimes
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic classification helpers
+# ---------------------------------------------------------------------------
+
+# Confidence tier thresholds
+_GOLD_SOURCES = frozenset({"watch-arb-candidates", "simtrader-shadow"})
+_SILVER_SOURCES = frozenset({"prepare-gate2", "simtrader-quickrun"})
+_GOLD_MIN_EVENTS = 50
+_GOLD_MIN_BBO = 20
+_SILVER_MIN_EVENTS = 20
+
+
+def classify_tape_confidence(
+    recorded_by: str,
+    events_scanned: int,
+    ticks_with_both_bbo: int,
+) -> str:
+    """Classify tape fidelity tier from source tool and event density.
+
+    Tiers:
+      GOLD   — live recording with adequate density (watch-arb-candidates or
+               simtrader-shadow, >=50 events, >=20 BBO ticks)
+      SILVER — Silver-reconstruction source OR live source with thin density
+               (>=50 events OR Silver source with >=20 events)
+      BRONZE — Some events and BBO ticks but below Silver threshold
+      UNKNOWN — No events or no density data
+
+    Args:
+        recorded_by:        Source tool identifier from tape metadata.
+        events_scanned:     Total events seen in the tape.
+        ticks_with_both_bbo: Ticks where both YES and NO had BBO quotes.
+
+    Returns:
+        One of "GOLD", "SILVER", "BRONZE", "UNKNOWN".
+    """
+    if events_scanned <= 0:
+        return "UNKNOWN"
+
+    is_gold_source = recorded_by in _GOLD_SOURCES
+    is_silver_source = recorded_by in _SILVER_SOURCES
+
+    if (
+        is_gold_source
+        and events_scanned >= _GOLD_MIN_EVENTS
+        and ticks_with_both_bbo >= _GOLD_MIN_BBO
+    ):
+        return "GOLD"
+
+    if events_scanned >= _GOLD_MIN_EVENTS:
+        return "SILVER"
+
+    if is_silver_source and events_scanned >= _SILVER_MIN_EVENTS:
+        return "SILVER"
+
+    if ticks_with_both_bbo > 0:
+        return "BRONZE"
+
+    return "UNKNOWN"
+
+
+def classify_reject_code(evidence: dict, reject_reason: str = "") -> str:
+    """Map eligibility evidence stats to a structured reject code.
+
+    Codes:
+      ELIGIBLE         — tape has executable ticks (should not appear for rejected tapes)
+      NO_OVERLAP       — depth_ok and edge_ok both seen but never simultaneously
+      DEPTH_ONLY       — depth_ok ticks exist, but no edge_ok ticks
+      EDGE_ONLY        — edge_ok ticks exist, but no depth_ok ticks
+      NO_DEPTH_NO_EDGE — neither condition satisfied
+      NO_EVENTS        — reject_reason indicates no events found
+      NO_ASSETS        — reject_reason indicates asset IDs could not be determined
+      UNKNOWN          — no evidence stats and no recognisable reject_reason substring
+
+    Args:
+        evidence:       The stats dict from EligibilityResult (may be empty).
+        reject_reason:  The human-readable reject reason string.
+
+    Returns:
+        One of the code strings above.
+    """
+    # If evidence has scan stats, classify from them directly.
+    if evidence:
+        depth_ok = int(evidence.get("ticks_with_depth_ok", 0))
+        edge_ok = int(evidence.get("ticks_with_edge_ok", 0))
+        both = int(evidence.get("ticks_with_depth_and_edge", 0))
+
+        if both > 0:
+            return "ELIGIBLE"
+        if depth_ok > 0 and edge_ok > 0:
+            return "NO_OVERLAP"
+        if depth_ok > 0:
+            return "DEPTH_ONLY"
+        if edge_ok > 0:
+            return "EDGE_ONLY"
+        return "NO_DEPTH_NO_EDGE"
+
+    # No evidence — fall back to reject_reason substring matching.
+    reason_lower = reject_reason.lower()
+    if "no events" in reason_lower or "no events.jsonl" in reason_lower:
+        return "NO_EVENTS"
+    if "asset id" in reason_lower or "asset_id" in reason_lower:
+        return "NO_ASSETS"
+    return "UNKNOWN"
+
+
+def enrich_tape_diagnostics(record: "TapeRecord") -> dict:
+    """Compute a diagnostics dict for one TapeRecord.
+
+    Reads evidence stats and regime/source fields already on the record,
+    derives classification tiers and human-facing proxies, and returns a
+    dict suitable for storing in ``TapeRecord.diagnostics`` and the manifest
+    JSON.
+
+    Fields returned:
+        confidence_class:  GOLD / SILVER / BRONZE / UNKNOWN
+        reject_code:       Structured reject code (or "ELIGIBLE")
+        events_scanned:    Raw event count from evidence
+        ticks_with_bbo:    Ticks where both legs had a quote
+        best_edge_gap:     (required_edge_threshold - min_sum_ask_seen); positive
+                           means the edge condition WAS triggered at some point;
+                           None when not available
+        max_depth_yes:     Peak best-ask size for the YES leg (shares)
+        max_depth_no:      Peak best-ask size for the NO leg (shares)
+
+    Args:
+        record: A fully-populated TapeRecord (evidence may be empty dict).
+
+    Returns:
+        Dict of diagnostic fields.
+    """
+    ev = record.evidence
+    events_scanned = int(ev.get("events_scanned", 0))
+    ticks_with_bbo = int(ev.get("ticks_with_both_bbo", 0))
+
+    confidence_class = classify_tape_confidence(
+        record.recorded_by,
+        events_scanned,
+        ticks_with_bbo,
+    )
+
+    if record.eligible:
+        reject_code = "ELIGIBLE"
+    else:
+        reject_code = classify_reject_code(ev, record.reject_reason)
+
+    # Edge-gap proxy: positive when the complement sum was below threshold at least once.
+    best_edge_gap: Optional[float] = None
+    min_sum_ask_raw = ev.get("min_sum_ask_seen")
+    req_edge_raw = ev.get("required_edge_threshold")
+    if min_sum_ask_raw is not None and req_edge_raw is not None:
+        try:
+            min_sum_ask = float(min_sum_ask_raw)
+            req_edge = float(req_edge_raw)
+            best_edge_gap = round(req_edge - min_sum_ask, 6)
+        except (TypeError, ValueError):
+            pass
+
+    # Depth proxies (stored as "min ask size seen" in the eligibility scanner,
+    # which represents peak depth observed across the tape for each leg).
+    max_depth_yes: Optional[float] = None
+    max_depth_no: Optional[float] = None
+    yes_raw = ev.get("min_yes_ask_size_seen")
+    no_raw = ev.get("min_no_ask_size_seen")
+    if yes_raw is not None:
+        try:
+            max_depth_yes = float(yes_raw)
+        except (TypeError, ValueError):
+            pass
+    if no_raw is not None:
+        try:
+            max_depth_no = float(no_raw)
+        except (TypeError, ValueError):
+            pass
+
+    return {
+        "confidence_class": confidence_class,
+        "reject_code": reject_code,
+        "events_scanned": events_scanned,
+        "ticks_with_bbo": ticks_with_bbo,
+        "best_edge_gap": best_edge_gap,
+        "max_depth_yes": max_depth_yes,
+        "max_depth_no": max_depth_no,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +640,7 @@ def scan_one_tape(
     # ensure non-executable tapes are NEVER mislabeled eligible.
     eligible = result.eligible and executable_ticks > 0
 
-    return TapeRecord(
+    record = TapeRecord(
         tape_dir=str(tape_dir),
         slug=slug,
         regime=integrity.final_regime,
@@ -468,6 +655,8 @@ def scan_one_tape(
         regime_source=integrity.regime_source,
         regime_mismatch=integrity.regime_mismatch,
     )
+    record.diagnostics = enrich_tape_diagnostics(record)
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +821,7 @@ def manifest_to_dict(
                 "executable_ticks": rec.executable_ticks,
                 "reject_reason": rec.reject_reason,
                 "evidence": rec.evidence,
+                "diagnostics": rec.diagnostics if rec.diagnostics else enrich_tape_diagnostics(rec),
             }
             for rec in records
         ],
@@ -643,33 +833,85 @@ def manifest_to_dict(
 # ---------------------------------------------------------------------------
 
 _COL_SLUG = 42
-_COL_REGIME = 12
+_COL_REGIME = 10
+_COL_CONF = 4
 _COL_STATUS = 11
-_COL_EXEC = 10
+_COL_CODE = 18
+_COL_EVENTS = 7
+_COL_BBO = 6
+_COL_EXEC = 9
+_COL_EDGE = 9
+_COL_DEPTH = 12
+
+# Abbreviations for confidence class in 4-char column
+_CONF_ABBREV = {
+    "GOLD": "GOLD",
+    "SILVER": "SILV",
+    "BRONZE": "BRNZ",
+    "UNKNOWN": "UNKN",
+}
 
 
 def print_manifest_table(records: list[TapeRecord], summary: CorpusSummary) -> None:
-    """Print a compact operator summary table to stdout."""
+    """Print a compact operator summary table to stdout.
+
+    Columns:
+      Tape/Slug | Regime | Conf | Status | Code | Events | BBO | ExecTicks | BestEdge | MaxDepth | Detail
+    """
     header = (
         f"{'Tape/Slug':<{_COL_SLUG}} | "
         f"{'Regime':<{_COL_REGIME}} | "
+        f"{'Conf':<{_COL_CONF}} | "
         f"{'Status':<{_COL_STATUS}} | "
+        f"{'Code':<{_COL_CODE}} | "
+        f"{'Events':>{_COL_EVENTS}} | "
+        f"{'BBO':>{_COL_BBO}} | "
         f"{'ExecTicks':>{_COL_EXEC}} | "
+        f"{'BestEdge':>{_COL_EDGE}} | "
+        f"{'MaxDepth':>{_COL_DEPTH}} | "
         f"Detail"
     )
-    sep = "-" * (len(header) + 20)
+    sep = "-" * len(header)
     print(header)
     print(sep)
 
     for rec in records:
+        diag = rec.diagnostics
         status = "ELIGIBLE" if rec.eligible else "INELIGIBLE"
-        detail = str(rec.tape_dir) if rec.eligible else rec.reject_reason[:60]
+        conf_raw = diag.get("confidence_class", "UNKNOWN")
+        conf = _CONF_ABBREV.get(conf_raw, conf_raw[:4])
+        code = diag.get("reject_code", "") if not rec.eligible else "ELIGIBLE"
+        events = diag.get("events_scanned", 0)
+        bbo = diag.get("ticks_with_bbo", 0)
+
+        edge_gap = diag.get("best_edge_gap")
+        if edge_gap is not None:
+            edge_str = f"{edge_gap:+.4f}"
+        else:
+            edge_str = "N/A"
+
+        yes_d = diag.get("max_depth_yes")
+        no_d = diag.get("max_depth_no")
+        if yes_d is not None and no_d is not None:
+            depth_str = f"{yes_d:.0f}/{no_d:.0f}"
+        else:
+            depth_str = "N/A"
+
+        detail = str(rec.tape_dir) if rec.eligible else rec.reject_reason[:50]
         slug_col = rec.slug[:_COL_SLUG]
+        regime_col = rec.regime[:_COL_REGIME]
+
         print(
             f"{slug_col:<{_COL_SLUG}} | "
-            f"{rec.regime:<{_COL_REGIME}} | "
+            f"{regime_col:<{_COL_REGIME}} | "
+            f"{conf:<{_COL_CONF}} | "
             f"{status:<{_COL_STATUS}} | "
+            f"{code:<{_COL_CODE}} | "
+            f"{events:>{_COL_EVENTS}} | "
+            f"{bbo:>{_COL_BBO}} | "
             f"{rec.executable_ticks:>{_COL_EXEC}} | "
+            f"{edge_str:>{_COL_EDGE}} | "
+            f"{depth_str:>{_COL_DEPTH}} | "
             f"{detail}"
         )
 

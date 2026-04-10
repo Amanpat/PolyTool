@@ -6,14 +6,19 @@ RAG workflow that defaults to local-only LLM inference. (Narrow exception: Tier 
 free cloud APIs are authorized for RIS evaluation gate scoring only — see
 PLAN_OF_RECORD Section 0 and quick-260407-lpr.)
 
-Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
-governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
-records implemented repo truth; do not infer v5 phase completion from strategic
-roadmap language alone.
+Master Roadmap v5.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md`) is the
+governing roadmap document for public docs. This file records implemented repo
+truth; do not infer v5.1 phase completion from strategic roadmap language
+alone.
 
 - **Branch workflow:** main-only as of 2026-04-06. All prior feature branches
   (feat/ws-clob-feed, phase-1, simtrader, roadmap*, etc.) consolidated into main.
   Safety tag: `safety/pre-main-consolidation-20260406`.
+- **Docs governance:** public docs surface follows
+  [ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md).
+  `docs/README.md` and `docs/INDEX.md` are navigation only; `docs/dev_logs/**`
+  remains preserved history; `docs/obsidian-vault/**` remains a separate
+  subsystem excluded from public docs count goals.
 
 ## Roadmap Items Not Yet Implemented (v5 framing)
 
@@ -47,6 +52,22 @@ with named blockers in the spec.
 - **Feature doc**: docs/features/wallet-discovery-v1.md
 - **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_RUNBOOK.md
 
+## Gate 2 Corpus Visibility Improvements (quick-260410-izh, 2026-04-10)
+
+Tape-manifest and scan-gate2-candidates CLI tables now surface confidence class,
+structured reject code, and event density for each tape. Operators can immediately
+see whether a failing tape is DEPTH_ONLY, EDGE_ONLY, NO_OVERLAP, or NO_EVENTS,
+and whether the tape is GOLD, SILVER, BRONZE, or UNKNOWN quality.
+
+- `tape_manifest.py`: new `classify_tape_confidence`, `classify_reject_code`,
+  `enrich_tape_diagnostics` helpers; enriched `print_manifest_table` and
+  `manifest_to_dict`; `TapeRecord.diagnostics` field.
+- `scan_gate2_candidates.py`: `CandidateResult` gains `events_scanned`,
+  `confidence_class`, `recorded_by`; `print_table` and `print_ranked_table`
+  show Events and Conf columns.
+- 30 new tests in `tests/test_gate2_corpus_visibility.py`. No eligibility
+  criteria changed.
+
 ## Infrastructure Fixes (quick-260405-gef + quick-260405-j2t, 2026-04-05)
 
 - **pair-bot-live profile gate fix**: `docker-compose.yml` `pair-bot-live` service
@@ -67,7 +88,7 @@ with named blockers in the spec.
 - **Docker build context tightened (quick-260405-j2t, 2026-04-05)**: `.dockerignore`
   rewritten to exclude ~660 MB+ of non-build files: `docs/`, `tests/`, `kb/`,
   `.planning/`, `infra/`, `scripts/`, `config/`, `docker_data/`, `.claude/`, `.env*`,
-  `kill_switch.json`, `*.log`, `LICENSE`, `README.md`, `CLAUDE.md`. Build context
+  `*.log`, `LICENSE`, `README.md`, `CLAUDE.md`. Build context
   reduced to ~12 MB of actual source code. Dev log:
   `docs/dev_logs/2026-04-05_docker_perf_hygiene.md`.
 
