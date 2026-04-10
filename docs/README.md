@@ -55,6 +55,7 @@ table, see [INDEX.md](INDEX.md).
 - [RIS n8n operator path](../infra/n8n/README.md) - Current canonical n8n quickstart, import command, and smoke steps
 - [RIS + n8n Operator SOP cheat sheet](runbooks/RIS_N8N_OPERATOR_SOP.md) - Compact command reference for daily RIS+n8n operations
 - [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
+- [Wallet Discovery v1 Operator Runbook](runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md) - Loop A leaderboard discovery, quick scan with MVF, human review gate
 - [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
 - [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
 - [Research sources](RESEARCH_SOURCES.md)

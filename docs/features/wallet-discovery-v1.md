@@ -72,6 +72,14 @@ python -m polytool discovery run-loop-a
 
 ---
 
+## Operator Runbook
+
+[Wallet Discovery v1 Operator Runbook](../runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md) —
+step-by-step guide covering prerequisites, Loop A discovery, quick scan with MVF,
+human review gate, and troubleshooting.
+
+---
+
 ## Human Review Gate
 
 A human review gate is **required** before any wallet reaches the `promoted` or
