@@ -44,6 +44,24 @@ Wallet Discovery v1 ships four integrated capabilities:
 
 ---
 
+## CLI Entrypoints
+
+Quick reference for all v1 commands (full details in Sections 2 and 3):
+
+```bash
+# Run Loop A leaderboard fetch + churn detection (dry run first)
+python -m polytool discovery run-loop-a --dry-run
+python -m polytool discovery run-loop-a
+
+# Quick scan a wallet (no LLM calls, produces MVF + detectors + PnL)
+python -m polytool scan <wallet_address> --quick
+
+# Standard scan (unchanged existing behavior — may use LLM if configured)
+python -m polytool scan <wallet_address>
+```
+
+---
+
 ## 1. Prerequisites
 
 Run these checks before any discovery operation.

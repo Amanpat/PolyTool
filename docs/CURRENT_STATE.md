@@ -28,12 +28,16 @@ roadmap language alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
-## Wallet Discovery v1 (Spec Frozen, 2026-04-09)
+## Wallet Discovery v1 (Shipped, 2026-04-10)
 
-Wallet Discovery v1 contract is frozen as a docs-only spec.
-Scope: Loop A leaderboard discovery, ClickHouse table contracts (watchlist,
-leaderboard_snapshots, scan_queue), unified `polytool scan` with `--quick`,
-MVF computation. Implementation is pending.
+Wallet Discovery v1 is implemented, integrated, and hardened.
+Shipped across two parallel packets (commits 83832e1, 724a23c) with integration
+(2026-04-10) and acceptance hardening (12 integrated tests, 118 total
+discovery-area tests, 3908 full suite).
+
+Shipped scope: Loop A leaderboard discovery, ClickHouse table contracts
+(watchlist, leaderboard_snapshots, scan_queue), unified `polytool scan` with
+`--quick` (hard no-LLM guarantee), MVF computation (11-dim, Python math only).
 
 Full four-loop discovery system (B/C/D), insider scoring, cloud LLM wallet
 analysis, auto-promotion, and n8n workflow integration remain future intent
@@ -41,6 +45,7 @@ with named blockers in the spec.
 
 - **Spec**: docs/specs/SPEC-wallet-discovery-v1.md
 - **Feature doc**: docs/features/wallet-discovery-v1.md
+- **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_RUNBOOK.md
 
 ## Infrastructure Fixes (quick-260405-gef + quick-260405-j2t, 2026-04-05)
 

@@ -515,12 +515,14 @@ tests cover edge cases.
 
 ---
 
-### Wallet Discovery v1 [SPEC FROZEN]
+### Wallet Discovery v1 [SHIPPED]
 
-- [ ] Loop A: leaderboard fetcher + churn detection + scan queue
-- [ ] ClickHouse tables: watchlist, leaderboard_snapshots, scan_queue
-- [ ] Unified `polytool scan <address>` with `--quick` (no-LLM guarantee)
-- [ ] MVF computation (11-dim, Python math only)
+- [x] Loop A: leaderboard fetcher + churn detection + scan queue
+- [x] ClickHouse tables: watchlist, leaderboard_snapshots, scan_queue
+- [x] Unified `polytool scan <address>` with `--quick` (no-LLM guarantee)
+- [x] MVF computation (11-dim, Python math only)
+
+**Shipped**: 2026-04-10. 118 discovery-area tests passing. 3908 full suite.
 
 **Spec**: docs/specs/SPEC-wallet-discovery-v1.md
 **Acceptance**: All 7 deterministic acceptance tests pass.

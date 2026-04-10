@@ -43,6 +43,7 @@ Quick-reference index of all key docs and what they cover.
 | [RIS + n8n Operator SOP](runbooks/RIS_N8N_OPERATOR_SOP.md) | Quick-reference cheat sheet: startup, import, health, ingest, monitoring |
 | [RIS Discord Alerts](runbooks/RIS_DISCORD_ALERTS.md) | Discord alert format reference, severity meaning, verification procedure |
 | [RIS n8n Smoke Test](runbooks/RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook for n8n workflow changes |
+| [Wallet Discovery v1 Runbook](runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md) | Go/no-go readiness checklist and research workflow guide for Wallet Discovery v1 |
 
 ## Standards & Conventions
 
@@ -77,7 +78,7 @@ Quick-reference index of all key docs and what they cover.
 | [Scan Metadata Enrichment](features/FEATURE-scan-metadata-enrichment.md) | Optional live `--enrich` fetch reduces UNKNOWN reward/volume/age/competition/regime-context fields without changing the default scan path |
 | [Scan Exact Slug Export](features/FEATURE-scan-exact-slug-export.md) | `scan-gate2-candidates --watchlist-out` writes exact full slugs for the shown ranked candidates so operators do not copy truncated table values |
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
-| [Wallet Discovery v1](features/wallet-discovery-v1.md) | Spec frozen: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
+| [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 
 ## Specs
 
@@ -105,6 +106,7 @@ Quick-reference index of all key docs and what they cover.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Wallet Discovery v1 Truth Sync and Release Checklist](dev_logs/2026-04-10_wallet_discovery_v1_truth_sync_and_release_checklist.md) | 2026-04-10 | Docs truth-sync: removed "pending" language, ROADMAP all 4 items checked [SHIPPED], enhanced operator runbook with go/no-go checklist |
 | [Discord Embed Final Polish](dev_logs/2026-04-09_discord_embed_final_polish.md) | 2026-04-09 | Eliminated n/a and none placeholders, conditional fields, shortened footers, severity markers |
 | [Discord Alert Layout Refinement](dev_logs/2026-04-09_discord_alert_layout_refinement.md) | 2026-04-09 | Converted all 10 Discord notification nodes from plain-text to structured embed format |
 | [Discord Alert Integration Debug](dev_logs/2026-04-09_discord_alert_integration_debug.md) | 2026-04-09 | Debug session for Discord alert delivery via n8n: EAI_AGAIN, webhook URL injection, Send Webhook node fix |
