@@ -19,6 +19,9 @@ Delivered across two parallel packets integrated on 2026-04-10:
 - **Integration pass** (2026-04-10): Unified `packages/polymarket/discovery/__init__.py` exports
   covering all 11 symbols (8 Loop A models + 3 MVF). Removed dead ImportError guard.
   Combined 106 touched-area tests green.
+- **Hardening pass** (2026-04-10): Added `tests/test_wallet_discovery_integrated.py` with 12
+  integrated acceptance tests covering the full v1 path end-to-end on deterministic fixtures
+  (no network, no ClickHouse). Total discovery-area tests: 118.
 
 ---
 
