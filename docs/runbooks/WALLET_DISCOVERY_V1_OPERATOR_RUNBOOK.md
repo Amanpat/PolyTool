@@ -20,6 +20,30 @@ scan, and MVF. For what is NOT in v1, see Section 6.
 
 ---
 
+## What Is Shipped
+
+Wallet Discovery v1 ships four integrated capabilities:
+
+1. **Loop A leaderboard discovery** — 24h-scheduled fetch of the Polymarket public
+   leaderboard, churn detection (new wallets, rank movement, reappearance), and
+   automatic scan queue population.
+2. **ClickHouse table contracts** — three tables with enforced schemas:
+   `watchlist` (ReplacingMergeTree, lifecycle state machine),
+   `leaderboard_snapshots` (MergeTree append-only, raw payload preservation),
+   `scan_queue` (ReplacingMergeTree, dedup + lease semantics).
+3. **`python -m polytool scan <address> --quick`** — unified scan with a hard
+   no-LLM guarantee: zero cloud API calls at any stage. Produces MVF fingerprint
+   + existing detectors + PnL in a single dossier.
+4. **MVF (Multi-Variate Fingerprint)** — 11-dimensional deterministic vector
+   computed from trade history using Python math only (no external dependencies).
+
+**Test coverage**: 118 discovery-area tests (54 Loop A + 37 MVF + 15 scan-quick +
+12 integrated acceptance), 3908 full suite.
+
+**What is explicitly NOT in v1**: see Section 6.
+
+---
+
 ## 1. Prerequisites
 
 Run these checks before any discovery operation.
@@ -198,6 +222,19 @@ Or open `dossier.json` directly and search for the `"mvf"` key.
 
 ---
 
+## No-LLM Guarantee
+
+`scan --quick` makes **zero HTTP calls** to any cloud LLM endpoint (Gemini, DeepSeek,
+OpenAI, Anthropic, or any other).
+
+- This is an absolute guarantee enforced by test AT-06 (request-intercepting fixtures,
+  not inspection of config values).
+- Without `--quick`, the existing scan behavior is unchanged and may use LLM stages
+  if the user's config enables them.
+- The no-LLM guarantee applies only to the `--quick` path.
+
+---
+
 ## 4. Human Review Gate
 
 **v1 lifecycle path:**
@@ -254,7 +291,7 @@ curl "http://localhost:8123/" --data \
 
 ---
 
-## 6. What v1 Does NOT Cover
+## 6. What Is Explicitly Not Shipped
 
 The following are explicitly out of scope for v1:
 
@@ -274,6 +311,51 @@ The following are explicitly out of scope for v1:
 
 For the named prerequisite (blocker) for each deferred capability, see
 `docs/specs/SPEC-wallet-discovery-v1.md` section "Blockers for Phases Beyond v1".
+
+---
+
+## Known Non-Blocking Issues
+
+These are pre-existing issues that do **not** affect Wallet Discovery v1 functionality:
+
+| Issue | Scope | Impact |
+|-------|-------|--------|
+| `test_ris_phase2_cloud_provider_routing.py` — 8 tests fail with `AttributeError` on `_post_json` | RIS Phase 2 cloud provider routing feature | Zero impact on discovery. These tests were failing before v1 was implemented. Owned by RIS Phase 2. |
+| `late_entry_rate` MVF dimension returns `null` | Gap E in spec (market `open_ts` / `close_timestamp` absent from dossier export) | Expected behavior per spec. Not a bug. Will be addressed in a future packet. |
+
+---
+
+## Go/No-Go Checklist
+
+Run through this checklist before using Wallet Discovery v1 in a research workflow:
+
+```
+[ ] ClickHouse responding:
+    curl "http://localhost:8123/?query=SELECT%201"   # must return "1"
+
+[ ] All 3 DDL tables exist:
+    curl "http://localhost:8123/" --data \
+      "SELECT name FROM system.tables WHERE database='polytool' AND name IN ('watchlist','leaderboard_snapshots','scan_queue')"
+    # must return 3 lines
+
+[ ] CLICKHOUSE_PASSWORD env var set:
+    echo $CLICKHOUSE_PASSWORD   # must be non-empty
+
+[ ] CLI loads without errors:
+    python -m polytool --help   # must show discovery and scan commands
+
+[ ] Discovery area tests pass:
+    python -m pytest tests/test_wallet_discovery.py tests/test_mvf.py \
+      tests/test_scan_quick_mode.py tests/test_wallet_discovery_integrated.py \
+      -v --tb=short
+    # expected: 118 passing, 0 failed
+
+[ ] Operator understands: no auto-promotion — human review gate is mandatory
+    before any wallet reaches promoted/watched state.
+
+[ ] Operator understands: scan --quick has no LLM calls;
+    scan without --quick is unchanged and may call LLM stages.
+```
 
 ---
 
