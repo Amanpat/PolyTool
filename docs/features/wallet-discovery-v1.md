@@ -2,9 +2,23 @@
 
 ## Status
 
-**Spec frozen** (2026-04-09). Implementation pending.
+**Implemented** (2026-04-09). **Integrated** (2026-04-10).
 
 This is NOT the full four-loop discovery system. See the spec for non-goals and blockers.
+
+---
+
+## Implementation
+
+Delivered across two parallel packets integrated on 2026-04-10:
+
+- **Packet A** (commit `83832e1`): ClickHouse DDL (3 tables), models with lifecycle state machine,
+  leaderboard fetcher, churn detector, scan queue manager, Loop A orchestrator, `discovery` CLI — 54 tests.
+- **Packet B** (commit `724a23c`): MVF computation module (`mvf.py`), `--quick` flag on `scan` CLI,
+  MVF block wired into dossier artifact — 52 tests (37 MVF + 15 scan-quick).
+- **Integration pass** (2026-04-10): Unified `packages/polymarket/discovery/__init__.py` exports
+  covering all 11 symbols (8 Loop A models + 3 MVF). Removed dead ImportError guard.
+  Combined 106 touched-area tests green.
 
 ---
 
@@ -43,12 +57,12 @@ Wallet Discovery v1 is a narrowly scoped discovery loop covering four capabiliti
 
 ## CLI Surface
 
-Extended (pending implementation):
+Extended:
 ```
 python -m polytool scan <address> [--quick]
 ```
 
-New (pending implementation):
+New:
 ```
 python -m polytool discovery run-loop-a
 ```
