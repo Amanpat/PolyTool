@@ -81,3 +81,17 @@ secrets/
 # Crypto pair bot Docker runtime data
 /docker_data/paper/
 /docker_data/live/
+
+# Hidden tooling — local-only state (see docs/reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md)
+# These paths are per-machine or disposable; they must not be committed going forward.
+# NOTE: .claude/settings.local.json and .claude/worktrees/ are already tracked from
+# prior commits. These rules prevent NEW files only. Deindexing tracked files requires
+# a separate explicit cleanup pass.
+.claude/settings.local.json
+.claude/worktrees/
+.claude/skills/
+
+# .opencode local install/cache (also covered by .opencode/.gitignore for defense-in-depth)
+.opencode/package.json
+.opencode/bun.lock
+.opencode/node_modules/
