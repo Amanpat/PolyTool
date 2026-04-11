@@ -17,8 +17,17 @@ alone.
 - **Docs governance:** public docs surface follows
   [ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md).
   `docs/README.md` and `docs/INDEX.md` are navigation only; `docs/dev_logs/**`
-  remains preserved history; `docs/obsidian-vault/**` remains a separate
-  subsystem excluded from public docs count goals.
+  remains preserved history; `docs/ROADMAP.md` is a non-governing roadmap
+  router/operator surface; `docs/obsidian-vault/**` remains a separate
+  subsystem excluded from public docs count goals. Root-level hidden tooling,
+  local workspace state, runtime state, and scratch boundaries are now defined
+  in
+  [docs/reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md);
+  repo-cleanliness expectations exclude those local-state/runtime roots unless a
+  task explicitly targets them. Durable .gitignore hardening for local-only hidden
+  tooling paths (.claude/settings.local.json, .claude/worktrees/, .claude/skills/,
+  .opencode/package.json, .opencode/bun.lock, .opencode/node_modules/) is now in
+  place; tracked .claude worktree cleanup is still pending per-path safety review.
 
 ## Roadmap Items Not Yet Implemented (v5 framing)
 
@@ -50,7 +59,7 @@ with named blockers in the spec.
 
 - **Spec**: docs/specs/SPEC-wallet-discovery-v1.md
 - **Feature doc**: docs/features/wallet-discovery-v1.md
-- **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_RUNBOOK.md
+- **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md
 
 ## Gate 2 Corpus Visibility Improvements (quick-260410-izh, 2026-04-10)
 
@@ -1542,7 +1551,7 @@ GitHub, Freshness, Weekly Digest, and URL Ingestion. The scheduled/manual sectio
 continue to use the same RIS CLI surfaces (`research-scheduler run-job <id>`,
 `research-health`, `research-stats summary`, `research-report digest`, and
 `research-acquire`) while remaining out of scope for strategy, gate, risk, and live
-capital logic. See `docs/RIS_OPERATOR_GUIDE.md` for the current section inventory and
+capital logic. See `docs/runbooks/RIS_OPERATOR_GUIDE.md` for the current section inventory and
 scheduler mutual exclusion guidance.
 
 Note: The v2 deferred item "n8n migration from APScheduler" above refers to broad Phase 3
@@ -1568,7 +1577,7 @@ automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 it
   SQLite schema requires tag objects with `id` field; string tags cause constraint violation).
 
 - **Doc fixes**: Removed stale `research-scheduler stop` / `research-scheduler list` from
-  `docs/RIS_OPERATOR_GUIDE.md`; updated ADR 0013 (3 -> 11 workflow table, custom image section,
+  `docs/runbooks/RIS_OPERATOR_GUIDE.md`; updated ADR 0013 (3 -> 11 workflow table, custom image section,
   Docker socket security risk row).
 
 See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.
@@ -1576,7 +1585,7 @@ See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.
 ## RIS n8n Docs Reconciliation (quick-260404-uav, 2026-04-05)
 
 - **Docs-only cleanup** (quick-260404-uav, 2026-04-05): Fixed 5 doc drifts in
-  `docs/RIS_OPERATOR_GUIDE.md` that predated the quick-260404-t5l runtime fix.
+  `docs/runbooks/RIS_OPERATOR_GUIDE.md` that predated the quick-260404-t5l runtime fix.
 
 - **Drifts fixed**: (1) last-verified date updated to 2026-04-05; (2) import step
   annotation updated from curl/jq/REST to docker exec CLI; (3) "NOT been
