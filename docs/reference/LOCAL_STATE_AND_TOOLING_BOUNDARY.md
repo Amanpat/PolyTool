@@ -58,10 +58,11 @@ Shared repo tooling definitions tracked in git:
 - `.claude/worktrees/` — per-session agent worktree checkouts (disposable)
 - `.claude/skills/` — currently empty and unresolved; gitignored as precaution
 
-**Tracked worktree cleanup:** `.claude/worktrees/` and `.claude/settings.local.json`
-were committed in prior sessions and remain tracked despite the new .gitignore rules.
-Deindexing is deferred pending per-path safety inspection in a future explicit cleanup
-pass. The .gitignore rules prevent new files from being tracked going forward.
+**Tracked worktree cleanup (RESOLVED):** `.claude/worktrees/` (14 gitlink entries)
+and `.claude/settings.local.json` were deindexed in quick-260411-im0 (commit
+f24600a, automatic during staging) and quick-260411-ime (commit 79fe441, explicit
+audit). The files remain on disk; only git index tracking was removed. The
+.gitignore rules prevent new files from being tracked going forward.
 
 ### .opencode — committed surface
 

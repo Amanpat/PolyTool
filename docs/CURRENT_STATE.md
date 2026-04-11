@@ -27,7 +27,8 @@ alone.
   task explicitly targets them. Durable .gitignore hardening for local-only hidden
   tooling paths (.claude/settings.local.json, .claude/worktrees/, .claude/skills/,
   .opencode/package.json, .opencode/bun.lock, .opencode/node_modules/) is now in
-  place; tracked .claude worktree cleanup is still pending per-path safety review.
+  place; tracked .claude worktree and settings.local.json deindexing is complete
+  (quick-260411-im0 commit f24600a + quick-260411-ime commit 79fe441).
 
 ## Roadmap Items Not Yet Implemented (v5 framing)
 
