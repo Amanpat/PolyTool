@@ -191,7 +191,10 @@ python tools/gates/run_recovery_corpus_sweep.py \
 ```
 
 **Escalation deadline:** ADR-benchmark-versioning-and-crypto-unavailability.md escalation
-criteria for benchmark_v2 remains at 2026-04-12. No AI agent should autonomously trigger
+criteria for benchmark_v2 deadline was 2026-04-12 (PASSED as of 2026-04-14). Crypto markets
+returned on 2026-04-14 (12 active 5m markets: BTC=4, ETH=4, SOL=4) — verdict is
+RESUME_CRYPTO_CAPTURE. See docs/dev_logs/2026-04-14_gate2_next_step_packet.md for the
+full evidence packet and capture execution commands. No AI agent should autonomously trigger
 benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
 
 - Gate 3: **BLOCKED** — Gate 2 must PASS first
