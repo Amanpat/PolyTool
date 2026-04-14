@@ -642,6 +642,8 @@ def score_and_rank_candidates(
                 source=r.source,
                 max_size=max_size,
                 buffer=buffer,
+                events_scanned=r.events_scanned if r.events_scanned else None,
+                confidence_class=r.confidence_class if r.confidence_class else None,
             )
         )
     return rank_gate2_candidates(scored)

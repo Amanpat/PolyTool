@@ -274,6 +274,10 @@ class Gate2RankScore:
 
     source: str  # "live" or "tape"
 
+    # Tape quality signals (carried from CandidateResult; None for live snapshots)
+    events_scanned: Optional[int] = None
+    confidence_class: Optional[str] = None
+
     @property
     def gate2_status(self) -> str:
         """Short code for the Gate 2 signal level."""
@@ -307,6 +311,8 @@ def score_gate2_candidate(
     source: str = "live",
     max_size: float = 50.0,
     buffer: float = 0.01,
+    events_scanned: Optional[int] = None,
+    confidence_class: Optional[str] = None,
 ) -> Gate2RankScore:
     """Score a Gate 2 candidate market with an explainable factor breakdown.
 
@@ -538,6 +544,8 @@ def score_gate2_candidate(
         rank_score=rank_score,
         explanation=explanation,
         source=source,
+        events_scanned=events_scanned,
+        confidence_class=confidence_class,
     )
 
 

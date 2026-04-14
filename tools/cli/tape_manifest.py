@@ -752,8 +752,12 @@ def _corpus_note(
         return (
             "BLOCKED: No eligible tapes. Gate 2 requires at least one tape with "
             "executable_ticks > 0 (simultaneous depth_ok AND edge_ok). "
-            "Run 'prepare-gate2' or 'watch-arb-candidates' targeting markets "
-            "with sufficient depth and complement edge."
+            "Silver/Bronze tapes contain only price_2min_guide events and lack L2 "
+            "book data — the fill engine always rejects them with book_not_initialized. "
+            "Only Gold-tier tapes (live WebSocket recordings via watch-arb-candidates "
+            "or simtrader-shadow) can produce executable ticks. "
+            "Run scan-gate2-candidates to find markets with edge signal, then capture "
+            "Gold tapes with watch-arb-candidates."
         )
 
     missing_regimes = tuple(str(regime) for regime in coverage.get("missing_regimes") or ())
@@ -932,6 +936,96 @@ def print_manifest_table(records: list[TapeRecord], summary: CorpusSummary) -> N
 
 
 # ---------------------------------------------------------------------------
+# Corpus quality breakdown
+# ---------------------------------------------------------------------------
+
+
+def print_corpus_quality_breakdown(
+    records: list[TapeRecord],
+    summary: CorpusSummary,
+) -> None:
+    """Print an aggregate corpus quality breakdown after the per-tape table.
+
+    Outputs:
+      1. Reject-code distribution table
+      2. Confidence-tier distribution table
+      3. Silver/Bronze tape structural warning (when corpus is blocked and such tapes exist)
+      4. Operator next-action line
+    """
+    # 1. Reject-code distribution
+    _REJECT_CODES = [
+        "ELIGIBLE",
+        "NO_OVERLAP",
+        "DEPTH_ONLY",
+        "EDGE_ONLY",
+        "NO_DEPTH_NO_EDGE",
+        "NO_EVENTS",
+        "NO_ASSETS",
+        "UNKNOWN",
+    ]
+    reject_counts: dict[str, int] = {code: 0 for code in _REJECT_CODES}
+    for rec in records:
+        diag = rec.diagnostics if rec.diagnostics else enrich_tape_diagnostics(rec)
+        code = diag.get("reject_code", "UNKNOWN")
+        if code not in reject_counts:
+            reject_counts[code] = 0
+        reject_counts[code] += 1
+
+    print()
+    print("Reject Code Distribution:")
+    for code in _REJECT_CODES:
+        count = reject_counts.get(code, 0)
+        print(f"  {code:<18} {count}")
+
+    # 2. Confidence-tier distribution
+    _CONF_TIERS = ["GOLD", "SILVER", "BRONZE", "UNKNOWN"]
+    conf_counts: dict[str, int] = {tier: 0 for tier in _CONF_TIERS}
+    for rec in records:
+        diag = rec.diagnostics if rec.diagnostics else enrich_tape_diagnostics(rec)
+        tier = diag.get("confidence_class", "UNKNOWN")
+        if tier not in conf_counts:
+            conf_counts[tier] = 0
+        conf_counts[tier] += 1
+
+    print()
+    print("Confidence Tier Distribution:")
+    for tier in _CONF_TIERS:
+        count = conf_counts.get(tier, 0)
+        print(f"  {tier:<8} {count}")
+
+    # 3. Silver/Bronze warning when corpus is blocked and such tapes exist
+    silver_bronze_count = conf_counts.get("SILVER", 0) + conf_counts.get("BRONZE", 0)
+    if summary.eligible_count == 0 and silver_bronze_count > 0:
+        print()
+        print("WARNING: Silver/Bronze tapes are structurally unusable for Gate 2.")
+        print("Silver tapes contain only price_2min_guide events (2-minute price samples).")
+        print("L2 book data is absent, so L2Book never initializes and the fill engine")
+        print("always rejects with book_not_initialized. Only Gold-tier tapes (live")
+        print("ws-recorded via watch-arb-candidates or simtrader-shadow) can produce")
+        print("executable ticks. Capture Gold tapes using:")
+        print("  python -m polytool scan-gate2-candidates --enrich --top 10")
+        print("  python -m polytool watch-arb-candidates --slugs <top-candidates>")
+
+    # 4. Operator next-action line
+    print()
+    if summary.eligible_count == 0:
+        print(
+            "NEXT: Capture Gold tapes for markets with edge signal. "
+            "Run scan-gate2-candidates to find targets."
+        )
+    else:
+        missing = list(summary.regime_coverage.get("missing_regimes") or [])
+        if missing:
+            print(
+                f"NEXT: Capture tapes for missing regimes: {', '.join(missing)}."
+            )
+        else:
+            print(
+                "NEXT: Run Gate 2 sweep: python tools/gates/close_sweep_gate.py"
+            )
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1022,6 +1116,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"[tape-manifest] Manifest written: {out_path}", file=sys.stderr)
 
     print_manifest_table(records, summary)
+    print_corpus_quality_breakdown(records, summary)
     return 0
 
 
