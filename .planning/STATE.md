@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-q9i: Diagnose Gate 2 zero-fill failure — H1 confirmed: Silver tapes contain only price_2min_guide events, L2Book never initializes, fill engine rejects all orders at book_not_initialized guard; simulator and strategy correct; unblock is Gold tape capture per CORPUS_GOLD_CAPTURE_RUNBOOK.md
+Last activity: 2026-04-14 - Completed quick task 260414-qre: Harden the Gold tape capture path for Gate 2
 
 ## Recent Progress
 
@@ -284,3 +284,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-q9i: Diagnose Gate 2 zer
 | 260414-pbz | Close out the PolyTool repo-maintenance cleanup stream — all 6 durable .gitignore patterns confirmed, git index clean, boundary doc consistent, residual empty directory trees (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, final closeout dev log written, stream CLOSED | 2026-04-14 | 8b31f67 | [260414-pbz-close-out-the-polytool-repo-maintenance-](./quick/260414-pbz-close-out-the-polytool-repo-maintenance-/) |
 | 260414-q9s | Improve Gate 2 actionable-corpus visibility and ranking: events_scanned/confidence_class fields threaded through Gate2RankScore; print_corpus_quality_breakdown() added to tape_manifest with reject-code distribution, confidence-tier distribution, Silver tape warning, next-action guidance; 8 new tests; 2460 passing | 2026-04-14 | ae912c9 | [260414-q9s-improve-gate-2-actionable-corpus-visibil](./quick/260414-q9s-improve-gate-2-actionable-corpus-visibil/) |
 | 260414-q9i | Diagnose Gate 2 zero-fill failure from BrokerSim/fill-model side — H1 confirmed: Silver tapes contain only price_2min_guide events; L2Book never initializes; fill engine rejects all orders at book_not_initialized guard before any quote comparison; strategy never emits OrderIntents (best_bid/ask always None); simulator and strategy are correct; unblock is Gold tape capture per CORPUS_GOLD_CAPTURE_RUNBOOK.md; gate2_fill_diagnostic.py added | 2026-04-14 | c80cbbb | [260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr](./quick/260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr/) |
+| 260414-qre | Harden the Gold tape capture path for Gate 2: DEFAULT_SHADOW_TAPE_DIR constant fixes path drift to artifacts/tapes/shadow/; tape_validator.py module (validate_captured_tape: L2 presence, event count, metadata completeness); post-capture PASS/BLOCKED/WARN verdict block wired into shadow CLI; 10 deterministic tests; 2470 passing | 2026-04-14 | a4b58f2 | [260414-qre-harden-the-gold-tape-capture-path-for-ga](./quick/260414-qre-harden-the-gold-tape-capture-path-for-ga/) |
