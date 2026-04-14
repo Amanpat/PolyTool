@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-qre: Harden the Gold tape capture path for Gate 2
+Last activity: 2026-04-14 - Completed quick task 260414-qrt: Build a post-capture qualification and promotion workflow for Gold tapes
 
 ## Recent Progress
 
@@ -285,3 +285,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-qre: Harden the Gold tap
 | 260414-q9s | Improve Gate 2 actionable-corpus visibility and ranking: events_scanned/confidence_class fields threaded through Gate2RankScore; print_corpus_quality_breakdown() added to tape_manifest with reject-code distribution, confidence-tier distribution, Silver tape warning, next-action guidance; 8 new tests; 2460 passing | 2026-04-14 | ae912c9 | [260414-q9s-improve-gate-2-actionable-corpus-visibil](./quick/260414-q9s-improve-gate-2-actionable-corpus-visibil/) |
 | 260414-q9i | Diagnose Gate 2 zero-fill failure from BrokerSim/fill-model side — H1 confirmed: Silver tapes contain only price_2min_guide events; L2Book never initializes; fill engine rejects all orders at book_not_initialized guard before any quote comparison; strategy never emits OrderIntents (best_bid/ask always None); simulator and strategy are correct; unblock is Gold tape capture per CORPUS_GOLD_CAPTURE_RUNBOOK.md; gate2_fill_diagnostic.py added | 2026-04-14 | c80cbbb | [260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr](./quick/260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr/) |
 | 260414-qre | Harden the Gold tape capture path for Gate 2: DEFAULT_SHADOW_TAPE_DIR constant fixes path drift to artifacts/tapes/shadow/; tape_validator.py module (validate_captured_tape: L2 presence, event count, metadata completeness); post-capture PASS/BLOCKED/WARN verdict block wired into shadow CLI; 10 deterministic tests; 2470 passing | 2026-04-14 | a4b58f2 | [260414-qre-harden-the-gold-tape-capture-path-for-ga](./quick/260414-qre-harden-the-gold-tape-capture-path-for-ga/) |
+| 260414-qrt | Build post-capture Gold tape qualification workflow: qualify_gold_batch.py read-only CLI scans batch dirs, reports QUALIFIED/REJECTED per tape with reasons (too_short, no_bucket_label, over_quota), shows before/after shortage delta per bucket, lists gate2_ready tapes; reuses corpus_audit admission rules; 9 deterministic tests; 2479 passing | 2026-04-14 | 7b7d03f | [260414-qrt-build-a-post-capture-qualification-and-p](./quick/260414-qrt-build-a-post-capture-qualification-and-p/) |
