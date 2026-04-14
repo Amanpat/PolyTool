@@ -16,9 +16,11 @@ import pytest
 
 from tools.cli.tape_manifest import (
     TapeRecord,
+    CorpusSummary,
     classify_reject_code,
     classify_tape_confidence,
     enrich_tape_diagnostics,
+    print_corpus_quality_breakdown,
 )
 from tools.cli.scan_gate2_candidates import (
     CandidateResult,
@@ -276,3 +278,171 @@ class TestPrintTableHeaders:
     def test_empty_results_prints_no_signal(self):
         output = self._capture([])
         assert "No candidate signal found" in output
+
+
+# ---------------------------------------------------------------------------
+# TestGate2RankScorePassthrough
+# ---------------------------------------------------------------------------
+
+
+class TestGate2RankScorePassthrough:
+    def test_events_scanned_on_gate2_rank_score(self):
+        """Gate2RankScore carries events_scanned from score_gate2_candidate."""
+        from packages.polymarket.market_selection.scorer import score_gate2_candidate
+        score = score_gate2_candidate(
+            "test-slug",
+            executable_ticks=0,
+            edge_ok_ticks=0,
+            depth_ok_ticks=0,
+            best_edge_raw=-99.0,
+            depth_yes=0.0,
+            depth_no=0.0,
+            events_scanned=150,
+            confidence_class="GOLD",
+        )
+        assert score.events_scanned == 150
+        assert score.confidence_class == "GOLD"
+
+    def test_defaults_none_when_not_passed(self):
+        """Gate2RankScore defaults to None when fields not provided."""
+        from packages.polymarket.market_selection.scorer import score_gate2_candidate
+        score = score_gate2_candidate(
+            "test-slug",
+            executable_ticks=0,
+            edge_ok_ticks=0,
+            depth_ok_ticks=0,
+            best_edge_raw=-99.0,
+            depth_yes=0.0,
+            depth_no=0.0,
+        )
+        assert score.events_scanned is None
+        assert score.confidence_class is None
+
+    def test_score_and_rank_passes_through(self):
+        """score_and_rank_candidates forwards events_scanned from CandidateResult."""
+        from tools.cli.scan_gate2_candidates import (
+            CandidateResult,
+            score_and_rank_candidates,
+        )
+        cr = CandidateResult(
+            slug="test-slug",
+            total_ticks=100,
+            depth_ok_ticks=10,
+            edge_ok_ticks=5,
+            executable_ticks=0,
+            best_edge=-0.02,
+            max_depth_yes=30.0,
+            max_depth_no=25.0,
+            source="tape",
+            events_scanned=200,
+            confidence_class="SILVER",
+        )
+        ranked = score_and_rank_candidates([cr])
+        assert len(ranked) == 1
+        assert ranked[0].events_scanned == 200
+        assert ranked[0].confidence_class == "SILVER"
+
+
+# ---------------------------------------------------------------------------
+# TestCorpusQualityBreakdown
+# ---------------------------------------------------------------------------
+
+
+class TestCorpusQualityBreakdown:
+    def _capture_breakdown(self, records, summary):
+        """Capture stdout from print_corpus_quality_breakdown."""
+        buf = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            print_corpus_quality_breakdown(records, summary)
+        finally:
+            sys.stdout = old_stdout
+        return buf.getvalue()
+
+    def _make_summary(self, eligible=0, total=5):
+        return CorpusSummary(
+            total_tapes=total,
+            eligible_count=eligible,
+            ineligible_count=total - eligible,
+            by_regime={
+                "politics": {"total": 2, "eligible": 0},
+                "sports": {"total": 2, "eligible": 0},
+                "new_market": {"total": 1, "eligible": 0},
+                "unknown": {"total": 0, "eligible": 0},
+            },
+            mixed_regime_eligible=False,
+            gate2_eligible_tapes=[],
+            generated_at="2026-04-14T00:00:00+00:00",
+            corpus_note="BLOCKED",
+            regime_coverage={
+                "covered_regimes": [],
+                "missing_regimes": ["politics", "sports", "new_market"],
+            },
+        )
+
+    def test_reject_code_distribution_printed(self):
+        records = [
+            _make_record(evidence={"ticks_with_depth_ok": 5, "ticks_with_edge_ok": 0, "ticks_with_depth_and_edge": 0}),
+            _make_record(evidence={"ticks_with_depth_ok": 0, "ticks_with_edge_ok": 3, "ticks_with_depth_and_edge": 0}),
+            _make_record(reject_reason="no events.jsonl found in tape directory"),
+        ]
+        for r in records:
+            if not r.diagnostics:
+                r.diagnostics = enrich_tape_diagnostics(r)
+        summary = self._make_summary(total=3)
+        output = self._capture_breakdown(records, summary)
+        assert "DEPTH_ONLY" in output
+        assert "EDGE_ONLY" in output
+        assert "NO_EVENTS" in output
+
+    def test_confidence_tier_distribution_printed(self):
+        records = [
+            _make_record(recorded_by="watch-arb-candidates", evidence={"events_scanned": 100, "ticks_with_both_bbo": 50}),
+            _make_record(recorded_by="prepare-gate2", evidence={"events_scanned": 30, "ticks_with_both_bbo": 0}),
+        ]
+        for r in records:
+            if not r.diagnostics:
+                r.diagnostics = enrich_tape_diagnostics(r)
+        summary = self._make_summary(total=2)
+        output = self._capture_breakdown(records, summary)
+        assert "GOLD" in output
+        assert "SILV" in output or "SILVER" in output
+
+    def test_silver_warning_when_blocked(self):
+        records = [
+            _make_record(recorded_by="prepare-gate2", evidence={"events_scanned": 30, "ticks_with_both_bbo": 0}),
+        ]
+        for r in records:
+            r.diagnostics = enrich_tape_diagnostics(r)
+        summary = self._make_summary(eligible=0, total=1)
+        output = self._capture_breakdown(records, summary)
+        assert "Silver" in output or "SILVER" in output or "structurally unusable" in output
+
+    def test_no_silver_warning_when_eligible_exists(self):
+        records = [
+            _make_record(
+                recorded_by="watch-arb-candidates",
+                eligible=True,
+                evidence={
+                    "events_scanned": 100,
+                    "ticks_with_both_bbo": 50,
+                    "ticks_with_depth_and_edge": 5,
+                    "ticks_with_depth_ok": 10,
+                    "ticks_with_edge_ok": 8,
+                },
+            ),
+        ]
+        for r in records:
+            r.diagnostics = enrich_tape_diagnostics(r)
+        summary = self._make_summary(eligible=1, total=1)
+        output = self._capture_breakdown(records, summary)
+        assert "structurally unusable" not in output
+
+    def test_next_action_capture_gold(self):
+        records = [_make_record(reject_reason="no events.jsonl found in tape directory")]
+        for r in records:
+            r.diagnostics = enrich_tape_diagnostics(r)
+        summary = self._make_summary(eligible=0, total=1)
+        output = self._capture_breakdown(records, summary)
+        assert "NEXT" in output or "scan-gate2-candidates" in output
