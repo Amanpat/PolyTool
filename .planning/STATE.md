@@ -1,6 +1,22 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: — Core RAG Pipeline
+current_phase: 5 (Reranking)
+status: executing
+last_updated: "2026-04-14T22:19:37.064Z"
+last_activity: "2026-04-14 - Completed quick task 260414-pbz: Final repo-maintenance closeout — all 6 .gitignore patterns verified, git index clean, residual empty dirs (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, maintenance stream declared CLOSED"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
 # Project State
 
 ## Current Position
+
 - **Milestone:** v1.0 — Core RAG Pipeline
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
@@ -8,6 +24,7 @@
 Last activity: 2026-04-11 - Completed quick task 260411-j6z: Close out the PolyTool repo-maintenance cleanup stream — boundary/index state verified, stale "deferred" references resolved in boundary doc and CURRENT_STATE.md, 7 blocked scratch residue paths removed, closeout dev log written
 
 ## Recent Progress
+
 - quick-260410-iz5: Gate 2 zero-fill root cause diagnosis — confirmed Silver tapes contain only price_2min_guide events; L2Book never initializes; fill engine always rejects with book_not_initialized; tape quality limitation not simulator defect; shipped diagnose_zero_fill.py + 3 offline tests (PASSES) + dev log with bucket classification and next-step options; commits 99a7e69 + 8bb5f73
 - quick-260409-khd: n8n workflow location migration — moved ris-unified-dev.json, ris-health-webhook.json, workflow_ids.env from workflows/n8n/ to infra/n8n/workflows/ (byte-identical, MD5 verified); deleted 18 legacy JSON files (11 pilot templates + 7 multi-workflow rebuild artifacts); replaced workflows/n8n/ with stub README; updated WORKFLOW_DIR in import_workflows.py, orphan check in smoke_ris_n8n.py, and all operator docs (infra/n8n/README.md, docs/RIS_OPERATOR_GUIDE.md, CURRENT_STATE.md, ADR-0013, RIS_N8N_SMOKE_TEST.md); dev log created; commits f888d41 + 950d31f
 - quick-260408-oyu: Phase 2 RIS monitoring truth — 5 new RisMetricsSnapshot fields (provider_route_distribution, provider_failure_counts, review_queue, disposition_distribution, routing_summary), real model_unavailable health check replacing stub (YELLOW >3 failures, RED all providers failing), new review_queue_backlog health check (YELLOW >20, RED >50), overall_category output (HEALTHY/DEGRADED/BLOCKED_ON_SETUP/FAILURE) in research-health table + JSON output, operator guide updated (6->7 checks); 17 new tests added (75 total); commits 946677e + bab54ce
@@ -49,6 +66,7 @@ Last activity: 2026-04-11 - Completed quick task 260411-j6z: Close out the PolyT
 - Phase 4.1: Hybrid retrieval with FTS5 + RRF
 
 ## Key Decisions
+
 - quick-260408-i0y: ManualProvider all-3s (composite=3.0) gates as REVIEW not ACCEPT (forces operator review; use priority_1 to accept); SCORING_PROMPT_TEMPLATE_ID bumped to scoring_v2 for replay drift detection; fail-closed in two layers (parse_scoring_response + DocumentEvaluator.evaluate); config-driven gate params with env-var overrides and reset_eval_config() for test isolation; priority_tier="priority_1" waives floor checks (trusted internal sources)
 - quick-260407-lpr: Narrow LLM policy exception — Tier 1 free APIs (Gemini Flash, DeepSeek V3) authorized for RIS evaluation gate scoring only, not signals or trading; weighted composite gate replaces simple sum /20 as canonical decision gate (simple sum retained as diagnostic); fail-closed rule enforced (scorer failure = REJECT); review queue in existing KnowledgeStore SQLite; ClickHouse idempotency dual-layer (ReplacingMergeTree + code-level prefilter)
 - quick-260407-inu: Use minimal PUT body (6 fields only: name/nodes/connections/settings/staticData/pinData) for n8n workflow updates — API rejects additional properties; Global Error Watcher as settings.errorWorkflow catch-all covers node-level failures that bypass continueOnFail
@@ -116,6 +134,7 @@ Last activity: 2026-04-11 - Completed quick task 260411-j6z: Close out the PolyT
 - quick-045 Gate 2 FAILED: 7/50 positive (14%), corpus complete 50/50; silver tapes = zero fills (no tick density); non-crypto shadow = mostly negative on low-frequency markets; crypto 5m = 7/10 positive (btc 4/5, eth 2/2, sol 1/3); run_recovery_corpus_sweep.py created to handle list-format manifest; three path-forward options: crypto-only corpus subset (requires spec change + operator auth), strategy improvement, Track 2 focus
 
 ### Blockers/Concerns
+
 - Track 1 Gate 2 FAILED: 7/50 positive (14%), threshold 70%. Corpus is complete at 50/50. Root cause: silver tapes zero fills, non-crypto shadow tapes negative on low-frequency markets, crypto 5m tapes 7/10 positive. Three path-forward options in dev log 2026-03-29_crypto_watch_and_capture.md: (1) crypto-only corpus subset test (requires spec change + operator auth), (2) strategy improvement research, (3) Track 2 focus while Gate 2 research continues. Gate 3 BLOCKED.
 - Track 2 market availability: BTC/ETH/SOL 5m markets were active 2026-03-29 (used for Gate 2 capture). Deploy crypto pair bot when ready.
 
