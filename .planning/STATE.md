@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-14T22:19:37.064Z"
-last_activity: "2026-04-14 - Completed quick task 260414-pbz: Final repo-maintenance closeout — all 6 .gitignore patterns verified, git index clean, residual empty dirs (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, maintenance stream declared CLOSED"
+last_updated: "2026-04-14T23:11:22.355Z"
+last_activity: "2026-04-14 - Completed quick task 260414-q9s: Improve Gate 2 actionable-corpus visibility and ranking"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-q9s: Improve Gate 2 actionable-corpus visibility and ranking
+Last activity: 2026-04-14 - Completed quick task 260414-q9i: Diagnose Gate 2 zero-fill failure — H1 confirmed: Silver tapes contain only price_2min_guide events, L2Book never initializes, fill engine rejects all orders at book_not_initialized guard; simulator and strategy correct; unblock is Gold tape capture per CORPUS_GOLD_CAPTURE_RUNBOOK.md
 
 ## Recent Progress
 
@@ -283,3 +283,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-q9s: Improve Gate 2 acti
 | 260411-j6z | Close out the PolyTool repo-maintenance cleanup stream — boundary/index state verified (all durable patterns present, .claude local-only paths not tracked), stale "deferred" references updated to RESOLVED in boundary doc and CURRENT_STATE.md, 7 previously blocked scratch residue paths removed, closeout dev log written | 2026-04-11 | 272cfcc | [260411-j6z-close-out-the-polytool-repo-maintenance-](./quick/260411-j6z-close-out-the-polytool-repo-maintenance-/) |
 | 260414-pbz | Close out the PolyTool repo-maintenance cleanup stream — all 6 durable .gitignore patterns confirmed, git index clean, boundary doc consistent, residual empty directory trees (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, final closeout dev log written, stream CLOSED | 2026-04-14 | 8b31f67 | [260414-pbz-close-out-the-polytool-repo-maintenance-](./quick/260414-pbz-close-out-the-polytool-repo-maintenance-/) |
 | 260414-q9s | Improve Gate 2 actionable-corpus visibility and ranking: events_scanned/confidence_class fields threaded through Gate2RankScore; print_corpus_quality_breakdown() added to tape_manifest with reject-code distribution, confidence-tier distribution, Silver tape warning, next-action guidance; 8 new tests; 2460 passing | 2026-04-14 | ae912c9 | [260414-q9s-improve-gate-2-actionable-corpus-visibil](./quick/260414-q9s-improve-gate-2-actionable-corpus-visibil/) |
+| 260414-q9i | Diagnose Gate 2 zero-fill failure from BrokerSim/fill-model side — H1 confirmed: Silver tapes contain only price_2min_guide events; L2Book never initializes; fill engine rejects all orders at book_not_initialized guard before any quote comparison; strategy never emits OrderIntents (best_bid/ask always None); simulator and strategy are correct; unblock is Gold tape capture per CORPUS_GOLD_CAPTURE_RUNBOOK.md; gate2_fill_diagnostic.py added | 2026-04-14 | c80cbbb | [260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr](./quick/260414-q9i-diagnose-the-gate-2-zero-fill-failure-fr/) |
