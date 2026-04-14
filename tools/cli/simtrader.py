@@ -2443,6 +2443,28 @@ def _shadow(args: argparse.Namespace) -> int:
     print(f"  Run dir    : artifacts/simtrader/shadow_runs/{run_id}/")
     if tape_dir is not None:
         print(f"  Tape dir   : artifacts/tapes/shadow/{tape_dir.name}/")
+
+    if tape_dir is not None and tape_dir.exists():
+        from packages.polymarket.simtrader.tape_validator import validate_captured_tape
+        vr = validate_captured_tape(tape_dir, min_effective_events=50)
+        print()
+        print("--- Tape Quality Check ---")
+        if vr.verdict == "PASS":
+            print(f"  Result     : PASS")
+            print(f"  {vr.reason}")
+        elif vr.verdict == "WARN":
+            print(f"  Result     : WARN")
+            print(f"  {vr.reason}")
+        elif vr.verdict == "BLOCKED":
+            print(f"  Result     : BLOCKED")
+            print(f"  {vr.reason}")
+        print(f"  L2 book    : {'yes' if vr.has_l2_book else 'NO'}")
+        print(f"  Events     : {vr.events_total} raw, {vr.effective_events} effective ({vr.asset_count} assets)")
+        if vr.event_type_counts:
+            top_types = sorted(vr.event_type_counts.items(), key=lambda x: -x[1])[:5]
+            print(f"  Event types: {', '.join(f'{k}={v}' for k, v in top_types)}")
+        print("--------------------------")
+
     print()
     print("Reproduce:")
     reproduce = (
