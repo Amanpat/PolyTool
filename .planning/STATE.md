@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-rep: Gate 2 status audit post-capture
+Last activity: 2026-04-14 - Completed quick task 260414-rez: Gate 2 next-step packet: crypto capture resume or benchmark_v2 decision doc
 
 ## Recent Progress
 
@@ -289,3 +289,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-rep: Gate 2 status audit
 | 260414-qre | Harden the Gold tape capture path for Gate 2: DEFAULT_SHADOW_TAPE_DIR constant fixes path drift to artifacts/tapes/shadow/; tape_validator.py module (validate_captured_tape: L2 presence, event count, metadata completeness); post-capture PASS/BLOCKED/WARN verdict block wired into shadow CLI; 10 deterministic tests; 2470 passing | 2026-04-14 | a4b58f2 | [260414-qre-harden-the-gold-tape-capture-path-for-ga](./quick/260414-qre-harden-the-gold-tape-capture-path-for-ga/) |
 | 260414-qrt | Build post-capture Gold tape qualification workflow: qualify_gold_batch.py read-only CLI scans batch dirs, reports QUALIFIED/REJECTED per tape with reasons (too_short, no_bucket_label, over_quota), shows before/after shortage delta per bucket, lists gate2_ready tapes; reuses corpus_audit admission rules; 9 deterministic tests; 2479 passing | 2026-04-14 | 7b7d03f | [260414-qrt-build-a-post-capture-qualification-and-p](./quick/260414-qrt-build-a-post-capture-qualification-and-p/) |
 | 260414-rep | Read-only Gate 2 status audit post-capture: crypto-pair-watch confirms 12 eligible 5m markets live (BTC=4,ETH=4,SOL=4); corpus 50/50 complete; Gate 2 FAILED (7/50=14%); ADR deadline 2026-04-12 passed; Silver tape zero-fill root cause confirmed; 4 doc staleness issues found; verdict RESUME_CRYPTO_CAPTURE (full-corpus re-sweep still needed) | 2026-04-14 | 323b6ff | [260414-rep-gate-2-status-audit-post-capture](./quick/260414-rep-gate-2-status-audit-post-capture/) |
+| 260414-rez | Gate 2 next-step packet: RESUME_CRYPTO_CAPTURE verdict; 12 active 5m markets confirmed (BTC=4,ETH=4,SOL=4); capture execution packet with exact commands written; CLAUDE.md truth-synced (NOT_RUN→FAILED, escalation deadline PASSED annotation); CURRENT_STATE.md escalation section updated; docs-only, no v2 config files | 2026-04-14 | 9e87573 | [260414-rez-gate-2-next-step-packet-crypto-capture-r](./quick/260414-rez-gate-2-next-step-packet-crypto-capture-r/) |
