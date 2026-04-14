@@ -43,6 +43,7 @@ from packages.polymarket.simtrader.strategy_presets import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_ARTIFACTS_DIR = Path("artifacts/simtrader")
+DEFAULT_SHADOW_TAPE_DIR = Path("artifacts/tapes/shadow")
 DEFAULT_MIN_EVENTS = 50
 _QUIET_TAPE_MSG = (
     "Warning: tape is quiet (event_count={count}).  "
@@ -2346,7 +2347,7 @@ def _shadow(args: argparse.Namespace) -> int:
     record_tape = not args.no_record_tape
     tape_dir: Optional[Path] = None
     if record_tape:
-        tape_dir = DEFAULT_ARTIFACTS_DIR / "tapes" / run_id
+        tape_dir = DEFAULT_SHADOW_TAPE_DIR / run_id
 
     print(f"[shadow] run dir  : {run_dir}", file=sys.stderr)
     print(f"[shadow] duration : {args.duration}s", file=sys.stderr)
