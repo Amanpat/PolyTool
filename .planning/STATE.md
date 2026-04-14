@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-pbz: Close out the PolyTool repo-maintenance cleanup stream — all 6 durable .gitignore patterns confirmed, git index clean, boundary doc consistent, residual empty directory trees (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, final closeout dev log written, stream CLOSED
+Last activity: 2026-04-14 - Completed quick task 260414-q9s: Improve Gate 2 actionable-corpus visibility and ranking
 
 ## Recent Progress
 
@@ -282,3 +282,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-pbz: Close out the PolyT
 | 260411-im0 | Harden the durable hidden-tooling boundary contract for PolyTool — .gitignore rules added for .claude/settings.local.json, .claude/worktrees/, .opencode/package.json, .opencode/bun.lock, .opencode/node_modules/; LOCAL_STATE_AND_TOOLING_BOUNDARY.md updated with committed vs local-only surface detail; CURRENT_STATE.md note added; dev log written | 2026-04-11 | 31e419f | [260411-im0-harden-the-durable-hidden-tooling-bounda](./quick/260411-im0-harden-the-durable-hidden-tooling-bounda/) |
 | 260411-j6z | Close out the PolyTool repo-maintenance cleanup stream — boundary/index state verified (all durable patterns present, .claude local-only paths not tracked), stale "deferred" references updated to RESOLVED in boundary doc and CURRENT_STATE.md, 7 previously blocked scratch residue paths removed, closeout dev log written | 2026-04-11 | 272cfcc | [260411-j6z-close-out-the-polytool-repo-maintenance-](./quick/260411-j6z-close-out-the-polytool-repo-maintenance-/) |
 | 260414-pbz | Close out the PolyTool repo-maintenance cleanup stream — all 6 durable .gitignore patterns confirmed, git index clean, boundary doc consistent, residual empty directory trees (.tmp/pytest-basetemp, .tmp/test-workspaces, .tmp, kb/tmp_tests) removed, final closeout dev log written, stream CLOSED | 2026-04-14 | 8b31f67 | [260414-pbz-close-out-the-polytool-repo-maintenance-](./quick/260414-pbz-close-out-the-polytool-repo-maintenance-/) |
+| 260414-q9s | Improve Gate 2 actionable-corpus visibility and ranking: events_scanned/confidence_class fields threaded through Gate2RankScore; print_corpus_quality_breakdown() added to tape_manifest with reject-code distribution, confidence-tier distribution, Silver tape warning, next-action guidance; 8 new tests; 2460 passing | 2026-04-14 | ae912c9 | [260414-q9s-improve-gate-2-actionable-corpus-visibil](./quick/260414-q9s-improve-gate-2-actionable-corpus-visibil/) |
