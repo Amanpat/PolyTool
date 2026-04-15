@@ -249,6 +249,19 @@ class CryptoPairPositionStore:
             total += exposure.paired_net_cash_outflow_usdc
         return total
 
+    def cumulative_committed_notional_usdc(self) -> Decimal:
+        """Total capital committed to all intents this session (settled + open).
+
+        Use this for the run-level capital window budget check. Unlike
+        current_open_paired_notional_usdc, this includes settled intents so
+        the window cap represents a true session-level budget ceiling.
+        """
+        total = _ZERO
+        for exposure in self._latest_exposure_by_intent.values():
+            total += exposure.paired_net_cash_outflow_usdc
+            total += exposure.unpaired_net_cash_outflow_usdc
+        return total
+
     def has_open_unpaired_exposure(self) -> bool:
         return any(
             exposure.intent_id not in self._settled_intent_ids and exposure.unpaired_size > _ZERO

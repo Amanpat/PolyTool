@@ -63,6 +63,7 @@ _ONE_BPS = Decimal("10000")
 _OPERATOR_MAX_CAPITAL_PER_MARKET_USDC = Decimal("10")
 _OPERATOR_MAX_OPEN_PAIRS = 5
 _OPERATOR_DAILY_LOSS_CAP_USDC = Decimal("15")
+_OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC = Decimal("50")
 _OPERATOR_MIN_EDGE_BUFFER_PER_LEG = Decimal("0.01")
 _OPERATOR_MIN_PROFIT_THRESHOLD_USDC = Decimal("0.03")
 _STOPPED_REASON_COMPLETED = "completed"
@@ -125,6 +126,7 @@ class CryptoPairRunnerSettings:
     cycle_interval_seconds: float = 0.5
     max_open_pairs: int = _OPERATOR_MAX_OPEN_PAIRS
     daily_loss_cap_usdc: Decimal = _OPERATOR_DAILY_LOSS_CAP_USDC
+    max_capital_per_window_usdc: Decimal = _OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC
     min_profit_threshold_usdc: Decimal = _OPERATOR_MIN_PROFIT_THRESHOLD_USDC
     symbol_filters: tuple[str, ...] = ()
     duration_filters: tuple[int, ...] = ()
@@ -140,6 +142,11 @@ class CryptoPairRunnerSettings:
             self,
             "daily_loss_cap_usdc",
             Decimal(str(self.daily_loss_cap_usdc)),
+        )
+        object.__setattr__(
+            self,
+            "max_capital_per_window_usdc",
+            Decimal(str(self.max_capital_per_window_usdc)),
         )
         object.__setattr__(
             self,
@@ -193,6 +200,12 @@ class CryptoPairRunnerSettings:
             raise ValueError(
                 f"v0 daily_loss_cap_usdc cannot exceed {_OPERATOR_DAILY_LOSS_CAP_USDC}"
             )
+        if self.max_capital_per_window_usdc <= _ZERO:
+            raise ValueError("max_capital_per_window_usdc must be > 0")
+        if self.max_capital_per_window_usdc > _OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC:
+            raise ValueError(
+                f"v0 max_capital_per_window_usdc cannot exceed {_OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC}"
+            )
         if self.min_profit_threshold_usdc < _OPERATOR_MIN_PROFIT_THRESHOLD_USDC:
             raise ValueError(
                 f"v0 min_profit_threshold_usdc cannot be below {_OPERATOR_MIN_PROFIT_THRESHOLD_USDC}"
@@ -222,6 +235,7 @@ class CryptoPairRunnerSettings:
             cycle_interval_seconds=self.cycle_interval_seconds,
             max_open_pairs=self.max_open_pairs,
             daily_loss_cap_usdc=self.daily_loss_cap_usdc,
+            max_capital_per_window_usdc=self.max_capital_per_window_usdc,
             min_profit_threshold_usdc=self.min_profit_threshold_usdc,
             symbol_filters=self.symbol_filters,
             duration_filters=self.duration_filters,
@@ -240,6 +254,7 @@ class CryptoPairRunnerSettings:
             "cycle_interval_seconds": self.cycle_interval_seconds,
             "max_open_pairs": self.max_open_pairs,
             "daily_loss_cap_usdc": str(self.daily_loss_cap_usdc),
+            "max_capital_per_window_usdc": str(self.max_capital_per_window_usdc),
             "min_profit_threshold_usdc": str(self.min_profit_threshold_usdc),
             "symbol_filters": list(self.symbol_filters),
             "duration_filters": list(self.duration_filters),
@@ -302,6 +317,10 @@ def build_runner_settings(
         daily_loss_cap_usdc=payload.get(
             "daily_loss_cap_usdc",
             _OPERATOR_DAILY_LOSS_CAP_USDC,
+        ),
+        max_capital_per_window_usdc=payload.get(
+            "max_capital_per_window_usdc",
+            _OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC,
         ),
         min_profit_threshold_usdc=payload.get(
             "min_profit_threshold_usdc",
@@ -1217,6 +1236,19 @@ class CryptoPairPaperRunner:
                 cycle=cycle,
                 market_id=observation.market_id,
                 block_reason="daily_loss_cap_reached",
+            )
+            return
+
+        if (
+            self.store.cumulative_committed_notional_usdc()
+            >= self.settings.max_capital_per_window_usdc
+        ):
+            self.store.record_runtime_event(
+                "order_intent_blocked",
+                at=event_at,
+                cycle=cycle,
+                market_id=observation.market_id,
+                block_reason="capital_window_exceeded",
             )
             return
 
