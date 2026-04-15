@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stale Gate 2 operator/docs context found by the audit
+Last activity: 2026-04-15 - Completed quick task 260415-pqc: Create Track 2 operator runbook and safety checklist
 
 ## Recent Progress
 
@@ -296,3 +296,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stal
 | 260414-rqv | Gate 2 authoritative re-sweep on full 50-tape recovery corpus: FAILED — 7/50=14% (threshold 70%), identical to 2026-03-29 baseline; crypto bucket 7/10=70%, all other buckets 0%; resume/cache capability added to run_recovery_corpus_sweep.py; gate_failed.json + dev log + CURRENT_STATE.md updated | 2026-04-14 | bf42a6c | [260414-rqv-run-authoritative-gate-2-re-sweep-on-com](./quick/260414-rqv-run-authoritative-gate-2-re-sweep-on-com/) |
 | 260415-owj | Gate 2 decision packet: Director-grade memo comparing three path-forward options (crypto-only subset, strategy improvement, Track 2 focus); recommends Option 3 (Track 2 focus) as immediately actionable with 12 active 5m markets; lists exact doc changes needed per option; docs-only | 2026-04-15 | 12461e3 | [260415-owj-gate-2-decision-packet-compare-three-pat](./quick/260415-owj-gate-2-decision-packet-compare-three-pat/) |
 | 260415-owc | Gate 2 failure anatomy: stdlib classifier partitions 50-tape corpus into 9 structural-zero-fill (Silver), 34 executable-negative/flat (Shadow non-crypto), 7 executable-positive (Shadow crypto 7/10=70%); recommendation matrix across 3 path-forward options; 25 deterministic tests; dev log written | 2026-04-15 | d838218 | [260415-owc-produce-a-decision-grade-gate-2-failure-](./quick/260415-owc-produce-a-decision-grade-gate-2-failure-/) |
+| 260415-pqc | Track 2 operator runbook: operator-facing doc covering preflight checks, market availability command, dry-run scan, 24h paper soak, 8-item safety checklist, stop conditions + kill switch, success criteria, troubleshooting, and Gate 2 relationship; all CLI commands verified against live --help; dev log written | 2026-04-15 | 980a490 | [260415-pqc-create-track-2-operator-runbook-and-safe](./quick/260415-pqc-create-track-2-operator-runbook-and-safe/) |
