@@ -17,9 +17,18 @@ from packages.polymarket.crypto_pairs.live_runner import (
     DEFAULT_LIVE_ARTIFACTS_DIR,
     CryptoPairLiveRunner,
 )
+from packages.polymarket.crypto_pairs.market_discovery import (
+    CryptoPairMarket,
+    discover_crypto_pair_markets,
+)
 from packages.polymarket.crypto_pairs.paper_runner import (
     DEFAULT_KILL_SWITCH_PATH,
     DEFAULT_PAPER_ARTIFACTS_DIR,
+    _OPERATOR_DAILY_LOSS_CAP_USDC,
+    _OPERATOR_MAX_CAPITAL_PER_MARKET_USDC,
+    _OPERATOR_MAX_OPEN_PAIRS,
+    _OPERATOR_MIN_EDGE_BUFFER_PER_LEG,
+    _OPERATOR_MIN_PROFIT_THRESHOLD_USDC,
     CryptoPairPaperRunner,
     build_runner_settings,
 )
@@ -200,6 +209,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help=(
+            "Preflight check only. Validate config, discover eligible markets, "
+            "print a targeting summary, and exit. No cycles run, no artifacts "
+            "written, no feeds connected. Use before committing to a paper soak."
+        ),
+    )
+    parser.add_argument(
         "--use-ws-clob",
         action="store_true",
         default=True,
@@ -276,6 +295,64 @@ def format_heartbeat_status(payload: dict[str, Any]) -> str:
     )
 
 
+def format_preflight_summary(preflight: dict[str, Any]) -> str:
+    """Format a preflight dict into an operator-readable targeting summary."""
+    lines: list[str] = []
+    p = _CLI_PREFIX
+
+    lines.append(f"{p} DRY RUN -- preflight summary")
+    lines.append(f"{p} mode          : paper")
+
+    symbol_filters = preflight.get("symbol_filters") or ()
+    duration_filters = preflight.get("duration_filters") or ()
+    symbols_label = ", ".join(symbol_filters) if symbol_filters else "BTC, ETH, SOL"
+    durations_label = ", ".join(f"{d}m" for d in sorted(duration_filters)) if duration_filters else "5m, 15m"
+
+    lines.append(f"{p} symbols       : {symbols_label}")
+    lines.append(f"{p} durations     : {durations_label}")
+
+    settings_dict = preflight.get("settings") or {}
+    lines.append(f"{p} ref_feed      : {settings_dict.get('reference_feed_provider', 'binance')}")
+    lines.append(f"{p} duration_sec  : {settings_dict.get('duration_seconds', 30)}")
+    lines.append(f"{p} cycle_interval: {settings_dict.get('cycle_interval_seconds', 0.5)}s")
+
+    lines.append(f"{p} ----- operator safety caps -----")
+    lines.append(f"{p} max_capital_per_market : {_OPERATOR_MAX_CAPITAL_PER_MARKET_USDC} USDC")
+    lines.append(f"{p} max_open_pairs        : {_OPERATOR_MAX_OPEN_PAIRS}")
+    lines.append(f"{p} daily_loss_cap        : {_OPERATOR_DAILY_LOSS_CAP_USDC} USDC")
+    lines.append(f"{p} min_profit_threshold  : {_OPERATOR_MIN_PROFIT_THRESHOLD_USDC} USDC")
+    lines.append(f"{p} edge_buffer_per_leg   : {_OPERATOR_MIN_EDGE_BUFFER_PER_LEG}")
+
+    markets = preflight.get("markets") or []
+    lines.append(f"{p} ----- eligible markets ({len(markets)} found) -----")
+
+    if not markets:
+        lines.append(
+            f"{p} WARNING: no eligible markets found -- a paper run would discover nothing"
+        )
+    else:
+        for m in markets:
+            if isinstance(m, dict):
+                slug = m.get("slug", "?")
+                symbol = m.get("symbol", "?")
+                duration_min = m.get("duration_min", "?")
+                active = m.get("active", False)
+                accepting = m.get("accepting_orders")
+            else:
+                slug = getattr(m, "slug", "?")
+                symbol = getattr(m, "symbol", "?")
+                duration_min = getattr(m, "duration_min", "?")
+                active = getattr(m, "active", False)
+                accepting = getattr(m, "accepting_orders", None)
+
+            active_label = "active" if active else "inactive"
+            accepting_label = "accepting_orders" if accepting else "not_accepting"
+            lines.append(f"{p}   {slug}  {symbol}  {duration_min}m  {active_label}  {accepting_label}")
+
+    lines.append(f"{p} ----- end preflight -----")
+    return "\n".join(lines)
+
+
 def persist_manifest_update(manifest: dict[str, Any]) -> None:
     manifest_path = Path(
         manifest.get("artifacts", {}).get("manifest_path")
@@ -318,6 +395,7 @@ def run_crypto_pair_runner(
     report_generator=generate_crypto_pair_paper_report,
     verbose: bool = False,
     use_ws_clob: bool = True,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -374,6 +452,52 @@ def run_crypto_pair_runner(
             cycle_limit=settings.cycle_limit,
             heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         )
+
+    # --dry-run: validate config, discover markets, return preflight dict.
+    # No feeds connected, no artifact directories created, no cycles run.
+    if dry_run:
+        all_markets = discover_crypto_pair_markets(gamma_client=gamma_client)
+
+        # Apply the same symbol/duration filters the runner would apply
+        filtered_markets = list(all_markets)
+        if settings.symbol_filters:
+            filtered_markets = [
+                m for m in filtered_markets
+                if m.symbol in settings.symbol_filters
+            ]
+        if settings.duration_filters:
+            filtered_markets = [
+                m for m in filtered_markets
+                if m.duration_min in settings.duration_filters
+            ]
+
+        preflight: dict[str, Any] = {
+            "mode": "paper",
+            "settings": settings.to_dict(),
+            "markets": [
+                {
+                    "slug": m.slug,
+                    "symbol": m.symbol,
+                    "duration_min": m.duration_min,
+                    "active": m.active,
+                    "accepting_orders": m.accepting_orders,
+                    "condition_id": m.condition_id,
+                    "yes_token_id": m.yes_token_id,
+                    "no_token_id": m.no_token_id,
+                }
+                for m in filtered_markets
+            ],
+            "symbol_filters": list(settings.symbol_filters),
+            "duration_filters": list(settings.duration_filters),
+            "operator_caps": {
+                "max_capital_per_market_usdc": str(_OPERATOR_MAX_CAPITAL_PER_MARKET_USDC),
+                "max_open_pairs": _OPERATOR_MAX_OPEN_PAIRS,
+                "daily_loss_cap_usdc": str(_OPERATOR_DAILY_LOSS_CAP_USDC),
+                "min_profit_threshold_usdc": str(_OPERATOR_MIN_PROFIT_THRESHOLD_USDC),
+                "min_edge_buffer_per_leg": str(_OPERATOR_MIN_EDGE_BUFFER_PER_LEG),
+            },
+        }
+        return {"dry_run": True, "preflight": preflight}
 
     sink_config = CryptoPairClickHouseSinkConfig(
         enabled=sink_enabled,
@@ -471,6 +595,27 @@ def main(argv: Optional[list[str]] = None) -> int:
         heartbeat_seconds=args.heartbeat_seconds,
         heartbeat_minutes=args.heartbeat_minutes,
     )
+
+    # --dry-run: skip sink/CH checks; validate config, print preflight, exit 0.
+    if args.dry_run:
+        try:
+            result = run_crypto_pair_runner(
+                dry_run=True,
+                live=False,
+                config_path=args.config,
+                duration_seconds=duration_seconds,
+                symbol_filters=tuple(args.symbol or ()),
+                duration_filters=tuple(args.market_duration or ()),
+                output_base=Path(args.output) if args.output else None,
+                kill_switch_path=Path(args.kill_switch),
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
+                reference_feed_provider=args.reference_feed_provider,
+            )
+        except (ConfigLoadError, ValueError) as exc:
+            print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
+            return 1
+        print(format_preflight_summary(result["preflight"]))
+        return 0
 
     ch_password = ""
     if args.sink_enabled:
