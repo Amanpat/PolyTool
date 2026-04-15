@@ -9,8 +9,11 @@ from packages.polymarket.crypto_pairs.await_soak import (
     AwaitSoakLaunchPlan,
     AwaitSoakLaunchResult,
     DEFAULT_HEARTBEAT_SECONDS,
+    DEFAULT_SOAK_DURATION_SECONDS,
+    DEFAULT_SOAK_HEARTBEAT_SECONDS,
     build_coinbase_smoke_soak_launch_plan,
     run_crypto_pair_await_soak,
+    validate_soak_prerequisites,
 )
 from packages.polymarket.crypto_pairs.market_watch import AvailabilitySummary
 from tools.cli import crypto_pair_await_soak
@@ -136,6 +139,8 @@ def test_launcher_exception_is_recorded_and_returns_nonzero(tmp_path: Path) -> N
 
 
 def test_launch_command_construction_uses_standard_coinbase_smoke_soak_defaults() -> None:
+    # Pass explicit duration=1800 to override the new 24h default, but expect new
+    # heartbeat (1800s = 30min) and --auto-report which are the updated defaults.
     plan = build_coinbase_smoke_soak_launch_plan(duration_seconds=1800)
 
     assert plan.display_argv == (
@@ -148,11 +153,12 @@ def test_launch_command_construction_uses_standard_coinbase_smoke_soak_defaults(
         "--duration-seconds",
         "1800",
         "--heartbeat-seconds",
-        str(DEFAULT_HEARTBEAT_SECONDS),
+        str(DEFAULT_SOAK_HEARTBEAT_SECONDS),
+        "--auto-report",
     )
     assert plan.display_command == (
         "python -m polytool crypto-pair-run --reference-feed-provider coinbase "
-        "--duration-seconds 1800 --heartbeat-seconds 60"
+        f"--duration-seconds 1800 --heartbeat-seconds {DEFAULT_SOAK_HEARTBEAT_SECONDS} --auto-report"
     )
 
 
@@ -204,3 +210,129 @@ def test_cli_returns_child_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert captured_kwargs["poll_interval_seconds"] == 15
     assert captured_kwargs["duration_seconds"] == 1200
     assert captured_kwargs["output_base"] == tmp_path
+
+
+# ---------------------------------------------------------------------------
+# New tests for hardened launcher behavior (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_default_launch_plan_includes_auto_report_and_24h_duration() -> None:
+    """No-arg call should produce 24h duration, 30-min heartbeat, and --auto-report."""
+    plan = build_coinbase_smoke_soak_launch_plan()
+
+    assert "--auto-report" in plan.display_argv
+    # --duration-seconds followed by 86400
+    argv_list = list(plan.display_argv)
+    dur_idx = argv_list.index("--duration-seconds")
+    assert argv_list[dur_idx + 1] == str(DEFAULT_SOAK_DURATION_SECONDS)
+    # --heartbeat-seconds followed by 1800
+    hb_idx = argv_list.index("--heartbeat-seconds")
+    assert argv_list[hb_idx + 1] == str(DEFAULT_SOAK_HEARTBEAT_SECONDS)
+    assert plan.auto_report is True
+    assert plan.duration_seconds == DEFAULT_SOAK_DURATION_SECONDS
+
+
+def test_launch_plan_with_sink_enabled() -> None:
+    plan = build_coinbase_smoke_soak_launch_plan(sink_enabled=True)
+    assert "--sink-enabled" in plan.display_argv
+
+
+def test_launch_plan_with_capital_window() -> None:
+    plan = build_coinbase_smoke_soak_launch_plan(max_capital_window_usdc=25.0)
+    argv_list = list(plan.display_argv)
+    assert "--max-capital-window-usdc" in argv_list
+    cap_idx = argv_list.index("--max-capital-window-usdc")
+    assert argv_list[cap_idx + 1] == "25.0"
+
+
+def test_launch_plan_without_auto_report() -> None:
+    plan = build_coinbase_smoke_soak_launch_plan(auto_report=False)
+    assert "--auto-report" not in plan.display_argv
+
+
+def test_preflight_blocks_on_tripped_kill_switch(tmp_path: Path) -> None:
+    ks_path = tmp_path / "kill_switch.txt"
+    ks_path.write_text("1\n", encoding="utf-8")
+    issues = validate_soak_prerequisites(kill_switch_path=ks_path)
+    assert len(issues) > 0
+    assert any("Kill switch is tripped" in issue for issue in issues)
+
+
+def test_preflight_passes_when_kill_switch_absent(tmp_path: Path) -> None:
+    ks_path = tmp_path / "kill_switch.txt"
+    # Do NOT create the file
+    issues = validate_soak_prerequisites(kill_switch_path=ks_path)
+    assert issues == []
+
+
+def test_preflight_passes_when_kill_switch_file_empty(tmp_path: Path) -> None:
+    ks_path = tmp_path / "kill_switch.txt"
+    ks_path.write_text("", encoding="utf-8")
+    issues = validate_soak_prerequisites(kill_switch_path=ks_path)
+    assert issues == []
+
+
+def test_await_soak_refuses_launch_on_tripped_kill_switch(tmp_path: Path) -> None:
+    ks_path = tmp_path / "kill_switch.txt"
+    ks_path.write_text("1\n", encoding="utf-8")
+
+    launcher_called = {"called": False}
+
+    def fake_watch(**kwargs):
+        return True, _eligible_summary()
+
+    def fake_launcher(plan: AwaitSoakLaunchPlan) -> AwaitSoakLaunchResult:
+        launcher_called["called"] = True
+        return AwaitSoakLaunchResult(exit_code=0)
+
+    manifest = run_crypto_pair_await_soak(
+        timeout_seconds=30,
+        poll_interval_seconds=5,
+        output_base=tmp_path,
+        kill_switch_path=ks_path,
+        _watch_fn=fake_watch,
+        _launcher_fn=fake_launcher,
+        _print_fn=lambda _: None,
+    )
+
+    assert manifest["status"] == "preflight_failed"
+    assert manifest["exit_code"] == 1
+    assert manifest["launch"]["launched"] is False
+    assert launcher_called["called"] is False
+
+
+def test_verdict_extracted_from_child_output(tmp_path: Path) -> None:
+    verdict_text = "PROMOTE TO MICRO LIVE CANDIDATE"
+    artifact_dir_str = "some/path"
+
+    def fake_watch(**kwargs):
+        return True, _eligible_summary()
+
+    def fake_launcher(plan: AwaitSoakLaunchPlan) -> AwaitSoakLaunchResult:
+        return AwaitSoakLaunchResult(
+            exit_code=0,
+            output_text=f"[crypto-pair-run] report_verdict: {verdict_text}\n",
+            launched_run_artifact_dir=artifact_dir_str,
+            launched_run_verdict=verdict_text,
+        )
+
+    manifest = run_crypto_pair_await_soak(
+        timeout_seconds=30,
+        poll_interval_seconds=5,
+        output_base=tmp_path,
+        _watch_fn=fake_watch,
+        _launcher_fn=fake_launcher,
+        _print_fn=lambda _: None,
+    )
+
+    assert "PROMOTE" in (manifest["launch"]["launched_run_verdict"] or "")
+    assert (manifest["launch"]["launched_run_verdict_json_path"] or "").endswith(
+        "paper_soak_verdict.json"
+    )
+
+
+def test_no_live_flag_in_hardened_launch_command() -> None:
+    plan = build_coinbase_smoke_soak_launch_plan(auto_report=True, sink_enabled=True)
+    assert "--live" not in plan.argv
+    assert "--live" not in plan.display_argv

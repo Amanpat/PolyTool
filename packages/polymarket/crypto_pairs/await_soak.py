@@ -17,13 +17,21 @@ from packages.polymarket.crypto_pairs.market_watch import (
     AvailabilitySummary,
     run_watch_loop,
 )
+from packages.polymarket.crypto_pairs.paper_runner import (
+    DEFAULT_KILL_SWITCH_PATH,
+)
 
 
 DEFAULT_AWAIT_SOAK_ARTIFACTS_DIR = Path("artifacts/crypto_pairs/await_soak")
 DEFAULT_TIMEOUT_SECONDS = 3600
 DEFAULT_POLL_INTERVAL_SECONDS = 60
+# Backward-compat alias kept for existing callers/tests
 DEFAULT_DURATION_SECONDS = 1800
+DEFAULT_SMOKE_DURATION_SECONDS = 1800
+DEFAULT_SOAK_DURATION_SECONDS = 86400  # 24 hours — full paper soak
+# Backward-compat alias kept for existing callers/tests
 DEFAULT_HEARTBEAT_SECONDS = 60
+DEFAULT_SOAK_HEARTBEAT_SECONDS = 1800  # 30 minutes — full paper soak
 DEFAULT_REFERENCE_FEED_PROVIDER = "coinbase"
 AWAIT_SOAK_SCHEMA_VERSION = "crypto_pair_await_soak_v0"
 
@@ -38,6 +46,9 @@ class AwaitSoakLaunchPlan:
     duration_seconds: int
     heartbeat_seconds: int
     reference_feed_provider: str
+    auto_report: bool = True
+    sink_enabled: bool = False
+    max_capital_window_usdc: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,7 @@ class AwaitSoakLaunchResult:
     launched_run_artifact_dir: Optional[str] = None
     launched_run_manifest_path: Optional[str] = None
     launched_run_summary_path: Optional[str] = None
+    launched_run_verdict: Optional[str] = None
 
 
 def _utcnow() -> datetime:
@@ -103,17 +115,37 @@ def _print_summary(summary: AvailabilitySummary, print_fn: Callable[[str], None]
         )
 
 
+def validate_soak_prerequisites(
+    *,
+    kill_switch_path: Path = DEFAULT_KILL_SWITCH_PATH,
+) -> list[str]:
+    """Return a list of blocking issues. Empty list = all clear."""
+    issues: list[str] = []
+    if kill_switch_path.exists():
+        content = kill_switch_path.read_text(encoding="utf-8").strip().lower()
+        if content in ("1", "true", "yes", "on"):
+            issues.append(
+                f"Kill switch is tripped ({kill_switch_path}). "
+                f"Clear it before launching: rm {kill_switch_path}"
+            )
+    return issues
+
+
 def build_coinbase_smoke_soak_launch_plan(
     *,
-    duration_seconds: int = DEFAULT_DURATION_SECONDS,
-    heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
+    duration_seconds: int = DEFAULT_SOAK_DURATION_SECONDS,
+    heartbeat_seconds: int = DEFAULT_SOAK_HEARTBEAT_SECONDS,
     python_executable: Optional[str] = None,
+    auto_report: bool = True,
+    sink_enabled: bool = False,
+    max_capital_window_usdc: Optional[float] = None,
 ) -> AwaitSoakLaunchPlan:
     """Build the standard paper-only Coinbase smoke-soak command."""
 
     executable = python_executable or sys.executable or "python"
-    argv = (
-        executable,
+
+    # Base argv shared by both real and display variants
+    base_args: list[str] = [
         "-m",
         "polytool",
         "crypto-pair-run",
@@ -123,19 +155,22 @@ def build_coinbase_smoke_soak_launch_plan(
         str(duration_seconds),
         "--heartbeat-seconds",
         str(heartbeat_seconds),
-    )
-    display_argv = (
-        "python",
-        "-m",
-        "polytool",
-        "crypto-pair-run",
-        "--reference-feed-provider",
-        DEFAULT_REFERENCE_FEED_PROVIDER,
-        "--duration-seconds",
-        str(duration_seconds),
-        "--heartbeat-seconds",
-        str(heartbeat_seconds),
-    )
+    ]
+
+    # Optional flags appended in deterministic order
+    optional_args: list[str] = []
+    if auto_report:
+        optional_args.append("--auto-report")
+    if sink_enabled:
+        optional_args.append("--sink-enabled")
+    if max_capital_window_usdc is not None:
+        optional_args.extend(["--max-capital-window-usdc", str(max_capital_window_usdc)])
+
+    all_base_and_optional = base_args + optional_args
+
+    argv = tuple([executable] + all_base_and_optional)
+    display_argv = tuple(["python"] + all_base_and_optional)
+
     return AwaitSoakLaunchPlan(
         argv=argv,
         display_argv=display_argv,
@@ -143,6 +178,9 @@ def build_coinbase_smoke_soak_launch_plan(
         duration_seconds=duration_seconds,
         heartbeat_seconds=heartbeat_seconds,
         reference_feed_provider=DEFAULT_REFERENCE_FEED_PROVIDER,
+        auto_report=auto_report,
+        sink_enabled=sink_enabled,
+        max_capital_window_usdc=max_capital_window_usdc,
     )
 
 
@@ -191,12 +229,15 @@ def launch_smoke_soak_subprocess(
     if output_text:
         output_text += "\n"
 
+    verdict = _extract_cli_value(output_lines, "report_verdict")
+
     return AwaitSoakLaunchResult(
         exit_code=exit_code,
         output_text=output_text,
         launched_run_artifact_dir=_extract_cli_value(output_lines, "artifact_dir"),
         launched_run_manifest_path=_extract_cli_value(output_lines, "manifest_path"),
         launched_run_summary_path=_extract_cli_value(output_lines, "run_summary"),
+        launched_run_verdict=verdict,
     )
 
 
@@ -218,16 +259,21 @@ def run_crypto_pair_await_soak(
     *,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     poll_interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
-    duration_seconds: int = DEFAULT_DURATION_SECONDS,
-    heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
+    duration_seconds: int = DEFAULT_SOAK_DURATION_SECONDS,
+    heartbeat_seconds: int = DEFAULT_SOAK_HEARTBEAT_SECONDS,
     output_base: Optional[Path] = None,
     gamma_client=None,
     python_executable: Optional[str] = None,
+    auto_report: bool = True,
+    sink_enabled: bool = False,
+    max_capital_window_usdc: Optional[float] = None,
+    kill_switch_path: Optional[Path] = None,
     _watch_fn: Optional[Callable[..., tuple[bool, AvailabilitySummary]]] = None,
     _launcher_fn: Optional[Callable[[AwaitSoakLaunchPlan], AwaitSoakLaunchResult]] = None,
     _sleep_fn: Optional[Callable[[float], None]] = None,
     _check_fn: Optional[Callable[[], AvailabilitySummary]] = None,
     _print_fn: Callable[[str], None] = print,
+    _validate_fn: Optional[Callable[..., list[str]]] = None,
 ) -> dict[str, Any]:
     """Wait for eligible markets, then launch the standard paper smoke soak."""
 
@@ -251,6 +297,8 @@ def run_crypto_pair_await_soak(
     launcher_fn = _launcher_fn or (
         lambda plan: launch_smoke_soak_subprocess(plan, print_fn=_print_fn)
     )
+    validate_fn = _validate_fn or validate_soak_prerequisites
+    resolved_kill_switch_path = kill_switch_path or DEFAULT_KILL_SWITCH_PATH
 
     _print_fn(
         "[crypto-pair-await-soak] waiting for eligible markets "
@@ -288,6 +336,9 @@ def run_crypto_pair_await_soak(
             "run_artifact_dir": None,
             "run_manifest_path": None,
             "run_summary_path": None,
+            "preflight_issues": None,
+            "launched_run_verdict": None,
+            "launched_run_verdict_json_path": None,
             "error": None,
         },
     }
@@ -307,10 +358,32 @@ def run_crypto_pair_await_soak(
         manifest["exit_code"] = 1
         return manifest
 
+    # Preflight: check kill switch before launching
+    preflight_issues = validate_fn(kill_switch_path=resolved_kill_switch_path)
+    if preflight_issues:
+        manifest["status"] = "preflight_failed"
+        manifest["launch"]["preflight_issues"] = preflight_issues
+        for issue in preflight_issues:
+            _print_fn(f"[crypto-pair-await-soak] preflight_fail: {issue}")
+        _write_launcher_artifacts(
+            run_dir=run_dir,
+            summary=summary,
+            manifest=manifest,
+            launch_output_text="",
+        )
+        _print_fn(
+            f"[crypto-pair-await-soak] launcher_manifest: {run_dir / 'launcher_manifest.json'}"
+        )
+        manifest["exit_code"] = 1
+        return manifest
+
     plan = build_coinbase_smoke_soak_launch_plan(
         duration_seconds=duration_seconds,
         heartbeat_seconds=heartbeat_seconds,
         python_executable=python_executable,
+        auto_report=auto_report,
+        sink_enabled=sink_enabled,
+        max_capital_window_usdc=max_capital_window_usdc,
     )
     manifest["status"] = "launched"
     manifest["launch"]["launched"] = True
@@ -343,6 +416,17 @@ def run_crypto_pair_await_soak(
     manifest["launch"]["run_artifact_dir"] = launch_result.launched_run_artifact_dir
     manifest["launch"]["run_manifest_path"] = launch_result.launched_run_manifest_path
     manifest["launch"]["run_summary_path"] = launch_result.launched_run_summary_path
+
+    # Extract verdict from child output
+    verdict = launch_result.launched_run_verdict
+    verdict_json_path: Optional[str] = None
+    if launch_result.launched_run_artifact_dir:
+        verdict_json_path = str(
+            Path(launch_result.launched_run_artifact_dir) / "paper_soak_verdict.json"
+        )
+    manifest["launch"]["launched_run_verdict"] = verdict
+    manifest["launch"]["launched_run_verdict_json_path"] = verdict_json_path
+
     if launch_result.exit_code != 0:
         manifest["status"] = "launch_failed"
 
@@ -360,6 +444,10 @@ def run_crypto_pair_await_soak(
             "[crypto-pair-await-soak] run_artifact   : "
             f"{launch_result.launched_run_artifact_dir}"
         )
+    if verdict:
+        _print_fn(f"[crypto-pair-await-soak] verdict       : {verdict}")
+    if verdict_json_path:
+        _print_fn(f"[crypto-pair-await-soak] verdict_json  : {verdict_json_path}")
     _print_fn(f"[crypto-pair-await-soak] launcher_manifest: {run_dir / 'launcher_manifest.json'}")
 
     manifest["exit_code"] = launch_result.exit_code
