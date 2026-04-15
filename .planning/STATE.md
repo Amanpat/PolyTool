@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T22:02:24.513Z"
-last_activity: "2026-04-15 - Completed quick task 260415-owc: Gate 2 failure anatomy -- 50-tape corpus partitioned (9 structural-zero-fill, 34 executable-negative, 7 positive), recommendation matrix written; commit d838218"
+last_updated: "2026-04-15T23:05:17.083Z"
+last_activity: "2026-04-15 - Completed quick task 260415-q5f: Harden the Track 2 paper-soak lane. Done means a 24h paper run produces a clear end-of-run verdict artifact (promote / rerun / reject), operator-readable summary metrics, and deterministic tests for the touched reporting surfaces."
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-15 - Completed quick task 260415-q5f: Harden the Track 2 paper-soak lane. Done means a 24h paper run produces a clear end-of-run verdict artifact (promote / rerun / reject), operator-readable summary metrics, and deterministic tests for the touched reporting surfaces.
+Last activity: 2026-04-15 - Completed quick task 260415-q5s: Implement Track 2 risk controls for the crypto pair bot (max_capital_per_window_usdc session budget ceiling + cumulative notional tracking; all four operator controls enforced and preflight-visible).
 
 ## Recent Progress
 
@@ -299,3 +299,4 @@ Last activity: 2026-04-15 - Completed quick task 260415-q5f: Harden the Track 2 
 | 260415-pqc | Track 2 operator runbook: operator-facing doc covering preflight checks, market availability command, dry-run scan, 24h paper soak, 8-item safety checklist, stop conditions + kill switch, success criteria, troubleshooting, and Gate 2 relationship; all CLI commands verified against live --help; dev log written | 2026-04-15 | 980a490 | [260415-pqc-create-track-2-operator-runbook-and-safe](./quick/260415-pqc-create-track-2-operator-runbook-and-safe/) |
 | 260415-pq9 | Track 2 execution lane: --dry-run preflight mode added to crypto-pair-run CLI (config validation + market discovery + symbol filter without running cycles); format_preflight_summary() operator output; 6 new deterministic offline tests (23 total in test_crypto_pair_run.py); dev log at docs/dev_logs/2026-04-15_track2_execution_lane_a.md | 2026-04-15 | e256ef1 | [260415-pq9-start-the-approved-track-2-execution-lan](./quick/260415-pq9-start-the-approved-track-2-execution-lan/) |
 | 260415-q5f | Track 2 paper-soak hardening: verdict artifact (paper_soak_verdict.json) with promote/rerun/reject decision rule; operational_context block (cycles, symbols, market breakdown); enriched markdown Key Metrics table; 9 new deterministic tests (13 total in test_crypto_pair_report.py); dev log at docs/dev_logs/2026-04-15_track2_paper_soak_hardening.md | 2026-04-15 | 11e8b8b | [260415-q5f-harden-the-track-2-paper-soak-lane-done-](./quick/260415-q5f-harden-the-track-2-paper-soak-lane-done-/) |
+| 260415-q5s | Track 2 risk controls: added max_capital_per_window_usdc session budget ceiling (50 USDC operator cap) + cumulative_committed_notional_usdc() tracking; all four operator controls (kill switch, open_pairs, daily_loss, capital_window) enforced in _process_opportunity() and surfaced in --dry-run preflight; 9 deterministic tests; dev log at docs/dev_logs/2026-04-15_track2_risk_controls.md | 2026-04-15 | 9a3ba8a | [260415-q5s-implement-track-2-risk-controls-for-the-](./quick/260415-q5s-implement-track-2-risk-controls-for-the-/) |
