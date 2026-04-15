@@ -84,7 +84,7 @@ Run corpus_audit to get the current shortage per bucket:
 
 ```
 python tools/gates/corpus_audit.py \
-    --tape-roots artifacts/simtrader/tapes \
+    --tape-roots artifacts/tapes/shadow \
     --tape-roots artifacts/silver \
     --tape-roots artifacts/tapes \
     --out-dir artifacts/corpus_audit \
@@ -106,7 +106,7 @@ python -m polytool simtrader shadow \
     --strategy market_maker_v1 \
     --duration 600 \
     --record-tape \
-    --tape-dir artifacts/simtrader/tapes/<BUCKET>_<SLUG>_<YYYYMMDDTHHMMSSZ>
+    --tape-dir artifacts/tapes/shadow/<BUCKET>_<SLUG>_<YYYYMMDDTHHMMSSZ>
 ```
 
 **Required arguments:**
@@ -122,7 +122,7 @@ python -m polytool simtrader shadow \
   output after capture to confirm.
 - `--record-tape`: Enables tape recording (writes `events.jsonl`, `meta.json`,
   `watch_meta.json` to the tape dir)
-- `--tape-dir ...`: Timestamped dir under `artifacts/simtrader/tapes/`
+- `--tape-dir ...`: Timestamped dir under `artifacts/tapes/shadow/` (omit to use auto-routed default)
 
 **Example (crypto bucket):**
 ```
@@ -131,7 +131,7 @@ python -m polytool simtrader shadow \
     --strategy market_maker_v1 \
     --duration 600 \
     --record-tape \
-    --tape-dir "artifacts/simtrader/tapes/crypto_will-btc-be-above-100k_20260326T210000Z"
+    --tape-dir "artifacts/tapes/shadow/crypto_will-btc-be-above-100k_20260326T210000Z"
 ```
 
 **Important:** Shadow mode never submits real orders. All sessions are safe to run.
@@ -144,7 +144,7 @@ After each capture session, validate the new tape immediately:
 
 ```
 python tools/gates/corpus_audit.py \
-    --tape-roots artifacts/simtrader/tapes \
+    --tape-roots artifacts/tapes/shadow \
     --tape-roots artifacts/silver \
     --tape-roots artifacts/tapes \
     --out-dir artifacts/corpus_audit \

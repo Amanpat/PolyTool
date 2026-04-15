@@ -77,7 +77,7 @@ The capture campaign follows a simple iterative loop:
 3. **Validate the tape** by re-running the full corpus audit:
    ```
    python tools/gates/corpus_audit.py \
-       --tape-roots artifacts/simtrader/tapes \
+       --tape-roots artifacts/tapes/shadow \
        --tape-roots artifacts/silver \
        --tape-roots artifacts/tapes \
        --out-dir artifacts/corpus_audit \
@@ -101,7 +101,7 @@ The capture campaign follows a simple iterative loop:
 ## 5. Resumability Rules
 
 Each shadow session writes to a new timestamped tape directory under
-`artifacts/simtrader/tapes/`. No prior capture session is overwritten.
+`artifacts/tapes/shadow/`. No prior capture session is overwritten.
 
 `corpus_audit.py` always scans from scratch — it is fully idempotent. Rerunning
 after each session is safe and required to confirm admission.
