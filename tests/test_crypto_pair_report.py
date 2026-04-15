@@ -10,6 +10,7 @@ from packages.polymarket.crypto_pairs.reporting import (
     build_paper_soak_summary,
     generate_crypto_pair_paper_report,
     load_paper_run,
+    render_paper_soak_summary_markdown,
 )
 from tools.cli.crypto_pair_report import main as crypto_pair_report_main
 
@@ -136,16 +137,23 @@ def _write_fixture_run(
     sink_enabled: bool = False,
     sink_error: str = "",
     sink_skipped_reason: str = "disabled",
+    symbol_cycle: list[str] | None = None,
+    runner_result: dict | None = None,
 ) -> Path:
     run_dir = tmp_path / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    def _symbol_for(index: int) -> str:
+        if symbol_cycle:
+            return symbol_cycle[index % len(symbol_cycle)]
+        return "BTC"
+
     observation_rows = [
-        _observation(run_id, f"market-{index}")
+        _observation(run_id, f"market-{index}", symbol=_symbol_for(index))
         for index in range(opportunities)
     ]
     intent_rows = [
-        _intent(run_id, f"market-{index}")
+        _intent(run_id, f"market-{index}", symbol=_symbol_for(index))
         for index in range(intents)
     ]
     fill_rows = []
@@ -221,6 +229,7 @@ def _write_fixture_run(
             "error": sink_error,
         },
         "run_summary": run_summary,
+        **({"runner_result": runner_result} if runner_result is not None else {}),
     }
 
     _write_json(run_dir / "run_manifest.json", manifest)
@@ -357,3 +366,224 @@ def test_operator_interrupt_is_treated_as_graceful_stop(tmp_path: Path) -> None:
         violation["code"] != "stopped_reason_not_completed"
         for violation in report["safety_violations"]
     )
+
+
+# ── New tests for verdict artifact and operational context ──────────────────
+
+
+def test_verdict_artifact_written_alongside_summary(tmp_path: Path) -> None:
+    """paper_soak_verdict.json is written and contains all required top-level keys."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="verdict-promote-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+    )
+
+    result = generate_crypto_pair_paper_report(run_dir)
+    verdict_file = run_dir / "paper_soak_verdict.json"
+
+    assert verdict_file.exists()
+    verdict = json.loads(verdict_file.read_text(encoding="utf-8"))
+
+    required_keys = {
+        "schema_version",
+        "run_id",
+        "generated_at",
+        "decision",
+        "verdict",
+        "rubric_pass",
+        "safety_violation_count",
+        "decision_reasons",
+        "net_pnl_usdc",
+        "soak_duration_hours",
+    }
+    assert required_keys.issubset(verdict.keys()), (
+        f"Missing keys: {required_keys - verdict.keys()}"
+    )
+    assert verdict["decision"] == "promote"
+    assert verdict["rubric_pass"] is True
+    assert verdict["schema_version"] == "crypto_pair_verdict_v0"
+    assert result.verdict_path == verdict_file
+
+
+def test_verdict_artifact_reject_decision(tmp_path: Path) -> None:
+    """Fixture run with stopped_reason='crash' yields decision='reject' in verdict.json."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="verdict-reject-run",
+        stopped_reason="crash",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+    )
+
+    generate_crypto_pair_paper_report(run_dir)
+    verdict = json.loads(
+        (run_dir / "paper_soak_verdict.json").read_text(encoding="utf-8")
+    )
+
+    assert verdict["decision"] == "reject"
+    assert verdict["rubric_pass"] is False
+
+
+def test_verdict_artifact_rerun_decision(tmp_path: Path) -> None:
+    """Fixture run with low evidence yields decision='rerun' in verdict.json."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="verdict-rerun-run",
+        opportunities=5,
+        intents=5,
+        paired_exposures=5,
+        settled_pairs=5,
+    )
+
+    generate_crypto_pair_paper_report(run_dir)
+    verdict = json.loads(
+        (run_dir / "paper_soak_verdict.json").read_text(encoding="utf-8")
+    )
+
+    assert verdict["decision"] == "rerun"
+
+
+def test_operational_context_symbols_included(tmp_path: Path) -> None:
+    """Mixed-symbol observations produce correct symbols_included and markets_by_symbol."""
+    # 30 markets: 0-9 BTC, 10-19 ETH, 20-29 SOL via symbol_cycle
+    # symbol_cycle rotates BTC/ETH/SOL in groups of 10 via modular index
+    # Use explicit symbol mapping: markets 0-9 -> BTC, 10-19 -> ETH, 20-29 -> SOL
+    # symbol_cycle of length 30 with repeating pattern achieves this.
+    symbols = ["BTC"] * 10 + ["ETH"] * 10 + ["SOL"] * 10
+
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="symbols-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+        symbol_cycle=symbols,
+    )
+
+    report = build_paper_soak_summary(load_paper_run(run_dir))
+    op = report["operational_context"]
+
+    assert op["symbols_included"] == ["BTC", "ETH", "SOL"]
+    assert op["markets_by_symbol"] == {"BTC": 10, "ETH": 10, "SOL": 10}
+
+
+def test_operational_context_cycles_completed_from_manifest(tmp_path: Path) -> None:
+    """cycles_completed is read from manifest runner_result when present."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="cycles-manifest-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+        runner_result={"cycles_completed": 48, "extra_field": "ignored"},
+    )
+
+    report = build_paper_soak_summary(load_paper_run(run_dir))
+    op = report["operational_context"]
+
+    assert op["cycles_completed"] == 48
+
+
+def test_reject_kill_switch_tripped(tmp_path: Path) -> None:
+    """A kill_switch_tripped runtime event causes decision='reject'."""
+    runtime_events = [
+        _runtime_event("runner_started", "2026-03-23T00:00:00+00:00"),
+        _runtime_event(
+            "kill_switch_tripped",
+            "2026-03-23T06:00:00+00:00",
+            reason="daily_loss_cap",
+        ),
+        _runtime_event("cycle_completed", "2026-03-24T00:00:00+00:00", cycle=1),
+    ]
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="kill-switch-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+        runtime_events=runtime_events,
+    )
+
+    report = build_paper_soak_summary(load_paper_run(run_dir))
+
+    assert report["rubric"]["decision"] == "reject"
+    safety_codes = [v["code"] for v in report["safety_violations"]]
+    assert "kill_switch_tripped" in safety_codes
+
+
+def test_reject_daily_loss_cap_reached(tmp_path: Path) -> None:
+    """An order_intent_blocked event with block_reason=daily_loss_cap_reached causes reject."""
+    runtime_events = [
+        _runtime_event("runner_started", "2026-03-23T00:00:00+00:00"),
+        _runtime_event(
+            "order_intent_blocked",
+            "2026-03-23T08:00:00+00:00",
+            market_id="market-0",
+            block_reason="daily_loss_cap_reached",
+        ),
+        _runtime_event("cycle_completed", "2026-03-24T00:00:00+00:00", cycle=1),
+    ]
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="daily-loss-cap-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+        runtime_events=runtime_events,
+    )
+
+    report = build_paper_soak_summary(load_paper_run(run_dir))
+
+    assert report["rubric"]["decision"] == "reject"
+    safety_codes = [v["code"] for v in report["safety_violations"]]
+    assert "daily_loss_cap_reached" in safety_codes
+
+
+def test_markdown_contains_verdict_and_operational_context(tmp_path: Path) -> None:
+    """Rendered markdown includes verdict string, cycles_completed, symbols_included, Rubric Bands."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="markdown-op-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+        symbol_cycle=["BTC", "ETH"],
+        runner_result={"cycles_completed": 24},
+    )
+
+    report = build_paper_soak_summary(load_paper_run(run_dir))
+    md = render_paper_soak_summary_markdown(report)
+
+    assert "PROMOTE TO MICRO LIVE CANDIDATE" in md
+    assert "cycles_completed" in md
+    assert "symbols_included" in md
+    assert "Rubric Bands" in md
+
+
+def test_report_result_includes_verdict_path(tmp_path: Path) -> None:
+    """CryptoPairReportResult.verdict_path points to an existing file after generation."""
+    run_dir = _write_fixture_run(
+        tmp_path,
+        run_id="verdict-path-run",
+        opportunities=30,
+        intents=30,
+        paired_exposures=30,
+        settled_pairs=30,
+    )
+
+    result = generate_crypto_pair_paper_report(run_dir)
+
+    assert result.verdict_path is not None
+    assert result.verdict_path.exists()
+    assert result.verdict_path.name == "paper_soak_verdict.json"
