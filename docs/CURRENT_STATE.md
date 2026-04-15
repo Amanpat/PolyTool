@@ -128,7 +128,7 @@ and whether the tape is GOLD, SILVER, BRONZE, or UNKNOWN quality.
   build cleanly. `python -m polytool --help` exits 0 inside the ris-scheduler container.
   Dev log: `docs/dev_logs/2026-04-05_root_dockerfile_build_fix_closeout.md`.
 
-## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%)
+## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%) — Re-confirmed 2026-04-14
 
 Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
 against the full 50-tape recovery corpus and FAILED. The corpus is complete
@@ -136,16 +136,23 @@ against the full 50-tape recovery corpus and FAILED. The corpus is complete
 on low-frequency tapes, not a corpus gap. The repo's current execution status is:
 
 - Gate 1: PASSED
-- Gate 2: **FAILED** (2026-03-29) — 7/50 positive tapes (14%), gate threshold is 70%.
-  Corpus is complete (50/50): politics=10, sports=15, crypto=10, near_resolution=10,
-  new_market=5. Gate artifact: `artifacts/gates/mm_sweep_gate/gate_failed.json`.
+- Gate 2: **FAILED** (2026-03-29, re-confirmed 2026-04-14) — 7/50 positive tapes (14%),
+  gate threshold is 70%. Corpus is complete (50/50): politics=10, sports=15, crypto=10,
+  near_resolution=10, new_market=5.
+  Gate artifacts: `artifacts/gates/mm_sweep_gate/gate_failed.json` (2026-03-29 original),
+  `artifacts/gates/gate2_sweep/gate_failed.json` (2026-04-14 authoritative re-sweep).
   Recovery corpus manifest: `config/recovery_corpus_v1.tape_manifest` (50 entries).
-  Sweep driver: `tools/gates/run_recovery_corpus_sweep.py`.
-  **Root cause:** silver tapes (10) produce zero fills — no tick density for MM orders.
-  Non-crypto shadow tapes (30) produce mostly negative or zero PnL on low-frequency
+  Sweep driver: `tools/gates/run_recovery_corpus_sweep.py` (extended with resume/cache
+  capability in quick-260414-rqv).
+  **Root cause:** silver tapes (9) produce zero fills — no tick density for MM orders.
+  Non-crypto shadow tapes (31) produce mostly negative or zero PnL on low-frequency
   politics/sports markets. Crypto 5m shadow tapes (10) are 7/10 positive.
   **Crypto-positive tapes:** btc-updown (4/5 positive), eth-updown (2/2 positive),
   sol-updown (1/3 positive). PnL range: +$4.67 to +$297.25.
+  **Re-sweep (2026-04-14, quick-260414-rqv):** Authoritative re-run of the full
+  50-tape corpus. Result identical to 2026-03-29: 7/50 = 14% positive, FAILED.
+  No improvement. Gate 2 status confirmed unchanged.
+  Dev log: `docs/dev_logs/2026-04-14_gate2_full_corpus_resweep.md`.
   **Path forward options (documented in dev log):**
   (1) Crypto-only corpus subset test: run sweep on 10 crypto tapes only (7/10 = 70%,
   would pass threshold but requires spec change); (2) Strategy improvement for
