@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-14T23:55:00.000Z"
-last_activity: "2026-04-14 - Completed quick task 260414-rep: Gate 2 status audit post-capture"
+last_updated: "2026-04-15T00:05:48.061Z"
+last_activity: "2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stale Gate 2 operator/docs context found by the audit"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,10 +21,11 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-14 - Completed quick task 260414-rez: Gate 2 next-step packet: crypto capture resume or benchmark_v2 decision doc
+Last activity: 2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stale Gate 2 operator/docs context found by the audit
 
 ## Recent Progress
 
+- quick-260414-rr3: Gate 2 docs truth-sync -- Silver tape tier warning added (NOT suitable for Gate 2 sweep); 5x stale artifacts/simtrader/tapes paths corrected to artifacts/tapes/shadow in SPEC + RUNBOOK; dev log created; commits 43a2664 + 8e91289 + e98e91c
 - quick-260414-rep: Gate 2 status audit post-capture -- crypto-pair-watch confirms 12 eligible 5m markets live (BTC=4, ETH=4, SOL=4); corpus 50/50 complete (41 Gold, 9 Silver); Gate 2 FAILED (7/50=14%); ADR deadline 2026-04-12 passed 2 days ago; Silver tape zero-fill root cause confirmed; 4 doc staleness issues found in CLAUDE.md/runbooks/spec; verdict RESUME_CRYPTO_CAPTURE (full-corpus re-sweep still needed); commits ea50e7c + e594b1d + 323b6ff
 - quick-260414-rez: Gate 2 next-step packet -- crypto-pair-watch confirmed 12 active 5m markets (BTC=4, ETH=4, SOL=4) on 2026-04-14; verdict RESUME_CRYPTO_CAPTURE; capture execution packet with exact commands written; CLAUDE.md truth-synced (NOT_RUN->FAILED, escalation deadline PASSED annotation); CURRENT_STATE.md escalation section updated; commits 1098e15 + 4206539
 - quick-260410-iz5: Gate 2 zero-fill root cause diagnosis — confirmed Silver tapes contain only price_2min_guide events; L2Book never initializes; fill engine always rejects with book_not_initialized; tape quality limitation not simulator defect; shipped diagnose_zero_fill.py + 3 offline tests (PASSES) + dev log with bucket classification and next-step options; commits 99a7e69 + 8bb5f73
@@ -290,3 +291,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-rez: Gate 2 next-step pa
 | 260414-qrt | Build post-capture Gold tape qualification workflow: qualify_gold_batch.py read-only CLI scans batch dirs, reports QUALIFIED/REJECTED per tape with reasons (too_short, no_bucket_label, over_quota), shows before/after shortage delta per bucket, lists gate2_ready tapes; reuses corpus_audit admission rules; 9 deterministic tests; 2479 passing | 2026-04-14 | 7b7d03f | [260414-qrt-build-a-post-capture-qualification-and-p](./quick/260414-qrt-build-a-post-capture-qualification-and-p/) |
 | 260414-rep | Read-only Gate 2 status audit post-capture: crypto-pair-watch confirms 12 eligible 5m markets live (BTC=4,ETH=4,SOL=4); corpus 50/50 complete; Gate 2 FAILED (7/50=14%); ADR deadline 2026-04-12 passed; Silver tape zero-fill root cause confirmed; 4 doc staleness issues found; verdict RESUME_CRYPTO_CAPTURE (full-corpus re-sweep still needed) | 2026-04-14 | 323b6ff | [260414-rep-gate-2-status-audit-post-capture](./quick/260414-rep-gate-2-status-audit-post-capture/) |
 | 260414-rez | Gate 2 next-step packet: RESUME_CRYPTO_CAPTURE verdict; 12 active 5m markets confirmed (BTC=4,ETH=4,SOL=4); capture execution packet with exact commands written; CLAUDE.md truth-synced (NOT_RUN→FAILED, escalation deadline PASSED annotation); CURRENT_STATE.md escalation section updated; docs-only, no v2 config files | 2026-04-14 | 9e87573 | [260414-rez-gate-2-next-step-packet-crypto-capture-r](./quick/260414-rez-gate-2-next-step-packet-crypto-capture-r/) |
+| 260414-rr3 | Gate 2 docs truth-sync: Silver tape tier updated (NOT suitable for Gate 2 sweep — no L2 book data, fills will be zero); 5x stale artifacts/simtrader/tapes paths corrected to artifacts/tapes/shadow in SPEC-phase1b-gold-capture-campaign.md and CORPUS_GOLD_CAPTURE_RUNBOOK.md; dev log written with before/after and deferred ambiguities | 2026-04-14 | e98e91c | [260414-rr3-truth-sync-the-stale-gate-2-operator-doc](./quick/260414-rr3-truth-sync-the-stale-gate-2-operator-doc/) |
