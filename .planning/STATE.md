@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-15 - Completed quick task 260415-pq9: Start the approved Track 2 execution lane for the crypto pair bot
+Last activity: 2026-04-15 - Completed quick task 260415-q5f: Harden the Track 2 paper-soak lane. Done means a 24h paper run produces a clear end-of-run verdict artifact (promote / rerun / reject), operator-readable summary metrics, and deterministic tests for the touched reporting surfaces.
 
 ## Recent Progress
 
@@ -298,3 +298,4 @@ Last activity: 2026-04-15 - Completed quick task 260415-pq9: Start the approved 
 | 260415-owc | Gate 2 failure anatomy: stdlib classifier partitions 50-tape corpus into 9 structural-zero-fill (Silver), 34 executable-negative/flat (Shadow non-crypto), 7 executable-positive (Shadow crypto 7/10=70%); recommendation matrix across 3 path-forward options; 25 deterministic tests; dev log written | 2026-04-15 | d838218 | [260415-owc-produce-a-decision-grade-gate-2-failure-](./quick/260415-owc-produce-a-decision-grade-gate-2-failure-/) |
 | 260415-pqc | Track 2 operator runbook: operator-facing doc covering preflight checks, market availability command, dry-run scan, 24h paper soak, 8-item safety checklist, stop conditions + kill switch, success criteria, troubleshooting, and Gate 2 relationship; all CLI commands verified against live --help; dev log written | 2026-04-15 | 980a490 | [260415-pqc-create-track-2-operator-runbook-and-safe](./quick/260415-pqc-create-track-2-operator-runbook-and-safe/) |
 | 260415-pq9 | Track 2 execution lane: --dry-run preflight mode added to crypto-pair-run CLI (config validation + market discovery + symbol filter without running cycles); format_preflight_summary() operator output; 6 new deterministic offline tests (23 total in test_crypto_pair_run.py); dev log at docs/dev_logs/2026-04-15_track2_execution_lane_a.md | 2026-04-15 | e256ef1 | [260415-pq9-start-the-approved-track-2-execution-lan](./quick/260415-pq9-start-the-approved-track-2-execution-lan/) |
+| 260415-q5f | Track 2 paper-soak hardening: verdict artifact (paper_soak_verdict.json) with promote/rerun/reject decision rule; operational_context block (cycles, symbols, market breakdown); enriched markdown Key Metrics table; 9 new deterministic tests (13 total in test_crypto_pair_report.py); dev log at docs/dev_logs/2026-04-15_track2_paper_soak_hardening.md | 2026-04-15 | 11e8b8b | [260415-q5f-harden-the-track-2-paper-soak-lane-done-](./quick/260415-q5f-harden-the-track-2-paper-soak-lane-done-/) |
