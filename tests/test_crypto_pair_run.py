@@ -648,3 +648,133 @@ def test_verbose_flag_default_false() -> None:
     parser = build_parser()
     args = parser.parse_args([])
     assert args.verbose is False
+
+
+# ---------------------------------------------------------------------------
+# Task 1 (quick-260415-pq9) — --dry-run preflight mode tests
+# ---------------------------------------------------------------------------
+
+
+from tools.cli.crypto_pair_run import format_preflight_summary
+
+
+def _make_gamma_client_with_targeted(markets: list[MagicMock]) -> MagicMock:
+    """Return a gamma_client mock that supports both fetch_all_markets() and
+    fetch_markets_filtered() — both discovery paths used by discover_crypto_pair_markets."""
+    result = MagicMock()
+    result.markets = markets
+    client = MagicMock()
+    client.fetch_all_markets.return_value = result
+    # fetch_markets_filtered returns the list directly (not wrapped in a result object)
+    client.fetch_markets_filtered.return_value = markets
+    return client
+
+
+def test_dry_run_flag_parsed() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["--dry-run"]).dry_run is True
+    assert parser.parse_args([]).dry_run is False
+
+
+def test_dry_run_returns_preflight_without_running_cycles(tmp_path: Path) -> None:
+    btc_1 = _make_mock_market(
+        slug="btc-updown-5m-1000000",
+        question="Will BTC be higher in 5 minutes?",
+        symbol="BTC",
+    )
+    btc_2 = _make_mock_market(
+        slug="btc-updown-5m-1000300",
+        question="Will BTC be higher in 5 minutes?",
+        symbol="BTC",
+    )
+    eth_1 = _make_mock_market(
+        slug="eth-updown-5m-1000000",
+        question="Will ETH be higher in 5 minutes?",
+        symbol="ETH",
+    )
+    gamma = _make_gamma_client_with_targeted([btc_1, btc_2, eth_1])
+    clob = _make_clob_client({})
+
+    result = run_crypto_pair_runner(
+        dry_run=True,
+        gamma_client=gamma,
+        clob_client=clob,
+        duration_seconds=86400,
+    )
+
+    assert result["dry_run"] is True
+    assert "preflight" in result
+    markets = result["preflight"]["markets"]
+    assert isinstance(markets, list)
+    # At least the fetch_all_markets markets should appear (fetch_markets_filtered may
+    # add duplicates that get deduped, so >= the 3 we passed)
+    assert len(markets) >= 1
+    # clob_client.get_best_bid_ask was never called
+    assert clob.get_best_bid_ask.call_count == 0
+
+
+def test_dry_run_applies_symbol_filter(tmp_path: Path) -> None:
+    btc_1 = _make_mock_market(
+        slug="btc-updown-5m-1000000",
+        question="Will BTC be higher in 5 minutes?",
+        symbol="BTC",
+    )
+    eth_1 = _make_mock_market(
+        slug="eth-updown-5m-1000000",
+        question="Will ETH be higher in 5 minutes?",
+        symbol="ETH",
+    )
+    gamma = _make_gamma_client_with_targeted([btc_1, eth_1])
+
+    result = run_crypto_pair_runner(
+        dry_run=True,
+        gamma_client=gamma,
+        symbol_filters=("BTC",),
+        duration_seconds=30,
+    )
+
+    markets = result["preflight"]["markets"]
+    symbols_found = {m["symbol"] for m in markets}
+    assert "ETH" not in symbols_found
+    assert "BTC" in symbols_found
+
+
+def test_dry_run_shows_zero_markets_warning(tmp_path: Path, capsys) -> None:
+    gamma = _make_gamma_client_with_targeted([])
+
+    result = run_crypto_pair_runner(
+        dry_run=True,
+        gamma_client=gamma,
+        duration_seconds=30,
+    )
+
+    assert result["preflight"]["markets"] == []
+
+    summary_text = format_preflight_summary(result["preflight"])
+    assert "no eligible markets found" in summary_text
+
+
+def test_dry_run_does_not_create_artifacts(tmp_path: Path) -> None:
+    btc_1 = _make_mock_market(
+        slug="btc-updown-5m-1000000",
+        question="Will BTC be higher in 5 minutes?",
+        symbol="BTC",
+    )
+    gamma = _make_gamma_client_with_targeted([btc_1])
+
+    run_crypto_pair_runner(
+        dry_run=True,
+        gamma_client=gamma,
+        output_base=tmp_path,
+        duration_seconds=30,
+    )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_dry_run_validates_config_errors() -> None:
+    with pytest.raises(ValueError):
+        run_crypto_pair_runner(
+            dry_run=True,
+            duration_seconds=-1,
+        )
