@@ -26,6 +26,7 @@ from packages.polymarket.crypto_pairs.paper_runner import (
     DEFAULT_PAPER_ARTIFACTS_DIR,
     _OPERATOR_DAILY_LOSS_CAP_USDC,
     _OPERATOR_MAX_CAPITAL_PER_MARKET_USDC,
+    _OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC,
     _OPERATOR_MAX_OPEN_PAIRS,
     _OPERATOR_MIN_EDGE_BUFFER_PER_LEG,
     _OPERATOR_MIN_PROFIT_THRESHOLD_USDC,
@@ -233,6 +234,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Disable WS CLOB feed; use REST polling for orderbook reads.",
     )
+    parser.add_argument(
+        "--max-capital-window-usdc",
+        type=float,
+        default=None,
+        help=(
+            "Maximum cumulative capital committed to all pairs this run session in USDC. "
+            "Cannot exceed operator ceiling of 50 USDC. "
+            "Default: 50 USDC."
+        ),
+    )
     return parser
 
 
@@ -320,6 +331,8 @@ def format_preflight_summary(preflight: dict[str, Any]) -> str:
     lines.append(f"{p} max_capital_per_market : {_OPERATOR_MAX_CAPITAL_PER_MARKET_USDC} USDC")
     lines.append(f"{p} max_open_pairs        : {_OPERATOR_MAX_OPEN_PAIRS}")
     lines.append(f"{p} daily_loss_cap        : {_OPERATOR_DAILY_LOSS_CAP_USDC} USDC")
+    configured_window = settings_dict.get("max_capital_per_window_usdc", str(_OPERATOR_MAX_CAPITAL_PER_WINDOW_USDC))
+    lines.append(f"{p} max_capital_window    : {configured_window} USDC")
     lines.append(f"{p} min_profit_threshold  : {_OPERATOR_MIN_PROFIT_THRESHOLD_USDC} USDC")
     lines.append(f"{p} edge_buffer_per_leg   : {_OPERATOR_MIN_EDGE_BUFFER_PER_LEG}")
 
@@ -396,6 +409,7 @@ def run_crypto_pair_runner(
     verbose: bool = False,
     use_ws_clob: bool = True,
     dry_run: bool = False,
+    max_capital_per_window_usdc: Optional[float] = None,
 ) -> dict[str, Any]:
     if live and confirm != LIVE_CONFIRMATION_TEXT:
         raise ValueError(
@@ -411,6 +425,8 @@ def run_crypto_pair_runner(
         payload["sink_flush_mode"] = sink_flush_mode
     if reference_feed_provider is not None:
         payload["reference_feed_provider"] = reference_feed_provider
+    if max_capital_per_window_usdc is not None:
+        payload["max_capital_per_window_usdc"] = str(max_capital_per_window_usdc)
 
     selected_reference_feed_provider = normalize_reference_feed_provider(
         payload.get("reference_feed_provider", "binance")
@@ -610,6 +626,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 kill_switch_path=Path(args.kill_switch),
                 heartbeat_interval_seconds=heartbeat_interval_seconds,
                 reference_feed_provider=args.reference_feed_provider,
+                max_capital_per_window_usdc=args.max_capital_window_usdc,
             )
         except (ConfigLoadError, ValueError) as exc:
             print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
@@ -695,6 +712,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             auto_report=args.auto_report and not args.live,
             verbose=args.verbose,
             use_ws_clob=args.use_ws_clob,
+            max_capital_per_window_usdc=args.max_capital_window_usdc,
         )
     except ConfigLoadError as exc:
         print(f"crypto-pair-run rejected startup: {exc}", file=sys.stderr)
