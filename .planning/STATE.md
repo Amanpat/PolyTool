@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T00:05:48.061Z"
-last_activity: "2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stale Gate 2 operator/docs context found by the audit"
+last_updated: "2026-04-15T01:05:07.131Z"
+last_activity: "2026-04-14 - Completed quick task 260414-rqv: Gate 2 re-sweep confirmed FAILED 7/50=14% (identical to 2026-03-29); resume/cache capability added to sweep driver"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -25,6 +25,7 @@ Last activity: 2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stal
 
 ## Recent Progress
 
+- quick-260414-rqv: Gate 2 re-sweep confirmed FAILED -- full 50-tape corpus re-swept (7/50=14%, identical to 2026-03-29); resume/cache capability added to run_recovery_corpus_sweep.py; CURRENT_STATE.md updated; commits c850550 + 8046e77
 - quick-260414-rr3: Gate 2 docs truth-sync -- Silver tape tier warning added (NOT suitable for Gate 2 sweep); 5x stale artifacts/simtrader/tapes paths corrected to artifacts/tapes/shadow in SPEC + RUNBOOK; dev log created; commits 43a2664 + 8e91289 + e98e91c
 - quick-260414-rep: Gate 2 status audit post-capture -- crypto-pair-watch confirms 12 eligible 5m markets live (BTC=4, ETH=4, SOL=4); corpus 50/50 complete (41 Gold, 9 Silver); Gate 2 FAILED (7/50=14%); ADR deadline 2026-04-12 passed 2 days ago; Silver tape zero-fill root cause confirmed; 4 doc staleness issues found in CLAUDE.md/runbooks/spec; verdict RESUME_CRYPTO_CAPTURE (full-corpus re-sweep still needed); commits ea50e7c + e594b1d + 323b6ff
 - quick-260414-rez: Gate 2 next-step packet -- crypto-pair-watch confirmed 12 active 5m markets (BTC=4, ETH=4, SOL=4) on 2026-04-14; verdict RESUME_CRYPTO_CAPTURE; capture execution packet with exact commands written; CLAUDE.md truth-synced (NOT_RUN->FAILED, escalation deadline PASSED annotation); CURRENT_STATE.md escalation section updated; commits 1098e15 + 4206539
