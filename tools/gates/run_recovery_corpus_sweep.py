@@ -29,6 +29,49 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+def _load_cached_outcome(
+    tape: "TapeCandidate",  # type: ignore[name-defined]
+    sweep_dir_root: Path,
+    sweep_id: str,
+) -> "TapeSweepOutcome | None":  # type: ignore[name-defined]
+    """Return a TapeSweepOutcome reconstructed from an existing sweep_summary.json, or None."""
+    from tools.gates.mm_sweep import TapeSweepOutcome, _best_scenario_row, _parse_decimal  # noqa: PLC0415
+    summary_path = sweep_dir_root / "sweeps" / sweep_id / "sweep_summary.json"
+    if not summary_path.exists():
+        return None
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        scenarios = summary.get("scenarios", [])
+        if not scenarios:
+            return None
+        scenario_rows = [
+            {
+                "scenario_id": s.get("scenario_id"),
+                "scenario_name": s.get("scenario_name"),
+                "net_profit": str(s.get("net_profit")),
+                "positive": bool(
+                    s.get("net_profit") is not None
+                    and _parse_decimal(str(s.get("net_profit"))) is not None
+                    and _parse_decimal(str(s.get("net_profit"))) > 0  # type: ignore[operator]
+                ),
+            }
+            for s in scenarios
+        ]
+        best_row = _best_scenario_row(scenario_rows)
+        best_net_profit = _parse_decimal(best_row.get("net_profit")) if best_row else None
+        return TapeSweepOutcome(
+            tape=tape,
+            status="RAN",
+            sweep_dir=summary_path.parent,
+            scenario_rows=scenario_rows,
+            best_scenario_id=str(best_row.get("scenario_id")) if best_row else None,
+            best_scenario_name=str(best_row.get("scenario_name")) if best_row else None,
+            best_net_profit=best_net_profit,
+            positive=(best_net_profit is not None and best_net_profit > 0),
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
 from tools.gates.mm_sweep import (
     DEFAULT_MM_SWEEP_FEE_RATE_BPS,
     DEFAULT_MM_SWEEP_MARK_METHOD,
@@ -159,6 +202,17 @@ def run_recovery_sweep(
             continue
 
         sweep_id = f"{tape.tape_dir.name}_market_maker_v1_mm_sweep"
+
+        # --- resume: reuse existing sweep_summary.json if present ---
+        cached = _load_cached_outcome(tape, out_dir, sweep_id)
+        if cached is not None:
+            best = cached.best_net_profit
+            pnl_str = f"+{best:.2f}" if best and best > 0 else f"{best:.2f}" if best else "n/a"
+            print(f"CACHED net={pnl_str} positive={cached.positive}")
+            outcomes.append(cached)
+            eligible_outcomes.append(cached)
+            continue
+
         try:
             sweep_result = run_sweep(
                 SweepRunParams(
