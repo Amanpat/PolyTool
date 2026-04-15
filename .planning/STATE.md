@@ -5,7 +5,7 @@ milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
 last_updated: "2026-04-15T22:02:24.513Z"
-last_activity: "2026-04-15 - Completed quick task 260415-owj: Gate 2 decision packet -- three-option comparison recommends Track 2 focus (Option 3); decision memo at docs/dev_logs/2026-04-15_gate2_decision_packet.md; commit a8a6337"
+last_activity: "2026-04-15 - Completed quick task 260415-owc: Gate 2 failure anatomy -- 50-tape corpus partitioned (9 structural-zero-fill, 34 executable-negative, 7 positive), recommendation matrix written; commit d838218"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -295,3 +295,4 @@ Last activity: 2026-04-14 - Completed quick task 260414-rr3: Truth-sync the stal
 | 260414-rr3 | Gate 2 docs truth-sync: Silver tape tier updated (NOT suitable for Gate 2 sweep — no L2 book data, fills will be zero); 5x stale artifacts/simtrader/tapes paths corrected to artifacts/tapes/shadow in SPEC-phase1b-gold-capture-campaign.md and CORPUS_GOLD_CAPTURE_RUNBOOK.md; dev log written with before/after and deferred ambiguities | 2026-04-14 | e98e91c | [260414-rr3-truth-sync-the-stale-gate-2-operator-doc](./quick/260414-rr3-truth-sync-the-stale-gate-2-operator-doc/) |
 | 260414-rqv | Gate 2 authoritative re-sweep on full 50-tape recovery corpus: FAILED — 7/50=14% (threshold 70%), identical to 2026-03-29 baseline; crypto bucket 7/10=70%, all other buckets 0%; resume/cache capability added to run_recovery_corpus_sweep.py; gate_failed.json + dev log + CURRENT_STATE.md updated | 2026-04-14 | bf42a6c | [260414-rqv-run-authoritative-gate-2-re-sweep-on-com](./quick/260414-rqv-run-authoritative-gate-2-re-sweep-on-com/) |
 | 260415-owj | Gate 2 decision packet: Director-grade memo comparing three path-forward options (crypto-only subset, strategy improvement, Track 2 focus); recommends Option 3 (Track 2 focus) as immediately actionable with 12 active 5m markets; lists exact doc changes needed per option; docs-only | 2026-04-15 | 12461e3 | [260415-owj-gate-2-decision-packet-compare-three-pat](./quick/260415-owj-gate-2-decision-packet-compare-three-pat/) |
+| 260415-owc | Gate 2 failure anatomy: stdlib classifier partitions 50-tape corpus into 9 structural-zero-fill (Silver), 34 executable-negative/flat (Shadow non-crypto), 7 executable-positive (Shadow crypto 7/10=70%); recommendation matrix across 3 path-forward options; 25 deterministic tests; dev log written | 2026-04-15 | d838218 | [260415-owc-produce-a-decision-grade-gate-2-failure-](./quick/260415-owc-produce-a-decision-grade-gate-2-failure-/) |
