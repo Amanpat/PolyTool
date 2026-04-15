@@ -1063,3 +1063,174 @@ def _unique_preserving_order(values: list[str]) -> list[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+# ---------------------------------------------------------------------------
+# Post-soak review helpers
+# ---------------------------------------------------------------------------
+
+def load_or_generate_report(run_path: Path) -> dict[str, Any]:
+    """Return the paper-soak summary report dict for *run_path*.
+
+    If ``paper_soak_summary.json`` already exists in the run directory it is
+    read and returned directly (skips re-computation).  Otherwise the full
+    report is generated via :func:`generate_crypto_pair_paper_report` and the
+    resulting ``report`` dict is returned.
+    """
+    run_dir = _resolve_run_dir(Path(run_path))
+    summary_path = run_dir / PAPER_SOAK_SUMMARY_JSON
+    if summary_path.exists():
+        return _read_json_dict(summary_path)
+    result = generate_crypto_pair_paper_report(run_path)
+    return result.report
+
+
+def format_post_soak_review(report: Mapping[str, Any]) -> str:
+    """Return a concise, terminal-friendly one-screen review string.
+
+    Reads the report dict (same shape returned by :func:`build_paper_soak_summary`)
+    and formats it into plain-ASCII sections that fit on a single screen.
+    No Unicode symbols are used (Windows-safe per CLAUDE.md).
+    """
+    metrics = report.get("metrics", {})
+    rubric = report.get("rubric", {})
+    evidence_floor = report.get("evidence_floor", {})
+    metric_bands = rubric.get("metric_bands", {})
+    safety_violations = report.get("safety_violations", [])
+    operational_context = report.get("operational_context", {})
+    notes = report.get("notes", [])
+
+    run_id = report.get("run_id", "unknown")
+    generated_at = report.get("generated_at", "unknown")
+    soak_hours = metrics.get("soak_duration_hours")
+    soak_hours_str = _fmt_metric(soak_hours, places=2) if soak_hours is not None else "N/A"
+
+    # Operational context
+    symbols_included: list[str] = operational_context.get("symbols_included") or []
+    symbols_str = ", ".join(symbols_included) if symbols_included else "N/A"
+    markets_by_symbol: dict[str, Any] = operational_context.get("markets_by_symbol") or {}
+    if markets_by_symbol:
+        markets_str = ", ".join(
+            f"{sym}={cnt}" for sym, cnt in sorted(markets_by_symbol.items())
+        )
+    else:
+        markets_str = "N/A"
+    cycles_completed = operational_context.get("cycles_completed")
+
+    lines: list[str] = []
+
+    # ---- 1. Header block ------------------------------------------------
+    lines.append("=== TRACK 2 POST-SOAK REVIEW ===")
+    lines.append(
+        f"Run: {run_id}  |  Duration: {soak_hours_str}h  |  Generated: {generated_at}"
+    )
+    lines.append("")
+
+    # ---- 2. Verdict block -----------------------------------------------
+    verdict = rubric.get("verdict", "unknown")
+    decision = rubric.get("decision", "unknown")
+    decision_reasons: list[str] = rubric.get("decision_reasons", [])
+    lines.append(f"VERDICT: {verdict}")
+    lines.append(f"Decision: {decision}")
+    lines.append("Reasons:")
+    for reason in decision_reasons:
+        lines.append(f"  - {reason}")
+    lines.append("")
+
+    # ---- 3. Key Metrics block -------------------------------------------
+    lines.append("--- Key Metrics ---")
+    lines.append(f"Net PnL:            {_fmt_metric(metrics.get('net_pnl_usdc'), places=4)} USDC")
+    lines.append(f"Opportunities:      {_fmt_metric(metrics.get('opportunities_observed'))}")
+    lines.append(f"Intents generated:  {_fmt_metric(metrics.get('intents_generated'))}")
+    lines.append(f"Completed pairs:    {_fmt_metric(metrics.get('completed_pairs'))}")
+    lines.append(f"Settled pairs:      {_fmt_metric(metrics.get('settled_pair_count'))}")
+    lines.append(
+        f"Symbols:            {symbols_str}"
+        + (f"  ({markets_str})" if markets_by_symbol else "")
+    )
+    lines.append(f"Cycles completed:   {_fmt_metric(cycles_completed)}")
+    lines.append("")
+
+    # ---- 4. Promote-Band Fit table --------------------------------------
+    lines.append("--- Promote-Band Fit ---")
+
+    def _band_row(metric_key: str, value_str: str) -> str:
+        band_info = metric_bands.get(metric_key, {})
+        band = band_info.get("band", "unknown")
+        return f"  {metric_key:<42s}  {value_str:>12s}  [{band}]"
+
+    # Standard rate metrics (4 decimal places)
+    for metric_key in (
+        "pair_completion_rate",
+        "average_completed_pair_cost",
+        "estimated_profit_per_completed_pair",
+        "maker_fill_rate_floor",
+        "partial_leg_incidence",
+    ):
+        raw = metrics.get(metric_key)
+        value_str = _fmt_metric(raw, places=4)
+        lines.append(_band_row(metric_key, value_str))
+
+    # feed_state_transitions -- composite value
+    stale = metrics.get("stale_count", 0)
+    disconnect = metrics.get("disconnect_count", 0)
+    feed_value_str = f"stale={stale}, disconnect={disconnect}"
+    lines.append(_band_row("feed_state_transitions", feed_value_str))
+
+    # safety_violations -- integer count
+    sv_count = metrics.get("safety_violation_count", 0)
+    lines.append(_band_row("safety_violations", str(sv_count)))
+
+    # net_pnl_positive -- float value
+    net_pnl = metrics.get("net_pnl_usdc")
+    lines.append(_band_row("net_pnl_positive", _fmt_metric(net_pnl, places=4)))
+
+    lines.append("")
+
+    # ---- 5. Risk Controls block -----------------------------------------
+    lines.append("--- Risk Controls ---")
+    if not safety_violations:
+        lines.append("  No risk controls triggered.")
+    else:
+        for violation in safety_violations:
+            code = violation.get("code", "unknown")
+            count = violation.get("count", 0)
+            details: list[str] = violation.get("details") or []
+            detail_str = f": {details[0]}" if details else ""
+            lines.append(f"  {code} x{count}{detail_str}")
+    lines.append("")
+
+    # ---- 6. Evidence Floor block ----------------------------------------
+    lines.append("--- Evidence Floor ---")
+    floor_met = bool(evidence_floor.get("met"))
+    lines.append(f"Overall: {'MET' if floor_met else 'NOT MET'}")
+    checks: Mapping[str, Any] = evidence_floor.get("checks", {})
+    failed_checks = [
+        (name, payload)
+        for name, payload in checks.items()
+        if not bool(payload.get("passed"))
+    ]
+    if not failed_checks:
+        lines.append("  All checks passed.")
+    else:
+        for check_name, payload in failed_checks:
+            if "actual_hours" in payload:
+                actual = payload.get("actual_hours")
+                required = payload.get("required_hours")
+            else:
+                actual = payload.get("actual")
+                required = payload.get("required")
+            lines.append(
+                f"  FAIL: {check_name}"
+                f" (actual={_fmt_metric(actual, places=2)},"
+                f" required={_fmt_metric(required, places=2)})"
+            )
+
+    # ---- 7. Notes block (optional) --------------------------------------
+    if notes:
+        lines.append("")
+        lines.append("--- Notes ---")
+        for note in notes:
+            lines.append(f"  - {note}")
+
+    return "\n".join(lines)

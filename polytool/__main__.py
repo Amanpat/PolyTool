@@ -66,6 +66,7 @@ crypto_pair_scan_main = _command_entrypoint("tools.cli.crypto_pair_scan")
 crypto_pair_run_main = _command_entrypoint("tools.cli.crypto_pair_run")
 crypto_pair_backtest_main = _command_entrypoint("tools.cli.crypto_pair_backtest")
 crypto_pair_report_main = _command_entrypoint("tools.cli.crypto_pair_report")
+crypto_pair_review_main = _command_entrypoint("tools.cli.crypto_pair_review")
 crypto_pair_watch_main = _command_entrypoint("tools.cli.crypto_pair_watch")
 crypto_pair_await_soak_main = _command_entrypoint("tools.cli.crypto_pair_await_soak")
 crypto_pair_seed_demo_events_main = _command_entrypoint(
@@ -139,6 +140,7 @@ _COMMAND_HANDLER_NAMES = {
     "crypto-pair-run": "crypto_pair_run_main",
     "crypto-pair-backtest": "crypto_pair_backtest_main",
     "crypto-pair-report": "crypto_pair_report_main",
+    "crypto-pair-review": "crypto_pair_review_main",
     "crypto-pair-watch": "crypto_pair_watch_main",
     "crypto-pair-await-soak": "crypto_pair_await_soak_main",
     "crypto-pair-seed-demo-events": "crypto_pair_seed_demo_events_main",
@@ -232,6 +234,7 @@ def print_usage() -> None:
     print("  crypto-pair-run       Paper by default; live scaffold behind --live with explicit safety gates")
     print("  crypto-pair-backtest  Replay historical/synthetic pair observations, emit eval artifacts")
     print("  crypto-pair-report    Summarize one completed paper run into rubric-backed markdown + JSON")
+    print("  crypto-pair-review    One-screen post-soak review: verdict, metrics, risk controls, promote-band fit")
     print("  crypto-pair-watch     Check whether eligible BTC/ETH/SOL 5m/15m markets exist; poll with --watch")
     print("  crypto-pair-await-soak Wait for eligible markets, then launch the standard Coinbase paper smoke soak")
     print("  crypto-pair-seed-demo-events Seed dev-only synthetic Track 2 rows into ClickHouse for dashboard checks")
@@ -287,9 +290,9 @@ def print_usage() -> None:
     print('  polytool simtrader shadow --market <slug> --strategy market_maker_v1 --duration 300')
     print("")
     print("For more information, see:")
-    print("  docs/OPERATOR_QUICKSTART.md   (end-to-end guide)")
-    print("  docs/LOCAL_RAG_WORKFLOW.md    (RAG details)")
-    print("  docs/README_SIMTRADER.md      (SimTrader operator guide)")
+    print("  docs/runbooks/OPERATOR_QUICKSTART.md   (end-to-end guide)")
+    print("  docs/runbooks/LOCAL_RAG_WORKFLOW.md    (RAG details)")
+    print("  docs/runbooks/README_SIMTRADER.md      (SimTrader operator guide)")
 
 
 def print_version() -> None:
