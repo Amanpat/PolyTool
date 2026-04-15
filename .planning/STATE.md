@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T01:05:07.131Z"
-last_activity: "2026-04-14 - Completed quick task 260414-rqv: Gate 2 re-sweep confirmed FAILED 7/50=14% (identical to 2026-03-29); resume/cache capability added to sweep driver"
+last_updated: "2026-04-15T22:02:24.513Z"
+last_activity: "2026-04-15 - Completed quick task 260415-owj: Gate 2 decision packet -- three-option comparison recommends Track 2 focus (Option 3); decision memo at docs/dev_logs/2026-04-15_gate2_decision_packet.md; commit a8a6337"
 progress:
   total_phases: 5
   completed_phases: 0
