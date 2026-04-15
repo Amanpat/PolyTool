@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-15 - Completed quick task 260415-qpv: Build a Track 2 paper-soak launcher/watchdog. Done means the operator has one safe entrypoint to launch a paper soak with validated defaults, periodic heartbeat/status output, and clean stop behavior, without changing strategy logic.
+Last activity: 2026-04-15 - Completed quick task 260415-qqa: Build a Track 2 post-soak review helper
 
 ## Recent Progress
 
@@ -301,3 +301,4 @@ Last activity: 2026-04-15 - Completed quick task 260415-qpv: Build a Track 2 pap
 | 260415-q5f | Track 2 paper-soak hardening: verdict artifact (paper_soak_verdict.json) with promote/rerun/reject decision rule; operational_context block (cycles, symbols, market breakdown); enriched markdown Key Metrics table; 9 new deterministic tests (13 total in test_crypto_pair_report.py); dev log at docs/dev_logs/2026-04-15_track2_paper_soak_hardening.md | 2026-04-15 | 11e8b8b | [260415-q5f-harden-the-track-2-paper-soak-lane-done-](./quick/260415-q5f-harden-the-track-2-paper-soak-lane-done-/) |
 | 260415-q5s | Track 2 risk controls: added max_capital_per_window_usdc session budget ceiling (50 USDC operator cap) + cumulative_committed_notional_usdc() tracking; all four operator controls (kill switch, open_pairs, daily_loss, capital_window) enforced in _process_opportunity() and surfaced in --dry-run preflight; 9 deterministic tests; dev log at docs/dev_logs/2026-04-15_track2_risk_controls.md | 2026-04-15 | 9a3ba8a | [260415-q5s-implement-track-2-risk-controls-for-the-](./quick/260415-q5s-implement-track-2-risk-controls-for-the-/) |
 | 260415-qpv | Track 2 paper-soak launcher/watchdog: validate_soak_prerequisites(), AwaitSoakLaunchPlan expanded (auto_report/sink_enabled/max_capital_window_usdc), verdict extraction; CLI flags (--auto-report, --sink-enabled, --heartbeat-minutes, --kill-switch, --max-capital-window-usdc); 17 await_soak tests pass (10 new); dev log at docs/dev_logs/2026-04-15_track2_soak_launcher_watchdog.md | 2026-04-15 | a9d2ae4 | [260415-qpv-build-a-track-2-paper-soak-launcher-watc](./quick/260415-qpv-build-a-track-2-paper-soak-launcher-watc/) |
+| 260415-qqa | Track 2 post-soak review helper: crypto-pair-review CLI + format_post_soak_review() + load_or_generate_report(); 7-section ASCII one-screen verdict output (verdict, PnL stats, opportunities/intents/pairs, promote-band fit, risk controls triggered, evidence floor); 8 new tests (2546 total); dev log at docs/dev_logs/2026-04-15_track2_post_soak_review_helper.md | 2026-04-15 | 28826ee | [260415-qqa-build-a-track-2-post-soak-review-helper](./quick/260415-qqa-build-a-track-2-post-soak-review-helper/) |
