@@ -15,6 +15,7 @@ GRACEFUL_PAPER_STOP_REASONS = frozenset({"completed", "operator_interrupt"})
 
 PAPER_SOAK_SUMMARY_JSON = "paper_soak_summary.json"
 PAPER_SOAK_SUMMARY_MD = "paper_soak_summary.md"
+PAPER_SOAK_VERDICT_JSON = "paper_soak_verdict.json"
 
 _PROMOTE_VERDICT = "PROMOTE TO MICRO LIVE CANDIDATE"
 _RERUN_VERDICT = "RERUN PAPER SOAK"
@@ -60,6 +61,7 @@ class CryptoPairReportResult:
     report: dict[str, Any]
     json_path: Path
     markdown_path: Path
+    verdict_path: Path
 
 
 def is_graceful_paper_stop_reason(stopped_reason: Any) -> bool:
@@ -70,6 +72,7 @@ def build_report_artifact_paths(result: CryptoPairReportResult) -> dict[str, str
     return {
         "summary_json": str(result.json_path),
         "summary_markdown": str(result.markdown_path),
+        "verdict_json": str(result.verdict_path),
     }
 
 
@@ -81,6 +84,7 @@ def generate_crypto_pair_paper_report(run_path: Path | str) -> CryptoPairReportR
 
     json_path = loaded.run_dir / PAPER_SOAK_SUMMARY_JSON
     markdown_path = loaded.run_dir / PAPER_SOAK_SUMMARY_MD
+    verdict_path = loaded.run_dir / PAPER_SOAK_VERDICT_JSON
 
     json_path.write_text(
         json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
@@ -91,10 +95,30 @@ def generate_crypto_pair_paper_report(run_path: Path | str) -> CryptoPairReportR
         encoding="utf-8",
     )
 
+    rubric = report.get("rubric", {})
+    metrics = report.get("metrics", {})
+    verdict_artifact = {
+        "schema_version": "crypto_pair_verdict_v0",
+        "run_id": report.get("run_id", ""),
+        "generated_at": report.get("generated_at", ""),
+        "decision": rubric.get("decision", "reject"),
+        "verdict": rubric.get("verdict", ""),
+        "rubric_pass": rubric.get("rubric_pass", False),
+        "safety_violation_count": metrics.get("safety_violation_count", 0),
+        "decision_reasons": rubric.get("decision_reasons", []),
+        "net_pnl_usdc": metrics.get("net_pnl_usdc", 0.0),
+        "soak_duration_hours": metrics.get("soak_duration_hours"),
+    }
+    verdict_path.write_text(
+        json.dumps(verdict_artifact, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
     return CryptoPairReportResult(
         report=report,
         json_path=json_path,
         markdown_path=markdown_path,
+        verdict_path=verdict_path,
     )
 
 
@@ -395,6 +419,33 @@ def build_paper_soak_summary(
             "ClickHouse sink was disabled for this run; report uses local artifacts only."
         )
 
+    # Operational context -- cycles, symbols, market breakdown
+    cycles_completed: Optional[int] = None
+    runner_result = manifest.get("runner_result")
+    if isinstance(runner_result, dict) and runner_result.get("cycles_completed") is not None:
+        cycles_completed = _coerce_int(runner_result["cycles_completed"], default=0)
+    else:
+        cycle_count = sum(
+            1
+            for event in runtime_events
+            if str(event.get("event_type", "")).strip() == "cycle_completed"
+        )
+        if cycle_count > 0:
+            cycles_completed = cycle_count
+
+    symbols_included = sorted(set(market_to_symbol.values()))
+
+    markets_by_symbol: dict[str, int] = {}
+    for mkt_id, sym in market_to_symbol.items():
+        markets_by_symbol[sym] = markets_by_symbol.get(sym, 0) + 1
+
+    operational_context: dict[str, Any] = {
+        "cycles_completed": cycles_completed,
+        "symbols_included": symbols_included,
+        "markets_observed_count": opportunities_observed,
+        "markets_by_symbol": markets_by_symbol,
+    }
+
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": generated_at_iso,
@@ -441,6 +492,7 @@ def build_paper_soak_summary(
             "freeze_window_breaches": freeze_window_breaches,
         },
         "safety_violations": safety_violations,
+        "operational_context": operational_context,
         "notes": notes,
     }
 
@@ -453,7 +505,21 @@ def render_paper_soak_summary_markdown(report: Mapping[str, Any]) -> str:
     evidence_floor = report.get("evidence_floor", {})
     metric_bands = rubric.get("metric_bands", {})
     safety_violations = report.get("safety_violations", [])
+    operational_context = report.get("operational_context", {})
     notes = report.get("notes", [])
+
+    symbols_included = operational_context.get("symbols_included") or []
+    symbols_str = ", ".join(symbols_included) if symbols_included else "N/A"
+
+    markets_by_symbol = operational_context.get("markets_by_symbol") or {}
+    if markets_by_symbol:
+        markets_by_symbol_str = ", ".join(
+            f"{sym}={cnt}" for sym, cnt in sorted(markets_by_symbol.items())
+        )
+    else:
+        markets_by_symbol_str = "N/A"
+
+    cycles_completed = operational_context.get("cycles_completed")
 
     lines = [
         "# Crypto Pair Paper Soak Summary",
@@ -469,6 +535,9 @@ def render_paper_soak_summary_markdown(report: Mapping[str, Any]) -> str:
         "| Metric | Value |",
         "| ------ | ----- |",
         f"| soak_duration_hours | {_fmt_metric(metrics.get('soak_duration_hours'), places=2)} |",
+        f"| cycles_completed | {_fmt_metric(cycles_completed)} |",
+        f"| symbols_included | {symbols_str} |",
+        f"| markets_by_symbol | {markets_by_symbol_str} |",
         f"| opportunities_observed | {_fmt_metric(metrics.get('opportunities_observed'))} |",
         f"| intents_generated | {_fmt_metric(metrics.get('intents_generated'))} |",
         f"| completed_pairs | {_fmt_metric(metrics.get('completed_pairs'))} |",
