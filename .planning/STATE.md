@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T23:30:00.000Z"
-last_activity: "2026-04-15 - Completed quick task 260415-rdp: Loop B feasibility probe. VERDICT: READY_WITH_CONSTRAINTS. OrderFilled ABI decoder + wallet topic filter helpers proven with 36 deterministic tests. 4 named blockers: Alchemy account (human), async WS manager (~200-300 LOC), new CH table, alert design decision."
+last_updated: "2026-04-15T23:58:08.320Z"
+last_activity: "2026-04-15 - Completed quick task 260415-rdy: Loop D feasibility assessment — READY_WITH_CONSTRAINTS verdict; probe helpers + 24 tests; dev log at docs/dev_logs/2026-04-15_wallet_discovery_loop_d_pof.md"
 progress:
   total_phases: 5
   completed_phases: 0
@@ -21,10 +21,11 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-15 - Completed quick task 260415-qqa: Build a Track 2 post-soak review helper
+Last activity: 2026-04-15 - Completed quick task 260415-rdy: Loop D feasibility assessment (READY_WITH_CONSTRAINTS); probe helpers + 24 offline tests; dev log with verdict, constraints matrix, evidence
 
 ## Recent Progress
 
+- quick-260415-rdy: Loop D feasibility assessment — READY_WITH_CONSTRAINTS verdict; Gamma live bootstrap: 5000 markets/10000 tokens; 2 blocker gaps in ClobStreamClient (G-01 PING, G-02 dynamic sub/unsub), both remediable; 4/5 anomaly detectors ready from CLOB events; wallet attribution requires Alchemy second feed (by design); 24 offline probe tests + dev log; commits b3ca095 + e448921
 - quick-260414-rqv: Gate 2 re-sweep confirmed FAILED -- full 50-tape corpus re-swept (7/50=14%, identical to 2026-03-29); resume/cache capability added to run_recovery_corpus_sweep.py; CURRENT_STATE.md updated; commits c850550 + 8046e77
 - quick-260414-rr3: Gate 2 docs truth-sync -- Silver tape tier warning added (NOT suitable for Gate 2 sweep); 5x stale artifacts/simtrader/tapes paths corrected to artifacts/tapes/shadow in SPEC + RUNBOOK; dev log created; commits 43a2664 + 8e91289 + e98e91c
 - quick-260414-rep: Gate 2 status audit post-capture -- crypto-pair-watch confirms 12 eligible 5m markets live (BTC=4, ETH=4, SOL=4); corpus 50/50 complete (41 Gold, 9 Silver); Gate 2 FAILED (7/50=14%); ADR deadline 2026-04-12 passed 2 days ago; Silver tape zero-fill root cause confirmed; 4 doc staleness issues found in CLAUDE.md/runbooks/spec; verdict RESUME_CRYPTO_CAPTURE (full-corpus re-sweep still needed); commits ea50e7c + e594b1d + 323b6ff
