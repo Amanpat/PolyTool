@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T23:05:17.083Z"
-last_activity: "2026-04-15 - Completed quick task 260415-q5f: Harden the Track 2 paper-soak lane. Done means a 24h paper run produces a clear end-of-run verdict artifact (promote / rerun / reject), operator-readable summary metrics, and deterministic tests for the touched reporting surfaces."
+last_updated: "2026-04-15T23:30:00.000Z"
+last_activity: "2026-04-15 - Completed quick task 260415-rdp: Loop B feasibility probe. VERDICT: READY_WITH_CONSTRAINTS. OrderFilled ABI decoder + wallet topic filter helpers proven with 36 deterministic tests. 4 named blockers: Alchemy account (human), async WS manager (~200-300 LOC), new CH table, alert design decision."
 progress:
   total_phases: 5
   completed_phases: 0
