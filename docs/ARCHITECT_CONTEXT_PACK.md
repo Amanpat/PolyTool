@@ -305,7 +305,7 @@ python -m pytest tests/ -v
 | # | Gap/Risk | Impact | File Evidence |
 |---|----------|--------|---------------|
 | 1 | **STRATEGY_PLAYBOOK.md missing** | No unified strategy documentation for users | Not found anywhere |
-| 2 | **RAG_IMPLEMENTATION_REPORT.md stale** | Lists lexical/rerank as "recommended" but already implemented | `docs/RAG_IMPLEMENTATION_REPORT.md:243-261` |
+| 2 | **RAG_IMPLEMENTATION_REPORT.md stale** | Lists lexical/rerank as "recommended" but already implemented | `docs/audits/RAG_IMPLEMENTATION_REPORT.md:243-261` |
 | 3 | **datetime.utcnow() deprecated** | Python deprecation warnings in tests | `packages/polymarket/backfill.py:91,338` |
 | 4 | **opus-bundle deprecated** | Still in CLI but marked deprecated | `polytool/__main__.py:135-140` |
 | 5 | **No integration tests for API** | Only unit tests; API smoke tests exist | `tests/`, `tools/smoke/` |
@@ -323,7 +323,7 @@ python -m pytest tests/ -v
 
 **Acceptance Criteria:**
 - [ ] Create `docs/STRATEGY_PLAYBOOK.md` consolidating detector info
-- [ ] Update `docs/RAG_IMPLEMENTATION_REPORT.md` to reflect lexical/rerank implementation
+- [ ] Update `docs/audits/RAG_IMPLEMENTATION_REPORT.md` to reflect lexical/rerank implementation
 - [ ] Remove `opus-bundle` deprecated command or document deprecation path
 - [ ] Fix `datetime.utcnow()` deprecation warnings
 
@@ -358,9 +358,9 @@ python -m pytest tests/ -v
 | Claim | Doc Says | Code Says | Verdict |
 |-------|----------|-----------|---------|
 | 4 strategy detectors | Yes (`README.md:355-394`) | Yes (`detectors.py` has 4 classes) | **ALIGNED** |
-| Hybrid retrieval supported | Yes (`LOCAL_RAG_WORKFLOW.md:110-116`) | Yes (`lexical.py`, RRF in `query.py`) | **ALIGNED** |
-| Reranker supported | Yes (`LOCAL_RAG_WORKFLOW.md:115-116`) | Yes (`reranker.py`) | **ALIGNED** |
-| Lexical/rerank "recommended" | Yes (`RAG_IMPLEMENTATION_REPORT.md:243-261`) | Already implemented | **DRIFT** |
+| Hybrid retrieval supported | Yes (`docs/runbooks/LOCAL_RAG_WORKFLOW.md:110-116`) | Yes (`lexical.py`, RRF in `query.py`) | **ALIGNED** |
+| Reranker supported | Yes (`docs/runbooks/LOCAL_RAG_WORKFLOW.md:115-116`) | Yes (`reranker.py`) | **ALIGNED** |
+| Lexical/rerank "recommended" | Yes (`docs/audits/RAG_IMPLEMENTATION_REPORT.md:243-261`) | Already implemented | **DRIFT** |
 | opus-bundle works | Deprecated (`__main__.py:29`) | Code exists but deprecated | **ALIGNED** |
 | Pre-commit guard exists | Yes (`RISK_POLICY.md:24-30`) | Yes (`pre_commit_guard.py`) | **ALIGNED** |
 | specs/ has content | Implied (`CLAUDE.md:7`) | Empty directory | **DRIFT** |

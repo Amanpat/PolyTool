@@ -23,6 +23,9 @@ CANONICAL_WORKFLOWS = [
     ("UNIFIED_DEV_ID", "ris-unified-dev.json"),
     ("HEALTH_WEBHOOK_ID", "ris-health-webhook.json"),
 ]
+WORKFLOW_STRING_PLACEHOLDERS = {
+    "__RIS_OPERATOR_WEBHOOK_URL__": "DISCORD_WEBHOOK_URL",
+}
 
 
 def read_dotenv_value(key: str) -> str | None:
@@ -36,6 +39,50 @@ def read_dotenv_value(key: str) -> str | None:
         if lhs.strip() == key:
             return rhs.strip().strip('"').strip("'")
     return None
+
+
+def read_config_value(key: str) -> tuple[str | None, str | None]:
+    env_value = os.environ.get(key)
+    if env_value:
+        return env_value, "environment"
+
+    dotenv_value = read_dotenv_value(key)
+    if dotenv_value:
+        return dotenv_value, ".env"
+
+    return None, None
+
+
+def escape_js_single_quoted_string(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def workflow_string_replacements() -> tuple[dict[str, str], dict[str, str]]:
+    replacements: dict[str, str] = {}
+    sources: dict[str, str] = {}
+
+    for placeholder, env_key in WORKFLOW_STRING_PLACEHOLDERS.items():
+        raw_value, source = read_config_value(env_key)
+        replacements[placeholder] = escape_js_single_quoted_string(raw_value or "")
+        sources[env_key] = source or "missing"
+
+    return replacements, sources
+
+
+def apply_string_replacements(payload: Any, replacements: dict[str, str]) -> Any:
+    if isinstance(payload, str):
+        updated = payload
+        for placeholder, value in replacements.items():
+            updated = updated.replace(placeholder, value)
+        return updated
+    if isinstance(payload, list):
+        return [apply_string_replacements(item, replacements) for item in payload]
+    if isinstance(payload, dict):
+        return {
+            key: apply_string_replacements(value, replacements)
+            for key, value in payload.items()
+        }
+    return payload
 
 
 def read_workflow_ids() -> dict[str, str]:
@@ -129,12 +176,14 @@ def import_workflow(
     id_key: str,
     filename: str,
     activate: bool,
+    replacements: dict[str, str],
 ) -> tuple[str, str]:
     workflow_path = WORKFLOW_DIR / filename
     if not workflow_path.exists():
         raise FileNotFoundError(f"Workflow file not found: {workflow_path}")
 
     workflow_payload = json.loads(workflow_path.read_text(encoding="utf-8"))
+    workflow_payload = apply_string_replacements(workflow_payload, replacements)
     workflow_name = workflow_payload["name"]
     workflow_ids = read_workflow_ids()
     existing_id = get_existing_workflow_id(
@@ -215,7 +264,11 @@ def main() -> int:
         return 1
 
     try:
+        replacements, replacement_sources = workflow_string_replacements()
         print(f"Importing canonical workflows into {args.base_url} ...")
+        for env_key, source in replacement_sources.items():
+            status = "configured" if source != "missing" else "missing"
+            print(f"  {env_key}: {status} ({source})")
         for id_key, filename in CANONICAL_WORKFLOWS:
             workflow_id, action = import_workflow(
                 args.base_url,
@@ -223,6 +276,7 @@ def main() -> int:
                 id_key,
                 filename,
                 activate=not args.no_activate,
+                replacements=replacements,
             )
             print(f"  {filename}: {workflow_id} ({action})")
     except Exception as exc:  # pragma: no cover - CLI path

@@ -72,5 +72,5 @@ and a `>20%` warning will appear — that is the expected, correct diagnostic si
 
 ## Debugging
 
-See `docs/debug/DEBUG-category-coverage-zero.md` for the full root-cause analysis
+See `docs/archive/debug/DEBUG-category-coverage-zero.md` for the full root-cause analysis
 and before/after fix details.

@@ -543,9 +543,9 @@ Key artifact paths (all gitignored):
 
 | Document | What it covers |
 |----------|---------------|
-| [`docs/OPERATOR_QUICKSTART.md`](docs/OPERATOR_QUICKSTART.md) | End-to-end operator guide: research loop, RAG, SimTrader, Grafana, gates |
+| [`docs/runbooks/OPERATOR_QUICKSTART.md`](docs/runbooks/OPERATOR_QUICKSTART.md) | End-to-end operator guide: research loop, RAG, SimTrader, Grafana, gates |
 | [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) | Detailed current state: what is shipped, gate status, blockers |
-| [`docs/README_SIMTRADER.md`](docs/README_SIMTRADER.md) | SimTrader operator guide: quickrun, shadow, sweep, Studio, strategies |
+| [`docs/runbooks/README_SIMTRADER.md`](docs/runbooks/README_SIMTRADER.md) | SimTrader operator guide: quickrun, shadow, sweep, Studio, strategies |
 | [`docs/INDEX.md`](docs/INDEX.md) | Full documentation index |
 | [`docs/PLAN_OF_RECORD.md`](docs/PLAN_OF_RECORD.md) | Mission, constraints, data gaps, roadmap framing |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Components and data flow |

@@ -165,4 +165,5 @@ python -m polytool batch-run \
 - PDR-ROADMAP5-CLV-VERIFY.md — CLV operational verification, 2026-02-19
 - PDR-ROADMAP5-PREREQS-VERIFY.md — category + market-type prereq check, 2026-02-19
 - PDR-ROADMAP5-CATEGORY-INGEST-VERIFY.md — category ingest check, 2026-02-19
-- See `docs/ROADMAP.md` Roadmap 5 section.
+- See `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md` and
+  `docs/CURRENT_STATE.md` for current roadmap framing.

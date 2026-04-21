@@ -223,7 +223,7 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
     print(f"Overall: {overall_category}")
 
     if overall_category == "BLOCKED_ON_SETUP":
-        print("Configure provider API keys to resolve. See docs/RIS_OPERATOR_GUIDE.md")
+        print("Configure provider API keys to resolve. See docs/runbooks/RIS_OPERATOR_GUIDE.md")
 
     # Footer: note remaining deferred checks
     deferred = [r.check_name for r in results if r.data.get("deferred")]

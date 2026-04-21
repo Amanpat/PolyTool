@@ -40,7 +40,7 @@ python -m polytool simtrader live --live --strategy market_maker_v0 \
 - The CLI will refuse to start if any gate artifact is missing.
 - This runbook still assumes Stage 0 operator sign-off; the CLI enforces gate artifacts, not the Stage 0 completion record.
 - The CLI will print a live-trading warning banner and require `CONFIRM`.
-- `Ctrl+C` stops the current process. The file kill switch blocks new orders on the next check.
+- `Ctrl+C` stops the current process. The file kill switch blocks new orders on the next check when `artifacts/kill_switch.txt` contains a truthy value.
 
 ## Monitor
 
@@ -50,16 +50,16 @@ python -m polytool simtrader live --live --strategy market_maker_v0 \
 
 ## Emergency Stop
 
-- Arm the file kill switch immediately:
+- Arm the file kill switch immediately (preferred helper; it writes `1` to `artifacts/kill_switch.txt`):
 
 ```bash
 python -m polytool simtrader kill
 ```
 
-- Manual fallback:
+- Manual fallback if the CLI helper is unavailable. Write a truthy value (`1`, `true`, `yes`, or `on`) to the same file; an empty `touch` file does not trip the switch:
 
 ```bash
-touch artifacts/kill_switch.txt
+printf '1\n' > artifacts/kill_switch.txt
 ```
 
 - After the kill switch is armed, verify no new orders are being submitted and investigate before restart.

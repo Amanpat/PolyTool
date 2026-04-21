@@ -5,7 +5,7 @@
 > files directly from `/data/raw/` without any ClickHouse import step. The
 > ClickHouse bulk import implemented here is useful as an optional cache/index
 > layer but is **not required** for Silver tape reconstruction or Gate 2 passage.
-> See `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md` (Database Architecture).
+> See `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md` (Database Architecture).
 > The v4.2 primary path is: DuckDB setup → Silver reconstruction → Gate 2 sweep.
 
 **Status**: Packet 2 shipped (2026-03-13). Steps 1-6 are operational but

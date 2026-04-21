@@ -6,7 +6,7 @@
 workflow changes are included in this packet. Implementation is pending.
 
 **Parent references**:
-- `docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md` (governing roadmap)
+- `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md` (governing roadmap)
 - `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md` (LLM policy table)
 - `docs/obsidian-vault/08-Research/01-Wallet-Discovery-Pipeline.md` (four-loop architecture)
 - `docs/obsidian-vault/08-Research/06-Wallet-Discovery-Roadmap.md` (full 7-phase roadmap)

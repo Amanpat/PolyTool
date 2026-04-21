@@ -232,7 +232,7 @@ run_manifest.json:
 | `events_received == 0` | Market is inactive or WS URL changed | Pick a different market or check `--max-ws-stall-seconds` |
 | WS connect error | Network issue or Polymarket outage | Wait and retry |
 | `ModuleNotFoundError` | Missing dependency | `pip install -e .[all]` |
-| Kill switch trips immediately | Stale kill-switch file | Remove `artifacts/kill_switch` or reset its value |
+| Kill switch trips immediately | Stale kill-switch file | Remove `artifacts/kill_switch.txt` or reset its value to `0` |
 | `fills_count > 0` | Shadow mode structural failure (should not happen) | File a bug immediately; do not sign off |
 
 ---

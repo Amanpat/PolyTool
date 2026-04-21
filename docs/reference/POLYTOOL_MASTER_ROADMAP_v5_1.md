@@ -1,6 +1,10 @@
 # PolyTool — Master Roadmap
 **Version:** 5.1 · **Date:** March 2026 · **Status:** Living Document
 
+> Public-docs authority note: this is the governing roadmap. Use
+> `docs/CURRENT_STATE.md` for implemented repo truth and `docs/ROADMAP.md`
+> only as a non-governing router/operator-facing companion.
+
 ---
 
 ## Vision
@@ -274,6 +278,12 @@ truth — begins flowing at Stage 1.
 5. **Dev logs are mandatory.** Every code session produces a dev log at
    `docs/dev_logs/YYYY-MM-DD_<description>.md`. This is non-negotiable — it's how we
    track what happened when things go wrong.
+
+> Docs governance boundary: [ADR 0014](../adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md)
+> defines the first-class public docs surface. Dev logs remain preserved
+> history, and `docs/obsidian-vault/` remains a separate subsystem excluded
+> from public docs count goals. Initial cleanup is classification/navigation
+> only unless a task explicitly scopes archive moves or deletes.
 
 ### Post-Profit Upgrade Path
 

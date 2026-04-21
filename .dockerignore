@@ -45,7 +45,6 @@ build/
 # Misc
 mcp_stdout.txt
 mcp_stderr.txt
-kill_switch.json
 *.log
 logs/
 tmp/

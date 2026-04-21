@@ -103,7 +103,7 @@ scan -> trust artifacts + Grafana review
      -> rag-index -> rag-query for follow-up research
 ```
 
-See `docs/RUNBOOK_MANUAL_EXAMINE.md` for the step-by-step runbook.
+See `docs/runbooks/RUNBOOK_MANUAL_EXAMINE.md` for the step-by-step runbook.
 
 `examine` is retained as a legacy orchestration path and is not canonical for
 trust artifact validation.

@@ -66,7 +66,7 @@ feature was delivered via `python -m polytool scan` and the new
   column.  Fix: LEFT JOIN `polymarket_tokens` in the lifecycle query inside
   `packages/polymarket/llm_research_packets.py`.
 - Amendment documented in `docs/adr/0009-polymarket-category-taxonomy.md`.
-- Debug: `docs/debug/DEBUG-category-coverage-zero.md`
+- Debug: `docs/archive/debug/DEBUG-category-coverage-zero.md`
 - Feature: `docs/features/FEATURE-polymarket-taxonomy-ingestion.md`
 
 **`audit-coverage` CLI** (`python -m polytool audit-coverage`)
@@ -94,7 +94,7 @@ feature was delivered via `python -m polytool scan` and the new
 - When history row reports `positions_count=0` but dossier body contains rows,
   use the body rows and emit an explicit warning.
 - ADR: `docs/adr/0010-history-zero-position-count-fallback.md`
-- Debug: `docs/debug/DEBUG-history-export-empty-positions.md`
+- Debug: `docs/archive/debug/DEBUG-history-export-empty-positions.md`
 
 **README runbook**
 - Root `README.md` written with the canonical Roadmap 4 quickstart runbook.
@@ -154,7 +154,7 @@ Works without RAG; if RAG is not indexed the `## RAG excerpts` section is omitte
 | `audit_coverage_report.md` | Offline accuracy + trust sanity; all positions by default |
 
 Schema version: `report_version = "1.4.0"`.
-Full schema reference: `docs/TRUST_ARTIFACTS.md`.
+Full schema reference: `docs/reference/TRUST_ARTIFACTS.md`.
 
 ---
 
@@ -177,7 +177,9 @@ Note: ADR-0008 was skipped (no ADR was issued between 0007 and 0009).
 - **CLV (Closing Line Value) capture** — not yet implemented; positions lack
   pre-resolution market probability snapshots.
 - **Hypothesis validation loop** — `llm-save` schema enforcement, hypothesis
-  diff, and falsification harness are deferred (see `docs/ROADMAP.md` Roadmap 5+).
+  diff, and falsification harness are deferred; see
+  `docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md` and
+  `docs/CURRENT_STATE.md` for current roadmap framing.
 - **`datetime.utcnow()` deprecation warnings** — present in several modules
   (`examine.py`, `backfill.py`, `mcp_server.py`, `services/api/main.py`);
   migration to `datetime.now(timezone.utc)` deferred.

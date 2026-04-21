@@ -1,34 +1,59 @@
 # Documentation Hub
 
-Use this page as the entry point for all public docs. For a quick-reference
-table, see [INDEX.md](INDEX.md).
+Use this page as the entry point for public docs. It is a navigation surface,
+not a source-of-truth document. For the public-docs boundary and cleanup
+contract, see
+[ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md). For
+root-level hidden tooling, local-state boundaries, and cleanliness exclusions,
+see
+[Local State and Tooling Boundary](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md).
+For a quick-reference table, see [INDEX.md](INDEX.md).
 
 ## Table of contents
 
-- [Start here (recommended order)](#start-here-recommended-order)
+- [First-class root docs](#first-class-root-docs)
+- [Recommended reading order](#recommended-reading-order)
 - [Local config and CLI naming](#local-config-and-cli-naming)
-- [Core docs](#core-docs)
-- [Workflows](#workflows)
+- [Reference](#reference)
+- [Runbooks](#runbooks)
+- [Audits](#audits)
 - [Planning & Context](#planning--context)
 - [Directories](#directories)
 - [Archive (historical)](#archive-historical)
 
-## Start here (recommended order)
+## First-class root docs
 
-1. [Project overview](PROJECT_OVERVIEW.md)
-2. [Plan of Record](PLAN_OF_RECORD.md)
-3. [Architecture](ARCHITECTURE.md)
-4. [Risk policy](RISK_POLICY.md)
-5. [Roadmap](ROADMAP.md)
-6. [Trust Artifacts](TRUST_ARTIFACTS.md)
-7. [Runbook: Manual examine (legacy orchestration)](RUNBOOK_MANUAL_EXAMINE.md)
-8. [Hypothesis standard](HYPOTHESIS_STANDARD.md)
-9. [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
-10. [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
-11. [Current state / what we built](CURRENT_STATE.md)
-12. [Docs best practices](DOCS_BEST_PRACTICES.md)
-13. SimTrader operator guide (optional): [README_SIMTRADER.md](README_SIMTRADER.md)
-14. [RIS Operator Guide](RIS_OPERATOR_GUIDE.md)
+These are the only root-level docs that should be treated as first-class public
+surface:
+
+1. [Plan of Record](PLAN_OF_RECORD.md)
+2. [Architecture](ARCHITECTURE.md)
+3. [Strategy Playbook](STRATEGY_PLAYBOOK.md)
+4. [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md)
+5. [Current State](CURRENT_STATE.md)
+
+`README.md` and [INDEX.md](INDEX.md) are navigation only. `docs/dev_logs/` is
+preserved history, and `docs/obsidian-vault/` is a separate subsystem excluded
+from public docs count goals. [ROADMAP.md](ROADMAP.md) is retained only as a
+non-governing roadmap router/operator-facing companion.
+
+## Recommended reading order
+
+1. [Plan of Record](PLAN_OF_RECORD.md)
+2. [Architecture](ARCHITECTURE.md)
+3. [Strategy Playbook](STRATEGY_PLAYBOOK.md)
+4. [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md)
+5. [Current state / what we built](CURRENT_STATE.md)
+6. [Project overview](PROJECT_OVERVIEW.md)
+7. [Risk policy](RISK_POLICY.md)
+8. [Trust Artifacts](reference/TRUST_ARTIFACTS.md)
+9. [Runbook: Manual examine (legacy orchestration)](runbooks/RUNBOOK_MANUAL_EXAMINE.md)
+10. [Hypothesis standard](reference/HYPOTHESIS_STANDARD.md)
+11. [Local RAG workflow](runbooks/LOCAL_RAG_WORKFLOW.md)
+12. [LLM evidence bundle workflow](runbooks/LLM_BUNDLE_WORKFLOW.md)
+13. [Docs best practices](DOCS_BEST_PRACTICES.md)
+14. SimTrader operator guide (optional): [README_SIMTRADER.md](runbooks/README_SIMTRADER.md)
+15. [RIS Operator Guide](runbooks/RIS_OPERATOR_GUIDE.md)
 
 ## Local config and CLI naming
 
@@ -36,34 +61,45 @@ table, see [INDEX.md](INDEX.md).
 - Use `python -m polytool ...` as the canonical invocation.
 - The old `polyttool` (double-t) shim has been removed. Use `polytool` or `python -m polytool` (see [ADR-0001](adr/ADR-0001-cli-and-module-rename.md)).
 
-## Core docs
+## Reference
 
-- [Plan of Record](PLAN_OF_RECORD.md) - Durable plan (mission, data gaps, fees, taxonomy, validation)
-- [Hypothesis standard](HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
-- [Trust artifacts](TRUST_ARTIFACTS.md) - Roadmap 2 scan artifacts: coverage schema, warning rules, run manifest reproducibility
+- [Hypothesis standard](reference/HYPOTHESIS_STANDARD.md) - Prompt template, output rules, quality rubric
+- [Trust artifacts](reference/TRUST_ARTIFACTS.md) - Roadmap 2 scan artifacts: coverage schema, warning rules, run manifest reproducibility
+- [Research sources](reference/RESEARCH_SOURCES.md) - Curated source domains, allowlist, TTL, cache-source usage
+- [Local state and tooling boundary](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md) - Root-level classification for hidden tooling, runtime state, scratch, and repo-cleanliness exclusions
 - [Docs best practices](DOCS_BEST_PRACTICES.md)
 - [Knowledge base conventions](KNOWLEDGE_BASE_CONVENTIONS.md)
-- [RAG implementation report](RAG_IMPLEMENTATION_REPORT.md)
 - [Strategy playbook](STRATEGY_PLAYBOOK.md)
-- [Project tree (full)](PROJECT_TREE_FULL.txt)
-- [Debug: Windows pytest PermissionError tempdirs](debug/DEBUG-windows-permissionerror-pytest-tempdirs.md)
+- [Debug: Windows pytest PermissionError tempdirs](archive/debug/DEBUG-windows-permissionerror-pytest-tempdirs.md)
 
-## Workflows
+## Runbooks
 
-- [SimTrader operator guide](README_SIMTRADER.md) - Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports
-- [RIS Operator Guide](RIS_OPERATOR_GUIDE.md) - Evaluation gate, review queue, ingestion, health monitoring, retrieval benchmarks
+- [Operator quickstart](runbooks/OPERATOR_QUICKSTART.md) - Start here for the end-to-end research loop, RAG flow, SimTrader gates, and Grafana checks
+- [Operator setup guide](runbooks/OPERATOR_SETUP_GUIDE.md) - Operator-owned setup work before live capital
+- [Windows development gotchas](runbooks/WINDOWS_DEVELOPMENT_GOTCHAS.md) - Windows host issues and PowerShell-safe fixes
+- [Partner deployment guide (Docker)](runbooks/PARTNER_DEPLOYMENT_GUIDE_docker.md) - Partner-machine deployment path
+- [SimTrader operator guide](runbooks/README_SIMTRADER.md) - Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports
+- [RIS Operator Guide](runbooks/RIS_OPERATOR_GUIDE.md) - Evaluation gate, review queue, ingestion, health monitoring, retrieval benchmarks
 - [RIS n8n operator path](../infra/n8n/README.md) - Current canonical n8n quickstart, import command, and smoke steps
 - [RIS + n8n Operator SOP cheat sheet](runbooks/RIS_N8N_OPERATOR_SOP.md) - Compact command reference for daily RIS+n8n operations
-- [Runbook: Scan-first manual workflow](RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
+- [Runbook: Scan-first manual workflow](runbooks/RUNBOOK_MANUAL_EXAMINE.md) - Scan canonical flow, examine legacy notes
 - [Wallet Discovery v1 Operator Runbook](runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md) - Loop A leaderboard discovery, quick scan with MVF, human review gate
-- [Local RAG workflow](LOCAL_RAG_WORKFLOW.md)
-- [LLM evidence bundle workflow](LLM_BUNDLE_WORKFLOW.md)
-- [Research sources](RESEARCH_SOURCES.md)
+- [Local RAG workflow](runbooks/LOCAL_RAG_WORKFLOW.md)
+- [LLM evidence bundle workflow](runbooks/LLM_BUNDLE_WORKFLOW.md)
+
+## Audits
+
+- [Codebase audit](audits/CODEBASE_AUDIT.md)
+- [RAG implementation report](audits/RAG_IMPLEMENTATION_REPORT.md)
+- [RIS audit report](audits/RIS_AUDIT_REPORT.md)
 
 ## Planning & Context
 
 - [Plan of Record](PLAN_OF_RECORD.md) - Durable plan with full design decisions
-- [Roadmap](ROADMAP.md) - Milestone checklist, acceptance criteria, kill conditions
+- [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md) - Strategic roadmap and LLM policy
+- [Roadmap router](ROADMAP.md) - Secondary operator-facing roadmap surface; not governing
+- [ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md) - Public docs surface and repo hygiene boundary
+- [Local State and Tooling Boundary](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md) - Root-level hidden tooling/local-state policy that complements ADR 0014
 - [Project context (public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, data gaps, artifact contract
 - [Architect context pack](ARCHITECT_CONTEXT_PACK.md) - Deep technical context snapshot
 - [TODO](TODO.md) - Deferred items by priority
@@ -71,10 +107,14 @@ table, see [INDEX.md](INDEX.md).
 
 ## Directories
 
+- [Audits](audits/)
 - [ADRs](adr/)
+- [Reference](reference/)
+- [Runbooks](runbooks/)
 - [Specs (canonical)](specs/)
 - [Feature docs](features/)
 - [Eval suites](eval/)
+- [Obsidian vault](obsidian-vault/) - Separate subsystem; excluded from public docs count goals
 - [Archive policy + historical docs](archive/)
 
 ## Archive (historical)

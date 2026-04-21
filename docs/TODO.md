@@ -124,7 +124,7 @@ Future integration points (when implemented):
 
 ### Documentation Hygiene
 
-- [ ] Rename `RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
+- [ ] Rename `docs/runbooks/RUNBOOK_MANUAL_EXAMINE.md` to a scan-first filename (keep legacy alias note)
 - [ ] Add a short troubleshooting snippet in runbooks for `scan --debug-export` (empty export triage flow)
 - [ ] Add a docs guard/check so new non-deprecation `python -m polytool` command examples fail CI
 

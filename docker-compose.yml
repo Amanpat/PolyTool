@@ -119,7 +119,6 @@ services:
       - ./artifacts:/app/artifacts
       - ./config:/app/config:ro
       - ./kb:/app/kb
-      - ./kill_switch.json:/app/kill_switch.json:ro
     depends_on:
       clickhouse:
         condition: service_healthy

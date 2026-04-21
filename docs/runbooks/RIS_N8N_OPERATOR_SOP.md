@@ -111,7 +111,7 @@ For the complete alert format reference and verification steps, see [`docs/runbo
 
 | Doc | Purpose |
 |-----|---------|
-| [`docs/RIS_OPERATOR_GUIDE.md`](../RIS_OPERATOR_GUIDE.md) | Full RIS operator guide (890 lines, all details) |
+| [`docs/runbooks/RIS_OPERATOR_GUIDE.md`](RIS_OPERATOR_GUIDE.md) | Full RIS operator guide (890 lines, all details) |
 | [`infra/n8n/README.md`](../../infra/n8n/README.md) | n8n infrastructure, image details, MCP setup |
 | [`docs/runbooks/RIS_N8N_SMOKE_TEST.md`](RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook |
 | [`docs/adr/0013-ris-n8n-pilot-scoped.md`](../adr/0013-ris-n8n-pilot-scoped.md) | ADR: scope boundary decision |

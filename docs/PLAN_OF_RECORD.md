@@ -4,20 +4,34 @@ This is the durable plan-of-record for the PolyTool project. It captures every
 material design decision so future work does not depend on chat history. It
 contains no private data (no wallets, dossier excerpts, or user-specific outputs).
 
-Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
-governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
-remains the implementation-policy companion: use it for shipped constraints,
-kill conditions, and explicit current-state limits until code/spec work changes
-them.
+Master Roadmap v5.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md`) is the
+governing roadmap document for current docs governance. This file remains the
+implementation-policy companion: use it for shipped constraints, kill
+conditions, and explicit current-state limits until code/spec work changes
+them. `docs/ROADMAP.md` is retained only as a non-governing roadmap router.
 
-## 0. Roadmap Authority and Open Deltas
+## 0. Roadmap Authority (v5.1) and Open Deltas
 
-| Area | Master Roadmap v5 direction | Current implementation-policy truth |
+| Area | Master Roadmap v5.1 direction | Current implementation-policy truth |
 |------|------------------------------|-------------------------------------|
 | System scope | Automated discovery, validation, live execution, and a self-improving loop are the target end state. | The shipped canonical workflow is still local-first research plus gated execution primitives. No v4 phase should be treated as complete unless the repo and gates say so. |
 | Automation / hosting | v4 plans thin FastAPI wrappers, n8n orchestration, Discord operations, and eventual AWS deployment. | Current operating policy stays local-first. A scoped RIS n8n pilot (ADR 0013) is shipped for RIS ingestion workflows only. The broader automation stack (full n8n control plane, Discord ops, AWS) is not current-state truth. AWS is not required by any shipped milestone. |
 | LLM / signals | v4 allows future paid API escalation and dedicated signals/news pipelines. | Current toolchain policy remains no external LLM API calls and no trading recommendations from shipped outputs. Exception: Tier 1 free cloud APIs (Gemini Flash, DeepSeek V3) are authorized for RIS evaluation gate scoring only, per Master Roadmap v5.1 LLM Policy table. |
 | Gate 2 primary path | v4.2 uses DuckDB to query pmxt and Jon-Becker Parquet files directly — no ClickHouse import step required. Silver tape reconstruction from those files + 2-min price history → Gate 2 scenario sweep. | Gate 2 tooling is implemented. `config/benchmark_v1.tape_manifest` now exists (Phase 1 closed 2026-03-21; 50 tapes, 5 buckets). Gate 2 scenario sweep against this manifest is the Phase 2 starting point. ClickHouse bulk import (SPEC-0018) remains off the critical path. |
+
+### Approved Maintenance Stream: Repo Hygiene
+
+Repo hygiene is an approved maintenance stream when it reduces authoritative-
+looking public surface area without changing product scope. The durable cleanup
+boundary is
+[ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md).
+
+The first cleanup pass is non-destructive:
+
+- no archive moves or deletes;
+- no rewrites under `docs/obsidian-vault/**`;
+- no rewrites of historical `docs/dev_logs/**` entries;
+- `docs/README.md` and `docs/INDEX.md` remain navigation only.
 
 ---
 
@@ -86,7 +100,7 @@ canonical path for trust artifact validation.
 
 ### Track alignment (as of 2026-03-16)
 
-These shipped checkpoints do not imply that the corresponding Master Roadmap v5
+These shipped checkpoints do not imply that the corresponding Master Roadmap v5.1
 phases are complete. In particular, Phase 1B still includes Gate 2 scenario sweep,
 Gate 3 shadow, and staged live deployment items that are not yet shipped.
 - **Track B foundation is complete**: wallet-scan v0, alpha-distill v0, and the
@@ -507,12 +521,13 @@ Do NOT start any backtesting work until:
 
 ## Cross-References
 
-- [Master Roadmap v5](reference/POLYTOOL_MASTER_ROADMAP_v5.md) - Governing roadmap document; supersedes v4.2
-- [Roadmap](ROADMAP.md) - Milestone checklist and kill conditions
-- [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) - Step-by-step workflow
-- [Hypothesis Standard](HYPOTHESIS_STANDARD.md) - Prompt template and quality rubric
+- [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md) - Governing roadmap document
+- [Roadmap router](ROADMAP.md) - Secondary operator-facing roadmap surface; not governing
+- [Runbook: Manual Examine](runbooks/RUNBOOK_MANUAL_EXAMINE.md) - Step-by-step workflow
+- [Hypothesis Standard](reference/HYPOTHESIS_STANDARD.md) - Prompt template and quality rubric
 - [Strategy Playbook](STRATEGY_PLAYBOOK.md) - Outcome taxonomy and validation methodology
-- [Research Sources](RESEARCH_SOURCES.md) - Curated source domains and caching policy
+- [Research Sources](reference/RESEARCH_SOURCES.md) - Curated source domains and caching policy
 - [Project Context (Public)](PROJECT_CONTEXT_PUBLIC.md) - Goals, non-goals, artifact contract
 - [Architecture](ARCHITECTURE.md) - Components, data flow, RAG schema
+- [ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md) - Public docs surface and repo hygiene boundary
 

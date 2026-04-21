@@ -3,7 +3,7 @@
 PolyTool keeps the public documentation and code clean while routing all user/private data into
 local-only storage.
 
-Master Roadmap v5 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md`) is the
+Master Roadmap v5.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md`) is the
 governing roadmap document as of 2026-03-21 and supersedes v4.2. This file
 describes the current implemented architecture; treat the v5 north-star diagram
 as target-state architecture unless the components below say otherwise.

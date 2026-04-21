@@ -1,18 +1,38 @@
 # Documentation Index
 
-Quick-reference index of all key docs and what they cover.
+Navigation only. This index routes readers to governing docs and support docs;
+it does not establish repo truth. Public-docs surface and cleanup boundaries are
+defined in
+[ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md). The
+complementary root-level hidden tooling/local-state policy is
+[Local State and Tooling Boundary](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md).
+
+## First-Class Root Docs
+
+| Doc | Role |
+|-----|------|
+| [Plan of Record](PLAN_OF_RECORD.md) | Primary docs-governance and implementation-policy companion |
+| [Architecture](ARCHITECTURE.md) | Architecture truth |
+| [Strategy Playbook](STRATEGY_PLAYBOOK.md) | Strategy and falsification methodology |
+| [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md) | Strategic roadmap and LLM policy |
+| [Current State](CURRENT_STATE.md) | Implemented repo truth |
+
+`README.md` and `INDEX.md` are navigation only. `docs/dev_logs/` is preserved
+history, and `docs/obsidian-vault/` is a separate subsystem excluded from
+public docs count goals. [ROADMAP.md](ROADMAP.md) is a secondary roadmap
+router/operator-facing surface only.
 
 ## Getting Started
 
 | Doc | Purpose |
 |-----|---------|
 | [README](../README.md) | Top-level overview, quick start, API reference |
-| [Operator Quickstart](OPERATOR_QUICKSTART.md) | **Start here** — end-to-end guide: research loop, RAG, SimTrader, Grafana |
-| [docs/README](README.md) | Documentation hub with recommended reading order |
-| [Current State](CURRENT_STATE.md) | What exists today, pipeline diagram, CLI commands |
-| [Roadmap](ROADMAP.md) | Milestone checklist, acceptance criteria, kill conditions |
-| [Roadmap 3 Completion](roadmap3_completion.md) | Final evidence summary for Resolution Coverage milestone completion |
-| [Trust Artifacts](TRUST_ARTIFACTS.md) | Roadmap 2 scan trust artifacts: practical schema, warning interpretation, reproducibility fields |
+| [Operator Quickstart](runbooks/OPERATOR_QUICKSTART.md) | **Start here** - end-to-end guide: research loop, RAG, SimTrader, Grafana |
+| [Operator Setup Guide](runbooks/OPERATOR_SETUP_GUIDE.md) | Operator-owned setup before live capital: accounts, wallets, funding, host checklist |
+| [docs/README](README.md) | Documentation navigation hub |
+| [Current State](CURRENT_STATE.md) | Implemented repo truth |
+| [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md) | Strategic roadmap and LLM policy |
+| [Roadmap 3 Completion](archive/roadmap3_completion.md) | Final evidence summary for Resolution Coverage milestone completion |
 
 ## Planning & Design
 
@@ -20,26 +40,28 @@ Quick-reference index of all key docs and what they cover.
 |-----|---------|
 | [Plan of Record](PLAN_OF_RECORD.md) | Durable plan: mission, data gaps, fees policy, taxonomy, validation framework |
 | [Architecture](ARCHITECTURE.md) | Components, data flow, RAG metadata schema |
+| [Master Roadmap v5.1](reference/POLYTOOL_MASTER_ROADMAP_v5_1.md) | Strategic roadmap and LLM policy |
+| [Roadmap Router](ROADMAP.md) | Secondary operator-facing roadmap surface; routes to the governing roadmap, current state, and historical roadmap materials |
 | [Architect Context Pack](ARCHITECT_CONTEXT_PACK.md) | Deep context snapshot for maintainers (generated, high-signal overview) |
 | [Project Context (Public)](PROJECT_CONTEXT_PUBLIC.md) | Goals, non-goals, data gaps, artifact contract |
 | [Strategy Playbook](STRATEGY_PLAYBOOK.md) | Outcome taxonomy, EV framework, falsification methodology |
-| [Hypothesis Standard](HYPOTHESIS_STANDARD.md) | Prompt template, output rules, quality rubric |
 | [Risk Policy](RISK_POLICY.md) | Privacy guardrails, pre-push guard, secret scanning |
 
-## Workflows
+## Runbooks
 
 | Doc | Purpose |
 |-----|---------|
-| [Operator Quickstart](OPERATOR_QUICKSTART.md) | **End-to-end guide** — research loop, RAG one-command (`rag-refresh`), SimTrader gates, Grafana links |
-| [SimTrader Operator Guide](README_SIMTRADER.md) | Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports |
-| [Bounded Dislocation Capture Trial](dev_logs/2026-03-07_bounded_dislocation_capture_trial.md) | Short operator checklist for the current Gate 2 live trial loop |
-| [Gate 2 Eligible Tape Acquisition](runbooks/GATE2_ELIGIBLE_TAPE_ACQUISITION.md) | **Current critical path** — discover candidates, watch/record, check corpus, close Gate 2 |
+| [Operator Quickstart](runbooks/OPERATOR_QUICKSTART.md) | **End-to-end guide** - research loop, RAG one-command (`rag-refresh`), SimTrader gates, Grafana links |
+| [Operator Setup Guide](runbooks/OPERATOR_SETUP_GUIDE.md) | Account setup, wallet architecture, funding flow, and host checklist |
+| [Windows Development Gotchas](runbooks/WINDOWS_DEVELOPMENT_GOTCHAS.md) | Windows host issues, PowerShell-safe commands, and troubleshooting fixes |
+| [Partner Deployment Guide (Docker)](runbooks/PARTNER_DEPLOYMENT_GUIDE_docker.md) | Partner-machine deployment path and container handoff notes |
+| [SimTrader Operator Guide](runbooks/README_SIMTRADER.md) | Replay-first + shadow mode simulated trading, sweeps/batch, and local HTML reports |
+| [Gate 2 Eligible Tape Acquisition](runbooks/GATE2_ELIGIBLE_TAPE_ACQUISITION.md) | **Current critical path** - discover candidates, watch/record, check corpus, close Gate 2 |
 | [Stage 1 Live Deployment](runbooks/LIVE_DEPLOYMENT_STAGE1.md) | Stage 1 live deployment operator runbook |
-| [Runbook: Manual Examine](RUNBOOK_MANUAL_EXAMINE.md) | Scan-first manual workflow; examine guidance retained as legacy |
-| [Local RAG Workflow](LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes (`rag-refresh` = one-command rebuild) |
-| [LLM Bundle Workflow](LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |
-| [Research Sources](RESEARCH_SOURCES.md) | Curated source domains, allowlist, TTL, cache-source usage |
-| [RIS Operator Guide](RIS_OPERATOR_GUIDE.md) | Full RIS operator guide: research loop, pipeline health, n8n pilot, MCP setup |
+| [Runbook: Manual Examine](runbooks/RUNBOOK_MANUAL_EXAMINE.md) | Scan-first manual workflow; examine guidance retained as legacy |
+| [Local RAG Workflow](runbooks/LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes (`rag-refresh` = one-command rebuild) |
+| [LLM Bundle Workflow](runbooks/LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |
+| [RIS Operator Guide](runbooks/RIS_OPERATOR_GUIDE.md) | Full RIS operator guide: research loop, pipeline health, n8n pilot, MCP setup |
 | [RIS + n8n Operator SOP](runbooks/RIS_N8N_OPERATOR_SOP.md) | Quick-reference cheat sheet: startup, import, health, ingest, monitoring |
 | [RIS Discord Alerts](runbooks/RIS_DISCORD_ALERTS.md) | Discord alert format reference, severity meaning, verification procedure |
 | [RIS n8n Smoke Test](runbooks/RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook for n8n workflow changes |
@@ -57,8 +79,20 @@ Quick-reference index of all key docs and what they cover.
 | Doc | Purpose |
 |-----|---------|
 | [TODO](TODO.md) | Deferred items by priority, spec stubs |
-| [RAG Implementation Report](RAG_IMPLEMENTATION_REPORT.md) | Technical details of RAG implementation |
+| [Hypothesis Standard](reference/HYPOTHESIS_STANDARD.md) | Prompt template, output rules, quality rubric |
+| [Trust Artifacts](reference/TRUST_ARTIFACTS.md) | Roadmap 2 scan trust artifacts: practical schema, warning interpretation, reproducibility fields |
+| [Research Sources](reference/RESEARCH_SOURCES.md) | Curated source domains, allowlist, TTL, cache-source usage |
+| [Local State and Tooling Boundary](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md) | Root-level classification for hidden tooling, local state, runtime state, scratch, and repo-cleanliness exclusions |
 | [ADR-0001: CLI Rename](adr/ADR-0001-cli-and-module-rename.md) | polytool -> polytool rename decision |
+| [ADR-0014: Public Docs Surface and Repo Hygiene Boundaries](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md) | Cleanup boundary, first-class docs allowlist, and non-destructive first-pass rules |
+
+## Audits
+
+| Doc | Purpose |
+|-----|---------|
+| [Codebase Audit](audits/CODEBASE_AUDIT.md) | Ground-truth inventory of code, CLI surfaces, integrations, and identified drift |
+| [RAG Implementation Report](audits/RAG_IMPLEMENTATION_REPORT.md) | Technical details of RAG implementation |
+| [RIS Audit Report](audits/RIS_AUDIT_REPORT.md) | Layer-by-layer RIS implementation audit and gap summary |
 
 ## Features
 
@@ -68,7 +102,7 @@ Quick-reference index of all key docs and what they cover.
 | [Alpha-Distill v0](features/alpha-distill-v0.md) | Cross-user segment aggregation -> ranked edge hypothesis candidates (no LLM) |
 | [Track A: Live CLOB Wiring + Gate Harness](features/FEATURE-trackA-live-clob-wiring.md) | Track A live CLOB integration, gate harness, market-scan CLI |
 | [Gate 2 Eligible Tape Acquisition](features/FEATURE-gate2-eligible-tape-acquisition.md) | tape-manifest CLI, regime labeling, eligibility invariant, corpus coverage tracking |
-| [Discord Alerting — Track A](features/FEATURE-discord-alerting-tracka.md) | Discord webhook transport, gate hooks, kill-switch and risk-halt alerts |
+| [Discord Alerting - Track A](features/FEATURE-discord-alerting-tracka.md) | Discord webhook transport, gate hooks, kill-switch and risk-halt alerts |
 | [Discord Session Lifecycle Hooks](features/FEATURE-discord-session-lifecycle-hooks.md) | `simtrader live` now fires Discord session start/stop/error alerts at the CLI boundary and reuses the same notifier for runtime alerts |
 | [Regime Integrity for Gate 2 Artifacts](features/FEATURE-regime-integrity-gate2-artifacts.md) | Machine-derived regime classification, provenance fields, mismatch detection, shared coverage helper |
 | [Gate 2 Candidate Ranking](features/FEATURE-phase1-gate2-candidate-ranking.md) | Explainable multi-factor ranking for Gate 2 candidate markets (reward/volume/competition/new-market/regime) |
@@ -93,7 +127,7 @@ Quick-reference index of all key docs and what they cover.
 | [Hypothesis Schema v1](specs/hypothesis_schema_v1.json) | JSON schema for structured hypothesis output |
 | [SPEC-0010: SimTrader Vision and Roadmap](specs/SPEC-0010-simtrader-vision-and-roadmap.md) | Full SimTrader architecture, realism constraints, strategy classes, and phased roadmap (MVP0-MVP6) |
 | [SPEC-0011: Live Execution Layer](specs/SPEC-0011-live-execution-layer.md) | Optional gated execution layer: gate model, interfaces, capital stages, policy alignment |
-| [SPEC-0012: Phase 1 Track A Live Bot Program](specs/SPEC-0012-phase1-tracka-live-bot-program.md) | **Canonical Track A spec** — strategy, promotion ladder, validation corpus, market selection, alerting, kill conditions |
+| [SPEC-0012: Phase 1 Track A Live Bot Program](specs/SPEC-0012-phase1-tracka-live-bot-program.md) | **Canonical Track A spec** - strategy, promotion ladder, validation corpus, market selection, alerting, kill conditions |
 | [SPEC-0013: Phase 1 Track A Gap Matrix](specs/SPEC-0013-phase1-tracka-gap-matrix.md) | Read-only audit: implementation gap matrix for all 11 Phase 1 requirements; risk ranking; recommended packets |
 | [SPEC-0014: Gate 2 Eligible Tape Acquisition](specs/SPEC-0014-gate2-eligible-tape-acquisition.md) | Candidate discovery flow, mixed-regime corpus policy, eligibility invariant, manifest schema, operator workflow |
 | [SPEC-0015: Discord Alerting and Operator Notifications](specs/SPEC-0015-discord-alerting-and-operator-notifications.md) | Event taxonomy, transport contract, env config, failure behavior, test strategy |
@@ -102,7 +136,7 @@ Quick-reference index of all key docs and what they cover.
 | [SPEC-0018: Gate 2 Capture Session Pack](specs/SPEC-0018-gate2-capture-session-pack.md) | Session pack format, CLI contract, watcher-compatible plan JSON, and post-session template |
 | [SPEC: Wallet Discovery v1](specs/SPEC-wallet-discovery-v1.md) | Wallet discovery v1 contract: Loop A, ClickHouse table contracts, lifecycle state machine, unified scan, MVF |
 
-## Dev Logs (recent)
+## Recent Dev Logs (historical record)
 
 | Log | Date | Topic |
 |-----|------|-------|
@@ -116,10 +150,10 @@ Quick-reference index of all key docs and what they cover.
 | [Unified n8n Alerts and Summary](dev_logs/2026-04-08_unified_n8n_alerts_and_summary.md) | 2026-04-08 | Unified n8n workflow consolidation: 9 sections on one canvas, operator notify path |
 | [Phase 1 Track A Docs Truth Sync](dev_logs/2026-03-10_phase1_tracka_docs_truth_sync.md) | 2026-03-10 | Docs-only truth sync: status date, Gate 2 tooling inventory, corpus state, INDEX gaps all corrected |
 | [Session Pack Target-Regime Fix](dev_logs/2026-03-10_session_pack_target_regime_fix.md) | 2026-03-10 | Fixed: UNKNOWN-regime markets no longer falsely claim to advance named-regime coverage via session-level `--regime` operator fallback |
-| [Phase 1 Track A Contract Exercise](dev_logs/2026-03-10_phase1_tracka_contract_exercise.md) | 2026-03-10 | Offline contract exercise: full ranked-JSON → session pack → watcher loader chain verified; corpus confirmed 0 eligible tapes, sports coverage only |
-| [Background Gate 2 Session Helper](dev_logs/2026-03-10_background_gate2_session_helper.md) | 2026-03-10 | `tools/ops/run_gate2_session.ps1` — PowerShell helper that runs scan → session pack → background watch in one command |
+| [Phase 1 Track A Contract Exercise](dev_logs/2026-03-10_phase1_tracka_contract_exercise.md) | 2026-03-10 | Offline contract exercise: full ranked-JSON -> session pack -> watcher loader chain verified; corpus confirmed 0 eligible tapes, sports coverage only |
+| [Background Gate 2 Session Helper](dev_logs/2026-03-10_background_gate2_session_helper.md) | 2026-03-10 | `tools/ops/run_gate2_session.ps1` - PowerShell helper that runs scan -> session pack -> background watch in one command |
 | [Coverage-Aware Session Pack](dev_logs/2026-03-10_coverage_aware_session_pack.md) | 2026-03-10 | `make-session-pack` now accepts `--prefer-missing-regimes` / `--target-regime`; adds `coverage_intent` field to session_plan.json |
-| [Ranked Scan → Session Pack Pipeline](dev_logs/2026-03-09_ranked_scan_to_session_pack.md) | 2026-03-09 | `scan-gate2-candidates --ranked-json-out` emits advisory JSON; `make-session-pack --ranked-json` consumes it with rank/gate2_status/explanation preserved in the session plan |
+| [Ranked Scan -> Session Pack Pipeline](dev_logs/2026-03-09_ranked_scan_to_session_pack.md) | 2026-03-09 | `scan-gate2-candidates --ranked-json-out` emits advisory JSON; `make-session-pack --ranked-json` consumes it with rank/gate2_status/explanation preserved in the session plan |
 | [Gate 2 Capture Session Pack](dev_logs/2026-03-09_gate2_capture_session_pack.md) | 2026-03-09 | `make-session-pack` now accepts ranked watchlist input and writes a watcher-compatible plan JSON with per-slug planning context |
 | [Phase 1 Track A Offline Verification](dev_logs/2026-03-09_phase1_tracka_offline_verification.md) | 2026-03-09 | Offline verification pass for the end-to-end Gate 2 toolchain against local artifact fixtures |
 | [Gate 2 Regime Coverage Fix](dev_logs/2026-03-09_gate2_regime_coverage_fix.md) | 2026-03-09 | Fixed regime coverage derivation in tape-manifest and corpus summary |
@@ -131,11 +165,11 @@ Quick-reference index of all key docs and what they cover.
 | [Capture Metadata Snapshot Hardening](dev_logs/2026-03-08_capture_metadata_snapshot_hardening.md) | 2026-03-08 | additive market_snapshot persistence, manifest snapshot preference, legacy fallback, 75 passing tests |
 | [Scan Exact Slug Export](dev_logs/2026-03-08_scan_exact_slug_export.md) | 2026-03-08 | `scan-gate2-candidates --watchlist-out` exports exact full slugs for the shown ranked candidates; default output unchanged |
 | [Regime Integrity for Gate 2 Artifacts](dev_logs/2026-03-08_regime_integrity_gate2_artifacts.md) | 2026-03-08 | derive_tape_regime, coverage_from_classified_regimes, TapeRecord provenance fields, schema v2, 25 new tests |
-| [Discord Alerting — Track A](dev_logs/2026-03-08_discord_alerting_tracka.md) | 2026-03-08 | Discord webhook module, gate hooks, LiveRunner notifier, 29 tests |
+| [Discord Alerting - Track A](dev_logs/2026-03-08_discord_alerting_tracka.md) | 2026-03-08 | Discord webhook module, gate hooks, LiveRunner notifier, 29 tests |
 | [Discord Session Lifecycle Hooks](dev_logs/2026-03-08_discord_session_lifecycle_hooks.md) | 2026-03-08 | `simtrader live` CLI lifecycle hooks, safe notifier dispatch, 4 new offline tests |
 | [Gate 2 Eligible Tape Acquisition](dev_logs/2026-03-08_gate2_eligible_tape_acquisition.md) | 2026-03-08 | tape-manifest CLI, regime labeling on capture tools, eligibility invariant, 34 new tests |
 | [Gate 2 Preflight](dev_logs/2026-03-08_gate2_preflight.md) | 2026-03-08 | operator READY/BLOCKED preflight, eligible tape list, exact next action, 55 passing tests |
-| [Phase 1 Track A Gap Audit](dev_logs/2026-03-08_phase1_tracka_gap_audit.md) | 2026-03-08 | Read-only audit: gap matrix findings, top 3 blockers, recommended packets (→ SPEC-0013) |
+| [Phase 1 Track A Gap Audit](dev_logs/2026-03-08_phase1_tracka_gap_audit.md) | 2026-03-08 | Read-only audit: gap matrix findings, top 3 blockers, recommended packets (-> SPEC-0013) |
 | [Phase 1 Track A Truth Sync](dev_logs/2026-03-08_phase1_tracka_truth_sync.md) | 2026-03-08 | Docs-only truth sync: canonical strategy, Discord alerting, gate ladder, SPEC-0012 |
 | [Usability Streamlining Pass](dev_logs/2026-03-07_usability_streamlining_pass.md) | 2026-03-07 | CLI grouping, rag-refresh alias, Studio Grafana links, OPERATOR_QUICKSTART rewrite |
 | [Wallet Anomaly Backlog Entry](dev_logs/2026-03-07_wallet_anomaly_backlog_entry.md) | 2026-03-07 | Deferred backlog entry for wallet anomaly / flow discrepancy alerts |

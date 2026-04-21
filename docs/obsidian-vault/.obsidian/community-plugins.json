@@ -1,3 +1,10 @@
 [
-  "dataview"
+  "dataview",
+  "calendar",
+  "obsidian-kanban",
+  "obsidian-local-rest-api",
+  "smart-connections",
+  "smart-connections-visualizer",
+  "templater-obsidian",
+  "obsidian-tasks-plugin"
 ]

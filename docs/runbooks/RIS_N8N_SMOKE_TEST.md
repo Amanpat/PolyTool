@@ -168,7 +168,7 @@ python -m polytool --help
 ## Related Documentation
 
 - `docs/adr/0013-ris-n8n-pilot-scoped.md` -- ADR for n8n pilot scope and scheduler selection
-- `docs/RIS_OPERATOR_GUIDE.md` -- Full RIS operator guide
+- `docs/runbooks/RIS_OPERATOR_GUIDE.md` -- Full RIS operator guide
 - `infra/n8n/README.md` -- n8n service setup and import instructions
 - `docs/runbooks/RIS_N8N_OPERATOR_SOP.md` -- Compact operator SOP cheat sheet
 - `docs/dev_logs/2026-04-06_ris_n8n_phase_n4_repo_hardening.md` -- Audit trail for Phase N4 changes

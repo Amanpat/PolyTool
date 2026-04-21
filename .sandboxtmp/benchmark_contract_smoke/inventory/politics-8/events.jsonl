@@ -1,4 +1,0 @@
-{"event_type": "book", "asset_id": "yes-politics-8", "bids": [{"price": "0.190", "size": "100"}], "asks": [{"price": "0.210", "size": "100"}], "last_trade_price": "0.200"}
-{"event_type": "book", "asset_id": "no-politics-8", "bids": [{"price": "0.790", "size": "100"}], "asks": [{"price": "0.810", "size": "100"}], "last_trade_price": "0.800"}
-{"event_type": "book", "asset_id": "yes-politics-8", "bids": [{"price": "0.740", "size": "100"}], "asks": [{"price": "0.760", "size": "100"}], "last_trade_price": "0.750"}
-{"event_type": "book", "asset_id": "no-politics-8", "bids": [{"price": "0.240", "size": "100"}], "asks": [{"price": "0.260", "size": "100"}], "last_trade_price": "0.250"}

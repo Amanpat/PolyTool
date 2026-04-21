@@ -106,19 +106,22 @@ Artifacts are written under:
 
 ### Kill Switch
 
-To stop the run cleanly before the duration expires, create the kill switch
-file. The runner checks it every cycle and exits with stopped_reason=kill_switch.
+There is no separate crypto-pair kill CLI in this flow. To stop the run cleanly
+before the duration expires, write a truthy value (`1`, `true`, `yes`, or `on`)
+into `artifacts/crypto_pairs/kill_switch.txt`. Empty file creation alone does
+not trip it. The runner checks the file every cycle and exits with
+stopped_reason=kill_switch.
 
 PowerShell:
 
 ```powershell
-New-Item artifacts/crypto_pairs/kill_switch.txt -Force
+Set-Content -Path artifacts/crypto_pairs/kill_switch.txt -Value 1
 ```
 
 Bash:
 
 ```bash
-touch artifacts/crypto_pairs/kill_switch.txt
+printf '1\n' > artifacts/crypto_pairs/kill_switch.txt
 ```
 
 ---

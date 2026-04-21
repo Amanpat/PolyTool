@@ -87,14 +87,14 @@ registration requires the `claude mcp add` command above. See
 analysis and the token from n8n Settings -> Instance-level MCP.
 
 For full manual setup steps, see:
-**`docs/RIS_OPERATOR_GUIDE.md` → "Claude Code MCP connection" → "Instance-level MCP setup"**
+**`docs/runbooks/RIS_OPERATOR_GUIDE.md` → "Claude Code MCP connection" → "Instance-level MCP setup"**
 
 ---
 
 ## Related Docs
 
 - ADR: `docs/adr/0013-ris-n8n-pilot-scoped.md`
-- Operator guide: `docs/RIS_OPERATOR_GUIDE.md`
+- Operator guide: `docs/runbooks/RIS_OPERATOR_GUIDE.md`
 - Operator SOP cheat sheet: `docs/runbooks/RIS_N8N_OPERATOR_SOP.md`
 - Discord alerts: `docs/runbooks/RIS_DISCORD_ALERTS.md`
 - Env template: `.env.example` (n8n section near the bottom)

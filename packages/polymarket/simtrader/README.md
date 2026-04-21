@@ -2,7 +2,7 @@
 
 Record → replay → strategy-run Polymarket binary markets in simulation.
 
-> **Full user guide:** [`docs/README_SIMTRADER.md`](../../../docs/README_SIMTRADER.md)
+> **Full user guide:** [`docs/runbooks/README_SIMTRADER.md`](../../../docs/runbooks/README_SIMTRADER.md)
 > — quickrun one-liner, common flags, manual record/run/sweep, artifact reference, troubleshooting.
 >
 > **Architecture spec:** [`docs/specs/SPEC-0010-simtrader-vision-and-roadmap.md`](../../../docs/specs/SPEC-0010-simtrader-vision-and-roadmap.md)
@@ -24,7 +24,7 @@ python -m polytool simtrader quickrun --market some-slug --duration 900
 python -m polytool simtrader quickrun --market some-slug --dry-run
 ```
 
-See [`docs/README_SIMTRADER.md`](../../../docs/README_SIMTRADER.md) for all flags, the manual
+See [`docs/runbooks/README_SIMTRADER.md`](../../../docs/runbooks/README_SIMTRADER.md) for all flags, the manual
 record/run/sweep workflow, artifact descriptions, and troubleshooting.
 
 ---

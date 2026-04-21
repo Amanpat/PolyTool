@@ -25,6 +25,7 @@ Future: `--prd` mode for PRD extraction is planned for a follow-up PR.
 @D:/Coding Projects/Polymarket/PolyTool/.claude/get-shit-done/workflows/import.md
 @D:/Coding Projects/Polymarket/PolyTool/.claude/get-shit-done/references/ui-brand.md
 @D:/Coding Projects/Polymarket/PolyTool/.claude/get-shit-done/references/gate-prompts.md
+@D:/Coding Projects/Polymarket/PolyTool/.claude/get-shit-done/references/doc-conflict-engine.md
 </execution_context>
 
 <context>

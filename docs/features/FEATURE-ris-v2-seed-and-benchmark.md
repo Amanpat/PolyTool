@@ -33,7 +33,7 @@ tools/cli/research_benchmark.py            # research-benchmark CLI
 
 `config/seed_manifest.json` seeds 11 entries:
 - 8 RAGfiles (`docs/reference/RAGfiles/`): RIS_OVERVIEW.md, RIS_01–RIS_07
-- 3 roadmap docs: POLYTOOL_MASTER_ROADMAP_v4.2.md, v5.md, v5_1.md
+- 3 roadmap docs: POLYTOOL_MASTER_ROADMAP_v4.2.md (archived), v5.md (archived), v5_1.md (current)
 
 All entries use `source_family: "book_foundational"` (null half-life per
 `config/freshness_decay.json`), so they never decay out of retrieval.

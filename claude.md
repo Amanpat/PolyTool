@@ -154,11 +154,12 @@ CLI entrypoint falling back to a wrong default.
 - **Gate 2 scenario sweep is the next step (Phase 2 / Phase 1B).** Run
   `python tools/gates/close_sweep_gate.py` against `config/benchmark_v1.tape_manifest`.
   Gate 2 passes when ≥ 70% of tapes show positive net PnL after fees and realistic-retail
-  assumptions. Gate 2 is NOT passed yet. Gate 2 is currently NOT_RUN (not FAILED): the
-  corpus has only 10/50 qualifying tapes. The immediate unblock is live Gold capture per
-  `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`.
-  **Crypto bucket blocked:** no active BTC/ETH/SOL 5m/15m pair markets on Polymarket
-  as of 2026-03-29. Use `python -m polytool crypto-pair-watch --one-shot` to check.
+  assumptions. Gate 2 was run on 2026-03-29 and FAILED (7/50 = 14%, threshold 70%). Root
+  cause: Silver tapes produce zero fills (no L2 book data); crypto 5m Gold tapes were the
+  strongest bucket at 7/10 positive. See docs/dev_logs/2026-04-14_gate2_fill_diagnosis.md.
+  **Crypto markets returned 2026-04-14** (12 active 5m markets: BTC=4, ETH=4, SOL=4).
+  Resume Gold capture per `docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`.
+  Use `python -m polytool crypto-pair-watch` to check current availability.
 
 When tasking Claude Code, assume the benchmark pipeline has produced the
 `config/benchmark_v1.tape_manifest`. The manifest, lock, and audit are finalized
@@ -172,9 +173,10 @@ Do NOT: modify `config/benchmark_v1.tape_manifest`, `config/benchmark_v1.lock.js
 - Lowering the `min_events=50` threshold
 - Relaxing the Gate 2 >= 70% pass condition
 - Substituting non-crypto tapes into the crypto bucket
-- Treating Gate 2 NOT_RUN as a gate failure
+- Treating Gate 2 FAILED as justification to weaken gate thresholds
 - Autonomously triggering benchmark_v2
-  Escalation deadline for benchmark_v2 consideration: **2026-04-12**. Human decision required.
+  Escalation deadline for benchmark_v2 consideration: **2026-04-12** (PASSED as of 2026-04-14).
+  Human decision required. See docs/dev_logs/2026-04-14_gate2_next_step_packet.md for evidence packet.
 
 ### Market Selection Engine
 
@@ -227,7 +229,7 @@ Do not weaken validation language in code or docs. If a feature changes gate def
 ## Tape Tiers
 
 - **Gold**: live tape recorder output, tick-level / ms, highest-fidelity source.
-- **Silver**: reconstructed tapes from pmxt + Jon-Becker + polymarket-apis, good for Gate 2 and autoresearch.
+- **Silver**: reconstructed tapes from pmxt + Jon-Becker + polymarket-apis, useful for autoresearch and price history; NOT suitable for Gate 2 sweep (no L2 book data — fills will be zero).
 - **Bronze**: Jon-Becker trade-level only, useful but lower-fidelity.
 
 Every tape-driven result should preserve tier metadata. Do not treat Bronze or coarse price-only data as equivalent to Gold.

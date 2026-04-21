@@ -99,7 +99,7 @@
       "extractor": "structured_markdown"
     },
     {
-      "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md",
+      "path": "docs/archive/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md",
       "title": "PolyTool Master Roadmap v4.2",
       "source_type": "roadmap",
       "source_family": "book_foundational",
@@ -111,7 +111,7 @@
       "extractor": "structured_markdown"
     },
     {
-      "path": "docs/reference/POLYTOOL_MASTER_ROADMAP_v5.md",
+      "path": "docs/archive/reference/POLYTOOL_MASTER_ROADMAP_v5.md",
       "title": "PolyTool Master Roadmap v5",
       "source_type": "roadmap",
       "source_family": "book_foundational",

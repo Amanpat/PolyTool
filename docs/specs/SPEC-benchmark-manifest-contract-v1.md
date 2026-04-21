@@ -2,7 +2,7 @@
 
 **Status:** Implemented - 2026-03-16  
 **Branch:** `phase-1`  
-**Authority:** `docs/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md`
+**Authority:** `docs/archive/reference/POLYTOOL_MASTER_ROADMAP_v4.2.md` (superseded; retained for historical context)
 
 ---
 
