@@ -166,6 +166,8 @@ def run_mm_sweep(
                     starting_cash=starting_cash,
                     fee_rate_bps=fee_rate_bps,
                     mark_method=mark_method,
+                    fee_category=tape.bucket,
+                    fee_role="taker",
                     latency_submit_ticks=0,
                     latency_cancel_ticks=0,
                     strict=False,

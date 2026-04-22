@@ -11,14 +11,10 @@
             "id": "9d9e04b4ec0010eb",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "12-Ideas/Work-Packet - Fee Model Maker-Taker + Kalshi.md",
-                "mode": "source",
-                "source": false
-              },
-              "icon": "lucide-file",
-              "title": "Work-Packet - Fee Model Maker-Taker + Kalshi"
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
             }
           }
         ]
@@ -220,10 +216,12 @@
   },
   "active": "9d9e04b4ec0010eb",
   "lastOpenFiles": [
+    "12-Ideas/Idea - Graphify Pattern Adoption.md",
+    "12-Ideas/Work-Packet - Fee Model Maker-Taker + Kalshi.md",
+    "10-Session-Notes/2026-04-10 Open Source Repo Integration Final Review.md",
     "11-Prompt-Archive/2026-04-21 Architect Custom Instructions v2.md",
     "12-Ideas/Work-Packet - Unified Open Source Integration Sprint.md",
     "12-Ideas/Work-Packet - Unified Open Source Integration.md",
-    "12-Ideas/Work-Packet - Fee Model Maker-Taker + Kalshi.md",
     "10-Session-Notes/2026-04-21 Workflow Harness Refresh.md",
     "09-Decisions/Decision - Workflow Harness Refresh 2026-04.md",
     "10-Session-Notes/2026-04-09 Wallet Discovery Pipeline Design.md",
@@ -244,8 +242,6 @@
     "03-Strategies/Track-1C-Sports-Directional.md",
     "03-Strategies/Track-1B-Market-Maker.md",
     "08-Research/08-Copy-Trader-and-Risk-Free-Bot-Deep-Dive.md",
-    "11-Prompt-Archive/2026-04-09 Claude - Architect Response.md",
-    "08-Research/00-INDEX.md",
     "09-Decisions/Decision - RIS n8n Pilot Scope.md.tmp.26724.1775769963208",
     "05-Roadmap/Phase-3-Hybrid-RAG-Kalshi-n8n.md.tmp.26724.1775769922837",
     "05-Roadmap/Phase-3-Hybrid-RAG-Kalshi-n8n.md.tmp.26724.1775769917780",

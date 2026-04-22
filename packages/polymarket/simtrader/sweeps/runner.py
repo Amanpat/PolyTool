@@ -34,6 +34,8 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ALLOWED_OVERRIDE_KEYS = frozenset(
     {
         "fee_rate_bps",
+        "fee_category",
+        "fee_role",
         "mark_method",
         "strategy_config",
         "latency_ticks",
@@ -60,6 +62,8 @@ class SweepRunParams:
     asset_id: Optional[str] = None
     fee_rate_bps: Optional[Decimal] = None
     mark_method: str = "bid"
+    fee_category: Optional[str] = None
+    fee_role: str = "taker"
     latency_submit_ticks: int = 0
     latency_cancel_ticks: int = 0
     strict: bool = False
@@ -150,6 +154,8 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
             scenario_mark_method,
             scenario_submit_ticks,
             scenario_cancel_ticks,
+            scenario_fee_category,
+            scenario_fee_role,
         ) = _apply_overrides(params, scenario.overrides)
 
         run_dir = runs_dir / scenario.scenario_id
@@ -165,6 +171,8 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
                 starting_cash=params.starting_cash,
                 fee_rate_bps=scenario_fee_rate_bps,
                 mark_method=scenario_mark_method,
+                fee_category=scenario_fee_category,
+                fee_role=scenario_fee_role,
                 latency_submit_ticks=scenario_submit_ticks,
                 latency_cancel_ticks=scenario_cancel_ticks,
                 strict=params.strict,
@@ -213,6 +221,8 @@ def run_sweep(params: SweepRunParams, sweep_config: dict[str, Any]) -> SweepRunR
             "fee_rate_bps": (
                 str(params.fee_rate_bps) if params.fee_rate_bps is not None else None
             ),
+            "fee_category": params.fee_category,
+            "fee_role": params.fee_role,
             "mark_method": params.mark_method,
             "latency_submit_ticks": params.latency_submit_ticks,
             "latency_cancel_ticks": params.latency_cancel_ticks,
@@ -298,7 +308,7 @@ def _normalize_scenarios(sweep_config: dict[str, Any]) -> list[_ScenarioDef]:
 def _apply_overrides(
     params: SweepRunParams,
     overrides: dict[str, Any],
-) -> tuple[dict[str, Any], Optional[Decimal], str, int, int]:
+) -> tuple[dict[str, Any], Optional[Decimal], str, int, int, Optional[str], str]:
     unknown = sorted(key for key in overrides if key not in _ALLOWED_OVERRIDE_KEYS)
     if unknown:
         raise SweepConfigError(
@@ -359,7 +369,20 @@ def _apply_overrides(
                 latency_cfg["cancel_ticks"], "latency_config.cancel_ticks"
             )
 
-    return strategy_config, fee_rate_bps, mark_method, submit_ticks, cancel_ticks
+    fee_category = params.fee_category
+    if "fee_category" in overrides:
+        raw_cat = overrides["fee_category"]
+        if raw_cat is not None and not isinstance(raw_cat, str):
+            raise SweepConfigError("override 'fee_category' must be a string or null")
+        fee_category = raw_cat if raw_cat is None else str(raw_cat)
+
+    fee_role = params.fee_role
+    if "fee_role" in overrides:
+        if not isinstance(overrides["fee_role"], str):
+            raise SweepConfigError("override 'fee_role' must be a string")
+        fee_role = str(overrides["fee_role"])
+
+    return strategy_config, fee_rate_bps, mark_method, submit_ticks, cancel_ticks, fee_category, fee_role
 
 
 def _build_aggregate_summary(

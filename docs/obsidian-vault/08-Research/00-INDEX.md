@@ -35,3 +35,19 @@
 | 2026-04-09 | Loop C hypotheses are exploratory only (user_data, not research partition) | Must earn promotion through existing gate system |
 | 2026-04-09 | Watchlist promotion requires human review gate in v1 | LLM novelty flag is signal, not auto-trigger |
 | 2026-04-09 | Insider scoring math needs correction (heterogeneous probability test) | Single binom_test with averaged p0 is mathematically wrong |
+
+
+## Open Source Repo Integration (2026-04-10)
+
+- [[07-Backtesting-Repo-Deep-Dive]] — evan-kolberg/prediction-market-backtesting (fee models, sports strategies, fill engine)
+- [[08-Copy-Trader-Deep-Dive]] — realfishsam/Polymarket-Copy-Trader (LOW value, skip)
+- [[09-Hermes-PMXT-Deep-Dive]] — 0xharryriddle/hermes-pmxt (LEARNINGS.md, arb matching, RIS signals)
+
+| Date | Decision | Context |
+|------|----------|---------|
+| 2026-04-10 | SimTrader fee formula is WRONG (exponent 2 vs Polymarket exponent 1) | Verified via GLM-5 + Polymarket official docs |
+| 2026-04-10 | Makers pay ZERO fees on Polymarket | Polymarket docs: "Makers are never charged fees" |
+| 2026-04-10 | Maker rebates are pool-based daily redistribution, NOT per-fill credit | Polymarket Maker Rebates page — uses p(1-p) curve |
+| 2026-04-10 | Kalshi formula: round_up(0.07 × C × P × (1-P)), no volume tiers | CFTC filing + Kalshi Help Center |
+| 2026-04-10 | Defer pmxt SDK to Phase 3 (Node.js sidecar overhead) | Sidecar on port 3847 adds Docker complexity |
+| 2026-04-10 | Use hybrid Jaccard + Levenshtein for cross-platform matching | Pure Jaccard has known failure modes at 40% threshold |

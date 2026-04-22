@@ -1152,3 +1152,147 @@ class TestCancelAllOnDisconnect:
             assert (run_dir / name).exists(), f"Missing artifact after disconnect: {name}"
 
 
+# ---------------------------------------------------------------------------
+# Fee category propagation and manifest truthfulness
+# ---------------------------------------------------------------------------
+
+
+class TestShadowFeeCategory:
+    """Verify fee_category/fee_role reach the manifest and no misleading defaults."""
+
+    def _make_runner(self, run_dir, fee_category=None, fee_rate_bps=None, fee_role="taker"):
+        from packages.polymarket.simtrader.shadow.runner import ShadowRunner
+
+        return ShadowRunner(
+            run_dir=run_dir,
+            asset_ids=[YES_ID, NO_ID],
+            strategy=_NoOpStrategy(),
+            primary_asset_id=YES_ID,
+            extra_book_asset_ids=[NO_ID],
+            duration_seconds=None,
+            starting_cash=Decimal("1000"),
+            fee_rate_bps=fee_rate_bps,
+            fee_category=fee_category,
+            fee_role=fee_role,
+            mark_method="bid",
+            shadow_context={"selected_slug": SLUG, "yes_token_id": YES_ID, "no_token_id": NO_ID},
+            _event_source=_make_fake_events(),
+        )
+
+    def test_manifest_includes_fee_category_and_role(self, tmp_path):
+        """portfolio_config in run_manifest.json includes fee_category and fee_role."""
+        run_dir = tmp_path / "run"
+        self._make_runner(run_dir, fee_category="sports").run()
+        manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+        cfg = manifest["portfolio_config"]
+        assert cfg["fee_category"] == "sports"
+        assert cfg["fee_role"] == "taker"
+
+    def test_manifest_fee_rate_bps_is_null_for_category_run(self, tmp_path):
+        """fee_rate_bps is null (not a string) in manifest for category-priced runs."""
+        run_dir = tmp_path / "run"
+        self._make_runner(run_dir, fee_category="crypto").run()
+        manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["portfolio_config"]["fee_rate_bps"] is None
+
+    def test_manifest_no_default_200_string(self, tmp_path):
+        """'default(200)' must not appear anywhere in run_manifest.json."""
+        run_dir = tmp_path / "run"
+        self._make_runner(run_dir).run()
+        raw = (run_dir / "run_manifest.json").read_text(encoding="utf-8")
+        assert "default(200)" not in raw
+
+    def test_manifest_legacy_run_fee_category_is_null(self, tmp_path):
+        """When no fee_category is set, portfolio_config.fee_category is null."""
+        run_dir = tmp_path / "run"
+        self._make_runner(run_dir).run()
+        manifest = json.loads((run_dir / "run_manifest.json").read_text(encoding="utf-8"))
+        assert manifest["portfolio_config"]["fee_category"] is None
+
+
+# ---------------------------------------------------------------------------
+# CLI-level shadow propagation test
+# ---------------------------------------------------------------------------
+
+
+class TestShadowCLIPropagation:
+    """Prove _shadow() extracts fee_category from strategy config and passes it to ShadowRunner.
+
+    This is the integration-style guard Codex required: a regression where
+    _shadow() stops calling load_fee_config() or stops forwarding fee_category
+    would break this test even if the ShadowRunner-level tests still pass.
+    """
+
+    def test_shadow_cli_propagates_fee_category_and_role(self, tmp_path):
+        """main(['shadow', ...]) must deliver fee_category/fee_role to ShadowRunner."""
+        import json as _json
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from tools.cli.simtrader import main
+
+        strategy_cfg_json = _json.dumps({"fees": {"market_category": "sports"}})
+
+        fake_resolved = MagicMock()
+        fake_resolved.slug = "test-shadow-slug"
+        fake_resolved.question = "Test shadow?"
+        fake_resolved.yes_token_id = YES_ID
+        fake_resolved.no_token_id = NO_ID
+        fake_resolved.yes_label = "Yes"
+        fake_resolved.no_label = "No"
+        fake_resolved.mapping_tier = "explicit"
+
+        fake_book_val = MagicMock()
+        fake_book_val.valid = True
+        fake_book_val.reason = "ok"
+
+        captured: dict = {}
+
+        class _CaptureShadowRunner:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def run(self):
+                return {"net_profit": "0"}
+
+        with (
+            patch("packages.polymarket.clob.ClobClient", MagicMock()),
+            patch("packages.polymarket.gamma.GammaClient", MagicMock()),
+            patch(
+                "packages.polymarket.simtrader.target_resolver.TargetResolver"
+            ) as mock_resolver_cls,
+            patch(
+                "packages.polymarket.simtrader.market_picker.MarketPicker"
+            ) as mock_picker_cls,
+            patch(
+                "packages.polymarket.simtrader.shadow.runner.ShadowRunner",
+                _CaptureShadowRunner,
+            ),
+            patch(
+                "packages.polymarket.simtrader.strategy.facade._build_strategy",
+                return_value=_NoOpStrategy(),
+            ),
+        ):
+            mock_resolver = MagicMock()
+            mock_resolver.resolve_target.return_value = fake_resolved
+            mock_resolver_cls.return_value = mock_resolver
+
+            mock_picker = MagicMock()
+            mock_picker.validate_book.return_value = fake_book_val
+            mock_picker_cls.return_value = mock_picker
+
+            rc = main([
+                "shadow",
+                "--market", "test-shadow-slug",
+                "--strategy-config-json", strategy_cfg_json,
+                "--duration", "0",
+            ])
+
+        assert rc == 0, f"main() returned {rc}"
+        assert captured.get("fee_category") == "sports", (
+            f"Expected fee_category='sports', got {captured.get('fee_category')!r}"
+        )
+        assert captured.get("fee_role") == "taker", (
+            f"Expected fee_role='taker', got {captured.get('fee_role')!r}"
+        )
+

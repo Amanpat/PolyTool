@@ -32,6 +32,8 @@ import pytest
 
 from packages.polymarket.simtrader.portfolio.fees import (
     DEFAULT_FEE_RATE_BPS,
+    POLYMARKET_CATEGORY_FEE_RATES,
+    KalshiFeeModel,
     compute_fill_fee,
     worst_case_fee,
 )
@@ -186,6 +188,129 @@ class TestComputeFillFee:
             actual = compute_fill_fee(_D("100"), price, _D("200"))
             worst = worst_case_fee(_D("100"), price, _D("200"))
             assert worst >= actual, f"worst_case_fee < actual fee at price={price}"
+
+
+# ===========================================================================
+# Fee model v2 — category-aware (exponent-1) and maker/taker roles
+# ===========================================================================
+
+
+class TestComputeFillFeeCategories:
+    """Acceptance criteria from the Unified Open Source Integration Sprint."""
+
+    def test_sports_taker_at_half(self):
+        # 100 × 0.03 × 0.50 × 0.50 = 0.75
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="sports", role="taker")
+        assert fee == _D("0.75")
+
+    def test_crypto_taker_at_half(self):
+        # 100 × 0.072 × 0.50 × 0.50 = 1.80
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="crypto", role="taker")
+        assert fee == _D("1.80")
+
+    def test_maker_role_returns_zero(self):
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="crypto", role="maker")
+        assert fee == _D("0")
+
+    def test_maker_role_ignores_legacy_path_too(self):
+        fee = compute_fill_fee(_D("100"), _D("0.50"), _D("200"), role="maker")
+        assert fee == _D("0")
+
+    def test_geopolitics_taker_returns_zero(self):
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="geopolitics", role="taker")
+        assert fee == _D("0")
+
+    def test_politics_rate(self):
+        # 100 × 0.04 × 0.50 × 0.50 = 1.00
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="politics")
+        assert fee == _D("1.00")
+
+    def test_economics_rate(self):
+        # 100 × 0.05 × 0.50 × 0.50 = 1.25
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="economics")
+        assert fee == _D("1.25")
+
+    def test_category_case_insensitive(self):
+        fee_lower = compute_fill_fee(_D("100"), _D("0.50"), category="crypto")
+        fee_upper = compute_fill_fee(_D("100"), _D("0.50"), category="CRYPTO")
+        fee_mixed = compute_fill_fee(_D("100"), _D("0.50"), category="Crypto")
+        assert fee_lower == fee_upper == fee_mixed
+
+    def test_unknown_category_falls_back_to_other(self):
+        fee_unknown = compute_fill_fee(_D("100"), _D("0.50"), category="bogus_cat")
+        fee_other = compute_fill_fee(_D("100"), _D("0.50"), category="other")
+        assert fee_unknown == fee_other
+
+    def test_category_path_ignores_fee_rate_bps(self):
+        # When category is supplied, fee_rate_bps has no effect.
+        fee_no_bps = compute_fill_fee(_D("100"), _D("0.50"), category="sports")
+        fee_with_bps = compute_fill_fee(_D("100"), _D("0.50"), _D("999"), category="sports")
+        assert fee_no_bps == fee_with_bps
+
+    def test_category_fee_result_is_decimal(self):
+        fee = compute_fill_fee(_D("100"), _D("0.50"), category="sports")
+        assert isinstance(fee, Decimal)
+
+    def test_all_categories_present(self):
+        expected = {
+            "crypto", "sports", "politics", "finance", "mentions", "tech",
+            "economics", "culture", "weather", "other", "geopolitics",
+        }
+        assert set(POLYMARKET_CATEGORY_FEE_RATES.keys()) == expected
+
+    def test_category_zero_size_returns_zero(self):
+        fee = compute_fill_fee(_D("0"), _D("0.50"), category="sports")
+        assert fee == _D("0")
+
+    def test_category_boundary_price_zero_returns_zero(self):
+        fee = compute_fill_fee(_D("100"), _D("0"), category="sports")
+        assert fee == _D("0")
+
+    def test_category_boundary_price_one_returns_zero(self):
+        fee = compute_fill_fee(_D("100"), _D("1"), category="sports")
+        assert fee == _D("0")
+
+
+class TestKalshiFeeModel:
+    """Kalshi fee model acceptance criteria and edge cases."""
+
+    def test_acceptance_criteria(self):
+        # ceil(0.07 × 10 × 0.60 × 0.40) = ceil(0.168) = 0.17
+        fee = KalshiFeeModel.compute_fee(contracts=10, price=0.60)
+        assert fee == _D("0.17")
+
+    def test_ceiling_rounding(self):
+        # ceil(0.07 × 1 × 0.50 × 0.50) = ceil(0.0175) = 0.02
+        fee = KalshiFeeModel.compute_fee(contracts=1, price=0.50)
+        assert fee == _D("0.02")
+
+    def test_result_is_decimal(self):
+        fee = KalshiFeeModel.compute_fee(contracts=10, price=0.5)
+        assert isinstance(fee, Decimal)
+
+    def test_zero_contracts_returns_zero(self):
+        fee = KalshiFeeModel.compute_fee(contracts=0, price=0.50)
+        assert fee == _D("0")
+
+    def test_price_at_boundary_zero_returns_zero(self):
+        fee = KalshiFeeModel.compute_fee(contracts=10, price=0)
+        assert fee == _D("0")
+
+    def test_price_at_boundary_one_returns_zero(self):
+        fee = KalshiFeeModel.compute_fee(contracts=10, price=1)
+        assert fee == _D("0")
+
+    def test_decimal_inputs_accepted(self):
+        fee = KalshiFeeModel.compute_fee(
+            contracts=_D("10"), price=_D("0.60")
+        )
+        assert fee == _D("0.17")
+
+    def test_symmetric_around_half(self):
+        # price=0.3 and price=0.7 give same p*(1-p)=0.21, so same fee
+        fee_low = KalshiFeeModel.compute_fee(contracts=10, price=0.30)
+        fee_high = KalshiFeeModel.compute_fee(contracts=10, price=0.70)
+        assert fee_low == fee_high
 
 
 # ===========================================================================
@@ -934,3 +1059,88 @@ class TestPortfolioCLI:
             p = Path("artifacts/simtrader/runs") / run_id
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
+
+
+# ===========================================================================
+# PortfolioLedger — fee_category / fee_role propagation (Deliverable A v2)
+# ===========================================================================
+
+
+class TestLedgerFeeModelPropagation:
+    """fee_category and fee_role are honoured inside PortfolioLedger."""
+
+    def _fill_events(self):
+        return [
+            _submitted("o1", 0, limit_price="0.50", size="100"),
+            _fill("o1", 1, fill_price="0.50", fill_size="100", remaining="0"),
+        ]
+
+    def test_category_path_used_when_fee_category_set(self):
+        """fee_category='crypto' → linear fee (exponent 1), not legacy quadratic."""
+        ledger_cat = PortfolioLedger(
+            _D("1000"),
+            fee_category="crypto",
+            fee_role="taker",
+        )
+        ledger_cat.process(self._fill_events(), [])
+
+        ledger_legacy = PortfolioLedger(_D("1000"), fee_rate_bps=_D("200"))
+        ledger_legacy.process(self._fill_events(), [])
+
+        # Both charge fees, but the amounts must differ: linear vs quadratic formula.
+        assert ledger_cat._total_fees > _D("0")
+        assert ledger_cat._total_fees != ledger_legacy._total_fees
+
+    def test_maker_role_produces_zero_fee(self):
+        """fee_role='maker' → zero fee regardless of category."""
+        ledger = PortfolioLedger(
+            _D("1000"),
+            fee_category="crypto",
+            fee_role="maker",
+        )
+        ledger.process(self._fill_events(), [])
+        assert ledger._total_fees == _D("0")
+
+    def test_taker_role_with_category_charges_fee(self):
+        """fee_role='taker' with a known category charges a non-zero fee."""
+        for cat in ("sports", "politics", "crypto"):
+            ledger = PortfolioLedger(
+                _D("1000"),
+                fee_category=cat,
+                fee_role="taker",
+            )
+            ledger.process(self._fill_events(), [])
+            assert ledger._total_fees > _D("0"), f"expected fee > 0 for category={cat!r}"
+
+    def test_no_fee_category_uses_legacy_path(self):
+        """No fee_category → exponent-2 legacy path identical to fee_rate_bps=200."""
+        ledger_a = PortfolioLedger(_D("1000"))
+        ledger_a.process(self._fill_events(), [])
+
+        ledger_b = PortfolioLedger(_D("1000"), fee_rate_bps=_D("200"))
+        ledger_b.process(self._fill_events(), [])
+
+        assert ledger_a._total_fees == ledger_b._total_fees
+
+    def test_fee_category_recorded_in_summary(self):
+        """summary() carries fee_category so artifacts are self-describing."""
+        ledger = PortfolioLedger(
+            _D("1000"),
+            fee_category="sports",
+            fee_role="taker",
+        )
+        ledger.process(self._fill_events(), [])
+        s = ledger.summary("r-cat", None, None)
+        assert s.get("fee_category") == "sports"
+        assert s.get("fee_role") == "taker"
+
+    def test_fee_role_recorded_in_summary(self):
+        """summary() carries fee_role."""
+        ledger = PortfolioLedger(
+            _D("1000"),
+            fee_category="crypto",
+            fee_role="maker",
+        )
+        ledger.process(self._fill_events(), [])
+        s = ledger.summary("r-maker", None, None)
+        assert s.get("fee_role") == "maker"

@@ -151,6 +151,8 @@ class OnDemandSession:
         starting_cash: Decimal,
         fee_rate_bps: Optional[Decimal] = None,
         mark_method: str = "bid",
+        fee_category: Optional[str] = None,
+        fee_role: str = "taker",
         checkpoint_every_events: int = _DEFAULT_CHECKPOINT_EVERY_EVENTS,
         checkpoint_every_seconds: float = _DEFAULT_CHECKPOINT_EVERY_SECONDS,
         max_checkpoints: int = _DEFAULT_MAX_CHECKPOINTS,
@@ -178,6 +180,8 @@ class OnDemandSession:
         self._starting_cash: Decimal = starting_cash
         self._fee_rate_bps: Optional[Decimal] = fee_rate_bps
         self._mark_method: str = mark_method
+        self._fee_category: Optional[str] = fee_category
+        self._fee_role: str = fee_role
         self._checkpoint_every_events = checkpoint_every_events
         self._checkpoint_every_seconds = checkpoint_every_seconds
         self._max_checkpoints = max_checkpoints
@@ -340,6 +344,8 @@ class OnDemandSession:
             starting_cash=self._starting_cash,
             fee_rate_bps=self._fee_rate_bps,
             mark_method=self._mark_method,
+            fee_category=self._fee_category,
+            fee_role=self._fee_role,
         )
         ledger_rows, equity_curve = ledger.process(broker.order_events, timeline)
 
@@ -383,6 +389,8 @@ class OnDemandSession:
             starting_cash=self._starting_cash,
             fee_rate_bps=self._fee_rate_bps,
             mark_method=self._mark_method,
+            fee_category=self._fee_category,
+            fee_role=self._fee_role,
         )
         self._cursor = 0
         self._current_seq: Optional[int] = None
@@ -562,6 +570,8 @@ class OnDemandSession:
             starting_cash=self._starting_cash,
             fee_rate_bps=self._fee_rate_bps,
             mark_method=self._mark_method,
+            fee_category=self._fee_category,
+            fee_role=self._fee_role,
         )
         feed: list[dict[str, Any]] = []
         last_trade_price: Optional[float] = None
@@ -695,6 +705,8 @@ class OnDemandSession:
             starting_cash=self._starting_cash,
             fee_rate_bps=self._fee_rate_bps,
             mark_method=self._mark_method,
+            fee_category=self._fee_category,
+            fee_role=self._fee_role,
         )
         timeline: list[dict[str, Any]] = []
         current_seq: Optional[int] = None
@@ -804,6 +816,8 @@ class OnDemandSession:
             starting_cash=self._starting_cash,
             fee_rate_bps=self._fee_rate_bps,
             mark_method=self._mark_method,
+            fee_category=self._fee_category,
+            fee_role=self._fee_role,
         )
         self._portfolio.restore_state(checkpoint.portfolio)
 
@@ -855,6 +869,8 @@ class OnDemandSessionManager:
         starting_cash: Decimal,
         fee_rate_bps: Optional[Decimal] = None,
         mark_method: str = "bid",
+        fee_category: Optional[str] = None,
+        fee_role: str = "taker",
         checkpoint_every_events: int = OnDemandSession._DEFAULT_CHECKPOINT_EVERY_EVENTS,
         checkpoint_every_seconds: float = OnDemandSession._DEFAULT_CHECKPOINT_EVERY_SECONDS,
         max_checkpoints: int = OnDemandSession._DEFAULT_MAX_CHECKPOINTS,
@@ -864,6 +880,8 @@ class OnDemandSessionManager:
             starting_cash=starting_cash,
             fee_rate_bps=fee_rate_bps,
             mark_method=mark_method,
+            fee_category=fee_category,
+            fee_role=fee_role,
             checkpoint_every_events=checkpoint_every_events,
             checkpoint_every_seconds=checkpoint_every_seconds,
             max_checkpoints=max_checkpoints,

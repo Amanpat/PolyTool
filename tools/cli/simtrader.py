@@ -347,7 +347,7 @@ def _trade(args: argparse.Namespace) -> int:
     )
     print(f"[simtrader trade] starting-cash : {starting_cash}", file=sys.stderr)
     print(
-        f"[simtrader trade] fee-rate-bps  : {fee_rate_bps if fee_rate_bps is not None else 'default (200)'}",
+        f"[simtrader trade] fee-rate-bps  : {fee_rate_bps if fee_rate_bps is not None else 'null (ledger default)'}",
         file=sys.stderr,
     )
     print(f"[simtrader trade] mark-method   : {mark_method}", file=sys.stderr)
@@ -531,7 +531,9 @@ def _trade(args: argparse.Namespace) -> int:
         ],
         "portfolio_config": {
             "starting_cash": str(starting_cash),
-            "fee_rate_bps": str(fee_rate_bps) if fee_rate_bps is not None else "default(200)",
+            "fee_rate_bps": str(fee_rate_bps) if fee_rate_bps is not None else None,
+            "fee_category": None,
+            "fee_role": None,
             "mark_method": mark_method,
         },
         "fills_count": len(broker.fills),
@@ -1167,12 +1169,19 @@ def _run(args: argparse.Namespace) -> int:
         strategy_name=strategy_name,
         strategy_config=strategy_config,
     )
+    from packages.polymarket.simtrader.config_loader import load_fee_config as _load_fee_config
+    _fee_cfg = _load_fee_config(strategy_config)
+    fee_category = _fee_cfg.get("market_category")
+
+    if fee_category is not None:
+        _fee_label = f"category-aware ({fee_category}/taker)"
+    elif fee_rate_bps is not None:
+        _fee_label = str(fee_rate_bps)
+    else:
+        _fee_label = "null (ledger default)"
+
     print(f"[simtrader run] starting-cash  : {starting_cash}", file=sys.stderr)
-    print(
-        f"[simtrader run] fee-rate-bps   : "
-        f"{fee_rate_bps if fee_rate_bps is not None else 'default (200)'}",
-        file=sys.stderr,
-    )
+    print(f"[simtrader run] fee-rate-bps   : {_fee_label}", file=sys.stderr)
     print(f"[simtrader run] mark-method    : {mark_method}", file=sys.stderr)
     print(
         f"[simtrader run] latency-ticks  : "
@@ -1207,6 +1216,8 @@ def _run(args: argparse.Namespace) -> int:
                     strategy_preset if strategy_name == "binary_complement_arb" else None
                 ),
                 market_slug=market_slug,
+                fee_category=fee_category,
+                fee_role="taker",
             )
         )
     except StrategyRunConfigError as exc:
@@ -1327,12 +1338,19 @@ def _sweep(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     print(f"[simtrader sweep] sweep-config   : {sweep_config}", file=sys.stderr)
+    from packages.polymarket.simtrader.config_loader import load_fee_config as _load_fee_config
+    _fee_cfg = _load_fee_config(strategy_config)
+    fee_category = _fee_cfg.get("market_category")
+
+    if fee_category is not None:
+        _fee_label = f"category-aware ({fee_category}/taker)"
+    elif fee_rate_bps is not None:
+        _fee_label = str(fee_rate_bps)
+    else:
+        _fee_label = "null (ledger default)"
+
     print(f"[simtrader sweep] starting-cash  : {starting_cash}", file=sys.stderr)
-    print(
-        f"[simtrader sweep] fee-rate-bps   : "
-        f"{fee_rate_bps if fee_rate_bps is not None else 'default (200)'}",
-        file=sys.stderr,
-    )
+    print(f"[simtrader sweep] fee-rate-bps   : {_fee_label}", file=sys.stderr)
     print(f"[simtrader sweep] mark-method    : {args.mark_method}", file=sys.stderr)
     print(
         f"[simtrader sweep] latency-ticks  : "
@@ -1359,6 +1377,8 @@ def _sweep(args: argparse.Namespace) -> int:
                     strategy_preset if strategy_name == "binary_complement_arb" else None
                 ),
                 market_slug=market_slug,
+                fee_category=fee_category,
+                fee_role="taker",
             ),
             sweep_config=sweep_config,
         )
@@ -1926,6 +1946,10 @@ def _quickrun(args: argparse.Namespace) -> int:
         )
         print(f"[quickrun sweep] sweep dir: {sweep_dir}", file=sys.stderr)
 
+        from packages.polymarket.simtrader.config_loader import load_fee_config as _load_fee_config
+        _fee_cfg_qs = _load_fee_config(strategy_config)
+        fee_category_qs = _fee_cfg_qs.get("market_category")
+
         try:
             sweep_result = run_sweep(
                 SweepRunParams(
@@ -1948,6 +1972,8 @@ def _quickrun(args: argparse.Namespace) -> int:
                         else None
                     ),
                     market_slug=resolved.slug,
+                    fee_category=fee_category_qs,
+                    fee_role="taker",
                 ),
                 sweep_config=sweep_config,
             )
@@ -2038,6 +2064,10 @@ def _quickrun(args: argparse.Namespace) -> int:
     run_dir = DEFAULT_ARTIFACTS_DIR / "runs" / run_id
 
     # -- Run strategy ----------------------------------------------------------
+    from packages.polymarket.simtrader.config_loader import load_fee_config as _load_fee_config
+    _fee_cfg_qr = _load_fee_config(strategy_config)
+    fee_category_qr = _fee_cfg_qr.get("market_category")
+
     try:
         run_result = run_strategy(
             StrategyRunParams(
@@ -2059,6 +2089,8 @@ def _quickrun(args: argparse.Namespace) -> int:
                     else None
                 ),
                 market_slug=resolved.slug,
+                fee_category=fee_category_qr,
+                fee_role="taker",
             )
         )
     except StrategyRunConfigError as exc:
@@ -2333,6 +2365,10 @@ def _shadow(args: argparse.Namespace) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    from packages.polymarket.simtrader.config_loader import load_fee_config as _load_fee_config
+    _fee_cfg_sh = _load_fee_config(strategy_config)
+    fee_category_sh = _fee_cfg_sh.get("market_category")
+
     # -- Build run directory ---------------------------------------------------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = build_timestamped_artifact_id(
@@ -2400,6 +2436,8 @@ def _shadow(args: argparse.Namespace) -> int:
             if strategy_name == "binary_complement_arb"
             else None
         ),
+        fee_category=fee_category_sh,
+        fee_role="taker",
     )
 
     try:

@@ -30,8 +30,8 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
   2. Improve strategy for low-frequency markets (research-heavy, open-ended)
   3. Pivot focus to Track 2 (de facto chosen per 2026-04-15 operator runbook; not formally logged)
 - **Added Option 4 (from PMXT work packet 2026-04-10):** Land the SimTrader Fee Model Overhaul first, then re-run Gate 2 with correct maker/taker + category-specific fees. Current Gate 2 FAIL used taker-only + single fee rate — systematically pessimistic for maker strategies.
-- **Partially blocked by:** Fee Model Overhaul completion (see Active Feature below). Option 4 cannot be evaluated until fees are corrected. Options 1–3 can be decided independently.
-- **Next action:** Director decides whether to wait for Fee Model Overhaul (Option 4) or commit to one of Options 1–3 now.
+- **Option 4 blocker resolved 2026-04-21:** Fee Model Overhaul (Deliverable A) is complete. Category-aware fees, maker=0, Kalshi baseline, and full runtime propagation are shipped. Re-running Gate 2 under the corrected fee model is now unblocked.
+- **Next action:** Director decides whether to re-run Gate 2 now (Option 4) or commit to one of Options 1–3.
 
 ## Active Features (max 3)
 
@@ -53,25 +53,7 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
   - [ ] `docs/features/track2_paper_soak_24h_v1.md` created
   - [ ] CURRENT_STATE.md Track 2 section updated
 
-### Feature 2: SimTrader Fee Model Overhaul (PMXT Deliverable A)
-
-- **Track:** Cross-cutting (1A, 1B, Phase 3 Kalshi, Phase 4 autoresearch)
-- **Status:** Work packet drafted 2026-04-10, sitting idle for 11 days. Prerequisite for Gate 2 Option 4, Phase 3 Kalshi, Phase 4 autoresearch.
-- **Started:** Not yet — work packet exists, no agent prompt generated
-- **Last updated:** 2026-04-21 (moved to Active 2026-04-21)
-- **Owner:** Aman (approval), Architect (prompt generation), Claude Code (implementation)
-- **Current step:** Architect needs to resolve the FEE_CURVE_EXPONENT open question (our code uses exponent=2, research says exponent=1), then generate the agent prompt
-- **Blockers:** None. Source of truth: `12-Ideas/Work-Packet - Unified Open Source Integration Sprint.md`
-- **Next action:** Architect session to resolve open items (FEE_CURVE_EXPONENT verification via `/fee-rate` endpoint, Option A vs B on maker rebate modeling) and generate Claude Code prompt for Deliverable A
-- **Definition of done:**
-  - [ ] `compute_fill_fee()` accepts `role` and `category`; maker returns zero
-  - [ ] `KalshiFeeModel` class implemented
-  - [ ] `FEE_CURVE_EXPONENT` verified against live `/fee-rate` endpoint
-  - [ ] ≥12 new test cases pass (all categories × both roles + Kalshi + edge cases)
-  - [ ] Existing `test_simtrader_portfolio.py` still passes
-  - [ ] Mandatory adversarial Codex review on `fees.py` changes
-  - [ ] `docs/features/simtrader_fee_model_v2.md` created
-- **Related docs:** `12-Ideas/Work-Packet - Unified Open Source Integration Sprint.md` (Deliverable A), `08-Research/07-Backtesting-Repo-Deep-Dive.md`, `11-Prompt-Archive/2026-04-10 GLM5 - Unified Gap Fill Open Source Integration.md`
+### Feature 2: [empty slot]
 
 ### Feature 3: [empty slot]
 
@@ -92,6 +74,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                       | Completed  | Track    | Completion doc                                                     |
 | ------------------------------------------------------------- | ---------- | -------- | ------------------------------------------------------------------ |
+| SimTrader Fee Model Overhaul (PMXT Deliverable A)             | 2026-04-21 | Cross-cutting | `docs/features/simtrader_fee_model_v2.md` — category-aware taker fees, maker=0, Kalshi baseline, full 12-entry-point propagation, 32 new tests, MERGE-READY per Codex gate |
 | Wallet Discovery v1 (Loop A + watchlist + unified scan + MVF) | 2026-04-10 | Research | `docs/features/wallet-discovery-v1.md`                             |
 | Track 2 paper-soak hardening (6 items)                        | 2026-04-15 | 1A       | ⚠️ debt — see above                                                |
 | Gate 2 post-capture qualification workflow                    | 2026-04-14 | 1B       | ⚠️ debt — see above                                                |
@@ -120,6 +103,6 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - If the Director describes work that doesn't map to any Active feature, your first response must be: "This doesn't match current Active features [list]. (a) Pause one and add new, (b) extend an existing Active feature, or (c) confirm this is a quick one-off?"
 - **"Awaiting Decision" items are not Active.** Do not design prompts that advance Gate 2 work until the Director records a decision in this file.
 - **Feasibility probes are not Active.** If the Director asks to implement Loop B or Loop D, cite this file's Paused section and resume trigger.
-- **PMXT Deliverable A is Active.** Your next Architect session on this feature should resolve the open items (FEE_CURVE_EXPONENT, maker rebate Option A vs B) before generating the agent prompt.
+- **PMXT Deliverable A is COMPLETE (2026-04-21).** Category-aware fees, maker=0, Kalshi baseline, and full runtime propagation are shipped. Deliverables B and C remain Paused — see Paused/Deferred table.
 - **Completion-doc debt is tracked.** When a future feature crosses DoD, your NEXT STEP must include the three-step completion protocol explicitly.
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"

@@ -53,6 +53,8 @@ class Order:
     cancel_effective_seq: Optional[int] = None
     status: str = OrderStatus.PENDING
     filled_size: Decimal = field(default_factory=lambda: Decimal("0"))
+    force_taker: bool = False
+    market_category: Optional[str] = None
 
     @property
     def remaining(self) -> Decimal:

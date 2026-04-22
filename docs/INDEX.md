@@ -113,6 +113,7 @@ router/operator-facing surface only.
 | [Scan Exact Slug Export](features/FEATURE-scan-exact-slug-export.md) | `scan-gate2-candidates --watchlist-out` writes exact full slugs for the shown ranked candidates so operators do not copy truncated table values |
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
+| [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 
 ## Specs
 
@@ -140,6 +141,11 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Fee Model Overhaul — Docs Close-out](dev_logs/2026-04-21_fee-model-overhaul_closeout.md) | 2026-04-21 | Deliverable A docs-only close-out: feature doc finalized, INDEX updated, CURRENT_DEVELOPMENT moved to Recently Completed |
+| [Fee Model Overhaul — Final Codex Merge Gate](dev_logs/2026-04-21_fee-model-overhaul_codex-final-merge-gate.md) | 2026-04-21 | MERGE-READY verdict after CLI truthfulness fix; unrelated RIS red acknowledged |
+| [Fee Model Overhaul — CLI Truthfulness Fix](dev_logs/2026-04-21_fee-model-overhaul_cli-truthfulness-fix.md) | 2026-04-21 | `simtrader run`/`sweep` now emit truthful category-aware fee label; 2 new CLI tests |
+| [Fee Model Overhaul — Finish Pass](dev_logs/2026-04-21_fee-model-overhaul_finish-pass.md) | 2026-04-21 | Shadow CLI gap closed, manifest truthfulness fixed, full 12-entry-point propagation complete |
+| [Fee Model Overhaul — Core Changes](dev_logs/2026-04-21_fee-model-overhaul.md) | 2026-04-21 | Core fees.py: category-aware path, KalshiFeeModel, ledger fee_category/fee_role params |
 | [Wallet Discovery v1 Truth Sync and Release Checklist](dev_logs/2026-04-10_wallet_discovery_v1_truth_sync_and_release_checklist.md) | 2026-04-10 | Docs truth-sync: removed "pending" language, ROADMAP all 4 items checked [SHIPPED], enhanced operator runbook with go/no-go checklist |
 | [Discord Embed Final Polish](dev_logs/2026-04-09_discord_embed_final_polish.md) | 2026-04-09 | Eliminated n/a and none placeholders, conditional fields, shortened footers, severity markers |
 | [Discord Alert Layout Refinement](dev_logs/2026-04-09_discord_alert_layout_refinement.md) | 2026-04-09 | Converted all 10 Discord notification nodes from plain-text to structured embed format |

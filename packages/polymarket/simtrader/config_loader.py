@@ -118,3 +118,26 @@ def load_strategy_config(
         return load_json_from_string(config_json)
 
     return {}
+
+
+def load_fee_config(config: dict) -> dict:
+    """Extract fee configuration from a strategy config dict.
+
+    Reads the optional ``fees`` block and returns a normalised dict with
+    default values filled in.
+
+    Args:
+        config: Strategy config dict (from :func:`load_strategy_config`).
+
+    Returns:
+        Dict with keys:
+        - ``platform``: ``"polymarket"`` | ``"kalshi"`` | ``None``
+        - ``market_category``: Polymarket category string or ``None``
+        - ``force_taker``: bool (default ``False``)
+    """
+    fees_block = config.get("fees") or {}
+    return {
+        "platform": fees_block.get("platform"),
+        "market_category": fees_block.get("market_category"),
+        "force_taker": bool(fees_block.get("force_taker", False)),
+    }

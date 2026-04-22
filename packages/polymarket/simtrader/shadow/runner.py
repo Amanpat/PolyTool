@@ -181,6 +181,8 @@ class ShadowRunner:
         starting_cash: Decimal = Decimal("1000"),
         fee_rate_bps: Optional[Decimal] = None,
         mark_method: str = MARK_BID,
+        fee_category: Optional[str] = None,
+        fee_role: str = "taker",
         tape_dir: Optional[Path] = None,
         shadow_context: Optional[dict] = None,
         ws_url: str = WS_MARKET_URL,
@@ -201,6 +203,8 @@ class ShadowRunner:
         self.starting_cash = starting_cash
         self.fee_rate_bps = fee_rate_bps
         self.mark_method = mark_method
+        self.fee_category = fee_category
+        self.fee_role = fee_role
         self.tape_dir = tape_dir
         self.shadow_context = shadow_context or {}
         self.ws_url = ws_url
@@ -293,6 +297,8 @@ class ShadowRunner:
             starting_cash=self.starting_cash,
             fee_rate_bps=self.fee_rate_bps,
             mark_method=self.mark_method,
+            fee_category=self.fee_category,
+            fee_role=self.fee_role,
         )
         ledger_events, equity_curve = ledger.process(broker.order_events, timeline)
         final_best_bid: Optional[float] = timeline[-1].get("best_bid") if timeline else None
@@ -942,8 +948,10 @@ class ShadowRunner:
             "portfolio_config": {
                 "starting_cash": str(self.starting_cash),
                 "fee_rate_bps": (
-                    str(self.fee_rate_bps) if self.fee_rate_bps is not None else "default(200)"
+                    str(self.fee_rate_bps) if self.fee_rate_bps is not None else None
                 ),
+                "fee_category": self.fee_category,
+                "fee_role": self.fee_role,
                 "mark_method": self.mark_method,
             },
             "fills_count": len(broker.fills),

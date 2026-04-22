@@ -2156,3 +2156,215 @@ def test_observational_evidence_informational_only(tmp_path: Path) -> None:
     assert "observational_evidence" not in manifest
 
 
+# ---------------------------------------------------------------------------
+# Run manifest fee model truthfulness
+# ---------------------------------------------------------------------------
+
+
+def test_run_manifest_portfolio_config_includes_fee_category(tmp_path: Path) -> None:
+    """portfolio_config in run_manifest.json includes fee_category and fee_role."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_fee_cat"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+        fee_category="politics",
+        fee_role="taker",
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    cfg = manifest["portfolio_config"]
+    assert cfg["fee_category"] == "politics"
+    assert cfg["fee_role"] == "taker"
+
+
+def test_run_manifest_fee_rate_bps_null_not_default_string(tmp_path: Path) -> None:
+    """fee_rate_bps is null (not the string 'default(200)') when not explicitly set."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_no_bps"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    raw = (run_dir / "run_manifest.json").read_text()
+    assert "default(200)" not in raw
+    assert manifest["portfolio_config"]["fee_rate_bps"] is None
+
+
+def test_run_manifest_fee_category_null_when_not_set(tmp_path: Path) -> None:
+    """fee_category is null in manifest when runner has no category configured."""
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.copy_wallet_replay import CopyWalletReplay
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+    trades_path = tmp_path / "trades.jsonl"
+    trades_path.write_text("")
+
+    run_dir = tmp_path / "run_no_cat"
+    strategy = CopyWalletReplay(trades_path=trades_path, signal_delay_ticks=0)
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+    )
+    runner.run()
+
+    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+    assert manifest["portfolio_config"]["fee_category"] is None
+
+
+def test_failure_manifest_truthfulness(tmp_path: Path) -> None:
+    """_write_failure_artifacts() must write correct fee metadata, not 'default(200)'.
+
+    Triggers the INVALID run path: BinaryComplementArb requires both YES and NO
+    asset events, but the tape only has YES — so _validate_tape_coverage() returns
+    _RUN_QUALITY_INVALID and _write_failure_artifacts() is called instead of
+    _write_artifacts().
+    """
+    from packages.polymarket.simtrader.strategy.runner import StrategyRunner
+    from packages.polymarket.simtrader.strategies.binary_complement_arb import (
+        BinaryComplementArb,
+    )
+
+    # Tape has only YES events — NO asset is absent, triggering coverage failure.
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)  # single-asset tape with ASSET_ID only
+
+    run_dir = tmp_path / "run_failure"
+    strategy = BinaryComplementArb(
+        yes_asset_id=ASSET_ID,
+        no_asset_id="missing-no-asset",
+    )
+    runner = StrategyRunner(
+        events_path=tape_path,
+        run_dir=run_dir,
+        strategy=strategy,
+        asset_id=ASSET_ID,
+        starting_cash=Decimal("1000"),
+        fee_category="sports",
+        fee_role="taker",
+    )
+
+    with pytest.raises(ValueError):
+        runner.run()
+
+    # Failure manifest must have been written
+    manifest_path = run_dir / "run_manifest.json"
+    assert manifest_path.exists(), "run_manifest.json must be written on failure"
+
+    manifest = json.loads(manifest_path.read_text())
+    cfg = manifest["portfolio_config"]
+
+    assert cfg["fee_rate_bps"] is None, (
+        f"fee_rate_bps should be null in failure manifest, got {cfg['fee_rate_bps']!r}"
+    )
+    assert cfg["fee_category"] == "sports", (
+        f"fee_category should be 'sports' in failure manifest, got {cfg['fee_category']!r}"
+    )
+    assert cfg["fee_role"] == "taker", (
+        f"fee_role should be 'taker' in failure manifest, got {cfg['fee_role']!r}"
+    )
+    raw = manifest_path.read_text()
+    assert "default(200)" not in raw, "Failure manifest must not contain 'default(200)'"
+    assert manifest["run_quality"] == "invalid"
+
+
+def test_cli_run_fee_label_category_aware(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """simtrader run must not print 'default (200)' when fee_category is in effect."""
+    import packages.polymarket.simtrader.strategy.facade as facade
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    def _fake_run_strategy(params):
+        return SimpleNamespace(metrics={"net_profit": "0"})
+
+    monkeypatch.setattr(facade, "run_strategy", _fake_run_strategy)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "run",
+            "--tape", str(tape_path),
+            "--strategy-config-json", '{"fees":{"market_category":"sports"}}',
+            "--run-id", "fee-label-test",
+        ]
+    )
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "category-aware (sports/taker)" in err
+    assert "default (200)" not in err
+
+
+def test_cli_sweep_fee_label_category_aware(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """simtrader sweep must not print 'default (200)' when fee_category is in effect."""
+    import packages.polymarket.simtrader.sweeps.runner as sweeps_runner
+    import tools.cli.simtrader as simtrader_cli
+
+    tape_path = tmp_path / "events.jsonl"
+    _write_tape(tape_path)
+
+    def _fake_run_sweep(params, sweep_config):
+        return SimpleNamespace(
+            sweep_dir=tmp_path / "artifacts" / "simtrader" / "sweeps" / "fee-label-sweep",
+            summary={"aggregate": {}, "scenarios": []},
+        )
+
+    monkeypatch.setattr(sweeps_runner, "run_sweep", _fake_run_sweep)
+    monkeypatch.setattr(
+        simtrader_cli, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts" / "simtrader"
+    )
+
+    rc = simtrader_cli.main(
+        [
+            "sweep",
+            "--tape", str(tape_path),
+            "--strategy-config-json", '{"fees":{"market_category":"crypto"}}',
+            "--sweep-config", '{"scenarios":[{"name":"base","overrides":{}}]}',
+            "--sweep-id", "fee-label-sweep",
+        ]
+    )
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "category-aware (crypto/taker)" in err
+    assert "default (200)" not in err

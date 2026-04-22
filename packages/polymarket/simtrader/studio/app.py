@@ -1292,12 +1292,23 @@ def create_app(
         if mark_method not in ("bid", "midpoint"):
             raise HTTPException(status_code=400, detail=f"mark_method must be 'bid' or 'midpoint'; got {mark_method!r}")
 
+        fee_category_raw = body.get("fee_category")
+        fee_category: Any = None
+        if fee_category_raw is not None:
+            if not isinstance(fee_category_raw, str):
+                raise HTTPException(status_code=400, detail="fee_category must be a string")
+            fee_category = fee_category_raw
+
+        fee_role = str(body.get("fee_role", "taker"))
+
         try:
             session = _ondemand_sessions.create(
                 tape_path_str,
                 starting_cash,
                 fee_rate_bps,
                 mark_method,
+                fee_category,
+                fee_role,
                 **checkpoint_create_kwargs,
             )
         except ValueError as exc:

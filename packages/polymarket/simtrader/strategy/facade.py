@@ -183,6 +183,8 @@ class StrategyRunParams:
     allow_degraded: bool = False
     strategy_preset: Optional[str] = None
     market_slug: Optional[str] = None
+    fee_category: Optional[str] = None
+    fee_role: str = "taker"
 
 
 @dataclass(frozen=True)
@@ -250,6 +252,8 @@ def run_strategy(params: StrategyRunParams) -> StrategyRunResult:
         starting_cash=params.starting_cash,
         fee_rate_bps=params.fee_rate_bps,
         mark_method=params.mark_method,
+        fee_category=params.fee_category,
+        fee_role=params.fee_role,
         strict=params.strict,
         allow_degraded=params.allow_degraded,
         strategy_name=params.strategy_name,

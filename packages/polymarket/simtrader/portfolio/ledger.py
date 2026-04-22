@@ -113,14 +113,19 @@ class PortfolioLedger:
         starting_cash: Decimal,
         fee_rate_bps: Optional[Decimal] = None,
         mark_method: str = MARK_BID,
+        fee_category: Optional[str] = None,
+        fee_role: str = "taker",
     ) -> None:
         """
         Args:
             starting_cash: Initial USDC balance.
-            fee_rate_bps:  Taker fee rate in basis points.  Pass ``None`` to
-                           apply the conservative default (200 bps).
-            mark_method:   Mark-price method: ``"bid"`` (default, conservative)
-                           or ``"midpoint"``.
+            fee_rate_bps:  Taker fee rate in basis points (legacy path).
+            mark_method:   Mark-price method: ``"bid"`` or ``"midpoint"``.
+            fee_category:  Polymarket category string.  When set, activates the
+                           category-aware exponent-1 fee formula and ignores
+                           ``fee_rate_bps``.
+            fee_role:      ``"taker"`` (default) or ``"maker"``.  Makers pay
+                           zero fees on Polymarket (Option A).
         """
         if starting_cash < _ZERO:
             raise ValueError(f"starting_cash must be non-negative; got {starting_cash}")
@@ -128,6 +133,8 @@ class PortfolioLedger:
         self._starting_cash: Decimal = starting_cash
         self._cash: Decimal = starting_cash  # available (unreserved) USDC
         self._fee_rate_bps: Optional[Decimal] = fee_rate_bps
+        self._fee_category: Optional[str] = fee_category
+        self._fee_role: str = fee_role
         self._mark_method: str = mark_method
 
         # FIFO lots per asset: asset_id → [(size, cost_per_share), ...]
@@ -232,6 +239,8 @@ class PortfolioLedger:
             "fee_rate_bps": (
                 str(self._fee_rate_bps) if self._fee_rate_bps is not None else None
             ),
+            "fee_category": self._fee_category,
+            "fee_role": self._fee_role,
             "mark_method": self._mark_method,
             "lots": {
                 asset_id: [
@@ -267,6 +276,8 @@ class PortfolioLedger:
         self._cash = Decimal(str(state.get("cash", self._starting_cash)))
         fee_rate = state.get("fee_rate_bps")
         self._fee_rate_bps = Decimal(str(fee_rate)) if fee_rate is not None else None
+        self._fee_category = state.get("fee_category")
+        self._fee_role = str(state.get("fee_role", "taker"))
         self._mark_method = str(state.get("mark_method", self._mark_method))
 
         self._lots = defaultdict(list)
@@ -337,11 +348,6 @@ class PortfolioLedger:
 
         final_equity = self._cash + reserved_cash_total + position_mark_value
         net_profit = self._realized_pnl + unrealized_pnl - self._total_fees
-        effective_fee_rate = (
-            self._fee_rate_bps
-            if self._fee_rate_bps is not None
-            else DEFAULT_FEE_RATE_BPS
-        )
 
         return {
             "run_id": run_id,
@@ -356,7 +362,17 @@ class PortfolioLedger:
             "net_profit": str(net_profit),
             "open_positions": open_positions,
             "mark_method": self._mark_method,
-            "fee_rate_bps": str(effective_fee_rate),
+            "fee_rate_bps": (
+                None
+                if self._fee_category is not None
+                else str(
+                    self._fee_rate_bps
+                    if self._fee_rate_bps is not None
+                    else DEFAULT_FEE_RATE_BPS
+                )
+            ),
+            "fee_category": self._fee_category,
+            "fee_role": self._fee_role,
         }
 
     # ------------------------------------------------------------------
@@ -440,7 +456,13 @@ class PortfolioLedger:
         fill_size = Decimal(evt["fill_size"])
         remaining = Decimal(evt["remaining"])
 
-        fee = compute_fill_fee(fill_size, fill_price, self._fee_rate_bps)
+        fee = compute_fill_fee(
+            fill_size,
+            fill_price,
+            self._fee_rate_bps,
+            role=self._fee_role,
+            category=self._fee_category,
+        )
         self._total_fees += fee
 
         if side == _SIDE_BUY:
