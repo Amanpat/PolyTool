@@ -74,6 +74,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                       | Completed  | Track    | Completion doc                                                     |
 | ------------------------------------------------------------- | ---------- | -------- | ------------------------------------------------------------------ |
+| PMXT Deliverable B (Sports Strategy Foundations)              | 2026-04-22 | Track 1C      | `docs/features/simtrader_sports_strategies_v1.md` — SportsMomentum/SportsFavorite/SportsVWAP, STRATEGY_REGISTRY wiring, 20 tests, MERGE-READY per Codex re-review |
 | SimTrader Fee Model Overhaul (PMXT Deliverable A)             | 2026-04-21 | Cross-cutting | `docs/features/simtrader_fee_model_v2.md` — category-aware taker fees, maker=0, Kalshi baseline, full 12-entry-point propagation, 32 new tests, MERGE-READY per Codex gate |
 | Wallet Discovery v1 (Loop A + watchlist + unified scan + MVF) | 2026-04-10 | Research | `docs/features/wallet-discovery-v1.md`                             |
 | Track 2 paper-soak hardening (6 items)                        | 2026-04-15 | 1A       | ⚠️ debt — see above                                                |
@@ -91,7 +92,6 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 | Wallet Discovery Loop D (managed CLOB + anomaly)       | 2026-04-15     | Feasibility probe complete; ClobStreamClient blockers open                        | ClobStreamClient PING keepalive + dynamic subscription landed |
 | Wallet Discovery Loop C / insider detection            | pre-2026-04-09 | Out-of-scope per "Decision - Roadmap Narrowed to V1"                              | Phase 1 revenue path clear                                    |
 | RIS Phase 2 audit follow-up (cloud providers, R0 seed) | 2026-04-09     | RIS conditionally closed with audit findings open; repo pivoted to Gate 2/Track 2 | Track 2 ships first dollar OR explicit Director decision      |
-| PMXT Deliverable B (Sports Strategy Foundations)       | 2026-04-10     | Draft work packet; Deliverable A must land first                                  | Deliverable A complete AND Track 1C activation decided        |
 | PMXT Deliverable C (RIS Knowledge Seeding)             | 2026-04-10     | Draft work packet; RIS Phase 2 audit gaps are prerequisite                        | RIS audit gaps resolved                                       |
 | pmxt Sidecar Architecture                              | 2026-04-10     | Parked per `12-Ideas/Idea - pmxt Sidecar Architecture Evaluation.md`              | Phase 3 activation                                            |
 | Phase 1A WebSocket CLOB migration                      | pre-2026-04-15 | Deferred to post-paper-soak                                                       | Paper soak promote verdict                                    |
@@ -103,6 +103,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - If the Director describes work that doesn't map to any Active feature, your first response must be: "This doesn't match current Active features [list]. (a) Pause one and add new, (b) extend an existing Active feature, or (c) confirm this is a quick one-off?"
 - **"Awaiting Decision" items are not Active.** Do not design prompts that advance Gate 2 work until the Director records a decision in this file.
 - **Feasibility probes are not Active.** If the Director asks to implement Loop B or Loop D, cite this file's Paused section and resume trigger.
-- **PMXT Deliverable A is COMPLETE (2026-04-21).** Category-aware fees, maker=0, Kalshi baseline, and full runtime propagation are shipped. Deliverables B and C remain Paused — see Paused/Deferred table.
+- **PMXT Deliverable A is COMPLETE (2026-04-21).** Category-aware fees, maker=0, Kalshi baseline, and full runtime propagation are shipped.
+- **PMXT Deliverable B is COMPLETE (2026-04-22).** SportsMomentum, SportsFavorite, SportsVWAP shipped with STRATEGY_REGISTRY wiring and 20 tests. Deliverable C remains Paused — see Paused/Deferred table.
 - **Completion-doc debt is tracked.** When a future feature crosses DoD, your NEXT STEP must include the three-step completion protocol explicitly.
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"

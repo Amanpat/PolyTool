@@ -114,6 +114,7 @@ router/operator-facing surface only.
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
+| [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
 
 ## Specs
 
@@ -141,6 +142,13 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Deliverable B — Close-out](dev_logs/2026-04-22_deliverable-b_closeout.md) | 2026-04-22 | Docs-only close-out: feature doc, INDEX, CURRENT_DEVELOPMENT updated; Deliverable B marked complete |
+| [Deliverable B — Re-review](dev_logs/2026-04-22_deliverable-b_rereview.md) | 2026-04-22 | MERGE-READY re-verification: all 4 blockers confirmed resolved, 20/186 tests passing |
+| [Deliverable B — Fix Pass](dev_logs/2026-04-22_deliverable-b_fix-pass.md) | 2026-04-22 | 4 blockers fixed (`_ns` keys, min_tick_size, exit reasons, attribution); 11 new tests, 4 tightened |
+| [Deliverable B — Validation Pack](dev_logs/2026-04-22_deliverable-b_validation-pack.md) | 2026-04-22 | M1-M4, F1-F4, V1-V4 scenario definitions for momentum/favorite/vwap |
+| [Deliverable B — Implementation](dev_logs/2026-04-21_deliverable-b_impl.md) | 2026-04-21 | Initial implementation: SportsMomentum, SportsFavorite, SportsVWAP, facade wiring, 9 baseline tests |
+| [Deliverable B — Reference Extract](dev_logs/2026-04-21_deliverable-b_reference-extract.md) | 2026-04-21 | Clean-room license analysis, LGPL determination, parameter extraction from upstream repo |
+| [Deliverable B — Context Fetch](dev_logs/2026-04-21_deliverable-b_context-fetch.md) | 2026-04-21 | Upstream repo context fetch, work packet scope definition |
 | [Fee Model Overhaul — Docs Close-out](dev_logs/2026-04-21_fee-model-overhaul_closeout.md) | 2026-04-21 | Deliverable A docs-only close-out: feature doc finalized, INDEX updated, CURRENT_DEVELOPMENT moved to Recently Completed |
 | [Fee Model Overhaul — Final Codex Merge Gate](dev_logs/2026-04-21_fee-model-overhaul_codex-final-merge-gate.md) | 2026-04-21 | MERGE-READY verdict after CLI truthfulness fix; unrelated RIS red acknowledged |
 | [Fee Model Overhaul — CLI Truthfulness Fix](dev_logs/2026-04-21_fee-model-overhaul_cli-truthfulness-fix.md) | 2026-04-21 | `simtrader run`/`sweep` now emit truthful category-aware fee label; 2 new CLI tests |
