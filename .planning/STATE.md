@@ -21,7 +21,7 @@ progress:
 - **Current Phase:** 5 (Reranking)
 - **Status:** In Progress
 
-Last activity: 2026-04-15 - Completed quick task 260415-rdy: Loop D feasibility assessment (READY_WITH_CONSTRAINTS); probe helpers + 24 offline tests; dev log with verdict, constraints matrix, evidence
+Last activity: 2026-04-22 - Completed quick task 260422-ll0: Finish PMXT Deliverable C; retriever over-fetch fix; 2/5 body-claim retrieval threshold met; Deliverable C COMPLETE
 
 ## Recent Progress
 
@@ -305,3 +305,4 @@ Last activity: 2026-04-15 - Completed quick task 260415-rdy: Loop D feasibility 
 | 260415-qqa | Track 2 post-soak review helper: crypto-pair-review CLI + format_post_soak_review() + load_or_generate_report(); 7-section ASCII one-screen verdict output (verdict, PnL stats, opportunities/intents/pairs, promote-band fit, risk controls triggered, evidence floor); 8 new tests (2546 total); dev log at docs/dev_logs/2026-04-15_track2_post_soak_review_helper.md | 2026-04-15 | 28826ee | [260415-qqa-build-a-track-2-post-soak-review-helper](./quick/260415-qqa-build-a-track-2-post-soak-review-helper/) |
 | 260415-rdp | Wallet Discovery Loop B Phase 0 feasibility probe — OrderFilled ABI decoder, wallet topic filter helpers (maker/taker/either), historical maker/taker CH audit, Alchemy CU estimator, dynamic subscription behavior docs; 36 deterministic tests; VERDICT: READY_WITH_CONSTRAINTS; dev log at docs/dev_logs/2026-04-15_wallet_discovery_loop_b_pof.md | 2026-04-15 | fce1935 | [260415-rdp-run-wallet-discovery-phase-0-feasibility](./quick/260415-rdp-run-wallet-discovery-phase-0-feasibility/) |
 | 260415-rdy | Wallet Discovery Loop D Phase 0 feasibility probe — CLOB stream gap audit (5 gaps: G-01 PING, G-02 dynamic sub/unsub blockers; G-03/04/05 constraints), anomaly detector readiness (4/5 CLOB-native), Gamma bootstrap scale (5000+ markets/10000+ tokens), throughput headroom (50 msg/s peak vs 10k capacity); 24 deterministic tests; VERDICT: READY_WITH_CONSTRAINTS; dev log at docs/dev_logs/2026-04-15_wallet_discovery_loop_d_pof.md | 2026-04-15 | 9f09690 | [260415-rdy-run-wallet-discovery-phase-0-feasibility](./quick/260415-rdy-run-wallet-discovery-phase-0-feasibility/) |
+| 260422-ll0 | Finish PMXT Deliverable C: strip YAML frontmatter from claim extraction (heuristic_v2_nofrontmatter), fix retriever over-fetch truncation (top_k=None when text_query set); 2/5 original queries now surface external_knowledge body claims (Q3 rank 2, Q4 rank 2); threshold >=2/5 met; Deliverable C COMPLETE; 64 tests passing; dev log 2026-04-22_deliverable-c_gap1-fix.md | 2026-04-22 | 0efd895 | [260422-ll0-finish-pmxt-deliverable-c-strip-frontmat](./quick/260422-ll0-finish-pmxt-deliverable-c-strip-frontmat/) |
