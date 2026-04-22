@@ -15,6 +15,11 @@ Public API:
 - ``build_intra_doc_relations(store, claim_ids) -> int``
 - ``extract_and_link(store, doc_id) -> dict``
 - ``HeuristicClaimExtractor`` (class wrapper for registry consistency)
+
+v2 change (heuristic_v2_nofrontmatter): YAML frontmatter is stripped from the body
+before chunking, so metadata lines (title:, confidence_tier:, source_family:, etc.)
+no longer leak into derived_claims. Existing v1 claims are unaffected (INSERT OR IGNORE
++ fresh EXTRACTOR_ID ensures additive behaviour without collision).
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ from packages.polymarket.rag.chunker import chunk_text
 
 _log = logging.getLogger(__name__)
 
-EXTRACTOR_ID = "heuristic_v1"
+EXTRACTOR_ID = "heuristic_v2_nofrontmatter"
 
 # Trust tier -> confidence mapping
 _TIER_CONFIDENCE: dict[str | None, float] = {
@@ -272,6 +277,54 @@ def _find_section_heading(body: str, start_word: int) -> str:
     return last_heading
 
 
+def _strip_yaml_frontmatter(body: str) -> str:
+    """Strip YAML frontmatter from the top of a Markdown document body.
+
+    If the body starts with a line that is exactly ``---`` (with optional trailing
+    whitespace), scans forward for the next such line (the closing fence), bounded
+    to the first 200 lines of the body. If found, returns the body with everything
+    up to and including the closing ``---`` line (and its trailing newline) removed.
+    If no closing fence is found within 200 lines, returns the body unchanged to
+    avoid silent data loss on malformed documents.
+
+    Handles both ``\\n`` and ``\\r\\n`` line endings. A leading UTF-8 BOM (\\ufeff) is
+    stripped before detection (consistent with the file reader elsewhere) but is NOT
+    re-inserted — the BOM is irrelevant once the body is in memory as a Python str.
+
+    This is called by ``extract_claims_from_document`` immediately after body
+    retrieval, ensuring that metadata key-value lines (title:, confidence_tier:,
+    source_family:, etc.) never flow into chunk_text() and become derived_claims.
+    """
+    # Strip BOM for detection purposes (file reader may or may not have done this)
+    stripped = body.lstrip("﻿")
+
+    # Split into lines preserving endings so we can reconstruct accurately
+    lines = stripped.splitlines(keepends=True)
+    if not lines:
+        return body
+
+    # First non-empty line must be exactly "---" (with optional trailing whitespace/newline)
+    first_line = lines[0].rstrip()
+    if first_line != "---":
+        return body
+
+    # Scan for the closing fence within the first 200 lines (skip line 0 which is the opener)
+    closing_index = None
+    limit = min(200, len(lines))
+    for i in range(1, limit):
+        if lines[i].rstrip() == "---":
+            closing_index = i
+            break
+
+    if closing_index is None:
+        # No closing fence found within 200 lines — return body unchanged (defensive)
+        return body
+
+    # Remove everything up to and including the closing fence line
+    remaining = lines[closing_index + 1:]
+    return "".join(remaining)
+
+
 def _get_document_body(store: "KnowledgeStore", doc: dict) -> str | None:
     """Retrieve the body text for a source document.
 
@@ -381,6 +434,12 @@ def extract_claims_from_document(
 
     # Get body text
     body = _get_document_body(store, doc)
+    if not body or not body.strip():
+        return []
+
+    # Strip YAML frontmatter before chunking so metadata lines (title:,
+    # confidence_tier:, source_family:, etc.) never become derived_claims.
+    body = _strip_yaml_frontmatter(body)
     if not body or not body.strip():
         return []
 
