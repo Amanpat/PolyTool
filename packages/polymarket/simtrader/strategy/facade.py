@@ -42,6 +42,15 @@ STRATEGY_REGISTRY: dict[str, str] = {
     "market_maker_v1": (
         "packages.polymarket.simtrader.strategies.market_maker_v1.MarketMakerV1"
     ),
+    "sports_momentum": (
+        "packages.polymarket.simtrader.strategies.sports_momentum.SportsMomentum"
+    ),
+    "sports_favorite": (
+        "packages.polymarket.simtrader.strategies.sports_favorite.SportsFavorite"
+    ),
+    "sports_vwap": (
+        "packages.polymarket.simtrader.strategies.sports_vwap.SportsVWAP"
+    ),
 }
 
 _MARK_METHODS = frozenset({MARK_BID, MARK_MID})
