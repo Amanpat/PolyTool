@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "8007bd8febf32121",
+        "id": "c07ce26954e4edf7",
         "type": "tabs",
         "children": [
           {
-            "id": "9d9e04b4ec0010eb",
+            "id": "7f067d923d621f78",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "type": "markdown",
+              "state": {
+                "file": "Claude Desktop/08-Research/Hermes Agent - PolyTool Integration Setup Guide.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Hermes Agent - PolyTool Integration Setup Guide"
             }
           }
         ]
@@ -214,43 +218,43 @@
       "templater-obsidian:Templater": false
     }
   },
-  "active": "9d9e04b4ec0010eb",
+  "active": "7f067d923d621f78",
   "lastOpenFiles": [
-    "12-Ideas/Idea - Graphify Pattern Adoption.md",
-    "12-Ideas/Work-Packet - Fee Model Maker-Taker + Kalshi.md",
-    "10-Session-Notes/2026-04-10 Open Source Repo Integration Final Review.md",
-    "11-Prompt-Archive/2026-04-21 Architect Custom Instructions v2.md",
-    "12-Ideas/Work-Packet - Unified Open Source Integration Sprint.md",
-    "12-Ideas/Work-Packet - Unified Open Source Integration.md",
-    "10-Session-Notes/2026-04-21 Workflow Harness Refresh.md",
+    "Claude Desktop/11-Prompt-Archive/2026-04-22 Research - Ollama Cloud API.md",
+    "Claude Desktop/10-Session-Notes/2026-04-22 RIS Roadmap v1.1 Review.md",
+    "Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP_v1.1.md",
+    "Claude Desktop/08-Research/Hermes Agent - PolyTool Integration Setup Guide.md",
+    "Claude Desktop/09-Decisions/Decision - Agent Parallelism Strategy for RIS Phase 2.md",
+    "Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP.md",
+    "10-Session-Notes/2026-04-22 RIS Operational Readiness Update.md",
+    "12-Ideas/Idea - Hermes Agent Platform Evaluation.md",
+    "12-Ideas/Idea - Hermes and Claude Routines Evaluation.md",
+    "09-Decisions/Decision-Log.md",
     "09-Decisions/Decision - Workflow Harness Refresh 2026-04.md",
-    "10-Session-Notes/2026-04-09 Wallet Discovery Pipeline Design.md",
-    "11-Prompt-Archive/2026-04-10 GLM5 - Unified Gap Fill Open Source Integration.md",
-    "10-Session-Notes/2026-04-10 RIS Phase 2 Audit Results.md",
-    "11-Prompt-Archive/2026-04-10 GLM5 - n8n Claude Code Tooling.md",
-    "12-Ideas/Idea - Cross-Platform Price Divergence as RIS Signal.md",
-    "08-Research/09-Hermes-PMXT-Deep-Dive.md",
-    "12-Ideas/Idea - pmxt Sidecar Architecture Evaluation.md",
-    "11-Prompt-Archive/2026-04-09 GLM5 - RAG Retrieval Quality Testing.md",
-    "01-Architecture/Risk-Framework.md",
-    "08-Research/08-Copy-Trader-Deep-Dive.md",
-    "02-Modules/FastAPI-Service.md",
-    "02-Modules/Historical-Import.md",
-    "02-Modules/RIS.md",
-    "02-Modules/Notifications.md",
-    "02-Modules/RAG.md",
-    "03-Strategies/Track-1C-Sports-Directional.md",
-    "03-Strategies/Track-1B-Market-Maker.md",
-    "08-Research/08-Copy-Trader-and-Risk-Free-Bot-Deep-Dive.md",
-    "09-Decisions/Decision - RIS n8n Pilot Scope.md.tmp.26724.1775769963208",
-    "05-Roadmap/Phase-3-Hybrid-RAG-Kalshi-n8n.md.tmp.26724.1775769922837",
-    "05-Roadmap/Phase-3-Hybrid-RAG-Kalshi-n8n.md.tmp.26724.1775769917780",
-    "05-Roadmap/Phase-2-Discovery-Engine.md.tmp.26724.1775769911348",
-    "02-Modules/RIS.md.tmp.26724.1775769885611",
-    "00-Index/Dashboard.md.tmp.26724.1775769869944",
+    "09-Decisions/Decision - Watchlist ClickHouse Storage.md",
+    "09-Decisions/Decision - Two-Zone Vault Architecture.md",
+    "09-Decisions/Decision - Two-Feed Architecture.md",
+    "09-Decisions/Decision - Roadmap Narrowed to V1.md",
+    "09-Decisions/Decision - RIS n8n Pilot Scope.md",
+    "09-Decisions/Decision - RIS Evaluation Gate Model Swappability.md",
+    "09-Decisions/Decision - RIS Evaluation Scoring Policy.md",
+    "09-Decisions/Decision - Loop D Managed CLOB Subscription.md",
+    "09-Decisions/Decision - Loop A Leaderboard API.md",
+    "09-Decisions",
+    "07-Issues/Issue-Multiple-HTTP-Clients.md",
+    "07-Issues/Issue-Pyproject-Packaging-Gap.md",
+    "07-Issues/Issue-Multiple-Config-Loaders.md",
+    "07-Issues/Issue-FastAPI-Island.md",
+    "07-Issues/Issue-Duplicate-WebSocket-Code.md",
+    "07-Issues/Issue-Duplicate-Hypothesis-Registry.md",
+    "07-Issues",
+    "06-Dev-Log",
+    "05-Roadmap",
     "12-Ideas",
     "11-Prompt-Archive",
     "10-Session-Notes",
-    "09-Decisions"
+    "08-Research",
+    "04-CLI",
+    "03-Strategies"
   ]
 }

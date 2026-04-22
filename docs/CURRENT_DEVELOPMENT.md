@@ -45,7 +45,7 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
 - **Current step:** Launch 24h paper soak per `docs/runbooks/TRACK2_OPERATOR_RUNBOOK.md`
 - **Blockers:** None. 12 active 5m markets confirmed (BTC×4, ETH×4, SOL×4).
 - **Next action:** Kick off soak on partner machine.
-- **Note on fee accuracy:** Soak will run with current (incorrect) fee model. Results may be mildly pessimistic. If Fee Model Overhaul lands before soak completes, may re-run with correct fees. Not a blocker.
+- **Note on fee accuracy:** Corrected fee model (Deliverable A, 2026-04-21) is available. Soak should use `category="crypto", role="maker"` for accurate results.
 - **Definition of done:**
   - [ ] 24h paper soak completes without unhandled errors
   - [ ] `paper_soak_verdict.json` produced with promote/rerun/reject outcome

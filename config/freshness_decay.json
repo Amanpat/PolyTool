@@ -12,7 +12,8 @@
     "twitter": 6,
     "youtube": 6,
     "wallet_analysis": 6,
-    "news": 3
+    "news": 3,
+    "external_knowledge": 12
   },
   "_comment": "half_life_months: null = no decay (timeless). Floor = minimum modifier value."
 }

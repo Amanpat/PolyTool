@@ -1,0 +1,90 @@
+{
+  "version": "1",
+  "description": "PMXT Deliverable C external_knowledge seed corpus v1. Seven practitioner and community docs covering Polymarket/Kalshi fee structures, pmxt SDK gotchas, sports strategy catalogue, cross-platform price divergence, SimTrader limitations, and cross-platform market matching. source_family=external_knowledge (12-month half-life per freshness_decay.json). All entries use structured_markdown extractor.",
+  "entries": [
+    {
+      "path": "docs/external_knowledge/polymarket_fee_structure_april2026.md",
+      "title": "Polymarket Fee Structure (April 2026)",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["polymarket", "fees", "maker-rebate", "taker-fee", "fee-formula", "category-rates"],
+      "evidence_tier": "tier_1_internal",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. Secondary notes + corrections; verify against primary Polymarket docs before treating as definitive. Covers taker fee formula C*feeRate*p*(1-p), category rate table, maker rebate mechanics (daily pool, not per-fill), rebate splits (crypto 20%, others 25%), and Q-score vs maker rebate distinction.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/kalshi_fee_structure_april2026.md",
+      "title": "Kalshi Fee Structure (April 2026)",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["kalshi", "fees", "fee-formula", "round-up", "fee-waiver", "liquidity-incentive"],
+      "evidence_tier": "tier_2_secondary",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. SOURCE QUALITY CAUTION: secondary references only. Verify against official Kalshi docs. Covers fee=round_up(0.07*C*P*(1-P)), rounding semantics, maker/taker distinction, fee_waiver fields, LIP program, and cross-platform normalization requirements.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/pmxt_sdk_operational_gotchas.md",
+      "title": "pmxt SDK Operational Gotchas",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["pmxt", "sdk", "sidecar", "operational", "market-matching", "arbitrage"],
+      "evidence_tier": "tier_2_secondary",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. SOURCE QUALITY CAUTION: attribute to LEARNINGS.md / hermes-pmxt snapshot, not official pmxt docs. Covers fetch_market unreliability, slug vs keyword lookup, outcome_id requirements, price normalization, sidecar port 3847, Jaccard 40% threshold, true-arbitrage-is-rare finding.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/sports_strategy_catalogue.md",
+      "title": "Sports Strategy Catalogue",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["sports", "strategy", "momentum", "vwap", "favorite", "prediction-market", "simtrader"],
+      "evidence_tier": "tier_1_internal",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. SOURCE QUALITY CAUTION: mixed-license upstream files; seed behavioral summaries and parameters only, no code. Covers SportsMomentum (final_period_minutes=30, entry=0.80), SportsFavorite (entry=0.90, hold-to-resolution), SportsVWAP (window=80, entry_threshold=0.008). No published backtest results.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/cross_platform_price_divergence_empirics.md",
+      "title": "Cross-Platform Price Divergence Empirics",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["cross-platform", "price-divergence", "polymarket", "kalshi", "arbitrage", "empirics"],
+      "evidence_tier": "tier_2_secondary",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. HIGHEST-PRIORITY SOURCE QUALITY CAUTION: figures (15-20% gap frequency, 5% threshold) derive from secondary reference to AhaSignals March 2026 tracker; primary source URL and archived snapshot not verified. Seeded by Director decision with embedded caution. Treat all figures as indicative pending primary source confirmation.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/simtrader_known_limitations.md",
+      "title": "SimTrader Known Limitations (Verified)",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["simtrader", "limitations", "execution-model", "queue-position", "market-impact", "replay"],
+      "evidence_tier": "tier_1_internal",
+      "notes": "freshness_tier: CURRENT. confidence_tier: PRACTITIONER. validation_status: UNTESTED. Composite document: Section A verified against PolyTool SimTrader codebase; Section B corroborated by external backtesting repo notes. Do not conflate source sections. Covers no-queue-position, no-L3, no-impact, no-alpha-decay, fills-do-not-deplete-book.",
+      "extractor": "structured_markdown"
+    },
+    {
+      "path": "docs/external_knowledge/cross_platform_market_matching.md",
+      "title": "Cross-Platform Market Matching",
+      "source_type": "reference_doc",
+      "source_family": "external_knowledge",
+      "author": "PolyTool Team",
+      "publish_date": "2026-04-22T00:00:00+00:00",
+      "tags": ["market-matching", "jaccard", "levenshtein", "cross-platform", "heuristic", "polymarket", "kalshi"],
+      "evidence_tier": "tier_2_secondary",
+      "notes": "freshness_tier: CURRENT. confidence_tier: COMMUNITY. validation_status: UNTESTED. SOURCE QUALITY CAUTION: matcher.js described second-hand from hermes-pmxt notes; no published accuracy metrics or benchmark set found. Keep COMMUNITY confidence. Covers Jaccard 40% baseline, hybrid Jaccard+Levenshtein direction, shared-keyword failure mode, downstream impact on divergence stats.",
+      "extractor": "structured_markdown"
+    }
+  ]
+}

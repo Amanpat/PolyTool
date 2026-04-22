@@ -142,6 +142,11 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Final Roadmap Audit — PMXT Sprint Close-out](dev_logs/2026-04-22_packet-final-roadmap-audit.md) | 2026-04-22 | Docs-only truth-sync after PMXT Deliverables A/B/C; stale notes fixed, work-packets closed |
+| [Deliverable C — Retriever Over-fetch Fix (Gap 1)](dev_logs/2026-04-22_deliverable-c_gap1-fix.md) | 2026-04-22 | Fixed retriever truncation; 2/5 threshold met; Deliverable C marked COMPLETE |
+| [Deliverable C — Re-review](dev_logs/2026-04-22_deliverable-c_rereview.md) | 2026-04-22 | Codex re-review flagged Gap 1 (retriever truncation); NOT COMPLETE pre-fix |
+| [Deliverable C — Completion Pass](dev_logs/2026-04-22_deliverable-c_completion-pass.md) | 2026-04-22 | freshness_decay.json fixed; 65 heuristic claims extracted |
+| [Deliverable C — Implementation](dev_logs/2026-04-22_deliverable-c_impl.md) | 2026-04-22 | 7 external_knowledge docs seeded to SQLite |
 | [Deliverable B — Close-out](dev_logs/2026-04-22_deliverable-b_closeout.md) | 2026-04-22 | Docs-only close-out: feature doc, INDEX, CURRENT_DEVELOPMENT updated; Deliverable B marked complete |
 | [Deliverable B — Re-review](dev_logs/2026-04-22_deliverable-b_rereview.md) | 2026-04-22 | MERGE-READY re-verification: all 4 blockers confirmed resolved, 20/186 tests passing |
 | [Deliverable B — Fix Pass](dev_logs/2026-04-22_deliverable-b_fix-pass.md) | 2026-04-22 | 4 blockers fixed (`_ns` keys, min_tick_size, exit reasons, attribution); 11 new tests, 4 tightened |
