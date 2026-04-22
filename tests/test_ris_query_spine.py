@@ -444,6 +444,70 @@ class TestQueryKnowledgeStoreForRRF:
         finally:
             store.close()
 
+    def test_text_query_not_defeated_by_overfetch_cap(self):
+        """Regression: text_query must find claims inserted last even when total
+        claim count exceeds the old top_k*4 over-fetch cap.
+
+        Scenario: insert N claims with identical effective_score so SQLite
+        breaks ties by rowid.  The matching claim is inserted last (highest
+        rowid).  With top_k=5, the old cap was 5*4=20, so a matching claim at
+        rowid > 20 was silently dropped before the substring filter ran.
+        This test verifies the fix: all claims are fetched when text_query
+        is provided, regardless of total count.
+        """
+        from packages.research.ingestion.retriever import query_knowledge_store_for_rrf
+
+        store = KnowledgeStore(":memory:")
+        doc_id = store.add_source_document(
+            title="Bulk Doc",
+            source_url="u://bulk",
+            source_family="external_knowledge",
+            content_hash="bulk_hash",
+            chunk_count=30,
+            published_at="2025-01-01T00:00:00+00:00",
+            ingested_at="2025-06-01T00:00:00+00:00",
+            confidence_tier="PRACTITIONER",
+            metadata_json="{}",
+        )
+        # Insert 25 filler claims (identical confidence so effective_score ties)
+        for i in range(25):
+            store.add_claim(
+                claim_text=f"Filler claim number {i} about markets in general.",
+                claim_type="empirical",
+                confidence=0.7,
+                trust_tier="PRACTITIONER",
+                actor="test",
+                source_document_id=doc_id,
+                created_at="2025-01-01T00:00:00+00:00",
+                updated_at="2025-01-01T00:00:00+00:00",
+            )
+        # The matching claim is inserted last — rowid 26, beyond the old cap of
+        # top_k*4 = 5*4 = 20 with default top_k=25 that would have been 100,
+        # but let's use top_k=3 so the old cap was 3*4=12.  rowid 26 > 12.
+        store.add_claim(
+            claim_text="SimTrader queue position determines fill priority.",
+            claim_type="empirical",
+            confidence=0.7,
+            trust_tier="PRACTITIONER",
+            actor="test",
+            source_document_id=doc_id,
+            created_at="2025-01-01T00:00:00+00:00",
+            updated_at="2025-01-01T00:00:00+00:00",
+        )
+        try:
+            # With top_k=3, old code fetched top_k*4=12 enriched claims.
+            # The matching claim is at rowid 26 (outside top 12) so it was
+            # silently dropped.  After the fix it must be returned.
+            results = query_knowledge_store_for_rrf(
+                store, text_query="queue position", top_k=3
+            )
+            claim_texts = [r["metadata"]["claim_text"] for r in results]
+            assert any("queue position" in t for t in claim_texts), (
+                f"Expected 'queue position' claim in results but got: {claim_texts}"
+            )
+        finally:
+            store.close()
+
 
 # ---------------------------------------------------------------------------
 # Tests: query_index with knowledge_store_path (three-way fusion)

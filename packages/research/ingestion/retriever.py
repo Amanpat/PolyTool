@@ -78,7 +78,7 @@ def query_knowledge_store_enriched(
     *,
     source_family: Optional[str] = None,
     min_freshness: Optional[float] = None,
-    top_k: int = 20,
+    top_k: Optional[int] = 20,
     include_contradicted: bool = False,  # noqa: ARG001 — extensibility hook
 ) -> list[dict]:
     """Query claims with provenance, contradiction, staleness, and lifecycle data.
@@ -95,6 +95,7 @@ def query_knowledge_store_enriched(
         threshold.
     top_k:
         Maximum number of results to return (sorted by ``effective_score`` DESC).
+        Pass ``None`` to return all matching claims without a cap.
     include_contradicted:
         Documentation/extensibility hook. Contradicted claims are already
         downweighted via KnowledgeStore's 0.5x ``effective_score`` penalty and
@@ -176,7 +177,7 @@ def query_knowledge_store_enriched(
         enriched["lifecycle"] = claim.get("lifecycle", "active")
 
         results.append(enriched)
-        if len(results) >= top_k:
+        if top_k is not None and len(results) >= top_k:
             break
 
     return results
@@ -219,11 +220,22 @@ def query_knowledge_store_for_rrf(
         ``chunk_index``, ``doc_id``, ``metadata``.
         Results are sorted by score descending and limited to ``top_k``.
     """
+    # When a text_query is provided the substring filter runs AFTER the enriched
+    # fetch.  The old top_k*4 cap (e.g. 100 for top_k=25) can exclude matching
+    # claims that happen to have a high rowid but the same effective_score as
+    # everything else (ties broken by insertion order in SQLite).  With 146
+    # claims in the production store, rows 101-146 were silently dropped before
+    # the substring filter ever ran.
+    #
+    # Fix: when text_query is set, fetch the entire claim set (top_k=None) so
+    # the substring filter operates over all candidates.  When text_query is
+    # None the over-fetch multiple is safe to retain as a lightweight cap.
+    enriched_top_k = None if text_query is not None else top_k * 4
     enriched = query_knowledge_store_enriched(
         store,
         source_family=source_family,
         min_freshness=min_freshness,
-        top_k=top_k * 4,  # over-fetch before text filter
+        top_k=enriched_top_k,
         include_contradicted=True,
     )
 

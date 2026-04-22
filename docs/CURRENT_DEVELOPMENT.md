@@ -1,6 +1,6 @@
 ---
 status: active
-last_verified: 2026-04-21
+last_verified: 2026-04-22
 type: living-state-doc
 ---
 
@@ -92,7 +92,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 | Wallet Discovery Loop D (managed CLOB + anomaly)       | 2026-04-15     | Feasibility probe complete; ClobStreamClient blockers open                        | ClobStreamClient PING keepalive + dynamic subscription landed |
 | Wallet Discovery Loop C / insider detection            | pre-2026-04-09 | Out-of-scope per "Decision - Roadmap Narrowed to V1"                              | Phase 1 revenue path clear                                    |
 | RIS Phase 2 audit follow-up (cloud providers, R0 seed) | 2026-04-09     | RIS conditionally closed with audit findings open; repo pivoted to Gate 2/Track 2 | Track 2 ships first dollar OR explicit Director decision      |
-| PMXT Deliverable C (RIS Knowledge Seeding)             | 2026-04-10     | Draft work packet; RIS Phase 2 audit gaps are prerequisite                        | RIS audit gaps resolved                                       |
+| PMXT Deliverable C (RIS Knowledge Seeding)             | COMPLETE       | 7 docs seeded, freshness_decay.json fixed, 65 claims extracted, retriever over-fetch fixed. Retrieval: 2/5 original queries surface external_knowledge body claims (>=2/5 threshold met). See dev log 2026-04-22_deliverable-c_gap1-fix.md | N/A — complete |
 | pmxt Sidecar Architecture                              | 2026-04-10     | Parked per `12-Ideas/Idea - pmxt Sidecar Architecture Evaluation.md`              | Phase 3 activation                                            |
 | Phase 1A WebSocket CLOB migration                      | pre-2026-04-15 | Deferred to post-paper-soak                                                       | Paper soak promote verdict                                    |
 | Phase 1C sports directional model                      | N/A            | Not yet started                                                                   | After Track 2 ships OR Gate 2 passes                          |
@@ -104,6 +104,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - **"Awaiting Decision" items are not Active.** Do not design prompts that advance Gate 2 work until the Director records a decision in this file.
 - **Feasibility probes are not Active.** If the Director asks to implement Loop B or Loop D, cite this file's Paused section and resume trigger.
 - **PMXT Deliverable A is COMPLETE (2026-04-21).** Category-aware fees, maker=0, Kalshi baseline, and full runtime propagation are shipped.
-- **PMXT Deliverable B is COMPLETE (2026-04-22).** SportsMomentum, SportsFavorite, SportsVWAP shipped with STRATEGY_REGISTRY wiring and 20 tests. Deliverable C remains Paused — see Paused/Deferred table.
+- **PMXT Deliverable B is COMPLETE (2026-04-22).** SportsMomentum, SportsFavorite, SportsVWAP shipped with STRATEGY_REGISTRY wiring and 20 tests.
+- **PMXT Deliverable C is COMPLETE (2026-04-22).** 7 external_knowledge docs seeded to SQLite, freshness_decay.json corrected (external_knowledge: 12), 65 derived_claims extracted (heuristic path), retriever over-fetch truncation fixed (Gap 1). Retrieval: 2/5 original queries surface external_knowledge body claims (>=2/5 threshold met). Q3 ("SimTrader queue position") and Q4 ("Jaccard Levenshtein market matching") both surface body-claims at rank 2. cross_platform_price_divergence_empirics.md and cross_platform_market_matching.md remain explicitly provisional. See dev log 2026-04-22_deliverable-c_gap1-fix.md.
 - **Completion-doc debt is tracked.** When a future feature crosses DoD, your NEXT STEP must include the three-step completion protocol explicitly.
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"
