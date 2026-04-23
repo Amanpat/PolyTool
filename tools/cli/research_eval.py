@@ -14,11 +14,16 @@ Usage (replay subcommand):
 Usage (list-providers subcommand):
   python -m polytool research-eval list-providers
 
+Usage (compare subcommand):
+  python -m polytool research-eval compare --provider-a manual --provider-b ollama --title T --body B
+  python -m polytool research-eval compare --provider-a gemini --provider-b deepseek --enable-cloud --file doc.md --json
+
 Cloud provider guard:
-  Non-local providers (gemini, deepseek, openai, anthropic) require either:
+  Implemented cloud providers (gemini, deepseek) require either:
   - RIS_ENABLE_CLOUD_PROVIDERS=1 env var, or
   - --enable-cloud flag
 
+  Recognized but not yet implemented: openai, anthropic.
   Local providers (manual, ollama) always work without any env var.
 """
 
@@ -31,10 +36,16 @@ import sys
 from pathlib import Path
 
 # Subcommands recognized by the CLI. Used for backward-compat routing.
-_KNOWN_SUBCOMMANDS = frozenset({"eval", "replay", "list-providers"})
+_KNOWN_SUBCOMMANDS = frozenset({"eval", "replay", "list-providers", "compare"})
 
 # Local providers that do not require the cloud guard env var.
 _LOCAL_PROVIDERS = frozenset({"manual", "ollama"})
+
+# Cloud providers with a working implementation.
+_IMPLEMENTED_CLOUD_PROVIDERS = frozenset({"gemini", "deepseek"})
+
+# Cloud providers recognized by name but not yet implemented.
+_UNIMPLEMENTED_CLOUD_PROVIDERS = frozenset({"openai", "anthropic"})
 
 
 def main(argv: list) -> int:
@@ -68,6 +79,8 @@ def main(argv: list) -> int:
         return _cmd_replay(rest)
     elif subcommand == "list-providers":
         return _cmd_list_providers(rest)
+    elif subcommand == "compare":
+        return _cmd_compare(rest)
 
     _print_top_help()
     return 1
@@ -78,9 +91,10 @@ def _print_top_help() -> None:
         "research-eval: RIS document evaluation CLI\n"
         "\n"
         "Subcommands:\n"
-        "  eval          Evaluate a document through the quality gate (default)\n"
-        "  replay        Re-run a prior eval with a different provider; diff the results\n"
-        "  list-providers  Show available providers, enablement status, and env var needed\n"
+        "  eval            Evaluate a document through the quality gate (default)\n"
+        "  replay          Re-run a prior eval with a different provider; diff the results\n"
+        "  compare         Run the same document through two providers and diff gate results\n"
+        "  list-providers  Show available providers, enablement status, and routing config\n"
         "\n"
         "Run `research-eval <subcommand> --help` for subcommand-specific help.\n"
         "Backward compat: flags like --file/--title without a subcommand route to eval.",
@@ -95,16 +109,29 @@ def _apply_cloud_guard(args_enable_cloud: bool) -> None:
 
 
 def _check_provider_guard(provider_name: str) -> int | None:
-    """Pre-flight cloud guard check with friendly error message.
+    """Pre-flight provider check with friendly error messages.
+
+    Checks in order:
+      1. Unimplemented cloud providers — hard error regardless of cloud guard.
+      2. Cloud guard — implemented cloud providers require opt-in env var.
 
     Returns None if OK to proceed, or an int exit code to return immediately.
     """
+    if provider_name in _UNIMPLEMENTED_CLOUD_PROVIDERS:
+        print(
+            f"Error: '{provider_name}' is recognized but not yet implemented.\n"
+            "\n"
+            f"Implemented providers: manual, ollama (local); gemini, deepseek (cloud).\n"
+            f"'{provider_name}' is on the roadmap but has no backend yet.",
+            file=sys.stderr,
+        )
+        return 1
     if provider_name not in _LOCAL_PROVIDERS:
         if os.environ.get("RIS_ENABLE_CLOUD_PROVIDERS", "") != "1":
             print(
                 f"Error: cloud provider '{provider_name}' requires opt-in.\n"
                 "\n"
-                "Cloud providers (gemini, deepseek, openai, anthropic) are not enabled by default.\n"
+                "Implemented cloud providers (gemini, deepseek) are not enabled by default.\n"
                 "To enable, either:\n"
                 "  - Set the env var: RIS_ENABLE_CLOUD_PROVIDERS=1\n"
                 "  - Pass the --enable-cloud flag on this command\n"
@@ -144,9 +171,10 @@ def _build_eval_parser(prog: str = "research-eval eval") -> argparse.ArgumentPar
         help="Document author (default: unknown).",
     )
     parser.add_argument(
-        "--provider", metavar="NAME", default="manual",
+        "--provider", metavar="NAME", default=None,
         help=(
-            "Evaluation provider (default: manual). Local: manual, ollama. "
+            "Evaluation provider (default: auto from routing config, usually 'manual'). "
+            "Local: manual, ollama. "
             "Cloud (require --enable-cloud or RIS_ENABLE_CLOUD_PROVIDERS=1): "
             "gemini, deepseek, openai, anthropic."
         ),
@@ -190,7 +218,17 @@ def _cmd_eval(argv: list) -> int:
 
     # Apply cloud guard before any provider calls
     _apply_cloud_guard(args.enable_cloud)
-    guard_rc = _check_provider_guard(args.provider)
+
+    # Resolve the effective provider for the guard check.
+    # If --provider was not supplied, defer to routing config (same logic as evaluate_document).
+    if args.provider is not None:
+        _effective_provider = args.provider
+    else:
+        from packages.research.evaluation.config import get_eval_config as _get_eval_cfg
+        _routing = _get_eval_cfg().routing
+        _effective_provider = _routing.primary_provider if _routing.mode == "route" else "manual"
+
+    guard_rc = _check_provider_guard(_effective_provider)
     if guard_rc is not None:
         return guard_rc
 
@@ -235,11 +273,11 @@ def _cmd_eval(argv: list) -> int:
             body=body,
         )
 
-        print(f"Using provider: {args.provider}", file=sys.stderr)
+        print(f"Using provider: {_effective_provider}", file=sys.stderr)
 
         decision = evaluate_document(
             doc,
-            provider_name=args.provider,
+            provider_name=args.provider,  # None → evaluate_document reads routing config
             artifacts_dir=artifacts_dir,
             priority_tier=getattr(args, "priority_tier", None),
         )
@@ -298,9 +336,10 @@ def _cmd_eval(argv: list) -> int:
                     ndr = last.get("near_duplicate_result")
                     if ndr:
                         output["near_duplicate"] = ndr
-                    pe = last.get("provider_event")
-                    if pe:
-                        output["provider_event"] = pe
+                    from packages.research.evaluation.artifacts import normalize_provider_events
+                    pe_list = normalize_provider_events(last)
+                    if pe_list:
+                        output["provider_events"] = pe_list
                     eid = last.get("event_id")
                     if eid:
                         output["event_id"] = eid
@@ -478,7 +517,6 @@ def _cmd_replay(argv: list) -> int:
     else:
         total_orig = (original_artifact.get("scores") or {}).get("total", "?")
         total_replay = (replay_artifact.get("scores") or {}).get("total", "?")
-        orig_pe = original_artifact.get("provider_event") or {}
 
         print(f"Replay: {args.event_id} -> {replay_artifact.get('event_id', 'N/A')}")
         print(
@@ -506,16 +544,233 @@ def _cmd_list_providers(argv: list) -> int:
     cloud_enabled = os.environ.get("RIS_ENABLE_CLOUD_PROVIDERS", "") == "1"
     env_status = "SET" if cloud_enabled else "not set"
 
-    print("Available providers:")
-    print(f"  manual   [local]  — always enabled (no env var needed)")
-    print(f"  ollama   [local]  — always enabled (no env var needed)")
-    print(f"  gemini   [cloud]  — requires RIS_ENABLE_CLOUD_PROVIDERS=1 (not yet implemented)")
-    print(f"  deepseek [cloud]  — requires RIS_ENABLE_CLOUD_PROVIDERS=1 (not yet implemented)")
-    print(f"  openai   [cloud]  — requires RIS_ENABLE_CLOUD_PROVIDERS=1 (not yet implemented)")
-    print(f"  anthropic [cloud] — requires RIS_ENABLE_CLOUD_PROVIDERS=1 (not yet implemented)")
+    print("Local providers (always enabled):")
+    print("  manual   — rule-based scorer, no API key required")
+    print("  ollama   — local LLM via Ollama, no API key required")
     print()
-    print(f"Cloud guard env var: RIS_ENABLE_CLOUD_PROVIDERS = {env_status}")
+    print("Cloud providers — implemented (require RIS_ENABLE_CLOUD_PROVIDERS=1):")
+    gemini_key = "GEMINI_API_KEY set" if os.environ.get("GEMINI_API_KEY") else "GEMINI_API_KEY not set"
+    deepseek_key = "DEEPSEEK_API_KEY set" if os.environ.get("DEEPSEEK_API_KEY") else "DEEPSEEK_API_KEY not set"
+    gemini_ready = "READY" if (cloud_enabled and os.environ.get("GEMINI_API_KEY")) else ("needs key" if cloud_enabled else "needs guard+key")
+    deepseek_ready = "READY" if (cloud_enabled and os.environ.get("DEEPSEEK_API_KEY")) else ("needs key" if cloud_enabled else "needs guard+key")
+    print(f"  gemini   — GeminiFlashProvider  [{gemini_ready}] ({gemini_key})")
+    print(f"  deepseek — DeepSeekV3Provider   [{deepseek_ready}] ({deepseek_key})")
+    print()
+    print("Cloud providers — not yet implemented (roadmap only):")
+    print("  openai    — recognized but raises error; not yet implemented")
+    print("  anthropic — recognized but raises error; not yet implemented")
+    print()
+    print(f"Cloud guard: RIS_ENABLE_CLOUD_PROVIDERS = {env_status}")
     if not cloud_enabled:
         print("  To enable cloud providers: export RIS_ENABLE_CLOUD_PROVIDERS=1")
         print("  Or pass --enable-cloud on individual commands.")
+    print()
+
+    # Show current routing config
+    try:
+        from packages.research.evaluation.config import get_eval_config
+        cfg = get_eval_config()
+        r = cfg.routing
+        print(f"Routing config (from ris_eval_config.json / env vars):")
+        print(f"  mode               = {r.mode}")
+        print(f"  primary_provider   = {r.primary_provider}")
+        print(f"  escalation_provider= {r.escalation_provider}")
+        print()
+        print(f"Budget caps (calls/day):")
+        for pname, cap in cfg.budget.per_provider.items():
+            print(f"  {pname:<10} = {cap}")
+    except Exception:
+        pass
+
+    return 0
+
+
+def _cmd_compare(argv: list) -> int:
+    """Execute the 'compare' subcommand.
+
+    Runs the same document through two implemented providers in direct mode
+    and prints a side-by-side gate/score comparison.
+    """
+    parser = argparse.ArgumentParser(
+        prog="research-eval compare",
+        description=(
+            "Evaluate the same document with two providers and compare gate results. "
+            "Both providers must be implemented (manual, ollama, gemini, deepseek). "
+            "Each eval runs in direct mode (routing config is ignored)."
+        ),
+    )
+    parser.add_argument(
+        "--provider-a", metavar="NAME", required=True,
+        help="First provider (local: manual, ollama; cloud: gemini, deepseek).",
+    )
+    parser.add_argument(
+        "--provider-b", metavar="NAME", required=True,
+        help="Second provider.",
+    )
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
+        "--file", metavar="PATH",
+        help="Read document from file.",
+    )
+    parser.add_argument(
+        "--title", metavar="TEXT",
+        help="Document title (required if no --file).",
+    )
+    parser.add_argument(
+        "--body", metavar="TEXT",
+        help="Document body inline (required if no --file).",
+    )
+    parser.add_argument(
+        "--source-type", metavar="TYPE", default="manual",
+        help="Source type (default: manual).",
+    )
+    parser.add_argument(
+        "--author", metavar="TEXT", default="unknown",
+    )
+    parser.add_argument(
+        "--enable-cloud", action="store_true", default=False,
+        help="Enable cloud providers for this invocation.",
+    )
+    parser.add_argument(
+        "--json", dest="output_json", action="store_true",
+        help="Output comparison as JSON.",
+    )
+    parser.add_argument(
+        "--artifacts-dir", metavar="PATH", default=None,
+        help="If set, persist eval artifacts for both runs.",
+    )
+
+    if not argv:
+        parser.print_help(sys.stderr)
+        return 1
+
+    args = parser.parse_args(argv)
+
+    # Apply cloud guard before guard checks
+    _apply_cloud_guard(args.enable_cloud)
+
+    # Validate both providers — unimplemented and cloud guard checks
+    for slot, pname in (("--provider-a", args.provider_a), ("--provider-b", args.provider_b)):
+        rc = _check_provider_guard(pname)
+        if rc is not None:
+            print(f"  (failed on {slot}={pname!r})", file=sys.stderr)
+            return rc
+
+    # Resolve document content
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(f"Error: file not found: {args.file}", file=sys.stderr)
+            return 1
+        title = file_path.stem
+        body = file_path.read_text(encoding="utf-8")
+    else:
+        if not args.title or not args.body:
+            print(
+                "Error: --title and --body are required when --file is not provided.",
+                file=sys.stderr,
+            )
+            return 1
+        title = args.title
+        body = args.body
+
+    try:
+        from packages.research.evaluation.types import EvalDocument
+        from packages.research.evaluation.evaluator import evaluate_document
+        import hashlib
+
+        doc_id = "cli_cmp_" + hashlib.sha256(body.encode("utf-8")).hexdigest()[:12]
+        doc = EvalDocument(
+            doc_id=doc_id,
+            title=title,
+            author=args.author,
+            source_type=args.source_type,
+            source_url="",
+            source_publish_date=None,
+            body=body,
+        )
+
+        artifacts_dir = Path(args.artifacts_dir) if args.artifacts_dir else None
+
+        print(f"Running provider-a ({args.provider_a})...", file=sys.stderr)
+        decision_a = evaluate_document(
+            doc,
+            provider_name=args.provider_a,
+            artifacts_dir=artifacts_dir,
+        )
+        print(f"Running provider-b ({args.provider_b})...", file=sys.stderr)
+        decision_b = evaluate_document(
+            doc,
+            provider_name=args.provider_b,
+            artifacts_dir=artifacts_dir,
+        )
+    except PermissionError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Error: comparison failed: {exc}", file=sys.stderr)
+        return 2
+
+    # Build comparison result
+    def _scores_dict(d):
+        if not d.scores:
+            return None
+        s = d.scores
+        return {
+            "relevance": s.relevance,
+            "novelty": s.novelty,
+            "actionability": s.actionability,
+            "credibility": s.credibility,
+            "total": s.total,
+            "composite_score": s.composite_score,
+            "eval_model": s.eval_model,
+            "reject_reason": s.reject_reason,
+        }
+
+    gate_changed = decision_a.gate != decision_b.gate
+    scores_a = _scores_dict(decision_a)
+    scores_b = _scores_dict(decision_b)
+
+    dim_diffs: dict = {}
+    if scores_a and scores_b:
+        for dim in ("relevance", "novelty", "actionability", "credibility", "total"):
+            va, vb = scores_a.get(dim), scores_b.get(dim)
+            if va != vb:
+                dim_diffs[dim] = {"provider_a": va, "provider_b": vb}
+
+    if args.output_json:
+        output = {
+            "provider_a": args.provider_a,
+            "provider_b": args.provider_b,
+            "gate_a": decision_a.gate,
+            "gate_b": decision_b.gate,
+            "gate_changed": gate_changed,
+            "scores_a": scores_a,
+            "scores_b": scores_b,
+            "dim_diffs": dim_diffs,
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        sa = decision_a.scores
+        sb = decision_b.scores
+
+        def _fmt(label, pname, d, s):
+            if s:
+                return (
+                    f"  {label} ({pname}): Gate={d.gate} | Total={s.total}/20 | "
+                    f"R:{s.relevance} N:{s.novelty} A:{s.actionability} C:{s.credibility} | "
+                    f"Model={s.eval_model}"
+                )
+            return f"  {label} ({pname}): Gate={d.gate}"
+
+        print(_fmt("A", args.provider_a, decision_a, sa))
+        print(_fmt("B", args.provider_b, decision_b, sb))
+        print(f"  Gate changed: {'yes' if gate_changed else 'no'}")
+        if dim_diffs:
+            print("  Score diffs:")
+            for dim, vals in dim_diffs.items():
+                print(f"    {dim}: {vals['provider_a']} (A) vs {vals['provider_b']} (B)")
+        else:
+            print("  Score diffs: (none)")
+
     return 0

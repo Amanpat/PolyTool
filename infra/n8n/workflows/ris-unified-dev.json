@@ -1,5 +1,5 @@
 {
-  "name": "RIS \u2014 Research Intelligence System",
+  "name": "RIS — Research Intelligence System",
   "nodes": [
     {
       "id": "s1-sticky",
@@ -86,7 +86,7 @@
         80
       ],
       "parameters": {
-        "jsCode": "function safeParse(raw) {\n  if (!raw) {\n    return null;\n  }\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    return { __parseError: error.message };\n  }\n}\n\nconst healthExec = $('Health: Run research-health').item.json || {};\nconst statsExec = $('Health: Run research-stats').item.json || {};\nconst healthStdout = (healthExec.stdout || '').toString().trim();\nconst statsStdout = (statsExec.stdout || '').toString().trim();\nconst healthData = safeParse(healthStdout);\nconst statsData = safeParse(statsStdout);\nconst healthExitCode = Number(healthExec.exitCode || 0);\nconst statsExitCode = Number(statsExec.exitCode || 0);\nconst actionableChecks = [];\n\nif (healthData && Array.isArray(healthData.checks)) {\n  for (const check of healthData.checks) {\n    const status = (check.status || '').toUpperCase();\n    const deferred = Boolean(check.data && check.data.deferred);\n    if (status === 'RED' || (status === 'YELLOW' && !deferred)) {\n      actionableChecks.push({\n        checkName: check.check_name,\n        status,\n        message: (check.message || '').replace(/\\s+/g, ' ').trim(),\n      });\n    }\n  }\n}\n\nif (healthData && healthData.__parseError) {\n  actionableChecks.push({\n    checkName: 'health_parse',\n    status: 'RED',\n    message: `Unable to parse research-health JSON: ${healthData.__parseError}`,\n  });\n}\n\nif (statsData && statsData.__parseError) {\n  actionableChecks.push({\n    checkName: 'stats_parse',\n    status: 'RED',\n    message: `Unable to parse research-stats JSON: ${statsData.__parseError}`,\n  });\n}\n\nconst derivedStatus = healthExitCode !== 0 || statsExitCode !== 0 || actionableChecks.some((check) => check.status === 'RED')\n  ? 'RED'\n  : actionableChecks.length > 0\n    ? 'YELLOW'\n    : (healthData && healthData.summary) || 'GREEN';\n\nconst statsHeadline = statsData && !statsData.__parseError\n  ? {\n      totalDocs: Number(statsData.total_docs || 0),\n      totalClaims: Number(statsData.total_claims || 0),\n      acquisitionNew: Number(statsData.acquisition_new || 0),\n      acquisitionCached: Number(statsData.acquisition_cached || 0),\n      acquisitionErrors: Number(statsData.acquisition_errors || 0),\n      docsByFamily: statsData.docs_by_family || {},\n    }\n  : null;\n\nreturn [{\n  json: {\n    shouldAlert: derivedStatus === 'RED' || actionableChecks.length > 0,\n    overallStatus: derivedStatus,\n    runCount: Number((healthData && healthData.run_count) || 0),\n    actionableChecks,\n    statsHeadline,\n    healthExitCode,\n    statsExitCode,\n    healthStdout: healthStdout.substring(0, 1200),\n    statsStdout: statsStdout.substring(0, 800),\n    healthStderr: (healthExec.stderr || '').toString().substring(0, 500),\n    statsStderr: (statsExec.stderr || '').toString().substring(0, 500),\n    timestamp: new Date().toISOString(),\n  },\n}];"
+        "jsCode": "function safeParse(raw) {\n  if (!raw) {\n    return null;\n  }\n  try {\n    return JSON.parse(raw);\n  } catch (error) {\n    return { __parseError: error.message };\n  }\n}\n\nconst healthExec = ($('Health: Run research-health').item.json || {});\nconst statsExec = ($('Health: Run research-stats').item.json || {});\nconst healthStdout = (healthExec.stdout || '').toString().trim();\nconst statsStdout = (statsExec.stdout || '').toString().trim();\nconst healthData = safeParse(healthStdout);\nconst statsData = safeParse(statsStdout);\nconst healthExitCode = Number(healthExec.exitCode || 0);\nconst statsExitCode = Number(statsExec.exitCode || 0);\n\n// Existing: actionable checks for alert routing\nconst actionableChecks = [];\nif (healthData && Array.isArray(healthData.checks)) {\n  for (const check of healthData.checks) {\n    const status = (check.status || '').toUpperCase();\n    const deferred = Boolean(check.data && check.data.deferred);\n    if (status === 'RED' || (status === 'YELLOW' && !deferred)) {\n      actionableChecks.push({\n        checkName: check.check_name,\n        status,\n        message: (check.message || '').replace(/\\s+/g, ' ').trim(),\n      });\n    }\n  }\n}\nif (healthData && healthData.__parseError) {\n  actionableChecks.push({ checkName: 'health_parse', status: 'RED', message: 'Unable to parse research-health JSON: ' + healthData.__parseError });\n}\nif (statsData && statsData.__parseError) {\n  actionableChecks.push({ checkName: 'stats_parse', status: 'RED', message: 'Unable to parse research-stats JSON: ' + statsData.__parseError });\n}\n\nconst derivedStatus = healthExitCode !== 0 || statsExitCode !== 0 || actionableChecks.some((c) => c.status === 'RED')\n  ? 'RED'\n  : actionableChecks.length > 0\n    ? 'YELLOW'\n    : (healthData && healthData.summary) || 'GREEN';\n\n// Existing: stats headline (preserved for Health: Format Alert compatibility)\nconst statsHeadline = statsData && !statsData.__parseError\n  ? {\n      totalDocs: Number(statsData.total_docs || 0),\n      totalClaims: Number(statsData.total_claims || 0),\n      acquisitionNew: Number(statsData.acquisition_new || 0),\n      acquisitionCached: Number(statsData.acquisition_cached || 0),\n      acquisitionErrors: Number(statsData.acquisition_errors || 0),\n      docsByFamily: statsData.docs_by_family || {},\n    }\n  : null;\n\n// WP3-C: overall_category from research-health\nconst overallCategory = (healthData && !healthData.__parseError)\n  ? (healthData.overall_category || 'no_data')\n  : 'no_data';\n\n// WP3-C: per-pipeline status derived from pipeline_failed check data\nconst KNOWN_PIPELINES = ['academic', 'reddit', 'blog', 'youtube', 'github', 'freshness'];\nconst runCount = Number((healthData && healthData.run_count) || 0);\nlet errorPipelines = [];\nlet blockedPipelines = [];\nif (healthData && Array.isArray(healthData.checks)) {\n  const pfCheck = healthData.checks.find((c) => c.check_name === 'pipeline_failed');\n  if (pfCheck && pfCheck.data) {\n    errorPipelines = Array.isArray(pfCheck.data.error_pipelines) ? pfCheck.data.error_pipelines : [];\n    blockedPipelines = Array.isArray(pfCheck.data.blocked_pipelines) ? pfCheck.data.blocked_pipelines : [];\n  }\n}\nconst pipelineStatuses = KNOWN_PIPELINES.map((name) => {\n  let status = 'ok';\n  let note = null;\n  if (runCount === 0) {\n    status = 'unknown';\n    note = 'no_run_data';\n  } else if (blockedPipelines.includes(name)) {\n    status = 'blocked';\n  } else if (errorPipelines.includes(name)) {\n    status = 'error';\n  }\n  return { pipeline: name, status, note };\n});\n\n// WP3-C: knowledge store summary\nconst knowledgeStore = statsData && !statsData.__parseError\n  ? {\n      totalDocs: Number(statsData.total_docs || 0),\n      totalClaims: Number(statsData.total_claims || 0),\n      docsByFamily: statsData.docs_by_family || {},\n      gateDistribution: statsData.gate_distribution || {},\n      dispositionDistribution: statsData.disposition_distribution || {},\n      recentNew: Number(statsData.acquisition_new || 0),\n      recentCached: Number(statsData.acquisition_cached || 0),\n    }\n  : null;\n\n// WP3-C: review queue\nconst rqRaw = (statsData && !statsData.__parseError && statsData.review_queue) || {};\nconst reviewQueue = {\n  queueDepth: Number(rqRaw.queue_depth || 0),\n  byStatus: rqRaw.by_status || {},\n  byGate: rqRaw.by_gate || {},\n};\n\n// WP3-C: provider routing summary\nconst rsRaw = (statsData && !statsData.__parseError && statsData.routing_summary) || {};\nconst prdRaw = (statsData && !statsData.__parseError && statsData.provider_route_distribution) || {};\nconst pfcRaw = (statsData && !statsData.__parseError && statsData.provider_failure_counts) || {};\nconst providerRouting = {\n  totalRouted: Number(rsRaw.total_routed || 0),\n  direct: Number(rsRaw.direct_count || 0),\n  escalated: Number(rsRaw.escalation_count || 0),\n  fallback: Number(rsRaw.fallback_count || 0),\n  byProvider: prdRaw,\n  failureCounts: pfcRaw,\n};\n\n// WP3-C: compact operator summary text (table-like for n8n execution panel)\nconst statusIcon = (s) => s === 'ok' ? '\\u2705' : s === 'error' ? '\\u274c' : s === 'blocked' ? '\\U0001f6ab' : '\\u2753';\nconst pipelineLines = pipelineStatuses.map((p) => statusIcon(p.status) + ' ' + p.pipeline + (p.note ? ' (' + p.note + ')' : '')).join(' | ');\nconst ksLine = knowledgeStore\n  ? 'docs=' + knowledgeStore.totalDocs + ' claims=' + knowledgeStore.totalClaims + ' new=' + knowledgeStore.recentNew\n  : 'stats_unavailable';\nconst rqLine = 'queue=' + reviewQueue.queueDepth;\nconst routeLine = providerRouting.totalRouted > 0\n  ? 'routed=' + providerRouting.totalRouted + ' direct=' + providerRouting.direct + ' esc=' + providerRouting.escalated + ' fb=' + providerRouting.fallback\n  : 'no_routing_data';\nconst operatorSummary = [\n  'Status: ' + derivedStatus + ' (' + overallCategory + ')',\n  'Pipelines: ' + pipelineLines,\n  'KS: ' + ksLine,\n  'Queue: ' + rqLine,\n  'Routing: ' + routeLine,\n].join('\\n');\n\nreturn [{\n  json: {\n    shouldAlert: derivedStatus === 'RED' || actionableChecks.length > 0,\n    overallStatus: derivedStatus,\n    overallCategory,\n    runCount,\n    actionableChecks,\n    statsHeadline,\n    pipelineStatuses,\n    knowledgeStore,\n    reviewQueue,\n    providerRouting,\n    operatorSummary,\n    healthExitCode,\n    statsExitCode,\n    healthStdout: healthStdout.substring(0, 1200),\n    statsStdout: statsStdout.substring(0, 800),\n    healthStderr: (healthExec.stderr || '').toString().substring(0, 500),\n    statsStderr: (statsExec.stderr || '').toString().substring(0, 500),\n    timestamp: new Date().toISOString(),\n  },\n}];"
       }
     },
     {
@@ -246,7 +246,7 @@
         410
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'academic_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ Academic: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ Academic: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'academic', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -274,6 +274,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "a1b2c3d4",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -290,7 +296,7 @@
         570
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Academic',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | academic' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Academic',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | academic' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ Academic: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {
@@ -395,7 +401,7 @@
         760
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'reddit_polymarket', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ Reddit: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ Reddit: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'reddit', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -423,6 +429,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "b2c3d4e5",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -439,7 +451,7 @@
         920
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Reddit',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | reddit' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Reddit',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | reddit' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ Reddit: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {
@@ -544,7 +556,7 @@
         1110
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'blog_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ Blog: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ Blog: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'blog', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -572,6 +584,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "c3d4e5f6",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -588,7 +606,7 @@
         1270
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Blog',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | blog' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Blog',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | blog' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ Blog: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {
@@ -693,7 +711,7 @@
         1460
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'youtube_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ YouTube: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ YouTube: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'youtube', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -721,6 +739,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "d4e5f6a7",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -737,7 +761,7 @@
         1620
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: YouTube',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | youtube' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: YouTube',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | youtube' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ YouTube: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {
@@ -842,7 +866,7 @@
         1810
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'github_ingest', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ GitHub: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ GitHub: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'github', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -870,6 +894,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "e5f6a7b8",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -886,7 +916,7 @@
         1970
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: GitHub',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | github' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: GitHub',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | github' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ GitHub: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {
@@ -991,7 +1021,7 @@
         2160
       ],
       "parameters": {
-        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n').filter(l => l.trim());\nconst timestamp = new Date().toISOString();\nreturn [{ json: { status: 'success', job: 'freshness_refresh', stdout: stdout.substring(0, 1500), lineCount: lines.length, timestamp } }];"
+        "jsCode": "const stdout = ($json.stdout || '').toString();\nconst lines = stdout.split('\\n');\nconst timestamp = new Date().toISOString();\nconst exitCode = Number($json.exitCode || 0);\nlet docs_accepted = 0;\nlet docs_rejected = 0;\nconst errors = [];\nfor (const line of lines) {\n  const t = line.trim();\n  if (!t) continue;\n  if (/^Acquired:/i.test(t)) {\n    docs_accepted++;\n  } else if (/^Rejected[\\s|:]/i.test(t)) {\n    docs_rejected++;\n  } else if (/^Error:/i.test(t) || /^Warning:/i.test(t)) {\n    errors.push(t.substring(0, 200));\n  }\n}\nif (docs_accepted === 0 && docs_rejected === 0) {\n  let sa = 0, st = 0;\n  const re = /Search complete: (\\d+)\\/(\\d+) papers ingested/gi;\n  let m;\n  while ((m = re.exec(stdout)) !== null) {\n    sa += parseInt(m[1], 10);\n    st += parseInt(m[2], 10);\n  }\n  if (st > 0) { docs_accepted = sa; docs_rejected = st - sa; }\n}\nif (exitCode !== 0) errors.push('exit_code=' + exitCode);\nconst docs_fetched = docs_accepted + docs_rejected;\nconst statusLabel = errors.length > 0 ? '⚠️ Freshness: ' + docs_accepted + ' docs | ' + errors.length + ' warning(s)' : '✅ Freshness: ' + docs_accepted + ' docs ingested';\nreturn [{ json: { pipeline: 'freshness', docs_fetched, docs_evaluated: docs_fetched, docs_accepted, docs_rejected, docs_review: 0, new_claims: 0, duration_seconds: null, errors, exit_code: exitCode, timestamp, status_label: statusLabel } }];"
       }
     },
     {
@@ -1019,6 +1049,12 @@
               "name": "status",
               "value": "complete",
               "type": "string"
+            },
+            {
+              "id": "f6a7b8c9",
+              "name": "status_label",
+              "value": "={{ $json.status_label }}",
+              "type": "string"
             }
           ]
         },
@@ -1035,7 +1071,7 @@
         2320
       ],
       "parameters": {
-        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Freshness',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | freshness' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled } }];"
+        "jsCode": "const execNode = $json || {};\nconst stderrRaw = (execNode.stderr || '').toString().trim().substring(0, 300);\nconst stdout = (execNode.stdout || '').toString();\nconst stdoutTail = (stdout.length > 200 ? stdout.substring(stdout.length - 200) : stdout).trim();\nconst exitCode = execNode.exitCode;\nconst embed = {\n  title: 'Pipeline Error: Freshness',\n  description: `Exit ${exitCode}`,\n  color: 16711680,\n  fields: [],\n  footer: { text: 'RIS | freshness' },\n  timestamp: new Date().toISOString(),\n};\nif (stderrRaw.length > 0) {\n  embed.fields.push({ name: 'Error Output', value: stderrRaw, inline: false });\n}\nif (stdoutTail.length > 0) {\n  embed.fields.push({ name: 'Last Output', value: stdoutTail, inline: false });\n}\nconst rawWebhookUrl = '__RIS_OPERATOR_WEBHOOK_URL__';\nconst webhookUrl = (String(rawWebhookUrl).startsWith('http://') || String(rawWebhookUrl).startsWith('https://')) ? String(rawWebhookUrl).trim() : '';\nconst notifyEnabled = webhookUrl.length > 0;\nconst statusLabel = '❌ Freshness: exit ' + exitCode + (stderrRaw.length > 0 ? ' | ' + stderrRaw.substring(0, 60) : '');\nreturn [{ json: { embeds: [embed], webhookUrl, notifyEnabled, status_label: statusLabel } }];"
       }
     },
     {

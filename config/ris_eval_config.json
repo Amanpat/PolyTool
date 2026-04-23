@@ -3,12 +3,14 @@
   "scoring": {
     "weights": {
       "relevance": 0.30,
-      "novelty": 0.25,
-      "actionability": 0.25,
-      "credibility": 0.20
+      "novelty": 0.20,
+      "actionability": 0.20,
+      "credibility": 0.30
     },
     "floors": {
       "relevance": 2,
+      "novelty": 2,
+      "actionability": 2,
       "credibility": 2
     },
     "floor_waive_tiers": ["priority_1"]
@@ -20,7 +22,11 @@
     "priority_4": { "threshold": 3.5 }
   },
   "budget": {
-    "_comment": "Budget caps placeholder -- implemented in a later Phase 2 plan.",
+    "_comment": "Daily per-provider call caps. Local providers (manual, ollama) are uncapped. Env: RIS_EVAL_BUDGET_<UPPER_NAME>.",
+    "per_provider": {
+      "gemini": 500,
+      "deepseek": 500
+    },
     "daily_global_cap": 200,
     "manual_reserve": 10,
     "per_source": {
@@ -35,5 +41,10 @@
   },
   "defaults": {
     "default_priority_tier": "priority_3"
+  },
+  "routing": {
+    "mode": "direct",
+    "primary_provider": "gemini",
+    "escalation_provider": "deepseek"
   }
 }

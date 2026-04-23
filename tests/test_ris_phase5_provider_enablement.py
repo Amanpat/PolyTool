@@ -46,14 +46,14 @@ def test_cloud_provider_blocked_without_env_var(monkeypatch):
 
 
 def test_cloud_provider_env_var_set_but_not_implemented(monkeypatch):
-    """With RIS_ENABLE_CLOUD_PROVIDERS=1, get_provider('gemini') raises ValueError
+    """With RIS_ENABLE_CLOUD_PROVIDERS=1, get_provider('openai') raises ValueError
     (not implemented), NOT PermissionError."""
     monkeypatch.setenv("RIS_ENABLE_CLOUD_PROVIDERS", "1")
 
     from packages.research.evaluation.providers import get_provider
 
     with pytest.raises(ValueError) as exc_info:
-        get_provider("gemini")
+        get_provider("openai")
 
     # Must be ValueError, not PermissionError
     assert "not yet implemented" in str(exc_info.value).lower() or "recognized" in str(exc_info.value).lower()
@@ -134,8 +134,10 @@ def test_eval_artifact_has_provider_event(tmp_path):
     assert len(arts) == 1
 
     art = arts[0]
-    pe = art.get("provider_event")
-    assert pe is not None, "provider_event should be set for scoring path"
+    pe_list = art.get("provider_events")
+    assert pe_list is not None, "provider_events should be set for scoring path"
+    assert isinstance(pe_list, list) and len(pe_list) == 1
+    pe = pe_list[0]
     assert pe["provider_name"] == "manual"
     assert pe["model_id"] == "manual_placeholder"
     assert pe["prompt_template_id"] == "scoring_v2"
@@ -183,7 +185,7 @@ def test_eval_artifact_backward_compat(tmp_path):
         source_type="manual",
         # provider_event and event_id intentionally omitted — use defaults
     )
-    assert artifact.provider_event is None
+    assert artifact.provider_events is None
     assert artifact.event_id is None
 
     persist_eval_artifact(artifact, tmp_path)
@@ -191,9 +193,9 @@ def test_eval_artifact_backward_compat(tmp_path):
 
     assert len(loaded) == 1
     art = loaded[0]
-    # Old-style artifacts load correctly; provider_event and event_id are None
+    # Old-style artifacts load correctly; provider_events and event_id are None
     assert art["doc_id"] == "old_style_001"
-    assert art.get("provider_event") is None
+    assert art.get("provider_events") is None
     assert art.get("event_id") is None
 
 
@@ -211,14 +213,14 @@ def test_compare_eval_events_detects_diffs():
         "event_id": "evt_original",
         "gate": "ACCEPT",
         "scores": {"relevance": 3, "novelty": 3, "actionability": 3, "credibility": 3, "total": 12},
-        "provider_event": {"provider_name": "manual", "prompt_template_id": "scoring_v1"},
+        "provider_events": [{"provider_name": "manual", "prompt_template_id": "scoring_v1"}],
     }
     a2 = {
         "doc_id": "x",
         "event_id": "evt_replay",
         "gate": "REVIEW",
         "scores": {"relevance": 2, "novelty": 3, "actionability": 2, "credibility": 3, "total": 10},
-        "provider_event": {"provider_name": "ollama", "prompt_template_id": "scoring_v1"},
+        "provider_events": [{"provider_name": "ollama", "prompt_template_id": "scoring_v1"}],
     }
 
     diff = compare_eval_events(a1, a2)
@@ -246,7 +248,7 @@ def test_compare_eval_events_no_diff():
         "event_id": "evt_a",
         "gate": "ACCEPT",
         "scores": {"relevance": 4, "novelty": 3, "actionability": 3, "credibility": 4, "total": 14},
-        "provider_event": {"provider_name": "manual", "prompt_template_id": "scoring_v1"},
+        "provider_events": [{"provider_name": "manual", "prompt_template_id": "scoring_v1"}],
     }
     # Identical scores
     a2 = dict(a1)
@@ -316,7 +318,7 @@ def test_find_artifact_by_event_id(tmp_path):
         scores=None,
         source_family="manual",
         source_type="manual",
-        provider_event=None,
+        provider_events=None,
         event_id="aaaa1111bbbb2222",
     )
     a2 = EvalArtifact(
@@ -329,7 +331,7 @@ def test_find_artifact_by_event_id(tmp_path):
         scores=None,
         source_family="manual",
         source_type="manual",
-        provider_event=None,
+        provider_events=None,
         event_id="cccc3333dddd4444",
     )
     persist_eval_artifact(a1, tmp_path)
@@ -435,8 +437,8 @@ def test_prompt_hash_in_provider_event(tmp_path):
     assert len(prompt_hash) == 12
 
 
-def test_document_evaluator_records_provider_event(tmp_path):
-    """DocumentEvaluator.evaluate() records provider_event in persisted artifact."""
+def test_document_evaluator_records_provider_events(tmp_path):
+    """DocumentEvaluator.evaluate() records provider_events in persisted artifact."""
     from packages.research.evaluation.types import EvalDocument
     from packages.research.evaluation.providers import ManualProvider
     from packages.research.evaluation.evaluator import DocumentEvaluator
@@ -461,12 +463,102 @@ def test_document_evaluator_records_provider_event(tmp_path):
     assert len(arts) == 1
     art = arts[0]
 
-    # provider_event must be present and populated
-    pe = art.get("provider_event")
-    assert pe is not None
+    # provider_events must be a list with one entry
+    pe_list = art.get("provider_events")
+    assert pe_list is not None and len(pe_list) == 1
+    pe = pe_list[0]
     assert pe["provider_name"] == "manual"
     assert pe["prompt_template_id"] == "scoring_v2"
     assert pe["output_hash"] is not None
 
     # event_id must be present
     assert art.get("event_id") is not None
+
+
+# ---------------------------------------------------------------------------
+# WP1-C backward-compat tests: normalize_provider_events (5 tests)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_provider_events_new_artifact():
+    """New artifact with provider_events list normalizes correctly."""
+    from packages.research.evaluation.artifacts import normalize_provider_events
+
+    artifact = {
+        "doc_id": "x",
+        "provider_events": [
+            {"provider_name": "manual", "prompt_template_id": "scoring_v2"},
+        ],
+    }
+    result = normalize_provider_events(artifact)
+    assert result == [{"provider_name": "manual", "prompt_template_id": "scoring_v2"}]
+
+
+def test_normalize_provider_events_legacy_artifact():
+    """Legacy artifact with singular provider_event dict is wrapped in a list."""
+    from packages.research.evaluation.artifacts import normalize_provider_events
+
+    artifact = {
+        "doc_id": "x",
+        "provider_event": {"provider_name": "ollama", "prompt_template_id": "scoring_v1"},
+    }
+    result = normalize_provider_events(artifact)
+    assert len(result) == 1
+    assert result[0]["provider_name"] == "ollama"
+    assert result[0]["prompt_template_id"] == "scoring_v1"
+
+
+def test_normalize_provider_events_empty():
+    """Artifact with neither provider_events nor provider_event returns empty list."""
+    from packages.research.evaluation.artifacts import normalize_provider_events
+
+    assert normalize_provider_events({}) == []
+    assert normalize_provider_events({"doc_id": "x", "gate": "ACCEPT"}) == []
+    assert normalize_provider_events({"provider_events": None}) == []
+
+
+def test_replay_eval_returns_list_for_new_artifact(tmp_path):
+    """replay_eval returns a list as second tuple element for new-format artifacts."""
+    from packages.research.evaluation.types import EvalDocument
+    from packages.research.evaluation.replay import replay_eval
+
+    doc = EvalDocument(
+        doc_id="replay_compat_test",
+        title="Replay Compat",
+        author="A",
+        source_type="manual",
+        source_url="",
+        source_publish_date=None,
+        body=_LONG_BODY,
+    )
+    decision, events = replay_eval(doc, provider_name="manual", artifacts_dir=tmp_path)
+    assert decision.gate in ("ACCEPT", "REVIEW", "REJECT")
+    assert isinstance(events, list)
+    assert len(events) == 1
+    assert events[0]["provider_name"] == "manual"
+
+
+def test_compare_eval_events_reads_legacy_provider_event():
+    """compare_eval_events handles artifacts with old singular provider_event key."""
+    from packages.research.evaluation.replay import compare_eval_events
+
+    # Legacy-format artifacts (pre-WP1-C)
+    a1 = {
+        "doc_id": "x",
+        "event_id": "evt_legacy_orig",
+        "gate": "ACCEPT",
+        "scores": {"relevance": 4, "novelty": 3, "actionability": 3, "credibility": 4, "total": 14},
+        "provider_event": {"provider_name": "manual", "prompt_template_id": "scoring_v1"},
+    }
+    a2 = {
+        "doc_id": "x",
+        "event_id": "evt_legacy_replay",
+        "gate": "ACCEPT",
+        "scores": {"relevance": 4, "novelty": 3, "actionability": 3, "credibility": 4, "total": 14},
+        "provider_event": {"provider_name": "ollama", "prompt_template_id": "scoring_v1"},
+    }
+    diff = compare_eval_events(a1, a2)
+    assert diff.provider_original == "manual"
+    assert diff.provider_replay == "ollama"
+    assert diff.gate_changed is False
+    assert diff.diff_fields == {}

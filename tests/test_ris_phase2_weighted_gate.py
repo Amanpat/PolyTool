@@ -82,10 +82,10 @@ def _make_scoring(
 
 class TestCompositeScoreComputation:
     def test_composite_formula_mixed_dims(self):
-        """rel=4, nov=3, act=3, cred=4 -> 4*0.30+3*0.25+3*0.25+4*0.20 = 1.20+0.75+0.75+0.80 = 3.50"""
+        """rel=4, nov=3, act=3, cred=4 -> 4*0.30+3*0.20+3*0.20+4*0.30 = 1.20+0.60+0.60+1.20 = 3.60"""
         from packages.research.evaluation.scoring import _compute_composite
         result = _compute_composite(4, 3, 3, 4)
-        assert abs(result - 3.50) < 0.001
+        assert abs(result - 3.60) < 0.001
 
     def test_composite_all_threes(self):
         """All dims=3 -> composite=3.0 (ManualProvider scenario)."""
@@ -189,8 +189,8 @@ class TestFloorEnforcement:
         """relevance=2, credibility=2 (exactly at floor) should not trigger floor failure."""
         r = _make_scoring(relevance=2, novelty=5, actionability=5, credibility=2,
                           priority_tier="priority_3")
-        # composite = 2*0.30 + 5*0.25 + 5*0.25 + 2*0.20 = 0.60+1.25+1.25+0.40 = 3.50
-        # 3.50 >= 3.2 (P3 threshold) -> ACCEPT (no floor failure since rel=2, cred=2 meet floor)
+        # composite = 2*0.30 + 5*0.20 + 5*0.20 + 2*0.30 = 0.60+1.00+1.00+0.60 = 3.20
+        # 3.20 >= 3.2 (P3 threshold) -> ACCEPT (no floor failure since rel=2, cred=2 meet floor)
         assert r.gate == "ACCEPT"
 
     def test_relevance_below_floor_priority_3(self):
@@ -207,14 +207,14 @@ class TestFloorEnforcement:
 
     def test_priority_1_floor_waived_low_dims(self):
         """priority_1 with relevance=1, credibility=1 still ACCEPTS if composite >= 2.5."""
-        # composite = 1*0.30+1*0.25+5*0.25+5*0.20 = 0.30+0.25+1.25+1.00 = 2.80
+        # composite = 1*0.30+1*0.20+5*0.20+5*0.30 = 0.30+0.20+1.00+1.50 = 3.00
         r = _make_scoring(relevance=1, novelty=1, actionability=5, credibility=5,
                           priority_tier="priority_1")
         assert r.gate == "ACCEPT"
 
     def test_priority_1_floor_waived_all_low(self):
         """priority_1 with low dims and composite < 2.5 -> REVIEW (not REJECT from floor)."""
-        # composite = 1*0.30+1*0.25+1*0.25+1*0.20 = 1.0 < 2.5 -> REVIEW
+        # composite = 1*0.30+1*0.20+1*0.20+1*0.30 = 1.0 < 2.5 -> REVIEW
         r = _make_scoring(relevance=1, novelty=1, actionability=1, credibility=1,
                           priority_tier="priority_1", composite_score=1.0)
         assert r.gate == "REVIEW"
@@ -326,19 +326,21 @@ class TestManualProviderGate:
 
 class TestConfigLoading:
     def test_default_config_weights(self):
-        """Default config weights match spec: rel=0.30, nov=0.25, act=0.25, cred=0.20."""
+        """Default config weights match spec: rel=0.30, nov=0.20, act=0.20, cred=0.30."""
         from packages.research.evaluation.config import load_eval_config
         cfg = load_eval_config()
         assert abs(cfg.weights["relevance"] - 0.30) < 0.001
-        assert abs(cfg.weights["novelty"] - 0.25) < 0.001
-        assert abs(cfg.weights["actionability"] - 0.25) < 0.001
-        assert abs(cfg.weights["credibility"] - 0.20) < 0.001
+        assert abs(cfg.weights["novelty"] - 0.20) < 0.001
+        assert abs(cfg.weights["actionability"] - 0.20) < 0.001
+        assert abs(cfg.weights["credibility"] - 0.30) < 0.001
 
     def test_default_config_floors(self):
-        """Default floors: relevance>=2, credibility>=2."""
+        """Default floors: all four dimensions >= 2 (WP1-B)."""
         from packages.research.evaluation.config import load_eval_config
         cfg = load_eval_config()
         assert cfg.floors["relevance"] == 2
+        assert cfg.floors["novelty"] == 2
+        assert cfg.floors["actionability"] == 2
         assert cfg.floors["credibility"] == 2
 
     def test_default_config_thresholds(self):

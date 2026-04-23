@@ -7,13 +7,20 @@ features in a queryable, append-only log.
 
 Phase 5 additions (backward compatible):
 - ProviderEvent dataclass for replay-grade metadata on every scoring event.
-- EvalArtifact gains optional provider_event and event_id fields (None for old records).
+- EvalArtifact gains optional provider_events (list) and event_id fields.
 - generate_event_id() and compute_output_hash() helpers.
+- normalize_provider_events() handles both new (provider_events list) and legacy
+  (provider_event singular dict) artifact formats for backward-compatible reads.
 
 File layout:
     {artifacts_dir}/eval_artifacts.jsonl
 
 Each line is a JSON object corresponding to one EvalArtifact.
+
+Contract (WP1-C):
+- New artifacts always write ``provider_events: [...]`` (list).
+- Old artifacts on disk have ``provider_event: {...}`` (singular dict).
+- All read paths must call normalize_provider_events() to handle both forms.
 """
 
 from __future__ import annotations
@@ -76,9 +83,11 @@ class EvalArtifact:
         scores: Serialized ScoringResult dict (or None if scoring was skipped).
         source_family: Source family label (e.g., "academic", "github").
         source_type: Raw source_type from the EvalDocument.
-        provider_event: Serialized ProviderEvent dict (Phase 5+). None for older
-            artifacts that predate Phase 5, or for hard-stop/dedup paths where
-            no scoring occurred.
+        provider_events: List of serialized ProviderEvent dicts (Phase 5+/WP1-C).
+            Contains one entry for single-provider evaluations, multiple for routing
+            chains. None for older artifacts (pre-Phase-5) or hard-stop/dedup paths
+            where no scoring occurred. Use normalize_provider_events() when reading
+            from raw artifact dicts to handle both old and new formats.
         event_id: Unique identifier for this eval event (Phase 5+). sha256 of
             doc_id + timestamp + provider_name, first 16 hex chars. None for
             older artifacts.
@@ -94,7 +103,9 @@ class EvalArtifact:
     source_family: str
     source_type: str
     # Phase 5 additions — Optional with default=None for backward compatibility
-    provider_event: Optional[dict] = field(default=None)
+    # WP1-C: provider_events is the canonical plural-list field for new artifacts.
+    # Old artifacts on disk used provider_event (singular dict) — read via normalize_provider_events().
+    provider_events: Optional[List[dict]] = field(default=None)
     event_id: Optional[str] = field(default=None)
 
 
@@ -130,6 +141,29 @@ def compute_output_hash(raw_output: str) -> str:
         First 16 hex characters of sha256(raw_output.encode("utf-8")).
     """
     return hashlib.sha256(raw_output.encode("utf-8")).hexdigest()[:16]
+
+
+def normalize_provider_events(artifact: dict) -> List[dict]:
+    """Normalize provider event data from a raw artifact dict to a list.
+
+    Handles both new artifacts (``provider_events: [...]``) and legacy artifacts
+    (``provider_event: {...}`` singular dict written before WP1-C). Always returns
+    a list so callers need no branching logic.
+
+    Args:
+        artifact: Raw artifact dict as loaded from the JSONL file.
+
+    Returns:
+        List of provider event dicts. Empty list if neither field is present.
+    """
+    events = artifact.get("provider_events")
+    if events is not None and isinstance(events, list):
+        return events
+    # Legacy fallback: singular dict from pre-WP1-C artifacts
+    singular = artifact.get("provider_event")
+    if singular and isinstance(singular, dict):
+        return [singular]
+    return []
 
 
 def persist_eval_artifact(artifact: EvalArtifact, artifacts_dir: Path) -> None:

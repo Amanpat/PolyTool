@@ -40,7 +40,7 @@ SCORING_PROMPT_TEMPLATE_ID = "scoring_v2"
 def _compute_composite(relevance: int, novelty: int, actionability: int, credibility: int) -> float:
     """Compute the weighted composite score.
 
-    Formula: rel*0.30 + nov*0.25 + act*0.25 + cred*0.20
+    Formula: rel*0.30 + nov*0.20 + act*0.20 + cred*0.30
 
     Weights come from config at call time to respect env-var overrides.
     """
@@ -49,9 +49,9 @@ def _compute_composite(relevance: int, novelty: int, actionability: int, credibi
     w = cfg.weights
     return (
         relevance * w.get("relevance", 0.30)
-        + novelty * w.get("novelty", 0.25)
-        + actionability * w.get("actionability", 0.25)
-        + credibility * w.get("credibility", 0.20)
+        + novelty * w.get("novelty", 0.20)
+        + actionability * w.get("actionability", 0.20)
+        + credibility * w.get("credibility", 0.30)
     )
 
 
@@ -66,7 +66,16 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
     - Expected JSON output format
 
     Phase 2: GATE THRESHOLDS section updated to describe weighted composite.
+    WP1-B: floor text derived from live config so prompt stays aligned with gate.
     """
+    from packages.research.evaluation.config import get_eval_config
+    _cfg = get_eval_config()
+    _floor_parts = [f"{dim} >= {val}" for dim, val in _cfg.floors.items()]
+    _floor_text = (
+        ", ".join(_floor_parts[:-1]) + ", and " + _floor_parts[-1]
+        if len(_floor_parts) > 1
+        else (_floor_parts[0] if _floor_parts else "")
+    )
     family = SOURCE_FAMILIES.get(doc.source_type, "manual")
     guidance = SOURCE_FAMILY_GUIDANCE.get(family, SOURCE_FAMILY_GUIDANCE["manual"])
 
@@ -118,9 +127,9 @@ def build_scoring_prompt(doc: EvalDocument) -> str:
         "",
         "GATE THRESHOLDS (weighted composite):",
         "  Acceptance is determined by a weighted composite score:",
-        "    composite = relevance*0.30 + novelty*0.25 + actionability*0.25 + credibility*0.20",
+        "    composite = relevance*0.30 + novelty*0.20 + actionability*0.20 + credibility*0.30",
         "  Score each dimension 1-5 honestly -- the system computes the gate automatically.",
-        "  Per-dimension floors: relevance >= 2 and credibility >= 2 are required for acceptance.",
+        f"  Per-dimension floors: {_floor_text} are required for acceptance.",
         "",
         "EPISTEMIC TYPE TAGGING (pick one):",
         "  EMPIRICAL    = contains verifiable data or measured results",

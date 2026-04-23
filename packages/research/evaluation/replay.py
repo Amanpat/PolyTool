@@ -90,15 +90,17 @@ def replay_eval(
     evaluator = DocumentEvaluator(provider=provider, artifacts_dir=artifacts_path)
     decision = evaluator.evaluate(doc)
 
-    provider_event = None
+    provider_events = None
     if artifacts_path is not None:
+        from packages.research.evaluation.artifacts import normalize_provider_events
         loaded = load_eval_artifacts(artifacts_path)
         # Find the artifact for this doc_id (last match)
         matching = [a for a in loaded if a.get("doc_id") == doc.doc_id]
         if matching:
-            provider_event = matching[-1].get("provider_event")
+            events = normalize_provider_events(matching[-1])
+            provider_events = events if events else None
 
-    return decision, provider_event
+    return decision, provider_events
 
 
 def compare_eval_events(
@@ -143,9 +145,12 @@ def compare_eval_events(
     replay_gate = replay_artifact.get("gate", "UNKNOWN")
     gate_changed = original_gate != replay_gate
 
-    # Extract provider metadata from provider_event (Phase 5+ artifacts)
-    orig_pe = original_artifact.get("provider_event") or {}
-    replay_pe = replay_artifact.get("provider_event") or {}
+    # Extract provider metadata — normalize both old (singular) and new (list) formats
+    from packages.research.evaluation.artifacts import normalize_provider_events
+    _orig_events = normalize_provider_events(original_artifact)
+    _replay_events = normalize_provider_events(replay_artifact)
+    orig_pe = _orig_events[0] if _orig_events else {}
+    replay_pe = _replay_events[0] if _replay_events else {}
 
     provider_original = orig_pe.get("provider_name", "unknown")
     provider_replay = replay_pe.get("provider_name", "unknown")

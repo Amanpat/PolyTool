@@ -206,7 +206,8 @@ def collect_ris_metrics(
             routing_summary["total_routed"] += 1
 
         # --- Phase 2: provider events (failure counts) ---
-        for event in artifact.get("provider_events") or []:
+        from packages.research.evaluation.artifacts import normalize_provider_events
+        for event in normalize_provider_events(artifact):
             status = event.get("status", "")
             if status != "success":
                 reason = event.get("failure_reason") or "unknown"

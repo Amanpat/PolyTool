@@ -257,7 +257,7 @@ class TestDocumentEvaluator:
         """ManualProvider returns all-3s -> composite=3.0 < P3 threshold 3.2 -> REVIEW.
 
         Phase 2 behavior: ManualProvider no longer auto-accepts. All-3s composite
-        (3*0.30 + 3*0.25 + 3*0.25 + 3*0.20 = 3.0) falls below the priority_3
+        (3*0.30 + 3*0.20 + 3*0.20 + 3*0.30 = 3.0) falls below the priority_3
         threshold of 3.2, so documents score as REVIEW rather than ACCEPT.
         This forces operator review instead of silent acceptance.
         """
