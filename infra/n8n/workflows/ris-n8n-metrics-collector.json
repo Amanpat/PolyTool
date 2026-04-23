@@ -1,0 +1,136 @@
+{
+  "name": "RIS -- n8n Execution Metrics Collector",
+  "active": false,
+  "nodes": [
+    {
+      "id": "metrics-schedule",
+      "name": "Schedule: Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "metrics-fetch",
+      "name": "API: GET Executions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5678/api/v1/executions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.N8N_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "limit", "value": "250"},
+            {"name": "includeData", "value": "false"}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "metrics-transform",
+      "name": "Transform: To ClickHouse Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 300],
+      "parameters": {
+        "jsCode": "function toClickHouseDT(isoStr) {\n  if (!isoStr) return null;\n  const d = new Date(isoStr);\n  if (isNaN(d.getTime())) return null;\n  const p = n => String(n).padStart(2, '0');\n  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;\n}\n\nconst executions = ($json.data || []);\n\nconst rows = executions\n  .map(exec => {\n    const startedAt = toClickHouseDT(exec.startedAt);\n    if (!startedAt) return null;\n    const stoppedAt = toClickHouseDT(exec.stoppedAt) || null;\n    let durationSeconds = null;\n    if (exec.startedAt && exec.stoppedAt) {\n      const ms = new Date(exec.stoppedAt) - new Date(exec.startedAt);\n      if (!isNaN(ms) && ms >= 0) {\n        durationSeconds = Math.round(ms) / 1000;\n      }\n    }\n    return {\n      execution_id: String(exec.id || ''),\n      workflow_id: String(exec.workflowId || ''),\n      workflow_name: String(exec.workflowName || ''),\n      status: String(exec.status || ''),\n      mode: String(exec.mode || ''),\n      started_at: startedAt,\n      stopped_at: stoppedAt,\n      duration_seconds: durationSeconds\n    };\n  })\n  .filter(Boolean);\n\nconst clickhouseBody = rows.map(r => JSON.stringify(r)).join('\\n');\nreturn [{ json: { rows_count: rows.length, clickhouse_body: clickhouseBody } }];"
+      }
+    },
+    {
+      "id": "metrics-write",
+      "name": "ClickHouse: INSERT Rows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://clickhouse:8123/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-ClickHouse-User",
+              "value": "polytool_admin"
+            },
+            {
+              "name": "X-ClickHouse-Key",
+              "value": "={{ $env.CLICKHOUSE_PASSWORD }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "INSERT INTO polytool.n8n_execution_metrics FORMAT JSONEachRow"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "={{ $json.clickhouse_body }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Schedule: Every Hour": {
+      "main": [
+        [
+          {
+            "node": "API: GET Executions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API: GET Executions": {
+      "main": [
+        [
+          {
+            "node": "Transform: To ClickHouse Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform: To ClickHouse Rows": {
+      "main": [
+        [
+          {
+            "node": "ClickHouse: INSERT Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
