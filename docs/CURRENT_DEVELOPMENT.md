@@ -56,23 +56,21 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
 ### Feature 2: RIS Operational Readiness — Phase 2A
 
 - **Track:** Research Intelligence System
-- **Status:** Active — Director decision 2026-04-22 (see dev log `docs/dev_logs/2026-04-22_ris_phase2a_activation_override.md`)
+- **Status:** Implementation complete — awaiting operator end-to-end validation run
 - **Started:** 2026-04-22
 - **Last updated:** 2026-04-23
 - **Owner:** Aman
-- **Activation override:** Original RIS roadmap trigger (Fee Model Overhaul complete) was satisfied 2026-04-21. The secondary Paused-table trigger ("Track 2 ships first dollar") is superseded by explicit Director decision. Both conditions now resolved.
-- **Authoritative roadmap:** `docs/obsidian-vault/Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP_v1.1.md`
-- **Hermes scope:** Hermes is explicitly **out of scope for Phase 2A**. It enters only at WP7, which is conditional on a friend actively contributing via WP6 for 2+ weeks AND explicitly requesting continuous mode. Do not design prompts that introduce Hermes into Phase 2A.
-- **Current step:** WP3-C COMPLETE (2026-04-23) — `Health: Parse Output` now emits rich structured summary: `overallCategory` (HEALTHY/DEGRADED/BLOCKED_ON_SETUP/FAILURE/no_data), `pipelineStatuses` array (per-pipeline ok/error/blocked/unknown for S2–S7), `knowledgeStore` (totalDocs, totalClaims, docsByFamily, gateDistribution, dispositionDistribution, recentNew/recentCached), `reviewQueue` (queueDepth, byStatus, byGate), `providerRouting` (totalRouted, direct, escalated, fallback, byProvider, failureCounts), `operatorSummary` (compact 5-line text panel). All existing fields preserved; `Health: Format Alert` unaffected. JS syntax validated; JSON valid (76 nodes, 56 connections). See dev log `docs/dev_logs/2026-04-23_ris_wp3c_health_monitor_summary.md`. Next: WP3-D (Discord embeds), or WP1 remaining items (WP1-B per-dim floors, WP1-D R0 seed 11+ docs, WP1-E 5 open-source docs seeded)
-- **Blockers:** None.
+- **Current step:** All WP1–WP5 implementation complete. Next operator action: run end-to-end validation (11 steps defined in `docs/dev_logs/2026-04-23_ris_phase2a_acceptance_pass.md`). Commit WP5 dirty-worktree changes first.
+- **Blockers:** None. Pending operator time to run validation.
 - **Definition of done:**
-  - [ ] WP1: Foundation fixes pass acceptance (scoring weights, per-dim floor, provider_event, R0 seed 11+ docs, 5 open-source docs seeded)
-  - [ ] WP2: Cloud LLM providers implemented and routing chain working (Gemini, DeepSeek, OpenRouter, Groq, Ollama variants)
-  - [ ] WP3: n8n workflow visual improvements (structured output, Discord embeds, daily digest)
-  - [ ] WP4: Monitoring infrastructure (ClickHouse DDL + Grafana RIS dashboard + stale alert)
-  - [ ] WP5: Retrieval benchmark expanded to 30+ queries across 5 classes
-  - [ ] `docs/features/ris_operational_readiness_phase2a.md` created
-  - [ ] CURRENT_STATE.md RIS section updated
+  - [x] WP1: Foundation fixes pass acceptance (scoring weights, per-dim floor, provider_event, R0 seed 11+ docs, 5 open-source docs seeded) — COMPLETE 2026-04-22
+  - [~] WP2: Cloud LLM providers implemented and routing chain working — Core COMPLETE (Gemini, DeepSeek, routing, budget, CLI); WP2-D/E/F/G (OpenRouter, Groq, Ollama variants) deferred to Phase 2B
+  - [x] WP3: n8n workflow visual improvements (structured output, Discord embeds, daily digest) — COMPLETE 2026-04-23
+  - [x] WP4: Monitoring infrastructure (ClickHouse DDL + Grafana RIS dashboard + stale alert) — COMPLETE 2026-04-23
+  - [x] WP5: Retrieval benchmark — 31 queries across 5 classes, P@5, per-class reporting, --save-baseline — COMPLETE 2026-04-23
+  - [x] `docs/features/ris_operational_readiness_phase2a.md` created — COMPLETE 2026-04-23
+  - [ ] End-to-end validation run complete (operator manual step — see acceptance dev log)
+  - [ ] CURRENT_STATE.md RIS section updated (after validation run)
 
 ### Feature 3: [empty slot]
 
@@ -93,6 +91,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                       | Completed  | Track    | Completion doc                                                     |
 | ------------------------------------------------------------- | ---------- | -------- | ------------------------------------------------------------------ |
+| RIS Operational Readiness — Phase 2A                         | 2026-04-23 | RIS      | `docs/features/ris_operational_readiness_phase2a.md` — WP1-WP5 complete; implementation done; e2e validation run pending operator |
 | PMXT Deliverable B (Sports Strategy Foundations)              | 2026-04-22 | Track 1C      | `docs/features/simtrader_sports_strategies_v1.md` — SportsMomentum/SportsFavorite/SportsVWAP, STRATEGY_REGISTRY wiring, 20 tests, MERGE-READY per Codex re-review |
 | SimTrader Fee Model Overhaul (PMXT Deliverable A)             | 2026-04-21 | Cross-cutting | `docs/features/simtrader_fee_model_v2.md` — category-aware taker fees, maker=0, Kalshi baseline, full 12-entry-point propagation, 32 new tests, MERGE-READY per Codex gate |
 | Wallet Discovery v1 (Loop A + watchlist + unified scan + MVF) | 2026-04-10 | Research | `docs/features/wallet-discovery-v1.md`                             |
@@ -127,4 +126,4 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - **PMXT Deliverable C is COMPLETE (2026-04-22).** 7 external_knowledge docs seeded to SQLite, freshness_decay.json corrected (external_knowledge: 12), 65 derived_claims extracted (heuristic path), retriever over-fetch truncation fixed (Gap 1). Retrieval: 2/5 original queries surface external_knowledge body claims (>=2/5 threshold met). Q3 ("SimTrader queue position") and Q4 ("Jaccard Levenshtein market matching") both surface body-claims at rank 2. cross_platform_price_divergence_empirics.md and cross_platform_market_matching.md remain explicitly provisional. See dev log 2026-04-22_deliverable-c_gap1-fix.md.
 - **Completion-doc debt is tracked.** When a future feature crosses DoD, your NEXT STEP must include the three-step completion protocol explicitly.
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"
-- **RIS Phase 2A is ACTIVE (2026-04-22).** Activated by explicit Director decision; both triggers satisfied (Fee Model complete 2026-04-21 + Director override). Authoritative roadmap: `docs/obsidian-vault/Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP_v1.1.md`. **Hermes is OUT OF SCOPE for Phase 2A** — it enters only at WP7, which is conditional on a collaborator actively contributing via WP6 for 2+ weeks AND explicitly requesting continuous mode. Do not design prompts that introduce Hermes into Phase 2A work.
+- **RIS Phase 2A implementation is COMPLETE (2026-04-23).** WP1 ✓, WP2-core ✓ (WP2-D/E/F/G deferred to Phase 2B), WP3 ✓, WP4 ✓, WP5 ✓. Next operator action: end-to-end validation run (11 steps in `docs/dev_logs/2026-04-23_ris_phase2a_acceptance_pass.md`). Feature doc at `docs/features/ris_operational_readiness_phase2a.md`. **Hermes is OUT OF SCOPE for Phase 2A and Phase 2B base.** Hermes enters only at WP7, which is conditional on a collaborator contributing via WP6 for 2+ weeks AND explicitly requesting continuous mode. Do not design prompts that introduce Hermes into Phase 2A or WP6 work. **Phase 2B (WP6)** starts only when: Phase 2A e2e validation passes AND at least one friend explicitly agrees to contribute.

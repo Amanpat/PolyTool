@@ -20,9 +20,12 @@ from polymarket.rag.eval import (
     EvalCase,
     EvalReport,
     ModeAggregate,
+    _build_aggregate,
+    _eval_single,
     _match_pattern,
     load_suite,
     run_eval,
+    save_baseline,
     write_report,
 )
 from polymarket.rag.index import build_index, sanitize_collection_name
@@ -889,6 +892,594 @@ class LoadSuiteQueryClassTests(unittest.TestCase):
             self.assertEqual(cases[0].query_class, "unclassified")
         finally:
             os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# WP5-B fix: fetch-depth tests (k < 5 must still see a true top-5 window)
+# ---------------------------------------------------------------------------
+
+
+class FetchDepthTests(unittest.TestCase):
+    """Tests that run_eval fetches max(k, _PRECISION_K) results so P@5 is valid."""
+
+    def _make_results(self, paths: list[str]) -> list[dict]:
+        return [
+            {
+                "file_path": p,
+                "chunk_id": f"{'a' * 63}{i}",
+                "doc_id": "b" * 64,
+                "score": 1.0 - i * 0.1,
+                "snippet": "text",
+                "metadata": {},
+            }
+            for i, p in enumerate(paths)
+        ]
+
+    def test_k_less_than_5_query_index_called_with_5(self) -> None:
+        """When user k=3, query_index receives fetch_k=5 (max(3, _PRECISION_K))."""
+        with patch("polymarket.rag.eval.query_index", return_value=[]) as mock_qi:
+            suite = [EvalCase(query="test", filters={}, must_include_any=[], must_exclude_any=[])]
+            run_eval(suite, k=3, embedder=None)
+            # Only the lexical mode fires when embedder=None; check that call.
+            called_k = mock_qi.call_args.kwargs["k"]
+            self.assertEqual(called_k, 5)
+
+    def test_k_equal_5_query_index_called_with_5(self) -> None:
+        """When user k=5, query_index receives k=5 (unchanged)."""
+        with patch("polymarket.rag.eval.query_index", return_value=[]) as mock_qi:
+            suite = [EvalCase(query="test", filters={}, must_include_any=[], must_exclude_any=[])]
+            run_eval(suite, k=5, embedder=None)
+            called_k = mock_qi.call_args.kwargs["k"]
+            self.assertEqual(called_k, 5)
+
+    def test_k_greater_than_5_query_index_called_with_k(self) -> None:
+        """When user k=8, query_index receives k=8 (unchanged)."""
+        with patch("polymarket.rag.eval.query_index", return_value=[]) as mock_qi:
+            suite = [EvalCase(query="test", filters={}, must_include_any=[], must_exclude_any=[])]
+            run_eval(suite, k=8, embedder=None)
+            called_k = mock_qi.call_args.kwargs["k"]
+            self.assertEqual(called_k, 8)
+
+    def test_k_less_than_5_precision_uses_full_top5(self) -> None:
+        """k=3 — recall uses top-3, precision uses top-5 from the deeper fetch."""
+        # Positions 0,1 are relevant (alice); positions 2,3,4 are not.
+        results = self._make_results([
+            "alice/doc.md", "alice/doc2.md",
+            "other.md", "other2.md", "other3.md",
+        ])
+        with patch("polymarket.rag.eval.query_index", return_value=results):
+            suite = [EvalCase(
+                query="test",
+                filters={},
+                must_include_any=["alice"],
+                must_exclude_any=[],
+            )]
+            report = run_eval(suite, k=3, embedder=None)
+
+        cr = report.modes["lexical"].case_results[0]
+        self.assertAlmostEqual(cr.recall_at_k, 1.0)   # alice in top-3 → hit
+        self.assertAlmostEqual(cr.precision_at_5, 0.4)  # 2 alice / 5 total
+
+    def test_k_less_than_5_recall_respects_user_k(self) -> None:
+        """k=2 — relevant doc at rank 3 misses recall@2 but lands in precision@5."""
+        # Position 0,1 not relevant; position 2 is alice (rank 3).
+        results = self._make_results([
+            "other.md", "other2.md",
+            "alice/doc.md", "other3.md", "other4.md",
+        ])
+        with patch("polymarket.rag.eval.query_index", return_value=results):
+            suite = [EvalCase(
+                query="test",
+                filters={},
+                must_include_any=["alice"],
+                must_exclude_any=[],
+            )]
+            report = run_eval(suite, k=2, embedder=None)
+
+        cr = report.modes["lexical"].case_results[0]
+        self.assertAlmostEqual(cr.recall_at_k, 0.0)    # alice NOT in top-2
+        self.assertAlmostEqual(cr.precision_at_5, 0.2)  # 1 alice / 5
+
+    def test_k_greater_than_5_behavior_unchanged(self) -> None:
+        """k=8 behaves as before: recall and precision both correct."""
+        results = self._make_results(
+            ["alice/doc.md"] * 3 + ["other.md"] * 5
+        )
+        with patch("polymarket.rag.eval.query_index", return_value=results):
+            suite = [EvalCase(
+                query="test",
+                filters={},
+                must_include_any=["alice"],
+                must_exclude_any=[],
+            )]
+            report = run_eval(suite, k=8, embedder=None)
+
+        cr = report.modes["lexical"].case_results[0]
+        self.assertAlmostEqual(cr.recall_at_k, 1.0)    # alice in top-8
+        self.assertAlmostEqual(cr.precision_at_5, 0.6)  # 3 alice / 5
+
+
+# ---------------------------------------------------------------------------
+# WP5-B: Precision@5 tests
+# ---------------------------------------------------------------------------
+
+
+class PrecisionAt5UnitTests(unittest.TestCase):
+    """Unit tests for Precision@5 — WP5-B."""
+
+    def _make_result(self, file_path: str) -> dict:
+        return {
+            "file_path": file_path,
+            "chunk_id": "a" * 64,
+            "doc_id": "b" * 64,
+            "score": 0.9,
+            "snippet": "test snippet",
+            "metadata": {},
+        }
+
+    # --- dataclass field presence ---
+
+    def test_mode_aggregate_has_precision_field(self) -> None:
+        agg = ModeAggregate(
+            mean_recall_at_k=1.0,
+            mean_mrr_at_k=1.0,
+            total_scope_violations=0,
+            queries_with_violations=0,
+            mean_latency_ms=10.0,
+        )
+        self.assertTrue(hasattr(agg, "mean_precision_at_5"))
+        self.assertAlmostEqual(agg.mean_precision_at_5, 0.0)
+
+    def test_case_result_has_precision_field(self) -> None:
+        cr = CaseResult(
+            query="test",
+            label="test",
+            mode="lexical",
+            recall_at_k=1.0,
+            mrr_at_k=1.0,
+            scope_violations=[],
+            latency_ms=10.0,
+            result_count=1,
+        )
+        self.assertTrue(hasattr(cr, "precision_at_5"))
+        self.assertAlmostEqual(cr.precision_at_5, 0.0)
+
+    # --- _eval_single precision computation ---
+
+    def test_eval_single_precision_all_relevant(self) -> None:
+        """All top-5 results match must_include_any → precision=1.0."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=["alice"],
+            must_exclude_any=[],
+        )
+        results = [self._make_result("alice/notes.md")] * 5 + [self._make_result("other.md")] * 3
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 1.0)
+
+    def test_eval_single_precision_none_relevant(self) -> None:
+        """No top-5 results match must_include_any → precision=0.0."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=["alice"],
+            must_exclude_any=[],
+        )
+        results = [self._make_result("other.md")] * 8
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 0.0)
+
+    def test_eval_single_precision_one_of_five(self) -> None:
+        """1 of top-5 results matches → precision=0.2."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=["alice"],
+            must_exclude_any=[],
+        )
+        results = [self._make_result("alice/notes.md")] + [self._make_result("other.md")] * 7
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 0.2)
+
+    def test_eval_single_precision_no_expectations(self) -> None:
+        """Empty must_include_any → precision trivially 1.0."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=[],
+            must_exclude_any=[],
+        )
+        results = [self._make_result("any.md")] * 5
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 1.0)
+
+    def test_eval_single_precision_relevant_outside_top5(self) -> None:
+        """Relevant result at rank 6 (outside top-5) → precision=0.0."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=["alice"],
+            must_exclude_any=[],
+        )
+        results = [self._make_result("other.md")] * 5 + [self._make_result("alice/notes.md")] * 3
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 0.0)
+
+    def test_eval_single_precision_two_of_five(self) -> None:
+        """2 of top-5 results match → precision=0.4."""
+        case = EvalCase(
+            query="test",
+            filters={},
+            must_include_any=["alice"],
+            must_exclude_any=[],
+        )
+        results = (
+            [self._make_result("alice/notes.md")] * 2
+            + [self._make_result("other.md")] * 6
+        )
+        _, _, _, p5 = _eval_single(case, results, 8)
+        self.assertAlmostEqual(p5, 0.4)
+
+    # --- _build_aggregate precision averaging ---
+
+    def test_build_aggregate_precision_average(self) -> None:
+        """_build_aggregate averages precision_at_5 across case_results."""
+        case_results = [
+            CaseResult(
+                query="q1", label="q1", mode="lexical",
+                recall_at_k=1.0, mrr_at_k=1.0,
+                scope_violations=[], latency_ms=10.0,
+                result_count=5, precision_at_5=0.4,
+            ),
+            CaseResult(
+                query="q2", label="q2", mode="lexical",
+                recall_at_k=0.0, mrr_at_k=0.0,
+                scope_violations=[], latency_ms=10.0,
+                result_count=5, precision_at_5=0.6,
+            ),
+        ]
+        agg = _build_aggregate(case_results)
+        self.assertAlmostEqual(agg.mean_precision_at_5, 0.5)
+
+    def test_build_aggregate_empty_list_precision(self) -> None:
+        """Empty case list → mean_precision_at_5=0.0."""
+        agg = _build_aggregate([])
+        self.assertAlmostEqual(agg.mean_precision_at_5, 0.0)
+
+    def test_build_aggregate_single_case_precision(self) -> None:
+        """Single case → mean_precision_at_5 equals that case's precision_at_5."""
+        case_results = [
+            CaseResult(
+                query="q1", label="q1", mode="lexical",
+                recall_at_k=1.0, mrr_at_k=1.0,
+                scope_violations=[], latency_ms=10.0,
+                result_count=5, precision_at_5=0.8,
+            ),
+        ]
+        agg = _build_aggregate(case_results)
+        self.assertAlmostEqual(agg.mean_precision_at_5, 0.8)
+
+    # --- report serialization ---
+
+    def _build_report_with_precision(self) -> EvalReport:
+        """Build a minimal EvalReport with non-zero precision_at_5."""
+        cr = CaseResult(
+            query="q1", label="q1", mode="lexical",
+            recall_at_k=1.0, mrr_at_k=1.0,
+            scope_violations=[], latency_ms=10.0,
+            result_count=5, precision_at_5=0.6,
+            query_class="factual",
+        )
+        agg = ModeAggregate(
+            mean_recall_at_k=1.0,
+            mean_mrr_at_k=1.0,
+            mean_precision_at_5=0.6,
+            total_scope_violations=0,
+            queries_with_violations=0,
+            mean_latency_ms=10.0,
+            query_count=1,
+            p50_latency_ms=10.0,
+            p95_latency_ms=10.0,
+            case_results=[cr],
+        )
+        return EvalReport(
+            timestamp="2026-04-23T00:00:00+00:00",
+            suite_path="test.jsonl",
+            k=8,
+            modes={"lexical": agg},
+            per_class_modes={"factual": {"lexical": agg}},
+            corpus_hash="a" * 64,
+            eval_config={"k": 8},
+        )
+
+    def test_write_report_precision_in_json(self) -> None:
+        """report.json includes mean_precision_at_5 in ModeAggregate."""
+        report = self._build_report_with_precision()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            json_path, _ = write_report(report, Path(raw) / "reports")
+            with open(json_path, encoding="utf-8") as f:
+                data = json.load(f)
+            lexical = data["modes"]["lexical"]
+            self.assertIn("mean_precision_at_5", lexical)
+            self.assertAlmostEqual(lexical["mean_precision_at_5"], 0.6)
+
+    def test_write_report_precision_in_markdown(self) -> None:
+        """summary.md includes P@5 column header."""
+        report = self._build_report_with_precision()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            _, md_path = write_report(report, Path(raw) / "reports")
+            md_text = md_path.read_text(encoding="utf-8")
+            self.assertIn("P@5", md_text)
+
+    def test_per_class_precision_in_json(self) -> None:
+        """per_class_modes in report.json includes mean_precision_at_5."""
+        report = self._build_report_with_precision()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            json_path, _ = write_report(report, Path(raw) / "reports")
+            with open(json_path, encoding="utf-8") as f:
+                data = json.load(f)
+            factual_lexical = data["per_class_modes"]["factual"]["lexical"]
+            self.assertIn("mean_precision_at_5", factual_lexical)
+            self.assertAlmostEqual(factual_lexical["mean_precision_at_5"], 0.6)
+
+    def test_per_case_detail_has_precision_in_markdown(self) -> None:
+        """Per-case detail lines in summary.md include p@5."""
+        report = self._build_report_with_precision()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            _, md_path = write_report(report, Path(raw) / "reports")
+            md_text = md_path.read_text(encoding="utf-8")
+            self.assertIn("p@5=", md_text)
+
+    def test_cli_mode_table_has_p5_column(self) -> None:
+        """_print_mode_table output includes 'P@5' header."""
+        import io
+        from contextlib import redirect_stdout
+        from tools.cli.rag_eval import _print_mode_table
+
+        modes = {
+            "lexical": ModeAggregate(
+                mean_recall_at_k=0.8,
+                mean_mrr_at_k=0.7,
+                mean_precision_at_5=0.6,
+                total_scope_violations=0,
+                queries_with_violations=0,
+                mean_latency_ms=10.0,
+                query_count=5,
+                p50_latency_ms=10.0,
+                p95_latency_ms=15.0,
+            ),
+        }
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_mode_table(modes, 8, "Test Header", show_query_count=True)
+        output = buf.getvalue()
+        self.assertIn("P@5", output)
+        # Verify the precision value appears in the row
+        self.assertIn("0.600", output)
+
+
+# ---------------------------------------------------------------------------
+# WP5-D: save_baseline unit tests
+# ---------------------------------------------------------------------------
+
+
+def _build_minimal_report() -> EvalReport:
+    """Build a minimal EvalReport with non-trivial metrics for baseline tests."""
+    cr = CaseResult(
+        query="q1", label="q1", mode="lexical",
+        recall_at_k=1.0, mrr_at_k=0.5,
+        scope_violations=[], latency_ms=12.0,
+        result_count=5, precision_at_5=0.6,
+        query_class="factual",
+    )
+    agg = ModeAggregate(
+        mean_recall_at_k=1.0, mean_mrr_at_k=0.5,
+        mean_precision_at_5=0.6,
+        total_scope_violations=0, queries_with_violations=0,
+        mean_latency_ms=12.0, query_count=1,
+        p50_latency_ms=12.0, p95_latency_ms=12.0,
+        case_results=[cr],
+    )
+    return EvalReport(
+        timestamp="2026-04-23T10:00:00+00:00",
+        suite_path="docs/eval/ris_retrieval_benchmark.jsonl",
+        k=8,
+        modes={"lexical": agg},
+        per_class_modes={"factual": {"lexical": agg}},
+        corpus_hash="a" * 64,
+        eval_config={"k": 8, "suite_path": "docs/eval/ris_retrieval_benchmark.jsonl"},
+    )
+
+
+class BaselineSaveTests(unittest.TestCase):
+    """Unit tests for save_baseline — WP5-D."""
+
+    def test_save_baseline_creates_file(self) -> None:
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "baseline.json"
+            save_baseline(report, path)
+            self.assertTrue(path.exists())
+
+    def test_save_baseline_creates_parent_dirs(self) -> None:
+        """save_baseline creates intermediate parent directories."""
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "a" / "b" / "c" / "baseline.json"
+            save_baseline(report, path)
+            self.assertTrue(path.exists())
+
+    def test_save_baseline_json_has_required_fields(self) -> None:
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "baseline.json"
+            save_baseline(report, path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for field_name in (
+                "frozen_at", "timestamp", "suite_path", "k",
+                "corpus_hash", "eval_config", "modes", "per_class_modes",
+            ):
+                self.assertIn(field_name, data, f"Missing required field: {field_name}")
+
+    def test_save_baseline_frozen_at_is_valid_iso(self) -> None:
+        from datetime import datetime as _datetime
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "baseline.json"
+            save_baseline(report, path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # fromisoformat raises ValueError if the string is not a valid ISO timestamp
+            dt = _datetime.fromisoformat(data["frozen_at"])
+            self.assertIsNotNone(dt)
+
+    def test_save_baseline_preserves_report_data(self) -> None:
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "baseline.json"
+            save_baseline(report, path)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(data["suite_path"], "docs/eval/ris_retrieval_benchmark.jsonl")
+            self.assertEqual(data["k"], 8)
+            self.assertEqual(data["corpus_hash"], "a" * 64)
+            self.assertIn("lexical", data["modes"])
+            self.assertAlmostEqual(data["modes"]["lexical"]["mean_precision_at_5"], 0.6)
+            self.assertIn("factual", data["per_class_modes"])
+
+    def test_save_baseline_returns_path(self) -> None:
+        report = _build_minimal_report()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            path = Path(raw) / "baseline.json"
+            result = save_baseline(report, path)
+            self.assertIsInstance(result, Path)
+            self.assertTrue(result.exists())
+
+
+# ---------------------------------------------------------------------------
+# WP5-D: CLI --save-baseline flag tests
+# ---------------------------------------------------------------------------
+
+
+class CLIBaselineFlagTests(unittest.TestCase):
+    """Tests for --save-baseline flag in rag_eval CLI — WP5-D."""
+
+    def _run_cli(self, argv: list, helper, index_dir, coll) -> int:
+        from tools.cli.rag_eval import main as rag_eval_main
+        with patch(
+            "tools.cli.rag_eval.SentenceTransformerEmbedder",
+            return_value=helper.embedder,
+        ):
+            return rag_eval_main(argv)
+
+    def _suite_argv(self, suite_path, index_dir, coll, report_dir, extra=()) -> list:
+        return [
+            "--suite", str(suite_path),
+            "--k", "4",
+            "--persist-dir", str(index_dir),
+            "--collection", coll,
+            "--output-dir", str(report_dir),
+            *extra,
+        ]
+
+    def test_save_baseline_flag_creates_file(self) -> None:
+        """--save-baseline PATH writes the baseline artifact to PATH."""
+        helper = _EvalIndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            suite_path = tmpdir / "suite.jsonl"
+            suite_path.write_text(
+                json.dumps({"query": "notes", "filters": {}, "expect": {}}) + "\n",
+                encoding="utf-8",
+            )
+            baseline_path = tmpdir / "baseline_metrics.json"
+            try:
+                exit_code = self._run_cli(
+                    self._suite_argv(
+                        suite_path, index_dir, coll, tmpdir / "reports",
+                        extra=["--save-baseline", str(baseline_path)],
+                    ),
+                    helper, index_dir, coll,
+                )
+                self.assertIn(exit_code, (0, 2))
+                self.assertTrue(baseline_path.exists())
+            finally:
+                helper.cleanup()
+
+    def test_no_save_baseline_without_flag(self) -> None:
+        """Without --save-baseline, no baseline artifact is written."""
+        helper = _EvalIndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            suite_path = tmpdir / "suite.jsonl"
+            suite_path.write_text(
+                json.dumps({"query": "notes", "filters": {}, "expect": {}}) + "\n",
+                encoding="utf-8",
+            )
+            baseline_path = tmpdir / "should_not_exist.json"
+            try:
+                self._run_cli(
+                    self._suite_argv(
+                        suite_path, index_dir, coll, tmpdir / "reports",
+                        # No --save-baseline
+                    ),
+                    helper, index_dir, coll,
+                )
+                self.assertFalse(baseline_path.exists())
+            finally:
+                helper.cleanup()
+
+    def test_save_baseline_json_has_required_fields(self) -> None:
+        """Baseline artifact written by CLI contains required top-level fields."""
+        helper = _EvalIndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            suite_path = tmpdir / "suite.jsonl"
+            suite_path.write_text(
+                json.dumps({"query": "notes", "filters": {}, "expect": {}}) + "\n",
+                encoding="utf-8",
+            )
+            baseline_path = tmpdir / "baseline_metrics.json"
+            try:
+                self._run_cli(
+                    self._suite_argv(
+                        suite_path, index_dir, coll, tmpdir / "reports",
+                        extra=["--save-baseline", str(baseline_path)],
+                    ),
+                    helper, index_dir, coll,
+                )
+                data = json.loads(baseline_path.read_text(encoding="utf-8"))
+                for field_name in ("frozen_at", "timestamp", "suite_path", "k", "modes"):
+                    self.assertIn(field_name, data, f"Missing field in baseline: {field_name}")
+            finally:
+                helper.cleanup()
+
+    def test_save_baseline_nested_path_creation(self) -> None:
+        """--save-baseline with a nested non-existent path creates parent dirs."""
+        helper = _EvalIndexHelper()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as raw:
+            tmpdir = Path(raw)
+            index_dir, coll = helper.build(tmpdir)
+            suite_path = tmpdir / "suite.jsonl"
+            suite_path.write_text(
+                json.dumps({"query": "notes", "filters": {}, "expect": {}}) + "\n",
+                encoding="utf-8",
+            )
+            baseline_path = tmpdir / "nested" / "dirs" / "baseline_metrics.json"
+            try:
+                exit_code = self._run_cli(
+                    self._suite_argv(
+                        suite_path, index_dir, coll, tmpdir / "reports",
+                        extra=["--save-baseline", str(baseline_path)],
+                    ),
+                    helper, index_dir, coll,
+                )
+                self.assertIn(exit_code, (0, 2))
+                self.assertTrue(baseline_path.exists())
+            finally:
+                helper.cleanup()
 
 
 if __name__ == "__main__":

@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP_v1.1.md",
+                "file": "Claude Desktop/08-Research/Hermes Agent - PolyTool Integration Setup Guide.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "RIS_OPERATIONAL_READINESS_ROADMAP_v1.1"
+              "title": "Hermes Agent - PolyTool Integration Setup Guide"
             }
           }
         ]
@@ -220,14 +220,14 @@
   },
   "active": "7f067d923d621f78",
   "lastOpenFiles": [
-    "Claude Desktop/08-Research/Hermes Agent - PolyTool Integration Setup Guide.md",
     "Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP_v1.1.md",
+    "Claude Desktop/09-Decisions/Decision - Agent Parallelism Strategy for RIS Phase 2.md",
+    "Claude Desktop/08-Research/Hermes Agent - PolyTool Integration Setup Guide.md",
     "Claude Desktop/09-Decisions/Decision - Roadmap v6.0 Slim Master Restructure.md",
     "Claude Desktop/08-Research/10-Roadmap-v6.0-Master-Draft.md",
     "Claude Desktop/09-Decisions/RIS_OPERATIONAL_READINESS_ROADMAP.md",
     "Claude Desktop/11-Prompt-Archive/2026-04-22 Research - Ollama Cloud API.md",
     "Claude Desktop/10-Session-Notes/2026-04-22 RIS Roadmap v1.1 Review.md",
-    "Claude Desktop/09-Decisions/Decision - Agent Parallelism Strategy for RIS Phase 2.md",
     "10-Session-Notes/2026-04-22 RIS Operational Readiness Update.md",
     "12-Ideas/Idea - Hermes Agent Platform Evaluation.md",
     "12-Ideas/Idea - Hermes and Claude Routines Evaluation.md",

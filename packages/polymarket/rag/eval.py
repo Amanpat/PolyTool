@@ -30,6 +30,9 @@ from .reranker import BaseReranker
 
 _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
+# Fixed k for Precision@k — independent of the recall/MRR --k flag.
+_PRECISION_K = 5
+
 
 @dataclass
 class EvalCase:
@@ -54,6 +57,7 @@ class CaseResult:
     result_count: int
     notes: str = ""
     query_class: str = "unclassified"
+    precision_at_5: float = 0.0
 
 
 @dataclass
@@ -63,6 +67,7 @@ class ModeAggregate:
     total_scope_violations: int
     queries_with_violations: int
     mean_latency_ms: float
+    mean_precision_at_5: float = 0.0
     query_count: int = 0
     p50_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
@@ -175,10 +180,11 @@ def _eval_single(
     case: EvalCase,
     results: list[dict],
     k: int,
-) -> tuple[float, float, list[dict]]:
-    """Compute recall@k, MRR@k, and scope violations for one case.
+) -> tuple[float, float, list[dict], float]:
+    """Compute recall@k, MRR@k, scope violations, and precision@5 for one case.
 
-    Returns (recall_at_k, mrr_at_k, scope_violations).
+    Returns (recall_at_k, mrr_at_k, scope_violations, precision_at_5).
+    precision_at_5 uses a fixed cutoff of _PRECISION_K=5 regardless of k.
     """
     top_k = results[:k]
 
@@ -211,7 +217,18 @@ def _eval_single(
                     "metadata": r.get("metadata", {}),
                 })
 
-    return recall, mrr, violations
+    # --- precision@5 (fraction of top-_PRECISION_K results that are relevant) ---
+    if case.must_include_any:
+        top_p = results[:_PRECISION_K]
+        relevant = sum(
+            1 for r in top_p
+            if any(_match_pattern(p, r) for p in case.must_include_any)
+        )
+        precision_at_5 = relevant / _PRECISION_K if _PRECISION_K > 0 else 0.0
+    else:
+        precision_at_5 = 1.0  # no expectations = trivially met
+
+    return recall, mrr, violations, precision_at_5
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +246,7 @@ def _build_aggregate(case_list: list[CaseResult]) -> ModeAggregate:
         return ModeAggregate(
             mean_recall_at_k=0.0,
             mean_mrr_at_k=0.0,
+            mean_precision_at_5=0.0,
             total_scope_violations=0,
             queries_with_violations=0,
             mean_latency_ms=0.0,
@@ -240,6 +258,7 @@ def _build_aggregate(case_list: list[CaseResult]) -> ModeAggregate:
 
     total_recall = sum(c.recall_at_k for c in case_list)
     total_mrr = sum(c.mrr_at_k for c in case_list)
+    total_precision = sum(c.precision_at_5 for c in case_list)
     total_violations = sum(len(c.scope_violations) for c in case_list)
     queries_with_viols = sum(1 for c in case_list if c.scope_violations)
     latencies = [c.latency_ms for c in case_list]
@@ -248,6 +267,7 @@ def _build_aggregate(case_list: list[CaseResult]) -> ModeAggregate:
     return ModeAggregate(
         mean_recall_at_k=total_recall / n,
         mean_mrr_at_k=total_mrr / n,
+        mean_precision_at_5=total_precision / n,
         total_scope_violations=total_violations,
         queries_with_violations=queries_with_viols,
         mean_latency_ms=total_latency / n,
@@ -346,10 +366,13 @@ def run_eval(
             try:
                 # Pass reranker only for hybrid+rerank mode
                 query_reranker = reranker if mode_name == "hybrid+rerank" else None
+                # Fetch max(k, _PRECISION_K) so P@5 always sees a true top-5 window
+                # even when the operator passes --k < 5. Recall/MRR still use k.
+                fetch_k = max(k, _PRECISION_K)
                 results = query_index(
                     question=case.query,
                     embedder=embedder if needs_embedder else None,
-                    k=k,
+                    k=fetch_k,
                     persist_directory=persist_directory,
                     collection_name=collection_name,
                     lexical_db_path=lexical_db_path,
@@ -381,7 +404,7 @@ def run_eval(
                 continue
             latency_ms = (time.perf_counter() - t0) * 1000
 
-            recall, mrr, violations = _eval_single(case, results, k)
+            recall, mrr, violations, precision_at_5 = _eval_single(case, results, k)
 
             mode_results[mode_name].append(
                 CaseResult(
@@ -395,6 +418,7 @@ def run_eval(
                     result_count=len(results),
                     notes=case.notes,
                     query_class=case.query_class,
+                    precision_at_5=precision_at_5,
                 )
             )
 
@@ -506,8 +530,8 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
         f"",
         f"## Per-mode Summary",
         f"",
-        f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | Scope Violations | Queries w/ Violations | Mean Latency (ms) | P50 Latency (ms) | P95 Latency (ms) |",
-        f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 23}|{'-' * 20}|{'-' * 17}|{'-' * 17}|",
+        f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | P@5 | Scope Violations | Queries w/ Violations | Mean Latency (ms) | P50 Latency (ms) | P95 Latency (ms) |",
+        f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 7}|{'-' * 18}|{'-' * 23}|{'-' * 20}|{'-' * 17}|{'-' * 17}|",
     ]
 
     for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
@@ -519,6 +543,7 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
             f"| {agg.query_count} "
             f"| {agg.mean_recall_at_k:.3f} "
             f"| {agg.mean_mrr_at_k:.3f} "
+            f"| {agg.mean_precision_at_5:.3f} "
             f"| {agg.total_scope_violations} "
             f"| {agg.queries_with_violations} "
             f"| {agg.mean_latency_ms:.1f} "
@@ -536,10 +561,10 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
             lines.append(f"### Class: {query_class}")
             lines.append("")
             lines.append(
-                f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | Scope Violations | Mean Latency (ms) | P50 (ms) | P95 (ms) |"
+                f"| Mode | Queries | Recall@{report.k} | MRR@{report.k} | P@5 | Scope Violations | Mean Latency (ms) | P50 (ms) | P95 (ms) |"
             )
             lines.append(
-                f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 18}|{'-' * 20}|{'-' * 10}|{'-' * 10}|"
+                f"|------|---------|{'-' * 12}|{'-' * 11}|{'-' * 7}|{'-' * 18}|{'-' * 20}|{'-' * 10}|{'-' * 10}|"
             )
             for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
                 agg = class_modes.get(mode_name)
@@ -550,6 +575,7 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
                     f"| {agg.query_count} "
                     f"| {agg.mean_recall_at_k:.3f} "
                     f"| {agg.mean_mrr_at_k:.3f} "
+                    f"| {agg.mean_precision_at_5:.3f} "
                     f"| {agg.total_scope_violations} "
                     f"| {agg.mean_latency_ms:.1f} "
                     f"| {agg.p50_latency_ms:.1f} "
@@ -585,7 +611,7 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
         lines.append("")
         for cr in agg.case_results:
             status = "PASS" if not cr.scope_violations else "VIOLATION"
-            lines.append(f"- **{cr.query}** [{status}] class={cr.query_class} recall={cr.recall_at_k:.2f} mrr={cr.mrr_at_k:.2f} latency={cr.latency_ms:.0f}ms results={cr.result_count}")
+            lines.append(f"- **{cr.query}** [{status}] class={cr.query_class} recall={cr.recall_at_k:.2f} mrr={cr.mrr_at_k:.2f} p@5={cr.precision_at_5:.2f} latency={cr.latency_ms:.0f}ms results={cr.result_count}")
             if cr.scope_violations:
                 for v in cr.scope_violations:
                     lines.append(f"  - violation: pattern=`{v['pattern']}` file=`{v.get('file_path', '')}`")
@@ -604,3 +630,23 @@ def write_report(report: EvalReport, output_dir: Path) -> tuple[Path, Path]:
     md_path.write_text("\n".join(lines), encoding="utf-8")
 
     return json_path, md_path
+
+
+def save_baseline(report: EvalReport, path: Path) -> Path:
+    """Save a frozen baseline artifact from *report* to *path*.
+
+    Writes asdict(report) with an additional ``frozen_at`` top-level
+    timestamp so the save time is distinguishable from the eval run time.
+    Parent directories are created as needed. Returns the Path written.
+
+    Baseline writes are always explicit — this function is only called
+    when the operator passes ``--save-baseline`` to the CLI.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = asdict(report)
+    data["frozen_at"] = datetime.now(timezone.utc).isoformat()
+
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return path

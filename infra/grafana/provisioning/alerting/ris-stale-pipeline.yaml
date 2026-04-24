@@ -1,0 +1,134 @@
+apiVersion: 1
+
+# WP4-D: Stale pipeline alert for RIS Phase 2A monitoring.
+#
+# Scope: periodic RIS workflows only — webhook-only paths are excluded.
+#   Periodic set (schedule-triggered, subject to stale alerting):
+#     - 'RIS — Research Intelligence System'   (ris-unified-dev.json)
+#     - 'RIS -- n8n Execution Metrics Collector' (ris-n8n-metrics-collector.json)
+#   Excluded (on-demand webhook only, no periodic cadence):
+#     - 'RIS -- Health Webhook'               (ris-health-webhook.json)
+#
+# noDataState=Alerting covers WP4-B collector outages and empty table.
+# No contact point is wired here; connect a Discord webhook Contact Point
+# in the Grafana UI and attach it via a Notification Policy (see dev log).
+
+groups:
+  - orgId: 1
+    name: ris-pipeline-health
+    folder: PolyTool
+    interval: 10m
+    rules:
+      - uid: ris-stale-pipeline-alert
+        title: "RIS — Stale Pipeline (no success in 6h)"
+        condition: C
+        data:
+          # Query A: age in hours since last successful run, per periodic workflow.
+          # Scoped to schedule-triggered workflows only via explicit IN list.
+          # 'RIS -- Health Webhook' (webhook-only) is intentionally excluded.
+          # workflow_name becomes a label; Grafana fires one instance per pipeline.
+          - refId: A
+            queryType: ""
+            relativeTimeRange:
+              from: 43200
+              to: 0
+            datasourceUid: clickhouse-polytool
+            model:
+              datasource:
+                type: grafana-clickhouse-datasource
+                uid: clickhouse-polytool
+              editorType: sql
+              format: 1
+              meta:
+                builderOptions:
+                  columns: []
+                  database: polytool
+                  limit: 1000
+                  mode: list
+                  queryType: timeseries
+                  table: n8n_execution_metrics
+              queryType: timeseries
+              rawSql: |
+                SELECT
+                  workflow_name,
+                  now() AS time,
+                  dateDiff('hour', maxIf(started_at, status = 'success'), now()) AS hours_since_success
+                FROM polytool.n8n_execution_metrics FINAL
+                WHERE started_at >= now() - INTERVAL 7 DAY
+                  AND workflow_name IN (
+                    'RIS — Research Intelligence System',
+                    'RIS -- n8n Execution Metrics Collector'
+                  )
+                GROUP BY workflow_name
+              refId: A
+
+          # Expression B: reduce each per-workflow series to a scalar (last value).
+          - refId: B
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              conditions: []
+              datasource:
+                name: Expression
+                type: "__expr__"
+                uid: "__expr__"
+              expression: A
+              hide: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+
+          # Expression C: threshold — fire when hours_since_success > 6.
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 6
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - C
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                name: Expression
+                type: "__expr__"
+                uid: "__expr__"
+              expression: B
+              hide: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+        # noDataState=Alerting: fires when query returns no rows (table empty,
+        # WP4-B collector down, or all executions older than 7 days).
+        noDataState: Alerting
+        execErrState: Error
+        for: "0s"
+        annotations:
+          description: >-
+            {{ $labels.workflow_name }} has not completed a successful execution
+            in the last 6 hours. Check the n8n UI (http://localhost:5678) for
+            stuck or failed workflows and verify the WP4-B metrics collector is
+            running.
+          summary: "RIS stale pipeline: {{ $labels.workflow_name }}"
+        labels:
+          severity: warning
+          team: ris
+        isPaused: false

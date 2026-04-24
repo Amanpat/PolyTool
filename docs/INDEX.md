@@ -62,6 +62,7 @@ router/operator-facing surface only.
 | [Local RAG Workflow](runbooks/LOCAL_RAG_WORKFLOW.md) | RAG index, query, eval, scoping, retrieval modes (`rag-refresh` = one-command rebuild) |
 | [LLM Bundle Workflow](runbooks/LLM_BUNDLE_WORKFLOW.md) | Evidence bundle assembly, prompt template, report saving |
 | [RIS Operator Guide](runbooks/RIS_OPERATOR_GUIDE.md) | Full RIS operator guide: research loop, pipeline health, n8n pilot, MCP setup |
+| [RIS Phase 2A Operator Guide](runbooks/RIS_PHASE2A_OPERATOR_GUIDE.md) | **Phase 2A** — first-time activation, validation run, daily usage, n8n + Grafana monitoring |
 | [RIS + n8n Operator SOP](runbooks/RIS_N8N_OPERATOR_SOP.md) | Quick-reference cheat sheet: startup, import, health, ingest, monitoring |
 | [RIS Discord Alerts](runbooks/RIS_DISCORD_ALERTS.md) | Discord alert format reference, severity meaning, verification procedure |
 | [RIS n8n Smoke Test](runbooks/RIS_N8N_SMOKE_TEST.md) | Pre-import repo validation runbook for n8n workflow changes |
@@ -113,8 +114,13 @@ router/operator-facing surface only.
 | [Scan Exact Slug Export](features/FEATURE-scan-exact-slug-export.md) | `scan-gate2-candidates --watchlist-out` writes exact full slugs for the shown ranked candidates so operators do not copy truncated table values |
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
+| [RIS Operational Readiness Phase 2A](features/ris_operational_readiness_phase2a.md) | WP1-WP5: scoring fixes, Gemini+DeepSeek routing, budget enforcement, n8n visual improvements, ClickHouse+Grafana monitoring, 31-query retrieval benchmark with P@5 and baseline save |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 | [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
+| [vera-hermes-agent Operator Baseline](features/vera_hermes_operator_baseline.md) | Isolated Hermes operator profile on WSL2; read-only scope, SOUL.md guardrails, healthcheck script, path for future operator query skills |
+| [polytool-dev-logs Hermes Skill](features/polytool_dev_logs_skill.md) | Read-only Hermes skill for querying and summarizing dev logs; keyword filter, date filter, summary mode; strict docs/dev_logs/ scope |
+| [polytool-status Hermes Skill](features/polytool_status_skill.md) | Read-only Hermes skill for project status queries; active features, Gate 2 blockers, paused items; reads CURRENT_DEVELOPMENT + CURRENT_STATE |
+| [polytool-files Hermes Skill](features/polytool_files_skill.md) | Read-only Hermes skill for approved project doc access; whitelist of features/, specs/, runbooks/, adr/, reference/, and root docs |
 
 ## Specs
 

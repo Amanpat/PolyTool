@@ -22,6 +22,7 @@ ENV_PATH = ROOT_DIR / ".env"
 CANONICAL_WORKFLOWS = [
     ("UNIFIED_DEV_ID", "ris-unified-dev.json"),
     ("HEALTH_WEBHOOK_ID", "ris-health-webhook.json"),
+    ("METRICS_COLLECTOR_ID", "ris-n8n-metrics-collector.json"),
 ]
 WORKFLOW_STRING_PLACEHOLDERS = {
     "__RIS_OPERATOR_WEBHOOK_URL__": "DISCORD_WEBHOOK_URL",

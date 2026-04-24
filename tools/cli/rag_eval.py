@@ -14,7 +14,7 @@ from typing import Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages"))
 
 from polymarket.rag.embedder import DEFAULT_EMBED_MODEL, SentenceTransformerEmbedder
-from polymarket.rag.eval import load_suite, run_eval, write_report
+from polymarket.rag.eval import load_suite, run_eval, save_baseline, write_report
 from polymarket.rag.reranker import CrossEncoderReranker, DEFAULT_RERANK_MODEL
 
 
@@ -73,6 +73,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Compute and print the SHA-256 hash of the suite file, then exit.",
     )
+    parser.add_argument(
+        "--save-baseline",
+        nargs="?",
+        const="artifacts/research/baseline_metrics.json",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Save a frozen baseline artifact after the run. "
+            "When PATH is omitted, writes to artifacts/research/baseline_metrics.json. "
+            "Baseline is only written when this flag is explicitly passed."
+        ),
+    )
     return parser
 
 
@@ -85,11 +97,11 @@ def _print_mode_table(
     """Print a formatted mode summary table to stdout."""
     print(header)
     if show_query_count:
-        print(f"{'Mode':<16} {'Queries':<9} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
-        print("-" * 90)
+        print(f"{'Mode':<16} {'Queries':<9} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'P@5':<8} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
+        print("-" * 98)
     else:
-        print(f"{'Mode':<16} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
-        print("-" * 80)
+        print(f"{'Mode':<16} {'Recall@' + str(k):<12} {'MRR@' + str(k):<10} {'P@5':<8} {'Violations':<12} {'Mean ms':<10} {'P50 ms':<9} {'P95 ms':<9}")
+        print("-" * 88)
 
     for mode_name in ("vector", "lexical", "hybrid", "hybrid+rerank"):
         agg = modes.get(mode_name)
@@ -101,6 +113,7 @@ def _print_mode_table(
                 f"{agg.query_count:<9} "
                 f"{agg.mean_recall_at_k:<12.3f} "
                 f"{agg.mean_mrr_at_k:<10.3f} "
+                f"{agg.mean_precision_at_5:<8.3f} "
                 f"{agg.total_scope_violations:<12} "
                 f"{agg.mean_latency_ms:<10.1f} "
                 f"{agg.p50_latency_ms:<9.1f} "
@@ -111,6 +124,7 @@ def _print_mode_table(
                 f"{mode_name:<16} "
                 f"{agg.mean_recall_at_k:<12.3f} "
                 f"{agg.mean_mrr_at_k:<10.3f} "
+                f"{agg.mean_precision_at_5:<8.3f} "
                 f"{agg.total_scope_violations:<12} "
                 f"{agg.mean_latency_ms:<10.1f} "
                 f"{agg.p50_latency_ms:<9.1f} "
@@ -191,6 +205,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:
         print(f"Error writing report: {exc}")
         return 1
+
+    # Save baseline if explicitly requested via --save-baseline
+    if args.save_baseline:
+        try:
+            baseline_path = save_baseline(report, args.save_baseline)
+            print(f"Baseline: {baseline_path}")
+        except Exception as exc:
+            print(f"Warning: Could not write baseline: {exc}")
 
     # --- Overall mode summary ---
     print()

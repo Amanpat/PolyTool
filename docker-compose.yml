@@ -215,6 +215,11 @@ services:
       # NODES_EXCLUDE=[] re-enables n8n-nodes-base.executeCommand (disabled by default in n8n 2.x).
       # Required for RIS workflows that use docker exec via Execute Command nodes.
       - NODES_EXCLUDE=[]
+      # WP4-B metrics collector: workflow reads these via $env.* at runtime.
+      # CLICKHOUSE_PASSWORD: passed through from the repo-wide secret (already required by ClickHouse service).
+      # N8N_API_KEY: generate from n8n UI → Settings → API, then add to .env.
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - N8N_API_KEY=${N8N_API_KEY:-}
     group_add:
       - "0"
     volumes:
