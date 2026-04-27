@@ -551,6 +551,18 @@ class TestMarkerPDFExtractorUnit:
 
 
 class TestMarkerFetcherIntegration:
+    @pytest.fixture(autouse=True)
+    def reset_marker_state(self):
+        """Reset _MARKER_DISABLED and _MARKER_WORK_SEMAPHORE before and after each test."""
+        from packages.research.ingestion import fetchers as _f
+        _f._MARKER_DISABLED.clear()
+        # Ensure semaphore is free (in case a previous test leaked it).
+        while _f._MARKER_WORK_SEMAPHORE.acquire(blocking=False):
+            _f._MARKER_WORK_SEMAPHORE.release()
+            break
+        yield
+        _f._MARKER_DISABLED.clear()
+
     def test_marker_success_body_source(self):
         """_pdf_parser='marker' with success → body_source='marker'."""
         from packages.research.ingestion.fetchers import LiveAcademicFetcher
@@ -713,9 +725,56 @@ class TestMarkerFetcherIntegration:
         )
         result = fetcher.fetch("https://arxiv.org/abs/2510.10009")
 
+        from packages.research.ingestion import fetchers as _f
         assert result["body_source"] == "pdfplumber_fallback"
         reason = result.get("fallback_reason", "")
         assert "marker_timeout" in reason.lower() or "timed out" in reason.lower()
+        # After a timeout, _MARKER_DISABLED must be set so no new threads can start.
+        assert _f._MARKER_DISABLED.is_set(), "_MARKER_DISABLED must be set after timeout"
+
+    def test_marker_second_call_after_timeout_skips_new_thread(self):
+        """Two back-to-back calls: first times out, second skips Marker entirely.
+
+        Verifies that _MARKER_DISABLED prevents a second zombie thread from being
+        spawned after the first Marker conversion has timed out.
+        """
+        import time
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+        from packages.research.ingestion import fetchers as _f
+
+        worker_start_count = {"n": 0}
+
+        class _CountingSlowMarker:
+            def extract(self, *a, **kw):
+                worker_start_count["n"] += 1
+                time.sleep(1.0)
+                raise RuntimeError("unreachable")
+
+        long_pdf = "pdfplumber body text. " * 200
+
+        fetcher = LiveAcademicFetcher(
+            _http_fn=lambda url, t, h: _arxiv_atom("2510.10011"),
+            _pdf_http_fn=lambda url, t, h: b"fake",
+            _pdf_parser="marker",
+            _marker_extractor_cls=_CountingSlowMarker,
+            _pdfplumber_extractor_cls=_make_pdf_extractor_mock(long_pdf),
+            _marker_timeout_seconds=0.05,
+        )
+
+        # First call: Marker times out, _MARKER_DISABLED set, falls back.
+        r1 = fetcher.fetch("https://arxiv.org/abs/2510.10011")
+        assert r1["body_source"] == "pdfplumber_fallback"
+        assert _f._MARKER_DISABLED.is_set()
+
+        # Second call: _MARKER_DISABLED prevents any new Marker worker.
+        r2 = fetcher.fetch("https://arxiv.org/abs/2510.10011")
+        assert r2["body_source"] == "pdfplumber_fallback"
+        assert "marker_disabled" in r2.get("fallback_reason", "")
+
+        # Only one worker was ever started — not two.
+        assert worker_start_count["n"] == 1, (
+            f"Expected 1 Marker worker started, got {worker_start_count['n']}"
+        )
 
     def test_marker_busy_falls_back_immediately(self):
         """Second concurrent Marker request returns pdfplumber_fallback immediately."""
