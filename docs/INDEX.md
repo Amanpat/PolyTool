@@ -115,6 +115,7 @@ router/operator-facing surface only.
 | [Capture Metadata Snapshot Hardening](features/FEATURE-capture-metadata-snapshot-hardening.md) | Watch/prep artifacts now persist additive capture-time market snapshots that tape-manifest prefers for regime/new-market derivation |
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 | [RIS Operational Readiness Phase 2A](features/ris_operational_readiness_phase2a.md) | WP1-WP5: scoring fixes, Gemini+DeepSeek routing, budget enforcement, n8n visual improvements, ClickHouse+Grafana monitoring, 31-query retrieval benchmark with P@5 and baseline save |
+| [RIS Marker Structural Parser Scaffold (Layer 1)](features/ris-marker-structural-parser-scaffold.md) | **Experimental.** Optional Marker PDF parsing alongside pdfplumber; default stays pdfplumber; two-layer concurrency guard; CPU timeouts at 300 s; GPU required for production use; Layer 2 chunking/retrieval deferred |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 | [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
 | [vera-hermes-agent Operator Baseline](features/vera_hermes_operator_baseline.md) | Isolated Hermes operator profile on WSL2; read-only scope, SOUL.md guardrails, healthcheck script, path for future operator query skills |
@@ -148,6 +149,12 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Marker Layer 1 — Docs Close-out](dev_logs/2026-04-27_ris-marker-closeout-docs.md) | 2026-04-27 | Canonical feature doc, INDEX/CURRENT_DEVELOPMENT updated, stale Prompt B doc superseded |
+| [Marker Layer 1 — Concurrency Fix (Prompt D)](dev_logs/2026-04-27_ris-marker-timeout-concurrency-fix.md) | 2026-04-27 | Confirmed semaphore released while worker still ran; `_MARKER_DISABLED` Event prevents zombie stacking; double-call test proves at-most-one thread |
+| [Marker Layer 1 — Timeout and LLM Truthfulness (Prompt C)](dev_logs/2026-04-27_ris-marker-timeout-llm-truthfulness.md) | 2026-04-27 | `_MARKER_DISABLED`; no false `marker_llm_boost`; default parser changed to pdfplumber |
+| [Marker Layer 1 — Hardening and Validation (Prompt B)](dev_logs/2026-04-27_ris-marker-hardening-validation.md) | 2026-04-27 | 4 Codex fixes; Docker validation; live smoke; parser benchmark on 3 papers; operator feature doc |
+| [Marker Layer 1 — Codex Review](dev_logs/2026-04-27_codex-review-ris-marker-core.md) | 2026-04-27 | PASS WITH FIXES; 4 non-blocking findings; live smoke result documented |
+| [Marker Layer 1 — Core Integration (Prompt A)](dev_logs/2026-04-27_ris-marker-core-integration.md) | 2026-04-27 | `MarkerPDFExtractor`, fetcher dispatch, adapter propagation, `ris-marker` extra, 16 tests |
 | [Final Roadmap Audit — PMXT Sprint Close-out](dev_logs/2026-04-22_packet-final-roadmap-audit.md) | 2026-04-22 | Docs-only truth-sync after PMXT Deliverables A/B/C; stale notes fixed, work-packets closed |
 | [Deliverable C — Retriever Over-fetch Fix (Gap 1)](dev_logs/2026-04-22_deliverable-c_gap1-fix.md) | 2026-04-22 | Fixed retriever truncation; 2/5 threshold met; Deliverable C marked COMPLETE |
 | [Deliverable C — Re-review](dev_logs/2026-04-22_deliverable-c_rereview.md) | 2026-04-22 | Codex re-review flagged Gap 1 (retriever truncation); NOT COMPLETE pre-fix |

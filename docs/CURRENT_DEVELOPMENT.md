@@ -100,6 +100,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 | Gold capture hardening (path fix + validator)                 | 2026-04-14 | 1B       | ⚠️ debt — see above                                                |
 | benchmark_v1 closure                                          | 2026-03-21 | 1B       | verify doc exists                                                  |
 | Coinbase reference feed fallback                              | 2026-03-26 | 1A       | `docs/features/crypto-pair-reference-feed-v1.md` (verify accurate) |
+| RIS Marker Layer 1 scaffold (experimental)                    | 2026-04-27 | RIS      | `docs/features/ris-marker-structural-parser-scaffold.md` — optional Marker parsing wired and hardened; default pdfplumber; CPU timeouts; **not production rollout** |
 
 ## Paused / Deferred
 
