@@ -83,6 +83,7 @@ research_precheck_main = _command_entrypoint("tools.cli.research_precheck")
 research_ingest_main = _command_entrypoint("tools.cli.research_ingest")
 research_seed_main = _command_entrypoint("tools.cli.research_seed")
 research_benchmark_main = _command_entrypoint("tools.cli.research_benchmark")
+research_parser_benchmark_main = _command_entrypoint("tools.cli.research_parser_benchmark")
 research_calibration_main = _command_entrypoint("tools.cli.research_calibration")
 research_extract_claims_main = _command_entrypoint("tools.cli.research_extract_claims")
 research_acquire_main = _command_entrypoint("tools.cli.research_acquire")
@@ -149,6 +150,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-ingest": "research_ingest_main",
     "research-seed": "research_seed_main",
     "research-benchmark": "research_benchmark_main",
+    "research-parser-benchmark": "research_parser_benchmark_main",
     "research-calibration": "research_calibration_main",
     "research-extract-claims": "research_extract_claims_main",
     "research-acquire": "research_acquire_main",
@@ -217,6 +219,7 @@ def print_usage() -> None:
     print("  research-ingest           Ingest a document into the RIS knowledge store")
     print("  research-seed             Seed the RIS knowledge store from a manifest")
     print("  research-benchmark        Compare extractor outputs on a fixture set")
+    print("  research-parser-benchmark Compare pdfplumber vs Marker on arXiv PDFs")
     print("  research-calibration      Inspect precheck calibration health over the ledger")
     print("  research-extract-claims   Extract structured claims from ingested documents (no LLM)")
     print("  research-acquire          Acquire a source from URL and ingest into knowledge store")

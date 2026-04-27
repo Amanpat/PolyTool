@@ -81,6 +81,28 @@ class SourceAdapter(ABC):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_structured_metadata_summary(smd: dict) -> dict:
+    """Return a compact, ChromaDB-safe summary of Marker structured_metadata.
+
+    Full structured_metadata is cache-only (can be MBs). This summary carries
+    only count-level signals: key_count always present, section_count/has_toc
+    when Marker emits a toc list.
+    """
+    if not isinstance(smd, dict):
+        return {}
+    summary: dict = {"key_count": len(smd)}
+    toc = smd.get("toc")
+    if isinstance(toc, list):
+        summary["section_count"] = len(toc)
+        summary["has_toc"] = bool(toc)
+    return summary
+
+
+# ---------------------------------------------------------------------------
 # AcademicAdapter
 # ---------------------------------------------------------------------------
 
@@ -148,6 +170,13 @@ class AcademicAdapter(SourceAdapter):
             _val = raw_source.get(_key)
             if _val is not None:
                 metadata[_key] = _val
+
+        # Compact summary of Marker structured_metadata (cache-only full field excluded)
+        _smd = raw_source.get("structured_metadata")
+        if isinstance(_smd, dict):
+            _smd_summary = _make_structured_metadata_summary(_smd)
+            if _smd_summary:
+                metadata["structured_metadata_summary"] = _smd_summary
 
         return ExtractedDocument(
             title=title,

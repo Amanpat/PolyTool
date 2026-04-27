@@ -452,11 +452,18 @@ def _make_marker_modules_fake(
 
 
 class TestMarkerPDFExtractorUnit:
-    def test_missing_raises_import_error(self):
-        """When marker-pdf is not installed and no modules injected, ImportError is raised."""
+    def test_missing_raises_import_error(self, monkeypatch):
+        """ImportError is raised when _load_marker fails (marker-pdf absent)."""
         from packages.research.ingestion.extractors import MarkerPDFExtractor
 
-        extractor = MarkerPDFExtractor()  # no modules injected, real marker absent
+        def _force_import_error(self):
+            raise ImportError(
+                "Marker PDF extraction requires marker-pdf. "
+                "Install: pip install 'polytool[ris-marker]'"
+            )
+
+        monkeypatch.setattr(MarkerPDFExtractor, "_load_marker", _force_import_error)
+        extractor = MarkerPDFExtractor()
         with pytest.raises(ImportError, match="marker-pdf"):
             extractor.extract("/nonexistent/path.pdf")
 
@@ -676,6 +683,31 @@ class TestMarkerFetcherIntegration:
         assert result["body_source"] == "pdf"
         assert result["body_text"] == long_pdf
 
+    def test_marker_timeout_falls_back_to_pdfplumber(self):
+        """Marker wall-clock timeout → body_source='pdfplumber_fallback'."""
+        import time
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        class _SlowMarker:
+            def extract(self, *a, **kw):
+                time.sleep(1.0)
+                raise RuntimeError("unreachable")
+
+        long_pdf = "pdfplumber body text. " * 200
+
+        fetcher = LiveAcademicFetcher(
+            _http_fn=lambda url, t, h: _arxiv_atom("2510.10009"),
+            _pdf_http_fn=lambda url, t, h: b"fake",
+            _pdf_parser="marker",
+            _marker_extractor_cls=_SlowMarker,
+            _pdfplumber_extractor_cls=_make_pdf_extractor_mock(long_pdf),
+            _marker_timeout_seconds=0.05,
+        )
+        result = fetcher.fetch("https://arxiv.org/abs/2510.10009")
+
+        assert result["body_source"] == "pdfplumber_fallback"
+        assert "timed out" in result.get("fallback_reason", "").lower()
+
     def test_marker_json_size_cap_flagged_in_result(self):
         """structured_metadata_truncated=True propagates into fetch result."""
         from packages.research.ingestion.fetchers import LiveAcademicFetcher
@@ -728,6 +760,9 @@ class TestAcademicAdapterMarkerMetadata:
         assert doc.metadata["marker_version"] == "1.3.0"
         # structured_metadata is a cache-only field; not propagated to doc.metadata
         assert "structured_metadata" not in doc.metadata
+        # compact summary IS propagated so operators can see structure signals
+        assert "structured_metadata_summary" in doc.metadata
+        assert doc.metadata["structured_metadata_summary"]["key_count"] >= 1
 
     def test_marker_truncated_flag_propagated(self):
         """structured_metadata_truncated=True is surfaced in doc.metadata."""

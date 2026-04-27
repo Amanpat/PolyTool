@@ -111,6 +111,7 @@ class LiveAcademicFetcher:
         _pdf_parser: str = "auto",
         _marker_extractor_cls=None,
         _pdfplumber_extractor_cls=None,
+        _marker_timeout_seconds: float = 300.0,
     ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
@@ -118,6 +119,7 @@ class LiveAcademicFetcher:
         self._pdf_extractor_cls = _pdf_extractor_cls  # backward compat only
         self._marker_extractor_cls = _marker_extractor_cls
         self._pdfplumber_extractor_cls = _pdfplumber_extractor_cls
+        self._marker_timeout_seconds = _marker_timeout_seconds
 
         # parser: env var overrides constructor default
         import os as _os
@@ -197,13 +199,26 @@ class LiveAcademicFetcher:
 
     def _try_marker_or_fallback(self, tmp_path: str) -> "tuple[str, dict]":
         """Attempt Marker extraction; fall back to pdfplumber on any failure."""
+        import concurrent.futures as _cf
         marker_fail_reason: "Optional[str]" = None
 
         try:
             from packages.research.ingestion.extractors import MarkerPDFExtractor
             marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
             extractor = marker_cls()
-            doc = extractor.extract(tmp_path)
+
+            _pool = _cf.ThreadPoolExecutor(max_workers=1)
+            _fut = _pool.submit(extractor.extract, tmp_path)
+            try:
+                doc = _fut.result(timeout=self._marker_timeout_seconds)
+            except _cf.TimeoutError:
+                _pool.shutdown(wait=False)
+                raise TimeoutError(
+                    f"Marker extraction timed out after {self._marker_timeout_seconds}s"
+                )
+            finally:
+                _pool.shutdown(wait=False)
+
             body_text = doc.body or ""
 
             if len(body_text) < 200:
@@ -343,17 +358,20 @@ class LiveAcademicFetcher:
         }
         result.update(body_meta)
 
-        if body_meta.get("body_source") == "pdf":
+        _body_source = body_meta.get("body_source", "unknown")
+        if body_meta.get("body_length"):
             _logger.info(
-                "academic fetch: arxiv:%s body_source=pdf body_length=%d page_count=%s",
+                "academic fetch: arxiv:%s body_source=%s body_length=%d page_count=%s",
                 arxiv_id,
+                _body_source,
                 body_meta.get("body_length", 0),
                 body_meta.get("page_count", "?"),
             )
         else:
             _logger.info(
-                "academic fetch: arxiv:%s body_source=abstract_fallback reason=%s",
+                "academic fetch: arxiv:%s body_source=%s reason=%s",
                 arxiv_id,
+                _body_source,
                 body_meta.get("fallback_reason", "unknown"),
             )
 
@@ -443,17 +461,20 @@ class LiveAcademicFetcher:
                 body_text, body_meta = self._fetch_pdf_body(arxiv_id)
                 entry_dict["body_text"] = body_text if body_text else abstract
                 entry_dict.update(body_meta)
-                if body_meta.get("body_source") == "pdf":
+                _body_source = body_meta.get("body_source", "unknown")
+                if body_meta.get("body_length"):
                     _logger.info(
-                        "academic fetch: arxiv:%s body_source=pdf body_length=%d page_count=%s",
+                        "academic fetch: arxiv:%s body_source=%s body_length=%d page_count=%s",
                         arxiv_id,
+                        _body_source,
                         body_meta.get("body_length", 0),
                         body_meta.get("page_count", "?"),
                     )
                 else:
                     _logger.info(
-                        "academic fetch: arxiv:%s body_source=abstract_fallback reason=%s",
+                        "academic fetch: arxiv:%s body_source=%s reason=%s",
                         arxiv_id,
+                        _body_source,
                         body_meta.get("fallback_reason", "unknown"),
                     )
 
