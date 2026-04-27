@@ -108,21 +108,36 @@ class LiveAcademicFetcher:
         _http_fn: Optional[Callable] = None,
         _pdf_http_fn: Optional[Callable] = None,
         _pdf_extractor_cls=None,
+        _pdf_parser: str = "auto",
+        _marker_extractor_cls=None,
+        _pdfplumber_extractor_cls=None,
     ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
-        # PDF download uses same HTTP helper unless overridden (enables test injection)
         self._pdf_http_fn = _pdf_http_fn if _pdf_http_fn is not None else self._http_fn
-        self._pdf_extractor_cls = _pdf_extractor_cls  # None = use PDFExtractor from extractors
+        self._pdf_extractor_cls = _pdf_extractor_cls  # backward compat only
+        self._marker_extractor_cls = _marker_extractor_cls
+        self._pdfplumber_extractor_cls = _pdfplumber_extractor_cls
+
+        # parser: env var overrides constructor default
+        import os as _os
+        _env = _os.environ.get("RIS_PDF_PARSER", "").lower()
+        self._pdf_parser = _env if _env in ("auto", "pdfplumber", "marker") else _pdf_parser
+
+    # ------------------------------------------------------------------
+    # PDF body extraction helpers
+    # ------------------------------------------------------------------
 
     def _fetch_pdf_body(self, arxiv_id: str) -> "tuple[str, dict]":
         """Download arXiv PDF and extract body text.
 
         Returns (body_text, meta_dict).
-        On success: body_text is the full extracted text, meta has
-            body_source="pdf", body_length=int, page_count=int.
-        On failure or suspiciously short text: body_text is "",
-            meta has body_source="abstract_fallback", fallback_reason=str.
+        body_source values:
+          "pdf"                — pdfplumber success (default or auto without marker)
+          "marker"             — Marker success
+          "marker_llm_boost"   — Marker with LLM flag enabled
+          "pdfplumber_fallback"— Marker failed, pdfplumber succeeded
+          "abstract_fallback"  — all extraction failed; caller uses abstract
         """
         import os as _os
         import tempfile
@@ -136,27 +151,7 @@ class LiveAcademicFetcher:
                 f.write(pdf_bytes)
                 tmp_path = f.name
 
-            if self._pdf_extractor_cls is not None:
-                extractor = self._pdf_extractor_cls()
-            else:
-                from packages.research.ingestion.extractors import PDFExtractor
-                extractor = PDFExtractor()
-
-            doc = extractor.extract(tmp_path)
-            body_text = doc.body
-            page_count = doc.metadata.get("page_count", 0)
-
-            if len(body_text) < 2000:
-                return ("", {
-                    "body_source": "abstract_fallback",
-                    "fallback_reason": f"extracted text too short ({len(body_text)} chars)",
-                })
-
-            return (body_text, {
-                "body_source": "pdf",
-                "body_length": len(body_text),
-                "page_count": page_count,
-            })
+            return self._parse_pdf(tmp_path)
 
         except Exception as exc:
             return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
@@ -167,6 +162,116 @@ class LiveAcademicFetcher:
                     _os.unlink(tmp_path)
                 except OSError:
                     pass
+
+    def _parse_pdf(self, tmp_path: str) -> "tuple[str, dict]":
+        """Dispatch to the right parser. Returns (body_text, meta_dict)."""
+        # Backward compat: _pdf_extractor_cls set → behave exactly like Layer 0
+        if self._pdf_extractor_cls is not None:
+            return self._compat_extract(tmp_path)
+
+        if self._pdf_parser == "pdfplumber":
+            return self._pdfplumber_extract(tmp_path, fallback_reason=None)
+
+        # "auto" or "marker": try Marker first, fall back to pdfplumber
+        return self._try_marker_or_fallback(tmp_path)
+
+    def _compat_extract(self, tmp_path: str) -> "tuple[str, dict]":
+        """Layer-0 backward-compat path using injected _pdf_extractor_cls."""
+        try:
+            extractor = self._pdf_extractor_cls()
+            doc = extractor.extract(tmp_path)
+            body_text = doc.body
+            page_count = doc.metadata.get("page_count", 0)
+            if len(body_text) < 2000:
+                return ("", {
+                    "body_source": "abstract_fallback",
+                    "fallback_reason": f"extracted text too short ({len(body_text)} chars)",
+                })
+            return (body_text, {
+                "body_source": "pdf",
+                "body_length": len(body_text),
+                "page_count": page_count,
+            })
+        except Exception as exc:
+            return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
+
+    def _try_marker_or_fallback(self, tmp_path: str) -> "tuple[str, dict]":
+        """Attempt Marker extraction; fall back to pdfplumber on any failure."""
+        marker_fail_reason: "Optional[str]" = None
+
+        try:
+            from packages.research.ingestion.extractors import MarkerPDFExtractor
+            marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
+            extractor = marker_cls()
+            doc = extractor.extract(tmp_path)
+            body_text = doc.body or ""
+
+            if len(body_text) < 200:
+                marker_fail_reason = f"marker output too short ({len(body_text)} chars)"
+            else:
+                return self._build_marker_result(body_text, doc.metadata)
+
+        except ImportError:
+            if self._pdf_parser == "auto":
+                marker_fail_reason = None  # silent: marker not installed in auto mode
+            else:
+                marker_fail_reason = "marker-pdf not installed"
+        except Exception as exc:
+            marker_fail_reason = str(exc)[:200]
+
+        return self._pdfplumber_extract(tmp_path, fallback_reason=marker_fail_reason)
+
+    def _pdfplumber_extract(
+        self, tmp_path: str, fallback_reason: "Optional[str]"
+    ) -> "tuple[str, dict]":
+        """Run pdfplumber extraction. Sets body_source based on fallback_reason."""
+        try:
+            from packages.research.ingestion.extractors import PDFExtractor
+            extractor_cls = self._pdfplumber_extractor_cls or PDFExtractor
+            extractor = extractor_cls()
+            doc = extractor.extract(tmp_path)
+            body_text = doc.body
+            page_count = doc.metadata.get("page_count", 0)
+
+            if len(body_text) < 2000:
+                return ("", {
+                    "body_source": "abstract_fallback",
+                    "fallback_reason": f"extracted text too short ({len(body_text)} chars)",
+                })
+
+            if fallback_reason is not None:
+                return (body_text, {
+                    "body_source": "pdfplumber_fallback",
+                    "fallback_reason": fallback_reason,
+                    "body_length": len(body_text),
+                    "page_count": page_count,
+                })
+            return (body_text, {
+                "body_source": "pdf",
+                "body_length": len(body_text),
+                "page_count": page_count,
+            })
+        except Exception as exc:
+            return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
+
+    def _build_marker_result(
+        self, body_text: str, doc_meta: dict
+    ) -> "tuple[str, dict]":
+        """Assemble meta_dict for a successful Marker extraction."""
+        meta: dict = {
+            "body_source": doc_meta.get("body_source", "marker"),
+            "body_length": len(body_text),
+            "has_structured_metadata": True,
+        }
+        if doc_meta.get("page_count"):
+            meta["page_count"] = doc_meta["page_count"]
+        if doc_meta.get("marker_version"):
+            meta["marker_version"] = doc_meta["marker_version"]
+        if doc_meta.get("structured_metadata") is not None:
+            meta["structured_metadata"] = doc_meta["structured_metadata"]
+        if doc_meta.get("structured_metadata_truncated"):
+            meta["structured_metadata_truncated"] = True
+        return (body_text, meta)
 
     def fetch(self, url: str) -> dict:
         """Fetch arXiv paper metadata from *url*.

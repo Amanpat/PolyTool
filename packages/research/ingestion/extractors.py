@@ -396,6 +396,167 @@ class PDFExtractor(Extractor):
 
 
 # ---------------------------------------------------------------------------
+# MarkerPDFExtractor — structured Markdown via marker-pdf (optional dep)
+# ---------------------------------------------------------------------------
+
+_MARKER_METADATA_SIZE_LIMIT = 20 * 1024 * 1024  # 20 MB
+
+
+class MarkerPDFExtractor(Extractor):
+    """PDF extractor using marker-pdf for structured Markdown output.
+
+    marker-pdf is an optional heavy dependency (pulls PyTorch/model weights).
+    This extractor imports marker lazily so it never affects startup time.
+
+    Install: ``pip install 'polytool[ris-marker]'``
+
+    Parameters
+    ----------
+    _marker_modules:
+        Injectable dict with keys ``"PdfConverter"``, ``"create_model_dict"``,
+        ``"text_from_rendered"``.  Used by offline tests to bypass real imports.
+    _enable_llm:
+        Reserved LLM-boost flag.  When ``True``, sets ``body_source``
+        to ``"marker_llm_boost"``.  Default ``False`` — no external LLM calls
+        are made regardless.  Can also be activated via ``RIS_MARKER_LLM=1``.
+    """
+
+    def __init__(
+        self,
+        _marker_modules: "Optional[dict]" = None,
+        _enable_llm: bool = False,
+    ) -> None:
+        self._marker_modules = _marker_modules
+        import os as _os
+        self._enable_llm = _enable_llm or _os.environ.get("RIS_MARKER_LLM", "").lower() in ("1", "true")
+
+    def _load_marker(self) -> dict:
+        """Lazily import marker-pdf modules. Returns dict of callables."""
+        if self._marker_modules is not None:
+            return self._marker_modules
+        try:
+            from marker.converters.pdf import PdfConverter
+            from marker.models import create_model_dict
+            from marker.output import text_from_rendered
+            return {
+                "PdfConverter": PdfConverter,
+                "create_model_dict": create_model_dict,
+                "text_from_rendered": text_from_rendered,
+            }
+        except ImportError as exc:
+            raise ImportError(
+                "Marker PDF extraction requires marker-pdf. "
+                "Install: pip install 'polytool[ris-marker]'"
+            ) from exc
+
+    def _discover_version(self) -> "Optional[str]":
+        try:
+            import importlib.metadata as _imeta
+            return _imeta.version("marker-pdf")
+        except Exception:
+            return None
+
+    def extract(self, source: "str | Path", **kwargs) -> ExtractedDocument:  # type: ignore[override]
+        import json as _json
+
+        mods = self._load_marker()  # raises ImportError if marker not installed
+
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"No such file: {source_path}")
+
+        source_type: str = kwargs.get("source_type", "manual")
+        author: str = kwargs.get("author", "unknown")
+        publish_date: "Optional[str]" = kwargs.get("publish_date", None)
+        source_family: str = SOURCE_FAMILIES.get(source_type, source_type)
+
+        marker_version = self._discover_version()
+
+        PdfConverter = mods["PdfConverter"]
+        create_model_dict = mods["create_model_dict"]
+        text_from_rendered = mods["text_from_rendered"]
+
+        model_dict = create_model_dict()
+        converter = PdfConverter(artifact_dict=model_dict)
+        rendered = converter(str(source_path))
+
+        result = text_from_rendered(rendered)
+        if isinstance(result, tuple) and result:
+            markdown_text = result[0] or ""
+            # Second element is out_meta if it's a plain dict (not image dict)
+            out_meta: dict = {}
+            for item in result[1:]:
+                if isinstance(item, dict) and not any(
+                    isinstance(v, (bytes, bytearray)) for v in item.values()
+                ):
+                    out_meta = item
+                    break
+        else:
+            markdown_text = str(result) if result else ""
+            out_meta = {}
+
+        # Strip image binaries from out_meta
+        structured_metadata = {
+            k: v for k, v in out_meta.items()
+            if k != "images" and not isinstance(v, (bytes, bytearray))
+        }
+
+        # Enforce 20 MB size cap on structured_metadata
+        structured_metadata_truncated = False
+        try:
+            if len(_json.dumps(structured_metadata).encode("utf-8")) > _MARKER_METADATA_SIZE_LIMIT:
+                structured_metadata_truncated = True
+                structured_metadata = {
+                    "truncated": True,
+                    "page_count": structured_metadata.get("page_count", 0),
+                    "truncation_reason": f"metadata exceeded {_MARKER_METADATA_SIZE_LIMIT // (1024 * 1024)}MB cap",
+                }
+        except (TypeError, ValueError):
+            structured_metadata = {}
+
+        # Extract page count
+        page_count: int = int(out_meta.get("page_count", 0) or 0)
+        if not page_count:
+            try:
+                page_count = int(rendered.metadata.page_count)
+            except (AttributeError, TypeError, ValueError):
+                pass
+
+        title_override = kwargs.get("title")
+        if title_override:
+            title = str(title_override)
+        else:
+            m = _H1_RE.search(markdown_text)
+            title = m.group(1).strip() if m else source_path.stem
+
+        abs_path = str(source_path.resolve()).replace("\\", "/")
+        source_url = f"file://{abs_path}"
+        content_hash = _sha256_hex(markdown_text)
+        body_source = "marker_llm_boost" if self._enable_llm else "marker"
+
+        metadata_out: dict = {
+            "content_hash": content_hash,
+            "page_count": page_count,
+            "body_source": body_source,
+            "has_structured_metadata": True,
+            "structured_metadata": structured_metadata,
+            "structured_metadata_truncated": structured_metadata_truncated,
+        }
+        if marker_version is not None:
+            metadata_out["marker_version"] = marker_version
+
+        return ExtractedDocument(
+            title=title,
+            body=markdown_text,
+            source_url=source_url,
+            source_family=source_family,
+            author=author,
+            publish_date=publish_date,
+            metadata=metadata_out,
+        )
+
+
+# ---------------------------------------------------------------------------
 # DocxExtractor — real implementation with graceful ImportError fallback
 # ---------------------------------------------------------------------------
 
@@ -510,6 +671,7 @@ EXTRACTOR_REGISTRY: dict[str, type[Extractor]] = {
     "markdown": MarkdownExtractor,
     "structured_markdown": StructuredMarkdownExtractor,
     "pdf": PDFExtractor,
+    "marker_pdf": MarkerPDFExtractor,
     "docx": DocxExtractor,
 }
 
