@@ -514,8 +514,13 @@ class TestMarkerPDFExtractorUnit:
         assert doc.metadata["structured_metadata_truncated"] is True
         assert doc.metadata["structured_metadata"].get("truncated") is True
 
-    def test_llm_flag_sets_marker_llm_boost(self, tmp_path):
-        """_enable_llm=True sets body_source='marker_llm_boost'."""
+    def test_llm_flag_records_intent_not_llm_boost(self, tmp_path):
+        """_enable_llm=True must NOT set body_source='marker_llm_boost' (LLM not wired).
+
+        Instead it sets body_source='marker' and adds marker_llm_requested=True,
+        marker_llm_applied=False so operators can see the intent without a
+        misleading label that implies an LLM call was made.
+        """
         from packages.research.ingestion.extractors import MarkerPDFExtractor
 
         fake_pdf = tmp_path / "test.pdf"
@@ -525,7 +530,10 @@ class TestMarkerPDFExtractorUnit:
             str(fake_pdf)
         )
 
-        assert doc.metadata["body_source"] == "marker_llm_boost"
+        assert doc.metadata["body_source"] == "marker"
+        assert doc.metadata.get("marker_llm_requested") is True
+        assert doc.metadata.get("marker_llm_applied") is False
+        assert "marker_llm_boost" not in str(doc.metadata)
 
     def test_nonexistent_file_raises_file_not_found(self, tmp_path):
         """FileNotFoundError when source path does not exist (modules injected)."""
@@ -706,7 +714,34 @@ class TestMarkerFetcherIntegration:
         result = fetcher.fetch("https://arxiv.org/abs/2510.10009")
 
         assert result["body_source"] == "pdfplumber_fallback"
-        assert "timed out" in result.get("fallback_reason", "").lower()
+        reason = result.get("fallback_reason", "")
+        assert "marker_timeout" in reason.lower() or "timed out" in reason.lower()
+
+    def test_marker_busy_falls_back_immediately(self):
+        """Second concurrent Marker request returns pdfplumber_fallback immediately."""
+        from packages.research.ingestion.fetchers import (
+            LiveAcademicFetcher,
+            _MARKER_WORK_SEMAPHORE,
+        )
+
+        long_pdf = "pdfplumber body text. " * 200
+
+        # Hold the semaphore to simulate another Marker conversion in flight.
+        acquired = _MARKER_WORK_SEMAPHORE.acquire(blocking=False)
+        assert acquired, "semaphore must be free at test start"
+        try:
+            fetcher = LiveAcademicFetcher(
+                _http_fn=lambda url, t, h: _arxiv_atom("2510.10010"),
+                _pdf_http_fn=lambda url, t, h: b"fake",
+                _pdf_parser="marker",
+                _pdfplumber_extractor_cls=_make_pdf_extractor_mock(long_pdf),
+            )
+            result = fetcher.fetch("https://arxiv.org/abs/2510.10010")
+        finally:
+            _MARKER_WORK_SEMAPHORE.release()
+
+        assert result["body_source"] == "pdfplumber_fallback"
+        assert "marker_busy" in result.get("fallback_reason", "")
 
     def test_marker_json_size_cap_flagged_in_result(self):
         """structured_metadata_truncated=True propagates into fetch result."""

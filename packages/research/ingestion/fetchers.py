@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import urllib.parse
 import xml.etree.ElementTree as ET
 from typing import Callable, Optional
@@ -23,6 +24,14 @@ import urllib.error
 import urllib.request
 
 _logger = logging.getLogger(__name__)
+
+# Semaphore that caps concurrent Marker extraction attempts to 1.
+# ThreadPoolExecutor timeout returns control to the caller, but the underlying
+# thread cannot be killed on Windows (no SIGKILL for threads).  The semaphore
+# prevents thread accumulation: if a Marker job is already running and a new
+# request arrives, the new request falls back to pdfplumber immediately instead
+# of spawning another long-running thread.
+_MARKER_WORK_SEMAPHORE = threading.Semaphore(1)
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +117,7 @@ class LiveAcademicFetcher:
         _http_fn: Optional[Callable] = None,
         _pdf_http_fn: Optional[Callable] = None,
         _pdf_extractor_cls=None,
-        _pdf_parser: str = "auto",
+        _pdf_parser: str = "pdfplumber",
         _marker_extractor_cls=None,
         _pdfplumber_extractor_cls=None,
         _marker_timeout_seconds: float = 300.0,
@@ -121,7 +130,9 @@ class LiveAcademicFetcher:
         self._pdfplumber_extractor_cls = _pdfplumber_extractor_cls
         self._marker_timeout_seconds = _marker_timeout_seconds
 
-        # parser: env var overrides constructor default
+        # RIS_PDF_PARSER env var overrides constructor default.
+        # Default is "pdfplumber" (safe on CPU); set RIS_PDF_PARSER=auto or
+        # RIS_PDF_PARSER=marker to opt into Marker parsing explicitly.
         import os as _os
         _env = _os.environ.get("RIS_PDF_PARSER", "").lower()
         self._pdf_parser = _env if _env in ("auto", "pdfplumber", "marker") else _pdf_parser
@@ -198,10 +209,33 @@ class LiveAcademicFetcher:
             return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
 
     def _try_marker_or_fallback(self, tmp_path: str) -> "tuple[str, dict]":
-        """Attempt Marker extraction; fall back to pdfplumber on any failure."""
-        import concurrent.futures as _cf
-        marker_fail_reason: "Optional[str]" = None
+        """Attempt Marker extraction; fall back to pdfplumber on any failure.
 
+        Timeout contract
+        ----------------
+        The caller returns within ``_marker_timeout_seconds`` regardless of how
+        long Marker takes.  However, on Windows (and in general with
+        ThreadPoolExecutor) the underlying worker *thread* cannot be forcibly
+        killed after a timeout — it will run to completion or error in the
+        background.  ``_MARKER_WORK_SEMAPHORE`` (module-level, capacity=1)
+        prevents thread accumulation: if another Marker conversion is already
+        running the new request falls back to pdfplumber immediately instead of
+        spawning a second long-running thread.
+        """
+        import concurrent.futures as _cf
+
+        # Gate: reject new Marker attempts if one is already in flight.
+        if not _MARKER_WORK_SEMAPHORE.acquire(blocking=False):
+            _logger.warning(
+                "Marker: another conversion is already running; "
+                "falling back to pdfplumber immediately"
+            )
+            return self._pdfplumber_extract(
+                tmp_path,
+                fallback_reason="marker_busy: conversion already running",
+            )
+
+        marker_fail_reason: "Optional[str]" = None
         try:
             from packages.research.ingestion.extractors import MarkerPDFExtractor
             marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
@@ -214,7 +248,8 @@ class LiveAcademicFetcher:
             except _cf.TimeoutError:
                 _pool.shutdown(wait=False)
                 raise TimeoutError(
-                    f"Marker extraction timed out after {self._marker_timeout_seconds}s"
+                    f"marker_timeout: extraction timed out after "
+                    f"{self._marker_timeout_seconds}s"
                 )
             finally:
                 _pool.shutdown(wait=False)
@@ -233,6 +268,8 @@ class LiveAcademicFetcher:
                 marker_fail_reason = "marker-pdf not installed"
         except Exception as exc:
             marker_fail_reason = str(exc)[:200]
+        finally:
+            _MARKER_WORK_SEMAPHORE.release()
 
         return self._pdfplumber_extract(tmp_path, fallback_reason=marker_fail_reason)
 

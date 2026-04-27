@@ -532,16 +532,30 @@ class MarkerPDFExtractor(Extractor):
         abs_path = str(source_path.resolve()).replace("\\", "/")
         source_url = f"file://{abs_path}"
         content_hash = _sha256_hex(markdown_text)
-        body_source = "marker_llm_boost" if self._enable_llm else "marker"
+
+        # LLM-boost is not yet wired: always report body_source="marker".
+        # If _enable_llm was requested, record that as metadata signals so
+        # operators can see the intent without a misleading body_source label.
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        if self._enable_llm:
+            _log.warning(
+                "RIS_MARKER_LLM / _enable_llm=True is set but no LLM call is "
+                "wired in MarkerPDFExtractor. Reporting body_source='marker' "
+                "with marker_llm_requested=True, marker_llm_applied=False."
+            )
 
         metadata_out: dict = {
             "content_hash": content_hash,
             "page_count": page_count,
-            "body_source": body_source,
+            "body_source": "marker",
             "has_structured_metadata": True,
             "structured_metadata": structured_metadata,
             "structured_metadata_truncated": structured_metadata_truncated,
         }
+        if self._enable_llm:
+            metadata_out["marker_llm_requested"] = True
+            metadata_out["marker_llm_applied"] = False
         if marker_version is not None:
             metadata_out["marker_version"] = marker_version
 
