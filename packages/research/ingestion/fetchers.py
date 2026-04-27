@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import urllib.parse
@@ -20,6 +21,8 @@ import xml.etree.ElementTree as ET
 from typing import Callable, Optional
 import urllib.error
 import urllib.request
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +102,71 @@ class LiveAcademicFetcher:
     Compatible with AcademicAdapter.adapt().
     """
 
-    def __init__(self, timeout: int = 15, _http_fn: Optional[Callable] = None) -> None:
+    def __init__(
+        self,
+        timeout: int = 15,
+        _http_fn: Optional[Callable] = None,
+        _pdf_http_fn: Optional[Callable] = None,
+        _pdf_extractor_cls=None,
+    ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
+        # PDF download uses same HTTP helper unless overridden (enables test injection)
+        self._pdf_http_fn = _pdf_http_fn if _pdf_http_fn is not None else self._http_fn
+        self._pdf_extractor_cls = _pdf_extractor_cls  # None = use PDFExtractor from extractors
+
+    def _fetch_pdf_body(self, arxiv_id: str) -> "tuple[str, dict]":
+        """Download arXiv PDF and extract body text.
+
+        Returns (body_text, meta_dict).
+        On success: body_text is the full extracted text, meta has
+            body_source="pdf", body_length=int, page_count=int.
+        On failure or suspiciously short text: body_text is "",
+            meta has body_source="abstract_fallback", fallback_reason=str.
+        """
+        import os as _os
+        import tempfile
+
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        tmp_path = None
+        try:
+            pdf_bytes = self._pdf_http_fn(pdf_url, self._timeout, {})
+
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                f.write(pdf_bytes)
+                tmp_path = f.name
+
+            if self._pdf_extractor_cls is not None:
+                extractor = self._pdf_extractor_cls()
+            else:
+                from packages.research.ingestion.extractors import PDFExtractor
+                extractor = PDFExtractor()
+
+            doc = extractor.extract(tmp_path)
+            body_text = doc.body
+            page_count = doc.metadata.get("page_count", 0)
+
+            if len(body_text) < 2000:
+                return ("", {
+                    "body_source": "abstract_fallback",
+                    "fallback_reason": f"extracted text too short ({len(body_text)} chars)",
+                })
+
+            return (body_text, {
+                "body_source": "pdf",
+                "body_length": len(body_text),
+                "page_count": page_count,
+            })
+
+        except Exception as exc:
+            return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
+
+        finally:
+            if tmp_path is not None:
+                try:
+                    _os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     def fetch(self, url: str) -> dict:
         """Fetch arXiv paper metadata from *url*.
@@ -161,13 +226,33 @@ class LiveAcademicFetcher:
         if published_el is not None and published_el.text:
             published_date = published_el.text[:10]  # YYYY-MM-DD
 
-        return {
+        body_text, body_meta = self._fetch_pdf_body(arxiv_id)
+
+        result = {
             "url": canonical_url,
             "title": title,
             "abstract": abstract,
             "authors": authors,
             "published_date": published_date,
+            "body_text": body_text if body_text else abstract,
         }
+        result.update(body_meta)
+
+        if body_meta.get("body_source") == "pdf":
+            _logger.info(
+                "academic fetch: arxiv:%s body_source=pdf body_length=%d page_count=%s",
+                arxiv_id,
+                body_meta.get("body_length", 0),
+                body_meta.get("page_count", "?"),
+            )
+        else:
+            _logger.info(
+                "academic fetch: arxiv:%s body_source=abstract_fallback reason=%s",
+                arxiv_id,
+                body_meta.get("fallback_reason", "unknown"),
+            )
+
+        return result
 
     def search_by_topic(self, query: str, max_results: int = 5) -> list[dict]:
         """Search arXiv for papers matching *query*.
@@ -230,24 +315,44 @@ class LiveAcademicFetcher:
             # Build canonical URL from entry id element
             id_el = entry.find("atom:id", _ATOM_NS)
             canonical_url = ""
+            arxiv_id = None
             if id_el is not None and id_el.text:
                 raw_id = id_el.text.strip()
                 # arXiv IDs in feed: http://arxiv.org/abs/YYMM.NNNNNvN
                 id_match = _ARXIV_URL_ID_RE.search(raw_id)
                 if id_match:
-                    canonical_url = f"https://arxiv.org/abs/{id_match.group(1)}"
+                    arxiv_id = id_match.group(1)
+                    canonical_url = f"https://arxiv.org/abs/{arxiv_id}"
                 else:
                     canonical_url = raw_id
 
-            results.append(
-                {
-                    "url": canonical_url,
-                    "title": title,
-                    "abstract": abstract,
-                    "authors": authors,
-                    "published_date": published_date,
-                }
-            )
+            entry_dict: dict = {
+                "url": canonical_url,
+                "title": title,
+                "abstract": abstract,
+                "authors": authors,
+                "published_date": published_date,
+            }
+
+            if arxiv_id:
+                body_text, body_meta = self._fetch_pdf_body(arxiv_id)
+                entry_dict["body_text"] = body_text if body_text else abstract
+                entry_dict.update(body_meta)
+                if body_meta.get("body_source") == "pdf":
+                    _logger.info(
+                        "academic fetch: arxiv:%s body_source=pdf body_length=%d page_count=%s",
+                        arxiv_id,
+                        body_meta.get("body_length", 0),
+                        body_meta.get("page_count", "?"),
+                    )
+                else:
+                    _logger.info(
+                        "academic fetch: arxiv:%s body_source=abstract_fallback reason=%s",
+                        arxiv_id,
+                        body_meta.get("fallback_reason", "unknown"),
+                    )
+
+            results.append(entry_dict)
 
         return results
 

@@ -135,7 +135,12 @@ class AcademicAdapter(SourceAdapter):
             "source_type": meta.source_type,
             "publisher": meta.publisher,
             "abstract": abstract[:500] if abstract else "",
+            "body_source": raw_source.get("body_source", "abstract"),
         }
+        for _key in ("body_length", "page_count", "fallback_reason"):
+            _val = raw_source.get(_key)
+            if _val is not None:
+                metadata[_key] = _val
 
         return ExtractedDocument(
             title=title,

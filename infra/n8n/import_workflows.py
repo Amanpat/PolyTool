@@ -205,12 +205,14 @@ def import_workflow(
         workflow_id = str(response["id"])
         action = "updated"
     else:
+        # n8n rejects `active` as read-only on POST creation; strip it here.
+        create_payload = {k: v for k, v in workflow_payload.items() if k != "active"}
         response = request_json(
             "POST",
             base_url,
             api_key,
             "/api/v1/workflows",
-            payload=workflow_payload,
+            payload=create_payload,
         )
         workflow_id = str(response["id"])
         action = "created"
