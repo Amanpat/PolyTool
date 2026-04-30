@@ -1,52 +1,373 @@
 {
   "version": "v0",
   "review_status": "operator_review_required",
-  "description": "DRAFT — operator must review, edit, and change review_status to 'reviewed' before baseline creation. See docs/runbooks/research_eval_benchmark.md.",
+  "description": "DRAFT — 35 candidate QA pairs generated 2026-04-30 for operator review. expected_answer_substring values are verified against raw_source_cache body text (artifacts/research/raw_source_cache/academic/*.json) or full arxiv abstract pages fetched during QA prep. Do NOT set review_status to 'reviewed' or create baseline_v0.json until operator has reviewed and approved each pair. See docs/dev_logs/2026-04-30_ris-eval-benchmark-qa-review-pack.md for verification details.",
+  "verification_notes": {
+    "method": "Each expected_answer_substring verified by Python string search against artifacts/research/raw_source_cache/academic/<file>.json payload.body_text, or against full arxiv abstract page text fetched via ScraplingServer. Body text not stored in knowledge.sqlite3 metadata_json — it lives in the raw_source_cache. Substrings spanning PDF line-break hyphens are avoided; short, unambiguous phrases are preferred.",
+    "cache_files_used": [
+      "47eae7fb28cdfde1.json -> b1982ae05e5cd305... (SoK DePMs)",
+      "aea8351605f4b28c.json -> 8cebfdb3f9eb1480... (Black Scholes PM)",
+      "a3447cebd3b7b513.json -> e35787572e54d216... (LOB Dynamics)",
+      "6f8dfef0413ada61.json -> 68acefe962491c08... (Semi Markov)",
+      "f1bfec43f961cf0b.json -> 64d01f09fdcb5eaf... (Hypothesis Trading)",
+      "bb81ac9c4c8915a4.json -> 89b902e6a792a3a8... (TradeFM)",
+      "7079701cad494070.json -> 9495ffda89417b8e... (Inelastic Market)",
+      "7eee677a3c03ad3f.json -> 6e911b4fbe2c0414... (Market Ecology)",
+      "3dc8e37cb374e169.json -> 0c8b3c3acdf4e7e0... (HF Noise)",
+      "0ed992a9de186e51.json -> af8935f6dc477ff0... (Systemic Risk Hawkes)",
+      "e6f3c05aba30bfb0.json -> 40fd58b73a73b54d... (FX WM Fix)"
+    ]
+  },
   "pairs": [
     {
       "id": "qa_001",
-      "question": "What is the inventory risk aversion parameter gamma in the Avellaneda-Stoikov model?",
-      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
-      "expected_section_or_page": "Section 4",
-      "expected_answer_substring": "gamma",
+      "question": "What eight stages does the DePM modular workflow comprise according to the SoK paper?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Abstract / Section 4",
+      "expected_answer_substring": "eight stages: underlying infrastructure, market topic, share structure",
       "category": "concept_definition",
-      "difficulty": "easy"
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
     },
     {
       "id": "qa_002",
-      "question": "What is the optimal bid-ask spread formula in the Avellaneda-Stoikov model?",
-      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
-      "expected_section_or_page": "Section 4",
-      "expected_answer_substring": "spread",
-      "category": "formula_lookup",
-      "difficulty": "medium"
+      "question": "What three design tradeoffs does the SoK DePMs paper analyze for each module in the workflow?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "decentralization, expressiveness, and",
+      "category": "methodology",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
     },
     {
       "id": "qa_003",
-      "question": "What does the Kelly criterion maximize?",
-      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
-      "expected_section_or_page": "Section 2",
-      "expected_answer_substring": "expected logarithmic",
-      "category": "concept_definition",
-      "difficulty": "easy"
+      "question": "What does the negRisk gadget introduced by Polymarket allow traders to do?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Section 4.3",
+      "expected_answer_substring": "allows a trader to convert any No share into a portfolio of Yes shares",
+      "category": "survey_question",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
     },
     {
       "id": "qa_004",
-      "question": "What is adverse selection in limit order book markets?",
-      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
-      "expected_section_or_page": "Introduction",
-      "expected_answer_substring": "informed",
+      "question": "What is a winner-take-all (WTA) market in the DePM token structure?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Section 3 / 4.3",
+      "expected_answer_substring": "winner-take-all (WTA) or Arrow-Debreu",
       "category": "concept_definition",
-      "difficulty": "easy"
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
     },
     {
       "id": "qa_005",
-      "question": "How does the prediction market CLOB differ from a traditional exchange?",
-      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
-      "expected_section_or_page": "Section 2",
-      "expected_answer_substring": "binary",
+      "question": "Why does the bid-ask spread in a DePM not always result in YES+NO prices summing to $1.00?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Section 4.3",
+      "expected_answer_substring": "bid-ask spread straddling",
+      "category": "concept_definition",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_006",
+      "question": "In DePMs, how does CLOB matching differ between centralized and partially-decentralized exchanges?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Section 4.5",
+      "expected_answer_substring": "CLOB matching is done off-chain and settlement is done on-chain",
+      "category": "concept_definition",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_007",
+      "question": "What earlier DePM designs does Polymarket deviate materially from according to the SoK paper?",
+      "expected_paper_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "expected_section_or_page": "Abstract / Introduction",
+      "expected_answer_substring": "earlier designs like Truthcoin and Augur v1",
+      "category": "survey_question",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_008",
+      "question": "What does the logit jump-diffusion model treat the traded event probability p_t as?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Section 3.2",
+      "expected_answer_substring": "Q-martingale",
+      "category": "formula_lookup",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_009",
+      "question": "What three risk factors does the logit jump-diffusion kernel expose as quotable?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Abstract / Section 3.2",
+      "expected_answer_substring": "belief volatility, jump intensity, and dependence",
+      "category": "concept_definition",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_010",
+      "question": "What method does the calibration pipeline in the Black-Scholes for PM paper use to separate diffusion from jumps?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Abstract / Section 3",
+      "expected_answer_substring": "separates diffusion from jumps via EM",
       "category": "methodology",
-      "difficulty": "medium"
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_011",
+      "question": "What language does the logit jump-diffusion kernel provide for prediction market practitioners?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "tractable, tradable language for quoting, hedging, and transferring",
+      "category": "concept_definition",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_012",
+      "question": "What stochastic kernel does the Black-Scholes for PM paper propose for prediction markets?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Introduction / Abstract",
+      "expected_answer_substring": "unifying\nstochastic kernel that options gained from Black",
+      "category": "methodology",
+      "difficulty": "hard",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_013",
+      "question": "What inventory-aware quoting framework does the PM market-maker handbook adapt?",
+      "expected_paper_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "expected_section_or_page": "Section 4.2",
+      "expected_answer_substring": "Reservation quote and optimal spread in x",
+      "category": "methodology",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_014",
+      "question": "What does the Threshold Impossibility Theorem in the LOB matching paper prove?",
+      "expected_paper_id": "e35787572e54d2161db566a719328523d8dfe777ce0e49df2128b4082673a840",
+      "expected_section_or_page": "Section 2",
+      "expected_answer_substring": "Threshold Impossibility Theorem",
+      "category": "empirical_finding",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_015",
+      "question": "How are individual agent preferences represented in the LOB matching market framework?",
+      "expected_paper_id": "e35787572e54d2161db566a719328523d8dfe777ce0e49df2128b4082673a840",
+      "expected_section_or_page": "Section 2",
+      "expected_answer_substring": "Latent Preference State Matrix",
+      "category": "concept_definition",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_016",
+      "question": "What type of shift does the Threshold Impossibility Theorem require to trigger execution in the LOB model?",
+      "expected_paper_id": "e35787572e54d2161db566a719328523d8dfe777ce0e49df2128b4082673a840",
+      "expected_section_or_page": "Section 2-3",
+      "expected_answer_substring": "categorical identity",
+      "category": "empirical_finding",
+      "difficulty": "hard",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_017",
+      "question": "What empirical financial dataset is the Semi Markov model validated against?",
+      "expected_paper_id": "68acefe962491c0868bf25caefe7f9983dc2ce7b087f786ad1e1931cbc1b57a0",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "Euribor future",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_018",
+      "question": "What market microstructure phenomenon does the Semi Markov model capture via Markov renewal processes?",
+      "expected_paper_id": "68acefe962491c0868bf25caefe7f9983dc2ce7b087f786ad1e1931cbc1b57a0",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "volatility clustering",
+      "category": "concept_definition",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_019",
+      "question": "What type of statistical procedures does the Semi Markov paper provide for model estimation?",
+      "expected_paper_id": "68acefe962491c0868bf25caefe7f9983dc2ce7b087f786ad1e1931cbc1b57a0",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "parametric and nonparametric",
+      "category": "methodology",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_020",
+      "question": "What Sharpe ratio does the interpretable hypothesis-driven trading framework achieve?",
+      "expected_paper_id": "64d01f09fdcb5eaf26f4b3ef5e7e191e4f357bb9089255d86b8117c35fa804f1",
+      "expected_section_or_page": "Abstract / Section 4.2",
+      "expected_answer_substring": "Sharpe ratio 0.33",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_021",
+      "question": "How many independent out-of-sample test periods does the walk-forward validation use?",
+      "expected_paper_id": "64d01f09fdcb5eaf26f4b3ef5e7e191e4f357bb9089255d86b8117c35fa804f1",
+      "expected_section_or_page": "Abstract / Section 3.5",
+      "expected_answer_substring": "34 independent out-of-sample test periods",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_022",
+      "question": "What equity universe and time period does the hypothesis-driven framework validate on?",
+      "expected_paper_id": "64d01f09fdcb5eaf26f4b3ef5e7e191e4f357bb9089255d86b8117c35fa804f1",
+      "expected_section_or_page": "Abstract / Section 4.1",
+      "expected_answer_substring": "100 US equities from",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_023",
+      "question": "What two statistical biases does the walk-forward trading framework aim to mitigate?",
+      "expected_paper_id": "64d01f09fdcb5eaf26f4b3ef5e7e191e4f357bb9089255d86b8117c35fa804f1",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "lookahead bias",
+      "category": "methodology",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_024",
+      "question": "How many parameters does the TradeFM generative foundation model have?",
+      "expected_paper_id": "89b902e6a792a3a8fcb529bdb83394e4b9c0f2d63d900b90ad00767b61efd01d",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "524M-parameter",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_025",
+      "question": "What technique does TradeFM use to eliminate asset-specific calibration and enable cross-asset generalization?",
+      "expected_paper_id": "89b902e6a792a3a8fcb529bdb83394e4b9c0f2d63d900b90ad00767b61efd01d",
+      "expected_section_or_page": "Abstract / Section 6",
+      "expected_answer_substring": "universal tokenization scheme",
+      "category": "methodology",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_026",
+      "question": "How is the mid-price of a limit order book defined in TradeFM?",
+      "expected_paper_id": "89b902e6a792a3a8fcb529bdb83394e4b9c0f2d63d900b90ad00767b61efd01d",
+      "expected_section_or_page": "Section 4",
+      "expected_answer_substring": "midpoint between the highest bid and the lowest ask",
+      "category": "concept_definition",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_027",
+      "question": "What stylized facts of financial returns does TradeFM reproduce in simulations?",
+      "expected_paper_id": "89b902e6a792a3a8fcb529bdb83394e4b9c0f2d63d900b90ad00767b61efd01d",
+      "expected_section_or_page": "Section 9.1",
+      "expected_answer_substring": "heavy tails",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_028",
+      "question": "What two price components does the HF microstructure noise paper disentangle from NYSE transaction prices?",
+      "expected_paper_id": "0c8b3c3acdf4e7e0e253ffc49f5769871358256772aef9f5e2a833a9abc97d5b",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "fundamental component and",
+      "category": "methodology",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_029",
+      "question": "What does the HF microstructure noise paper find about more liquid stocks and their noise level?",
+      "expected_paper_id": "0c8b3c3acdf4e7e0e253ffc49f5769871358256772aef9f5e2a833a9abc97d5b",
+      "expected_section_or_page": "Abstract / Results",
+      "expected_answer_substring": "more liquid stocks",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_030",
+      "question": "What three types of traders does the Market Ecology toy model study?",
+      "expected_paper_id": "6e911b4fbe2c041440a6eab4d7ef9de74c2d5b150440c835f2a37f6a8952c1b5",
+      "expected_section_or_page": "Abstract / Section 2",
+      "expected_answer_substring": "value investors, trend followers",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_031",
+      "question": "What ecological concepts does the Market Ecology paper apply to gain insight into market behavior?",
+      "expected_paper_id": "6e911b4fbe2c041440a6eab4d7ef9de74c2d5b150440c835f2a37f6a8952c1b5",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "community matrix and food webs",
+      "category": "methodology",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_032",
+      "question": "What market pathologies does the Market Ecology model explain the origins of?",
+      "expected_paper_id": "6e911b4fbe2c041440a6eab4d7ef9de74c2d5b150440c835f2a37f6a8952c1b5",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "excess price volatility",
+      "category": "empirical_finding",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_033",
+      "question": "What two high-frequency structural perspectives does the Hawkes flocking model assess systemic risk from?",
+      "expected_paper_id": "af8935f6dc477ff03db464362b5fe36aa1c29b8a8f042eeb91c2c84ca620e63b",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "endogeneity and interactivity",
+      "category": "empirical_finding",
+      "difficulty": "medium",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_034",
+      "question": "What benchmark measure does the Hawkes flocking model compare against for systemic risk?",
+      "expected_paper_id": "af8935f6dc477ff03db464362b5fe36aa1c29b8a8f042eeb91c2c84ca620e63b",
+      "expected_section_or_page": "Abstract",
+      "expected_answer_substring": "conditional value-at-risk",
+      "category": "methodology",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
+    },
+    {
+      "id": "qa_035",
+      "question": "What role does the WM/R 4pm fix serve in the FX microstructure paper?",
+      "expected_paper_id": "40fd58b73a73b54dd7ba2891dde5ad36cd1be5eef2dbea7becdab3dff96cac99",
+      "expected_section_or_page": "Abstract / Introduction",
+      "expected_answer_substring": "benchmark for foreign exchange (FX) execution",
+      "category": "concept_definition",
+      "difficulty": "easy",
+      "verification_source": "raw_source_cache body text verified"
     }
   ]
 }
