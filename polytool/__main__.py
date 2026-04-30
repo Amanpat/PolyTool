@@ -94,6 +94,7 @@ research_health_main = _command_entrypoint("tools.cli.research_health")
 research_review_main = _command_entrypoint("tools.cli.research_review")
 research_dossier_extract_main = _command_entrypoint("tools.cli.research_dossier_extract")
 research_bridge_main = _command_entrypoint("tools.cli.research_bridge")
+research_eval_benchmark_main = _command_entrypoint("tools.cli.research_eval_benchmark")
 discovery_main = _command_entrypoint("tools.cli.discovery")
 
 
@@ -162,6 +163,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-dossier-extract": "research_dossier_extract_main",
     "research-register-hypothesis": "research_bridge_main",
     "research-record-outcome": "research_bridge_main",
+    "research-eval-benchmark": "research_eval_benchmark_main",
     "discovery": "discovery_main",
 }
 
@@ -231,6 +233,7 @@ def print_usage() -> None:
     print("  research-dossier-extract  Parse dossier artifacts -> KnowledgeStore (source_family=dossier_report)")
     print("  research-register-hypothesis  Register a research hypothesis candidate in the JSONL registry")
     print("  research-record-outcome       Record a validation outcome for KnowledgeStore claims")
+    print("  research-eval-benchmark   Measure corpus + retrieval quality across nine metrics")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")
     print("  crypto-pair-scan      Dry-run: discover BTC/ETH/SOL 5m/15m pair markets, compute edge")

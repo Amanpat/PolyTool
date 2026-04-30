@@ -1,0 +1,20 @@
+{
+  "version": "v0",
+  "freeze_date": null,
+  "review_status": "draft",
+  "description": "DRAFT — operator must populate source_ids from production Layer 0 ingests before running baseline. See docs/runbooks/research_eval_benchmark.md for how to populate this manifest.",
+  "seed_topic_keywords": [
+    "prediction market", "polymarket", "market microstructure",
+    "avellaneda-stoikov", "kelly criterion", "optimal execution",
+    "limit order book", "informed trading", "market making",
+    "inventory risk", "adverse selection", "bid-ask spread"
+  ],
+  "entries": [
+    {
+      "source_id": "REPLACE_WITH_REAL_SHA256_ID",
+      "title": "REPLACE_WITH_PAPER_TITLE",
+      "category": "equation_heavy",
+      "tags": ["microstructure", "avellaneda-stoikov"]
+    }
+  ]
+}

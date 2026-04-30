@@ -1,0 +1,52 @@
+{
+  "version": "v0",
+  "review_status": "operator_review_required",
+  "description": "DRAFT — operator must review, edit, and change review_status to 'reviewed' before baseline creation. See docs/runbooks/research_eval_benchmark.md.",
+  "pairs": [
+    {
+      "id": "qa_001",
+      "question": "What is the inventory risk aversion parameter gamma in the Avellaneda-Stoikov model?",
+      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
+      "expected_section_or_page": "Section 4",
+      "expected_answer_substring": "gamma",
+      "category": "concept_definition",
+      "difficulty": "easy"
+    },
+    {
+      "id": "qa_002",
+      "question": "What is the optimal bid-ask spread formula in the Avellaneda-Stoikov model?",
+      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
+      "expected_section_or_page": "Section 4",
+      "expected_answer_substring": "spread",
+      "category": "formula_lookup",
+      "difficulty": "medium"
+    },
+    {
+      "id": "qa_003",
+      "question": "What does the Kelly criterion maximize?",
+      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
+      "expected_section_or_page": "Section 2",
+      "expected_answer_substring": "expected logarithmic",
+      "category": "concept_definition",
+      "difficulty": "easy"
+    },
+    {
+      "id": "qa_004",
+      "question": "What is adverse selection in limit order book markets?",
+      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
+      "expected_section_or_page": "Introduction",
+      "expected_answer_substring": "informed",
+      "category": "concept_definition",
+      "difficulty": "easy"
+    },
+    {
+      "id": "qa_005",
+      "question": "How does the prediction market CLOB differ from a traditional exchange?",
+      "expected_paper_id": "REPLACE_WITH_DOC_ID_OR_FILE_PATH",
+      "expected_section_or_page": "Section 2",
+      "expected_answer_substring": "binary",
+      "category": "methodology",
+      "difficulty": "medium"
+    }
+  ]
+}
