@@ -6,10 +6,9 @@ Generates Markdown and JSON reports from AllMetricsResult.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple
+from typing import List, Optional, Tuple
 
 from packages.research.eval_benchmark.metrics import AllMetricsResult, MetricResult
 
@@ -19,7 +18,6 @@ from packages.research.eval_benchmark.metrics import AllMetricsResult, MetricRes
 # ---------------------------------------------------------------------------
 
 def _metric_status_badge(status: str) -> str:
-    """Return a short status string for display."""
     if status == "ok":
         return "[OK]"
     elif status == "not_available":
@@ -29,7 +27,6 @@ def _metric_status_badge(status: str) -> str:
 
 
 def _format_metric_section(metric: MetricResult, index: int) -> str:
-    """Format a single metric section for the Markdown report."""
     lines = []
     badge = _metric_status_badge(metric.status)
     lines.append(f"### Metric {index}: {metric.name.replace('_', ' ').title()} {badge}")
@@ -49,7 +46,6 @@ def _format_metric_section(metric: MetricResult, index: int) -> str:
         lines.append("")
         return "\n".join(lines)
 
-    # Render value dict as a table
     if metric.value:
         lines.append("**Summary:**")
         lines.append("")
@@ -64,7 +60,6 @@ def _format_metric_section(metric: MetricResult, index: int) -> str:
                 lines.append(f"| {k} | {v} |")
         lines.append("")
 
-        # Render nested dicts/lists
         for k, v in metric.value.items():
             if isinstance(v, dict) and v:
                 lines.append(f"**{k}:**")
@@ -84,7 +79,6 @@ def _format_metric_section(metric: MetricResult, index: int) -> str:
                     lines.append("| " + " | ".join(str(row.get(c, "")) for c in cols) + " |")
                 lines.append("")
 
-    # Render detail list if non-empty and not already shown
     if metric.detail and isinstance(metric.detail, list) and metric.detail:
         detail_0 = metric.detail[0] if metric.detail else None
         if isinstance(detail_0, dict):
@@ -112,6 +106,7 @@ def generate_markdown_report(
     metrics: AllMetricsResult,
     recommendation: str,
     rec_justification: str,
+    triggered_rules: Optional[List[str]] = None,
 ) -> str:
     """Generate a Markdown report from AllMetricsResult.
 
@@ -123,11 +118,9 @@ def generate_markdown_report(
         The recommendation label (A-E or NONE).
     rec_justification:
         Human-readable justification for the recommendation.
-
-    Returns
-    -------
-    str
-        The Markdown report text.
+    triggered_rules:
+        List of rule description strings that fired. Included verbatim in the
+        report so the recommendation is auditable after stdout is gone.
     """
     lines = []
     draft_flag = ""
@@ -139,6 +132,7 @@ def generate_markdown_report(
     lines.append(f"**Run timestamp:** {metrics.run_ts}")
     lines.append(f"**Corpus version:** {metrics.corpus_version}")
     lines.append(f"**Corpus size:** {metrics.corpus_size} documents")
+    lines.append(f"**Manifest entries:** {metrics.manifest_entries}")
     lines.append(f"**QA review status:** {metrics.golden_qa_review_status}")
     if draft_flag:
         lines.append("")
@@ -146,6 +140,16 @@ def generate_markdown_report(
             "> **WARNING:** QA set is not operator-reviewed. "
             "Results are indicative only. Do not use for baseline creation."
         )
+
+    if metrics.missing_source_ids:
+        lines.append("")
+        lines.append(
+            f"> **WARNING:** {len(metrics.missing_source_ids)} manifest source_id(s) not found "
+            "in the KnowledgeStore DB. Affected IDs: "
+            + ", ".join(f"`{sid[:16]}...`" for sid in metrics.missing_source_ids[:5])
+            + ("" if len(metrics.missing_source_ids) <= 5 else f" (+{len(metrics.missing_source_ids)-5} more)")
+        )
+
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -154,6 +158,16 @@ def generate_markdown_report(
     lines.append(f"**Label:** {recommendation}")
     lines.append("")
     lines.append(f"**Justification:** {rec_justification}")
+    lines.append("")
+
+    # Triggered rules audit trail
+    lines.append("**Triggered rules:**")
+    lines.append("")
+    if triggered_rules:
+        for rule in triggered_rules:
+            lines.append(f"- {rule}")
+    else:
+        lines.append("No threshold rules fired.")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -182,6 +196,7 @@ def generate_json_report(
     metrics: AllMetricsResult,
     recommendation: str,
     rec_justification: str,
+    triggered_rules: Optional[List[str]] = None,
 ) -> dict:
     """Generate a machine-readable JSON report dict.
 
@@ -193,11 +208,9 @@ def generate_json_report(
         The recommendation label.
     rec_justification:
         Justification for the recommendation.
-
-    Returns
-    -------
-    dict
-        JSON-serializable report dict.
+    triggered_rules:
+        List of rule description strings that fired. Stored under
+        recommendation.triggered_rules for auditability.
     """
     def _metric_to_dict(m: MetricResult) -> dict:
         return {
@@ -212,11 +225,14 @@ def generate_json_report(
         "run_ts": metrics.run_ts,
         "corpus_version": metrics.corpus_version,
         "corpus_size": metrics.corpus_size,
+        "manifest_entries": metrics.manifest_entries,
+        "missing_source_ids": metrics.missing_source_ids,
         "golden_qa_review_status": metrics.golden_qa_review_status,
         "is_draft": metrics.golden_qa_review_status != "reviewed",
         "recommendation": {
             "label": recommendation,
             "justification": rec_justification,
+            "triggered_rules": triggered_rules or [],
         },
         "metrics": {
             "off_topic_rate": _metric_to_dict(metrics.off_topic_rate),
@@ -237,6 +253,7 @@ def write_reports(
     metrics: AllMetricsResult,
     recommendation: str,
     rec_justification: str,
+    triggered_rules: Optional[List[str]] = None,
 ) -> Tuple[Path, Path]:
     """Write both Markdown and JSON reports to output_dir.
 
@@ -250,6 +267,8 @@ def write_reports(
         Recommendation label.
     rec_justification:
         Justification for the recommendation.
+    triggered_rules:
+        List of fired rule strings; passed through to both report formats.
 
     Returns
     -------
@@ -259,21 +278,25 @@ def write_reports(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use date from run_ts
     try:
-        date_str = metrics.run_ts[:10]  # YYYY-MM-DD
+        date_str = metrics.run_ts[:10]
     except (IndexError, TypeError):
         from datetime import date
         date_str = date.today().isoformat()
 
-    md_path = output_dir / f"{date_str}_benchmark_report.md"
-    json_path = output_dir / f"{date_str}_benchmark_report.json"
+    suffix = "_draft" if metrics.golden_qa_review_status != "reviewed" else ""
+    md_path = output_dir / f"{date_str}_benchmark_report{suffix}.md"
+    json_path = output_dir / f"{date_str}_benchmark_report{suffix}.json"
 
-    md_content = generate_markdown_report(metrics, recommendation, rec_justification)
+    md_content = generate_markdown_report(
+        metrics, recommendation, rec_justification, triggered_rules
+    )
     with md_path.open("w", encoding="utf-8") as fh:
         fh.write(md_content)
 
-    json_content = generate_json_report(metrics, recommendation, rec_justification)
+    json_content = generate_json_report(
+        metrics, recommendation, rec_justification, triggered_rules
+    )
     with json_path.open("w", encoding="utf-8") as fh:
         json.dump(json_content, fh, indent=2)
 

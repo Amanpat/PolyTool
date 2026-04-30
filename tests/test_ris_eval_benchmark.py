@@ -933,3 +933,372 @@ class TestCLI:
             "--corpus", str(tmp_path / "nonexistent.json"),
         ])
         assert result == 1
+
+
+# ===========================================================================
+# New tests: Codex blocking/major fixes
+# ===========================================================================
+
+class TestMetric6AnswerOnlyInExpectedPaper:
+    def test_answer_not_credited_from_wrong_paper(self):
+        """answer_found must be False when the answer substring is in a non-expected chunk."""
+        from packages.research.eval_benchmark.metrics import _evaluate_retrieval_pair
+
+        # The answer substring 'gamma' appears in a wrong-paper chunk only
+        results = [
+            {
+                "file_path": "wrong_paper.pdf",
+                "doc_id": "wrong_doc",
+                "snippet": "gamma is a risk-aversion parameter in portfolio theory",
+            }
+        ]
+        ev = _evaluate_retrieval_pair(results, "expected_doc", "gamma")
+        assert ev["paper_found"] is False
+        assert ev["answer_found"] is False
+
+    def test_answer_credited_only_in_expected_paper_chunk(self):
+        """answer_found is True only when expected paper's chunk contains the answer."""
+        from packages.research.eval_benchmark.metrics import _evaluate_retrieval_pair
+
+        results = [
+            {
+                "file_path": "expected_doc/paper.pdf",
+                "doc_id": "expected_doc",
+                "snippet": "the gamma parameter controls inventory aversion",
+            }
+        ]
+        ev = _evaluate_retrieval_pair(results, "expected_doc", "gamma")
+        assert ev["paper_found"] is True
+        assert ev["answer_found"] is True
+        assert ev["matched_rank"] == 1
+
+    def test_answer_not_credited_when_expected_paper_chunk_lacks_substring(self):
+        """answer_found is False when expected paper found but chunk lacks answer substring."""
+        from packages.research.eval_benchmark.metrics import _evaluate_retrieval_pair
+
+        results = [
+            {
+                "file_path": "expected_doc/paper.pdf",
+                "doc_id": "expected_doc",
+                "snippet": "this chunk discusses inventory management without mentioning the parameter",
+            }
+        ]
+        ev = _evaluate_retrieval_pair(results, "expected_doc", "gamma")
+        assert ev["paper_found"] is True
+        assert ev["answer_found"] is False  # Paper found, but answer not in chunk
+
+    def test_top_5_doc_ids_populated(self):
+        """top_5_doc_ids lists doc ids from all returned results."""
+        from packages.research.eval_benchmark.metrics import _evaluate_retrieval_pair
+
+        results = [
+            {"file_path": "", "doc_id": "doc_a", "snippet": ""},
+            {"file_path": "", "doc_id": "doc_b", "snippet": "answer text"},
+        ]
+        ev = _evaluate_retrieval_pair(results, "doc_b", "answer text")
+        assert "doc_a" in ev["top_5_doc_ids"]
+        assert "doc_b" in ev["top_5_doc_ids"]
+
+
+class TestMetric5ReviewPriority:
+    def test_priority_high_zero_chunks(self):
+        """Zero chunks → review_priority=high."""
+        from packages.research.eval_benchmark.metrics import compute_metric_5_low_chunk_suspicious_records
+
+        docs = [{"id": "1", "title": "No chunks", "chunk_count": 0, "_meta": {"body_source": "unknown"}}]
+        result = compute_metric_5_low_chunk_suspicious_records(docs)
+        assert result.detail[0]["review_priority"] == "high"
+
+    def test_priority_high_abstract_fallback(self):
+        """abstract_fallback body → review_priority=high even with chunk_count=2."""
+        from packages.research.eval_benchmark.metrics import compute_metric_5_low_chunk_suspicious_records
+
+        docs = [{"id": "1", "title": "Abstract only", "chunk_count": 2,
+                 "_meta": {"body_source": "abstract_fallback", "body_length": 5000}}]
+        result = compute_metric_5_low_chunk_suspicious_records(docs)
+        assert result.detail[0]["review_priority"] == "high"
+
+    def test_priority_high_very_short_body(self):
+        """body_length < 100 → review_priority=high."""
+        from packages.research.eval_benchmark.metrics import compute_metric_5_low_chunk_suspicious_records
+
+        docs = [{"id": "1", "title": "Tiny body", "chunk_count": 1,
+                 "_meta": {"body_source": "pdf", "body_length": 50}}]
+        result = compute_metric_5_low_chunk_suspicious_records(docs)
+        assert result.detail[0]["review_priority"] == "high"
+
+    def test_priority_medium_pdf_one_chunk(self):
+        """PDF body with 1 chunk and decent body length → review_priority=medium."""
+        from packages.research.eval_benchmark.metrics import compute_metric_5_low_chunk_suspicious_records
+
+        docs = [{"id": "1", "title": "Thin pdf", "chunk_count": 1,
+                 "_meta": {"body_source": "pdf", "body_length": 5000}}]
+        result = compute_metric_5_low_chunk_suspicious_records(docs)
+        assert result.detail[0]["review_priority"] == "medium"
+
+    def test_priority_field_present_in_all_suspicious(self):
+        """review_priority field is present in every suspicious record."""
+        from packages.research.eval_benchmark.metrics import compute_metric_5_low_chunk_suspicious_records
+
+        docs = [
+            {"id": "1", "title": "A", "chunk_count": 0, "_meta": {}},
+            {"id": "2", "title": "B", "chunk_count": 2, "_meta": {"body_source": "pdf", "body_length": 3000}},
+        ]
+        result = compute_metric_5_low_chunk_suspicious_records(docs)
+        for row in result.detail:
+            assert "review_priority" in row
+
+
+class TestMetric8ExtendedDuplicates:
+    def test_canonical_id_duplicates(self):
+        """DOI-based canonical id duplicates are detected."""
+        from packages.research.eval_benchmark.metrics import compute_metric_8_duplicate_dedup_behavior
+
+        docs = [
+            {"id": "1", "title": "Paper A", "content_hash": "h1", "_meta": {"doi": "10.1234/xyz"}},
+            {"id": "2", "title": "Paper A v2", "content_hash": "h2", "_meta": {"doi": "10.1234/xyz"}},
+            {"id": "3", "title": "Other Paper", "content_hash": "h3", "_meta": {}},
+        ]
+        result = compute_metric_8_duplicate_dedup_behavior(docs)
+        assert result.value["canonical_id_dupes"] == 1
+
+    def test_no_canonical_id_dupes_when_distinct(self):
+        """Distinct DOIs produce no canonical_id_dupes."""
+        from packages.research.eval_benchmark.metrics import compute_metric_8_duplicate_dedup_behavior
+
+        docs = [
+            {"id": "1", "title": "Paper A", "content_hash": "h1", "_meta": {"doi": "10.1/a"}},
+            {"id": "2", "title": "Paper B", "content_hash": "h2", "_meta": {"doi": "10.1/b"}},
+        ]
+        result = compute_metric_8_duplicate_dedup_behavior(docs)
+        assert result.value["canonical_id_dupes"] == 0
+
+    def test_similar_title_body_same_body_is_title_dupe(self):
+        """Same title AND same body prefix maps to title_dupes not similar_title_body_dupes."""
+        from packages.research.eval_benchmark.metrics import compute_metric_8_duplicate_dedup_behavior
+
+        shared_body = "Introduction to market microstructure concepts and models"
+        docs = [
+            {"id": "1", "title": "Market Analysis", "content_hash": "h1", "_meta": {"body": shared_body}},
+            {"id": "2", "title": "Market Analysis", "content_hash": "h2", "_meta": {"body": shared_body}},
+        ]
+        result = compute_metric_8_duplicate_dedup_behavior(docs)
+        assert result.value["title_dupes"] == 1
+
+    def test_canonical_id_dupes_in_detail(self):
+        """Canonical id dupe detail includes canonical_id and source_ids."""
+        from packages.research.eval_benchmark.metrics import compute_metric_8_duplicate_dedup_behavior
+
+        docs = [
+            {"id": "1", "title": "X", "content_hash": "h1", "_meta": {"arxiv_id": "2301.00001"}},
+            {"id": "2", "title": "Y", "content_hash": "h2", "_meta": {"arxiv_id": "2301.00001"}},
+        ]
+        result = compute_metric_8_duplicate_dedup_behavior(docs)
+        assert result.value["canonical_id_dupes"] == 1
+        assert any("2301.00001" in d.get("canonical_id", "") for d in result.detail)
+
+
+class TestMetric9CategoryFiltering:
+    def test_excludes_docs_not_in_sampled_categories(self):
+        """Docs whose category is not in sampled_categories are excluded from assessment."""
+        from packages.research.eval_benchmark.metrics import compute_metric_9_parser_quality_notes
+
+        docs = [
+            {"id": "1", "title": "Prose paper", "_meta": {
+                "body_source": "pdf", "category": "prose_heavy", "body": "some text here"}},
+            {"id": "2", "title": "Equation paper", "_meta": {
+                "body_source": "pdf", "category": "equation_heavy", "body": "x = y + z here"}},
+        ]
+        result = compute_metric_9_parser_quality_notes(docs, ["equation_heavy"])
+        assert result.value["sampled_count"] == 1
+        assert len(result.detail) == 1
+        assert result.detail[0]["source_id"] == "2"
+
+    def test_issue_counts_increment(self):
+        """equation_not_parseable_count increments for docs lacking equation markers."""
+        from packages.research.eval_benchmark.metrics import compute_metric_9_parser_quality_notes
+
+        docs = [
+            {"id": "1", "title": "Math Paper", "_meta": {
+                "body_source": "pdf", "category": "equation_heavy",
+                "body": "plain prose with no math markers at all"}},
+        ]
+        result = compute_metric_9_parser_quality_notes(docs, ["equation_heavy"])
+        assert result.value["sampled_count"] == 1
+        assert result.value["equation_not_parseable_count"] == 1
+
+    def test_skipped_abstract_fallback_count_in_scope(self):
+        """abstract_fallback docs in sampled_categories increment skipped counter."""
+        from packages.research.eval_benchmark.metrics import compute_metric_9_parser_quality_notes
+
+        docs = [
+            {"id": "1", "title": "Abstract only", "_meta": {
+                "body_source": "abstract_fallback", "category": "equation_heavy"}},
+        ]
+        result = compute_metric_9_parser_quality_notes(docs, ["equation_heavy"])
+        assert result.value["sampled_count"] == 0
+        assert result.value["skipped_abstract_fallback_count"] == 1
+
+    def test_null_category_excluded(self):
+        """Docs with category=None are excluded from sampled-category assessment."""
+        from packages.research.eval_benchmark.metrics import compute_metric_9_parser_quality_notes
+
+        docs = [
+            {"id": "1", "title": "Uncategorised", "_meta": {
+                "body_source": "pdf", "category": None, "body": "x = y"}},
+        ]
+        result = compute_metric_9_parser_quality_notes(docs, ["equation_heavy", "table_heavy"])
+        assert result.value["sampled_count"] == 0
+
+
+class TestReportTriggeredRules:
+    def test_json_report_includes_triggered_rules(self):
+        """triggered_rules are stored in recommendation section of JSON."""
+        from packages.research.eval_benchmark.report import generate_json_report
+
+        metrics = _make_all_metrics_result()
+        rules = ["Rule A: off_topic_rate=40% > 30%", "Rule B: fallback_rate=50% > 40%"]
+        report = generate_json_report(metrics, "A", "High off-topic rate.", rules)
+
+        assert "triggered_rules" in report["recommendation"]
+        assert len(report["recommendation"]["triggered_rules"]) == 2
+        assert any("Rule A" in r for r in report["recommendation"]["triggered_rules"])
+
+    def test_json_report_empty_triggered_rules(self):
+        """Empty triggered_rules list is preserved (not omitted)."""
+        from packages.research.eval_benchmark.report import generate_json_report
+
+        metrics = _make_all_metrics_result()
+        report = generate_json_report(metrics, "NONE", "Healthy.", [])
+        assert report["recommendation"]["triggered_rules"] == []
+
+    def test_json_report_none_triggered_rules_becomes_empty_list(self):
+        """None triggered_rules defaults to empty list in JSON output."""
+        from packages.research.eval_benchmark.report import generate_json_report
+
+        metrics = _make_all_metrics_result()
+        report = generate_json_report(metrics, "NONE", "Healthy.", None)
+        assert report["recommendation"]["triggered_rules"] == []
+
+    def test_markdown_report_includes_triggered_rules(self):
+        """Triggered rules appear verbatim in Markdown report."""
+        from packages.research.eval_benchmark.report import generate_markdown_report
+
+        metrics = _make_all_metrics_result()
+        rules = ["Rule A: off_topic_rate=40% > 30%"]
+        md = generate_markdown_report(metrics, "A", "High off-topic rate.", rules)
+
+        assert "Triggered rules" in md
+        assert "Rule A" in md
+
+    def test_markdown_report_no_rules_fired_message(self):
+        """Markdown shows 'No threshold rules fired' when triggered_rules is empty."""
+        from packages.research.eval_benchmark.report import generate_markdown_report
+
+        metrics = _make_all_metrics_result()
+        md = generate_markdown_report(metrics, "NONE", "Healthy.", [])
+        assert "No threshold rules fired" in md
+
+    def test_write_reports_passes_triggered_rules(self, tmp_path):
+        """write_reports with triggered_rules writes them to both files."""
+        from packages.research.eval_benchmark.report import write_reports
+        import json as _json
+
+        metrics = _make_all_metrics_result()
+        rules = ["Rule C: p_at_5=0.3 < 0.5"]
+        md_path, json_path = write_reports(tmp_path, metrics, "C", "Low retrieval.", rules)
+
+        with json_path.open(encoding="utf-8") as fh:
+            data = _json.load(fh)
+        assert data["recommendation"]["triggered_rules"] == rules
+
+        md_content = md_path.read_text(encoding="utf-8")
+        assert "Rule C" in md_content
+
+
+class TestMissingSourceIds:
+    def test_compute_all_metrics_detects_missing_ids(self, tmp_path):
+        """AllMetricsResult.missing_source_ids lists manifest IDs absent from DB."""
+        from packages.research.eval_benchmark.metrics import compute_all_metrics
+        from packages.research.eval_benchmark.corpus import load_corpus_manifest
+        from packages.research.eval_benchmark.golden_qa import load_golden_qa
+
+        corpus_path = _write_json(
+            tmp_path / "corpus.json",
+            _make_corpus_json(entries=[
+                {"source_id": "exists_doc"},
+                {"source_id": "missing_doc"},
+            ]),
+        )
+        qa_path = _write_json(tmp_path / "qa.json", _make_qa_json())
+        kb_path = tmp_path / "kb.sqlite3"
+        _create_knowledge_db(kb_path, [{"id": "exists_doc", "title": "Real Paper"}])
+
+        corpus = load_corpus_manifest(corpus_path)
+        qa = load_golden_qa(qa_path)
+        result = compute_all_metrics(corpus, qa, kb_path, tmp_path / "nolex.sqlite3")
+
+        assert result.manifest_entries == 2
+        assert result.corpus_size == 1
+        assert "missing_doc" in result.missing_source_ids
+
+    def test_compute_all_metrics_no_missing_when_all_present(self, tmp_path):
+        """missing_source_ids is empty when all manifest IDs are in DB."""
+        from packages.research.eval_benchmark.metrics import compute_all_metrics
+        from packages.research.eval_benchmark.corpus import load_corpus_manifest
+        from packages.research.eval_benchmark.golden_qa import load_golden_qa
+
+        corpus_path = _write_json(
+            tmp_path / "corpus.json",
+            _make_corpus_json(entries=[{"source_id": "doc_a"}]),
+        )
+        qa_path = _write_json(tmp_path / "qa.json", _make_qa_json())
+        kb_path = tmp_path / "kb.sqlite3"
+        _create_knowledge_db(kb_path, [{"id": "doc_a", "title": "Paper A"}])
+
+        corpus = load_corpus_manifest(corpus_path)
+        qa = load_golden_qa(qa_path)
+        result = compute_all_metrics(corpus, qa, kb_path, tmp_path / "nolex.sqlite3")
+
+        assert result.missing_source_ids == []
+        assert result.corpus_size == 1
+
+
+class TestMetric1AbstractKeyword:
+    def test_abstract_keyword_not_in_title_not_off_topic(self):
+        """Title is generic but abstract contains seed keyword; doc must NOT be off-topic."""
+        from packages.research.eval_benchmark.metrics import compute_metric_1_off_topic_rate
+
+        docs = [
+            {"id": "1", "title": "A Technical Study",
+             "_meta": {"abstract": "this paper analyzes prediction market efficiency"}}
+        ]
+        result = compute_metric_1_off_topic_rate(docs, ["prediction market"])
+        assert result.value["off_topic_count"] == 0
+
+    def test_body_keyword_not_in_title_not_off_topic(self):
+        """Seed keyword only in body excerpt; doc must NOT be off-topic."""
+        from packages.research.eval_benchmark.metrics import compute_metric_1_off_topic_rate
+
+        docs = [
+            {"id": "1", "title": "General Analysis",
+             "_meta": {"body": "We study limit order book dynamics and market microstructure."}}
+        ]
+        result = compute_metric_1_off_topic_rate(docs, ["limit order book"])
+        assert result.value["off_topic_count"] == 0
+
+    def test_empty_seed_keywords_returns_error(self):
+        """Empty seed keywords list returns error status."""
+        from packages.research.eval_benchmark.metrics import compute_metric_1_off_topic_rate
+
+        docs = [{"id": "1", "title": "Some Paper", "_meta": {}}]
+        result = compute_metric_1_off_topic_rate(docs, [])
+        assert result.status == "error"
+
+    def test_blank_only_keywords_returns_error(self):
+        """List of blank strings is treated as empty."""
+        from packages.research.eval_benchmark.metrics import compute_metric_1_off_topic_rate
+
+        docs = [{"id": "1", "title": "Some Paper", "_meta": {}}]
+        result = compute_metric_1_off_topic_rate(docs, ["  ", ""])
+        assert result.status == "error"

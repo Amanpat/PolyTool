@@ -46,6 +46,9 @@ class AllMetricsResult:
     run_ts: str
     corpus_version: str
     golden_qa_review_status: str
+    # Missing source ids: manifest entries not found in the KnowledgeStore DB
+    manifest_entries: int = 0
+    missing_source_ids: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +75,6 @@ def _load_docs_from_db(db_path: Path, source_ids: List[str]) -> List[Dict[str, A
         docs = []
         for row in rows:
             doc: Dict[str, Any] = dict(row)
-            # Parse metadata_json if present
             meta_str = doc.get("metadata_json") or "{}"
             try:
                 doc["_meta"] = json.loads(meta_str)
@@ -112,6 +114,31 @@ def _percentile(sorted_data: List[float], p: float) -> float:
     return sorted_data[lo] + frac * (sorted_data[hi] - sorted_data[lo])
 
 
+def _review_priority(doc: Dict[str, Any]) -> str:
+    """Assign review_priority for a suspicious (low-chunk) record.
+
+    high  — zero chunks, abstract_fallback body, or very short body (< 100 chars)
+    medium — 1-2 chunks with pdf body
+    low   — otherwise (should be rare in this function since caller already
+             filters to chunk_count < 3)
+    """
+    cc = doc.get("chunk_count") or 0
+    body_source = _get_body_source(doc)
+    meta = doc.get("_meta", {})
+    body_length = meta.get("body_length") or 0
+    try:
+        body_length = int(body_length)
+    except (TypeError, ValueError):
+        body_length = 0
+
+    if cc == 0 or body_source == "abstract_fallback" or body_length < 100:
+        return "high"
+    elif cc <= 2 and body_source == "pdf":
+        return "medium"
+    else:
+        return "low"
+
+
 # ---------------------------------------------------------------------------
 # Metric 1: Off-topic rate
 # ---------------------------------------------------------------------------
@@ -120,7 +147,16 @@ def compute_metric_1_off_topic_rate(
     docs: List[Dict[str, Any]],
     seed_keywords: List[str],
 ) -> MetricResult:
-    """METRIC 1: Fraction of corpus documents whose titles don't contain any seed keyword."""
+    """METRIC 1: Fraction of corpus documents whose title+abstract don't contain any seed keyword."""
+    lower_keywords = [kw.lower() for kw in seed_keywords if kw.strip()]
+    if not lower_keywords:
+        return MetricResult(
+            name="off_topic_rate",
+            status="error",
+            value={},
+            notes="seed_topic_keywords is empty or contains only blank strings",
+        )
+
     if not docs:
         return MetricResult(
             name="off_topic_rate",
@@ -129,11 +165,15 @@ def compute_metric_1_off_topic_rate(
             detail=[],
         )
 
-    lower_keywords = [kw.lower() for kw in seed_keywords]
     off_topic = []
     for doc in docs:
         title = (doc.get("title") or "").lower()
-        if not any(kw in title for kw in lower_keywords):
+        meta = doc.get("_meta", {})
+        # Check title AND abstract/body excerpt (first 2000 chars)
+        abstract = (meta.get("abstract") or "").lower()
+        body = (meta.get("body") or "").lower()[:2000]
+        combined_text = title + " " + abstract + " " + body
+        if not any(kw in combined_text for kw in lower_keywords):
             off_topic.append({"source_id": doc["id"], "title": doc.get("title", "")})
 
     total = len(docs)
@@ -235,11 +275,7 @@ def compute_metric_4_chunk_count_distribution(
     p5_val = round(_percentile(counts, 5), 2)
     p95_val = round(_percentile(counts, 95), 2)
 
-    # Histogram with boundaries [0, 3, 10, 20, 50, 100, 200, inf]
-    boundaries = [0, 3, 10, 20, 50, 100, 200]
-    bucket_labels = [
-        "0-2", "3-9", "10-19", "20-49", "50-99", "100-199", "200+"
-    ]
+    bucket_labels = ["0-2", "3-9", "10-19", "20-49", "50-99", "100-199", "200+"]
     bucket_counts = [0] * len(bucket_labels)
     for c in counts:
         if c < 3:
@@ -296,6 +332,7 @@ def compute_metric_5_low_chunk_suspicious_records(
                 "chunk_count": cc,
                 "body_length": body_len,
                 "body_source": _get_body_source(doc),
+                "review_priority": _review_priority(doc),
             })
 
     return MetricResult(
@@ -310,11 +347,65 @@ def compute_metric_5_low_chunk_suspicious_records(
 # Metric 6: Retrieval answer quality
 # ---------------------------------------------------------------------------
 
+def _evaluate_retrieval_pair(
+    results: List[Dict[str, Any]],
+    expected_paper_id: str,
+    expected_answer_substring: str,
+) -> Dict[str, Any]:
+    """Check one QA pair against lexical search results.
+
+    Returns dict with paper_found, answer_found, matched_rank, answer_match_rank,
+    matched_doc_id, matched_file_path, top_5_doc_ids.
+
+    answer_found is True only when the chunk that contains the expected answer
+    substring ALSO belongs to the expected paper — not just any chunk.
+    """
+    top_5_doc_ids = []
+    paper_found = False
+    answer_found = False
+    matched_rank: Optional[int] = None
+    matched_doc_id: Optional[str] = None
+    matched_file_path: Optional[str] = None
+    answer_match_rank: Optional[int] = None
+
+    for rank, r in enumerate(results[:5], start=1):
+        fp = r.get("file_path", "") or ""
+        did = r.get("doc_id", "") or ""
+        top_5_doc_ids.append(did or fp)
+
+        matches_expected = expected_paper_id in fp or expected_paper_id in did
+        if matches_expected and not paper_found:
+            paper_found = True
+            matched_rank = rank
+            matched_doc_id = did
+            matched_file_path = fp
+
+            # Only credit answer_found when in expected paper's chunk
+            chunk_text = r.get("snippet", "") or r.get("chunk_text", "") or ""
+            if expected_answer_substring.lower() in chunk_text.lower():
+                answer_found = True
+                answer_match_rank = rank
+
+    return {
+        "paper_found": paper_found,
+        "answer_found": answer_found,
+        "matched_rank": matched_rank,
+        "matched_doc_id": matched_doc_id,
+        "matched_file_path": matched_file_path,
+        "answer_match_rank": answer_match_rank,
+        "top_5_doc_ids": top_5_doc_ids,
+    }
+
+
 def compute_metric_6_retrieval_answer_quality(
     qa_set: GoldenQASet,
     lexical_db_path: Path,
 ) -> MetricResult:
-    """METRIC 6: Retrieval P@5 and answer substring correctness via lexical search."""
+    """METRIC 6: Retrieval P@5 and answer substring correctness via lexical search.
+
+    answer_correctness_rate only credits answers found within the expected paper's
+    retrieved chunk — not just any top-5 chunk containing the substring.
+    """
     if not qa_set.pairs:
         return MetricResult(
             name="retrieval_answer_quality",
@@ -369,29 +460,28 @@ def compute_metric_6_retrieval_answer_quality(
             except Exception:
                 results = []
 
-            # Check if expected_paper_id appears in any top-5 chunk's file_path or doc_id
-            paper_found = False
-            answer_found = False
-            for r in results[:5]:
-                fp = r.get("file_path", "") or ""
-                did = r.get("doc_id", "") or ""
-                if pair.expected_paper_id in fp or pair.expected_paper_id in did:
-                    paper_found = True
-                # Check answer substring in chunk text
-                chunk_text = r.get("snippet", "") or r.get("chunk_text", "") or ""
-                if pair.expected_answer_substring.lower() in chunk_text.lower():
-                    answer_found = True
+            eval_result = _evaluate_retrieval_pair(
+                results,
+                pair.expected_paper_id,
+                pair.expected_answer_substring,
+            )
 
-            if paper_found:
+            if eval_result["paper_found"]:
                 paper_found_count += 1
-            if answer_found:
+            if eval_result["answer_found"]:
                 answer_found_count += 1
 
             detail.append({
                 "id": pair.id,
                 "question": pair.question,
-                "paper_found": paper_found,
-                "answer_found": answer_found,
+                "expected_paper_id": pair.expected_paper_id,
+                "paper_found": eval_result["paper_found"],
+                "answer_found": eval_result["answer_found"],
+                "matched_rank": eval_result["matched_rank"],
+                "answer_match_rank": eval_result["answer_match_rank"],
+                "matched_doc_id": eval_result["matched_doc_id"],
+                "matched_file_path": eval_result["matched_file_path"],
+                "top_5_doc_ids": eval_result["top_5_doc_ids"],
             })
     finally:
         conn.close()
@@ -407,6 +497,8 @@ def compute_metric_6_retrieval_answer_quality(
             "p_at_5": p_at_5,
             "answer_correctness_rate": answer_rate,
             "evaluated_count": evaluated,
+            "paper_found_count": paper_found_count,
+            "answer_found_count": answer_found_count,
         },
         detail=detail,
     )
@@ -421,7 +513,17 @@ def compute_metric_7_citation_traceability(
     docs: List[Dict[str, Any]],
     lexical_db_path: Path,
 ) -> MetricResult:
-    """METRIC 7: For QA pairs that retrieved the right paper, check chunk->doc linkage."""
+    """METRIC 7: For QA pairs that retrieved the right paper, verify full traceability.
+
+    A result is traceable when:
+    1. The expected paper is in the top-5 results.
+    2. The hit chunk has a source URL or file path.
+    3. The expected answer substring appears in the chunk text.
+
+    Reports traceable_count, evaluated_count, missing_source_count,
+    missing_passage_count, missing_page_count, traceability_rate_pct,
+    plus per-pair detail rows.
+    """
     lexical_db_path = Path(lexical_db_path)
     if not lexical_db_path.exists():
         return MetricResult(
@@ -449,10 +551,6 @@ def compute_metric_7_citation_traceability(
             notes="lexical module not available",
         )
 
-    # Build set of known doc IDs and source URLs for traceability check
-    known_doc_ids = {doc["id"] for doc in docs}
-    known_source_urls = {doc.get("source_url", "") or "" for doc in docs}
-
     try:
         conn = open_lexical_db(lexical_db_path)
     except Exception as exc:
@@ -465,6 +563,10 @@ def compute_metric_7_citation_traceability(
 
     traceable_count = 0
     evaluated_count = 0
+    missing_source_count = 0
+    missing_page_count = 0
+    missing_passage_count = 0
+    detail = []
 
     try:
         for pair in qa_set.pairs:
@@ -479,25 +581,68 @@ def compute_metric_7_citation_traceability(
             except Exception:
                 results = []
 
-            # Only evaluate pairs where the paper was found (P@5 pass)
-            paper_found = False
-            chunk_doc_id = None
+            # Find the expected paper in results
+            hit_result = None
             for r in results[:5]:
                 fp = r.get("file_path", "") or ""
                 did = r.get("doc_id", "") or ""
                 if pair.expected_paper_id in fp or pair.expected_paper_id in did:
-                    paper_found = True
-                    chunk_doc_id = did
+                    hit_result = r
                     break
 
-            if paper_found:
-                evaluated_count += 1
-                # Check if the chunk's doc_id links back to a known source document
-                if chunk_doc_id and (
-                    chunk_doc_id in known_doc_ids
-                    or any(chunk_doc_id in url for url in known_source_urls)
-                ):
-                    traceable_count += 1
+            if hit_result is None:
+                # Paper not retrieved — not evaluated for traceability
+                continue
+
+            evaluated_count += 1
+
+            # Check source (URL or file path)
+            has_source = bool(
+                hit_result.get("file_path") or hit_result.get("source_url")
+            )
+            # Check page label availability
+            has_page = bool(
+                hit_result.get("page") is not None
+                or hit_result.get("page_label")
+            )
+            # Check passage (answer substring in chunk text)
+            chunk_text = (
+                hit_result.get("snippet", "")
+                or hit_result.get("chunk_text", "")
+                or ""
+            )
+            has_passage = pair.expected_answer_substring.lower() in chunk_text.lower()
+
+            if not has_source:
+                missing_source_count += 1
+            if not has_page:
+                missing_page_count += 1
+            if not has_passage:
+                missing_passage_count += 1
+
+            traceable = has_source and has_passage
+            if traceable:
+                traceable_count += 1
+
+            missing_reasons = []
+            if not has_source:
+                missing_reasons.append("missing_source")
+            if not has_page:
+                missing_reasons.append("missing_page")
+            if not has_passage:
+                missing_reasons.append("missing_passage")
+
+            detail.append({
+                "id": pair.id,
+                "question": pair.question,
+                "expected_paper_id": pair.expected_paper_id,
+                "paper_found": True,
+                "has_source": has_source,
+                "has_page": has_page,
+                "has_passage": has_passage,
+                "traceable": traceable,
+                "missing_reasons": missing_reasons if missing_reasons else None,
+            })
     finally:
         conn.close()
 
@@ -509,9 +654,12 @@ def compute_metric_7_citation_traceability(
         value={
             "traceable_count": traceable_count,
             "evaluated_count": evaluated_count,
+            "missing_source_count": missing_source_count,
+            "missing_page_count": missing_page_count,
+            "missing_passage_count": missing_passage_count,
             "traceability_rate_pct": rate_pct,
         },
-        detail=[],
+        detail=detail,
     )
 
 
@@ -522,8 +670,8 @@ def compute_metric_7_citation_traceability(
 def compute_metric_8_duplicate_dedup_behavior(
     docs: List[Dict[str, Any]],
 ) -> MetricResult:
-    """METRIC 8: Find exact-hash duplicates and near-title duplicates."""
-    # Group by content_hash
+    """METRIC 8: Find exact-hash, canonical-id, title-only, and similar-title-body duplicates."""
+    # 1. Exact content_hash duplicates
     hash_groups: Dict[str, List[str]] = {}
     for doc in docs:
         ch = doc.get("content_hash") or ""
@@ -537,7 +685,29 @@ def compute_metric_8_duplicate_dedup_behavior(
             exact_hash_dupes += 1
             exact_hash_dupe_detail.append({"content_hash": ch, "source_ids": ids})
 
-    # Group by normalized title (case-insensitive, length > 5)
+    # 2. Canonical id duplicates (doi, arxiv_id, canonical_id in metadata)
+    canonical_groups: Dict[str, List[str]] = {}
+    for doc in docs:
+        meta = doc.get("_meta", {})
+        cids = set()
+        for field_name in ("canonical_id", "doi", "arxiv_id"):
+            val = meta.get(field_name) or ""
+            if val:
+                cids.add(val.strip().lower())
+        for cid in cids:
+            canonical_groups.setdefault(cid, []).append(doc["id"])
+
+    canonical_id_dupe_detail = []
+    canonical_id_dupes = 0
+    for cid, ids in canonical_groups.items():
+        if len(ids) > 1:
+            # Deduplicate multi-source_id entries
+            unique_ids = list(dict.fromkeys(ids))
+            if len(unique_ids) > 1:
+                canonical_id_dupes += 1
+                canonical_id_dupe_detail.append({"canonical_id": cid, "source_ids": unique_ids})
+
+    # 3. Exact normalized-title duplicates
     title_groups: Dict[str, List[str]] = {}
     for doc in docs:
         title = (doc.get("title") or "").strip().lower()
@@ -546,15 +716,50 @@ def compute_metric_8_duplicate_dedup_behavior(
 
     title_dupes = sum(1 for ids in title_groups.values() if len(ids) > 1)
 
+    # 4. Similar-title-body duplicates:
+    #    same normalized title + same body prefix hash (first 200 chars of body)
+    title_body_groups: Dict[str, List[str]] = {}
+    for doc in docs:
+        title = (doc.get("title") or "").strip().lower()
+        if len(title) > 5:
+            meta = doc.get("_meta", {})
+            body_prefix = (meta.get("body") or "")[:200]
+            # Use a deterministic string hash as prefix fingerprint
+            body_key = str(hash(body_prefix) & 0xFFFFFFFF)
+            key = title + "|" + body_key
+            title_body_groups.setdefault(key, []).append(doc["id"])
+
+    similar_title_body_dupe_detail = []
+    similar_title_body_dupes = 0
+    for key, ids in title_body_groups.items():
+        if len(ids) > 1:
+            # Only report if not already captured by exact title duplicates
+            title_part = key.split("|")[0]
+            title_already_flagged = len(title_groups.get(title_part, [])) > 1
+            if not title_already_flagged:
+                similar_title_body_dupes += 1
+                similar_title_body_dupe_detail.append({
+                    "title_prefix": title_part[:60],
+                    "source_ids": ids,
+                })
+
+    all_detail = (
+        exact_hash_dupe_detail
+        + canonical_id_dupe_detail
+        + similar_title_body_dupe_detail
+    )
+
     return MetricResult(
         name="duplicate_dedup_behavior",
         status="ok",
         value={
             "exact_hash_dupes": exact_hash_dupes,
+            "canonical_id_dupes": canonical_id_dupes,
             "title_dupes": title_dupes,
+            "similar_title_body_dupes": similar_title_body_dupes,
             "total_docs": len(docs),
         },
-        detail=exact_hash_dupe_detail,
+        detail=all_detail,
     )
 
 
@@ -566,57 +771,76 @@ def compute_metric_9_parser_quality_notes(
     docs: List[Dict[str, Any]],
     sampled_categories: Optional[List[str]] = None,
 ) -> MetricResult:
-    """METRIC 9: Qualitative parser quality flags for equation-heavy and table-heavy docs."""
+    """METRIC 9: Parser quality flags, scoped to sampled_categories.
+
+    Only processes docs whose _meta.category is in sampled_categories (injected
+    from corpus manifest by compute_all_metrics). Docs outside the scope are
+    excluded. Abstract-fallback docs within scope are counted but skipped for
+    quality assessment.
+
+    Reports deterministic issue counts: equation_not_parseable_count,
+    table_not_detectable_count, section_headers_missing_count, missing_page_count,
+    skipped_abstract_fallback_count.
+    """
     if sampled_categories is None:
         sampled_categories = ["equation_heavy", "table_heavy"]
 
-    # We need category info — but docs from DB don't have category.
-    # We look at metadata_json for category hints, or check by body characteristics.
-    # The corpus manifest carries the categories; here we check docs that have
-    # category info embedded in their metadata (if available).
-    # Since category comes from the corpus manifest, not the DB, we check
-    # all docs and apply heuristics to any that aren't abstract_fallback.
+    sampled_set = set(sampled_categories)
+
+    # Split docs into in-scope and out-of-scope
+    in_scope_docs = [
+        doc for doc in docs
+        if doc.get("_meta", {}).get("category") in sampled_set
+    ]
+
+    skipped_abstract_fallback_count = sum(
+        1 for doc in in_scope_docs
+        if _get_body_source(doc) == "abstract_fallback"
+    )
+
+    # Assess quality only for in-scope, non-abstract-fallback docs
+    assessable = [
+        doc for doc in in_scope_docs
+        if _get_body_source(doc) != "abstract_fallback"
+    ]
 
     detail = []
-    equation_heavy_count = 0
-    table_heavy_count = 0
+    equation_not_parseable_count = 0
+    table_not_detectable_count = 0
+    section_headers_missing_count = 0
+    missing_page_count = 0
     sampled_count = 0
 
-    for doc in docs:
+    for doc in assessable:
         meta = doc.get("_meta", {})
         body_source = _get_body_source(doc)
-
-        # Skip abstract_fallback — can't assess parse quality on abstracts
-        if body_source == "abstract_fallback":
-            continue
-
-        # Check if page_count exists (means pdfplumber parsed it)
         page_count = meta.get("page_count")
         has_page_count = page_count is not None
+        if not has_page_count:
+            missing_page_count += 1
 
-        # Get the body text from metadata if available
-        body_text = meta.get("body", "") or meta.get("abstract", "") or ""
+        body_text = meta.get("body") or meta.get("abstract") or ""
 
-        # Simple heuristics
         equation_parseable = bool(
             "=" in body_text or "\\(" in body_text or "\\[" in body_text
         )
         table_detectable = bool(
             "\t" in body_text or "|" in body_text or "Table" in body_text
         )
-        # Section headers: uppercase line followed by content
         lines = body_text.split("\n")
         section_headers_detectable = any(
             line.strip().isupper() and len(line.strip()) > 3
             for line in lines
         )
 
-        category = meta.get("category", None)
-        if category == "equation_heavy":
-            equation_heavy_count += 1
-        elif category == "table_heavy":
-            table_heavy_count += 1
+        if not equation_parseable:
+            equation_not_parseable_count += 1
+        if not table_detectable:
+            table_not_detectable_count += 1
+        if not section_headers_detectable:
+            section_headers_missing_count += 1
 
+        category = meta.get("category")
         sampled_count += 1
         detail.append({
             "source_id": doc["id"],
@@ -631,13 +855,27 @@ def compute_metric_9_parser_quality_notes(
             },
         })
 
+    # Rates over assessable denominator
+    denom = sampled_count if sampled_count > 0 else 1
+    eq_not_parseable_rate = round(100.0 * equation_not_parseable_count / denom, 2)
+    table_not_detectable_rate = round(100.0 * table_not_detectable_count / denom, 2)
+    section_missing_rate = round(100.0 * section_headers_missing_count / denom, 2)
+    missing_page_rate = round(100.0 * missing_page_count / denom, 2)
+
     return MetricResult(
         name="parser_quality_notes",
         status="ok",
         value={
             "sampled_count": sampled_count,
-            "equation_heavy_count": equation_heavy_count,
-            "table_heavy_count": table_heavy_count,
+            "skipped_abstract_fallback_count": skipped_abstract_fallback_count,
+            "equation_not_parseable_count": equation_not_parseable_count,
+            "table_not_detectable_count": table_not_detectable_count,
+            "section_headers_missing_count": section_headers_missing_count,
+            "missing_page_count": missing_page_count,
+            "equation_not_parseable_rate_pct": eq_not_parseable_rate,
+            "table_not_detectable_rate_pct": table_not_detectable_rate,
+            "section_headers_missing_rate_pct": section_missing_rate,
+            "missing_page_rate_pct": missing_page_rate,
         },
         detail=detail,
     )
@@ -655,19 +893,16 @@ def compute_all_metrics(
 ) -> AllMetricsResult:
     """Run all nine metrics and return an AllMetricsResult.
 
-    Parameters
-    ----------
-    corpus:
-        Loaded CorpusManifest.
-    qa_set:
-        Loaded GoldenQASet.
-    db_path:
-        Path to the KnowledgeStore SQLite database.
-    lexical_db_path:
-        Path to the FTS5 lexical SQLite database.
+    Also detects manifest source_ids not found in the KnowledgeStore DB and
+    stores them in AllMetricsResult.missing_source_ids.
     """
     source_ids = [e.source_id for e in corpus.entries]
     docs = _load_docs_from_db(Path(db_path), source_ids)
+
+    # Detect missing source_ids
+    loaded_ids = {doc["id"] for doc in docs}
+    manifest_ids = set(source_ids)
+    missing_ids = sorted(manifest_ids - loaded_ids)
 
     # Build category map from corpus manifest for metric 9
     category_map = {e.source_id: e.category for e in corpus.entries}
@@ -706,4 +941,6 @@ def compute_all_metrics(
         run_ts=run_ts,
         corpus_version=corpus.version,
         golden_qa_review_status=qa_set.review_status,
+        manifest_entries=len(source_ids),
+        missing_source_ids=missing_ids,
     )

@@ -2,19 +2,152 @@
   "version": "v0",
   "freeze_date": null,
   "review_status": "draft",
-  "description": "DRAFT — operator must populate source_ids from production Layer 0 ingests before running baseline. See docs/runbooks/research_eval_benchmark.md for how to populate this manifest.",
+  "description": "DRAFT corpus manifest generated 2026-04-30 from 39 academic records in the KnowledgeStore (kb/rag/knowledge/knowledge.sqlite3). 23 entries selected: 17 high-quality topic-relevant papers (chunk_count >= 9, body_source=pdf), 3 outlier/off-domain papers to validate metric 1 off-topic detection, and 3 low-chunk stubs (chunk_count <= 4) to validate metric 5. 16 records excluded: audio/speech/climate challenge papers clearly outside domain scope. Category assignments: equation_heavy=math-formula-heavy papers, table_heavy=data-table-heavy papers, prose_heavy=text-narrative papers, outlier=clearly off-topic for metric-1 testing, null=uncategorized. Operator must review categories and source_id accuracy before promoting to research_eval_benchmark_v0_corpus.json.",
   "seed_topic_keywords": [
     "prediction market", "polymarket", "market microstructure",
     "avellaneda-stoikov", "kelly criterion", "optimal execution",
     "limit order book", "informed trading", "market making",
-    "inventory risk", "adverse selection", "bid-ask spread"
+    "inventory risk", "adverse selection", "bid-ask spread",
+    "high frequency", "decentralized", "automated market maker"
   ],
   "entries": [
     {
-      "source_id": "REPLACE_WITH_REAL_SHA256_ID",
-      "title": "REPLACE_WITH_PAPER_TITLE",
+      "source_id": "b1982ae05e5cd3057227180738c674228fc4d8ef97af17db0c321e3876a4f607",
+      "title": "SoK: Market Microstructure for Decentralized Prediction Markets (DePMs)",
       "category": "equation_heavy",
-      "tags": ["microstructure", "avellaneda-stoikov"]
+      "tags": ["prediction-market", "microstructure", "decentralized", "sokpaper"]
+    },
+    {
+      "source_id": "8cebfdb3f9eb148064e49b9b817da188e2b86b19dc6632ebaf5254a7158c86c0",
+      "title": "Toward Black Scholes for Prediction Markets: A Unified Kernel and Market Maker's Handbook",
+      "category": "equation_heavy",
+      "tags": ["prediction-market", "black-scholes", "market-maker", "pricing"]
+    },
+    {
+      "source_id": "e35787572e54d2161db566a719328523d8dfe777ce0e49df2128b4082673a840",
+      "title": "Limit Order Book Dynamics in Matching Markets: Microstructure, Spread, and Execution Slippage",
+      "category": "equation_heavy",
+      "tags": ["limit-order-book", "microstructure", "spread", "execution"]
+    },
+    {
+      "source_id": "68acefe962491c0868bf25caefe7f9983dc2ce7b087f786ad1e1931cbc1b57a0",
+      "title": "Semi Markov model for market microstructure",
+      "category": "equation_heavy",
+      "tags": ["microstructure", "semi-markov", "stochastic-model"]
+    },
+    {
+      "source_id": "0c8b3c3acdf4e7e0e253ffc49f5769871358256772aef9f5e2a833a9abc97d5b",
+      "title": "High frequency market microstructure noise estimates and liquidity measures",
+      "category": "equation_heavy",
+      "tags": ["high-frequency", "microstructure", "noise", "liquidity"]
+    },
+    {
+      "source_id": "27560f3abe1bede0e13fadb5811b6616178edf8d45052f1e3deca904743804ac",
+      "title": "The microstructure of high frequency markets",
+      "category": "equation_heavy",
+      "tags": ["high-frequency", "microstructure", "market-structure"]
+    },
+    {
+      "source_id": "82267d0774e149cc26ae32da513668f86644665aa481f96719ff3346254a3509",
+      "title": "On a Class of Diverse Market Models",
+      "category": "equation_heavy",
+      "tags": ["market-models", "stochastic", "theory"]
+    },
+    {
+      "source_id": "64d01f09fdcb5eaf26f4b3ef5e7e191e4f357bb9089255d86b8117c35fa804f1",
+      "title": "Interpretable Hypothesis-Driven Trading: A Rigorous Walk-Forward Validation Framework",
+      "category": "prose_heavy",
+      "tags": ["trading-strategy", "hypothesis", "walk-forward", "validation"]
+    },
+    {
+      "source_id": "89b902e6a792a3a8fcb529bdb83394e4b9c0f2d63d900b90ad00767b61efd01d",
+      "title": "TradeFM: A Generative Foundation Model for Trade-flow and Market Microstructure",
+      "category": null,
+      "tags": ["trade-flow", "foundation-model", "microstructure", "generative"]
+    },
+    {
+      "source_id": "387a457ed0eeb9400ea361384c88906fb530cf03e5c7f9f634e81a053a0b9779",
+      "title": "Stock market microstructure inference via multi-agent reinforcement learning",
+      "category": null,
+      "tags": ["microstructure", "reinforcement-learning", "multi-agent"]
+    },
+    {
+      "source_id": "9495ffda89417b8ef55a85c0a4f5f1233b4c68cea77536d3e466549a08ddc599",
+      "title": "The Inelastic Market Hypothesis: A Microstructural Interpretation",
+      "category": null,
+      "tags": ["inelastic-market", "microstructure", "hypothesis"]
+    },
+    {
+      "source_id": "af8935f6dc477ff03db464362b5fe36aa1c29b8a8f042eeb91c2c84ca620e63b",
+      "title": "Systemic Risk in Market Microstructure of Crude Oil and Gasoline Futures Prices",
+      "category": null,
+      "tags": ["microstructure", "hawkes-process", "crude-oil", "systemic-risk"]
+    },
+    {
+      "source_id": "40fd58b73a73b54dd7ba2891dde5ad36cd1be5eef2dbea7becdab3dff96cac99",
+      "title": "Foreign Exchange Market Microstructure and the WM/Reuters 4pm Fix",
+      "category": null,
+      "tags": ["forex", "microstructure", "fx-fix", "execution"]
+    },
+    {
+      "source_id": "310125723f52bad6998625196248d98b47bbd27a5cbe7f2614bfc7c001724f36",
+      "title": "Can Agent-Based Models Probe Market Microstructure?",
+      "category": "prose_heavy",
+      "tags": ["agent-based", "microstructure", "simulation"]
+    },
+    {
+      "source_id": "6e911b4fbe2c041440a6eab4d7ef9de74c2d5b150440c835f2a37f6a8952c1b5",
+      "title": "How Market Ecology Explains Market Malfunction",
+      "category": "prose_heavy",
+      "tags": ["market-ecology", "market-failure", "microstructure"]
+    },
+    {
+      "source_id": "4f5c91b1fe0abb14cdf5c2dbeba186ce0973bc3f9202b3b2dd7adfacabc13108",
+      "title": "Uncovering the Internal Structure of the Indian Financial Market: Cross-correlation behavior",
+      "category": null,
+      "tags": ["market-structure", "cross-correlation", "indian-market"]
+    },
+    {
+      "source_id": "97351df20211559d4022236440f2f8cd4ac32c0c67d5995f4624970f70a1d3c6",
+      "title": "Market Microstructure of Non Fungible Tokens",
+      "category": null,
+      "tags": ["nft", "microstructure", "digital-assets"]
+    },
+    {
+      "source_id": "210dbdc2b5b98b02774398522711b7b5026a2bd376442c70e5b6745bca65ea59",
+      "title": "Microstructure sensitive fatigue life prediction model for SLM fabricated Hastelloy-X",
+      "category": "outlier",
+      "tags": ["materials-science", "off-topic-for-metric-1-test"]
+    },
+    {
+      "source_id": "4a4dfe303eb33546120fd9334e116a0c2ae75ef1078223218209f18e521085c6",
+      "title": "Radiomics-enhanced Deep Multi-task Learning for Outcome Prediction in Head and Neck Cancer",
+      "category": "outlier",
+      "tags": ["medical", "off-topic-for-metric-1-test"]
+    },
+    {
+      "source_id": "6501fe75fe8496ab0105652c58ab1c648200b3a1dac383aa5d2f7e97704b6092",
+      "title": "Counterfactual Multi-task Learning for Delayed Conversion Modeling in E-commerce Sales Prediction",
+      "category": "outlier",
+      "tags": ["e-commerce", "off-topic-for-metric-1-test"]
+    },
+    {
+      "source_id": "d744370bac4412c936a66004d3875e1789aee9bd7e44099dd5aaac2232360ba5",
+      "title": "Prediction Market Microstructure and Informed Trading",
+      "category": null,
+      "tags": ["prediction-market", "informed-trading", "low-chunk-stub"]
+    },
+    {
+      "source_id": "bad51e5db2b121243c12708b54421531896ab4f8a3a83698b85124ef42e918f6",
+      "title": "The Homogenous Properties of Automated Market Makers",
+      "category": null,
+      "tags": ["amm", "automated-market-maker", "low-chunk-stub"]
+    },
+    {
+      "source_id": "0838c7de30c5bea5a78303b4976bfc0493664cc974d61da0c3de19309dd3baf3",
+      "title": "High frequency market microstructure noise estimates and liquidity measures (duplicate entry — tests metric 8 dedup)",
+      "category": "equation_heavy",
+      "tags": ["high-frequency", "microstructure", "duplicate-dedup-test"]
     }
   ]
 }

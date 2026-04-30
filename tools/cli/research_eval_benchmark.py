@@ -80,6 +80,64 @@ def _resolve_golden_path(golden_arg: str) -> Optional[Path]:
 # Main entrypoint
 # ---------------------------------------------------------------------------
 
+def _run_discover_corpus(db_path: Path) -> int:
+    """List academic records from the KnowledgeStore as corpus candidates."""
+    import sqlite3 as _sqlite3
+
+    if not db_path.exists():
+        print(f"ERROR: KnowledgeStore DB not found: {db_path}", file=sys.stderr)
+        return 1
+
+    try:
+        conn = _sqlite3.connect(str(db_path))
+        conn.row_factory = _sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT id, title, source_family, source_url, chunk_count, content_hash, metadata_json
+            FROM source_documents
+            WHERE source_family = 'academic'
+            ORDER BY chunk_count DESC, ingested_at DESC
+            """
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        print(f"ERROR: DB query failed: {exc}", file=sys.stderr)
+        return 1
+
+    candidates = []
+    for row in rows:
+        meta: dict = {}
+        try:
+            meta = json.loads(row["metadata_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            pass
+        candidates.append({
+            "source_id": row["id"],
+            "title": row["title"] or "",
+            "source_url": row["source_url"] or "",
+            "chunk_count": row["chunk_count"] or 0,
+            "body_source": meta.get("body_source", "unknown"),
+            "body_length": meta.get("body_length"),
+            "content_hash": row["content_hash"] or "",
+        })
+
+    print(f"# Corpus discovery: {len(candidates)} academic records in KnowledgeStore")
+    print(f"# DB: {db_path}")
+    print(f"# Columns: source_id, title, chunk_count, body_source, body_length")
+    print()
+    for c in candidates:
+        bs = c["body_source"]
+        bl = c["body_length"]
+        cc = c["chunk_count"]
+        print(
+            f"  [{cc:3d} chunks | {bs:20s} | body={bl}]  "
+            f"{c['source_id'][:20]}...  {c['title'][:60]}"
+        )
+    print()
+    print(json.dumps(candidates, indent=2))
+    return 0
+
+
 def main(argv: List[str]) -> int:
     """CLI entrypoint for research-eval-benchmark command."""
     parser = argparse.ArgumentParser(
@@ -91,11 +149,13 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument(
         "--corpus",
-        required=True,
+        required=False,
+        default=None,
         metavar="PATH",
         help=(
             "Path to corpus manifest JSON. Use 'v0' to auto-discover "
-            "config/research_eval_benchmark_v0_corpus[.draft].json"
+            "config/research_eval_benchmark_v0_corpus[.draft].json. "
+            "Not required when --discover-corpus is used."
         ),
     )
     parser.add_argument(
@@ -148,8 +208,24 @@ def main(argv: List[str]) -> int:
         dest="json_output",
         help="Output machine-readable JSON summary to stdout.",
     )
+    parser.add_argument(
+        "--discover-corpus",
+        action="store_true",
+        help=(
+            "List academic records from the KnowledgeStore DB as corpus candidates "
+            "and exit. Outputs JSON array to stdout."
+        ),
+    )
 
     args = parser.parse_args(argv)
+
+    # --- Corpus discovery ---
+    if args.discover_corpus:
+        return _run_discover_corpus(Path(args.db))
+
+    # --corpus is required for all non-discover-corpus flows
+    if args.corpus is None:
+        parser.error("--corpus is required (or use --discover-corpus to list candidates)")
 
     # --- Resolve corpus path ---
     corpus_path = _resolve_corpus_path(args.corpus)
@@ -282,6 +358,22 @@ def main(argv: List[str]) -> int:
         print(f"ERROR: Recommendation failed: {exc}", file=sys.stderr)
         return 2
 
+    # --- Strict: fail if manifest source_ids are missing from DB ---
+    if args.strict and metrics.missing_source_ids:
+        print(
+            f"ERROR: --strict: {len(metrics.missing_source_ids)} manifest source_id(s) not "
+            f"found in KnowledgeStore: {metrics.missing_source_ids[:5]}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if metrics.missing_source_ids:
+        print(
+            f"WARNING: {len(metrics.missing_source_ids)} manifest source_id(s) not found "
+            f"in KnowledgeStore DB. Run --discover-corpus to see what's available.",
+            file=sys.stderr,
+        )
+
     # --- Write reports ---
     try:
         from packages.research.eval_benchmark.report import write_reports
@@ -291,6 +383,7 @@ def main(argv: List[str]) -> int:
             metrics=metrics,
             recommendation=rec.label,
             rec_justification=rec.justification,
+            triggered_rules=rec.triggered_rules,
         )
         print(f"Reports written:")
         print(f"  Markdown: {md_path}")
@@ -306,7 +399,9 @@ def main(argv: List[str]) -> int:
             baseline_dir = Path(args.output_dir)
             baseline_dir.mkdir(parents=True, exist_ok=True)
             baseline_path = baseline_dir / "baseline_v0.json"
-            baseline_content = generate_json_report(metrics, rec.label, rec.justification)
+            baseline_content = generate_json_report(
+                metrics, rec.label, rec.justification, rec.triggered_rules
+            )
             baseline_content["_baseline_tag"] = "v0"
             with baseline_path.open("w", encoding="utf-8") as fh:
                 import json as _json
@@ -345,7 +440,7 @@ def main(argv: List[str]) -> int:
     # --- JSON stdout ---
     if args.json_output:
         from packages.research.eval_benchmark.report import generate_json_report
-        report = generate_json_report(metrics, rec.label, rec.justification)
+        report = generate_json_report(metrics, rec.label, rec.justification, rec.triggered_rules)
         print("")
         print("--- JSON SUMMARY ---")
         print(json.dumps(report, indent=2))

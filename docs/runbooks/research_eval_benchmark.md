@@ -39,36 +39,58 @@ The benchmark outputs a prioritized recommendation (A through E, or NONE):
 
 ---
 
-## Step 1: Populate the Corpus Manifest
+## Step 1: Discover and Populate the Corpus Manifest
 
-The draft manifest lives at:
-`config/research_eval_benchmark_v0_corpus.draft.json`
-
-You need to replace the placeholder entries with real `source_id` values from
-the KnowledgeStore. To find ingested document IDs:
+### Discover what's in the KnowledgeStore
 
 ```bash
-# List recently ingested documents
-python -m polytool research-stats summary
-
-# Or query directly
-sqlite3 kb/rag/knowledge/knowledge.sqlite3 \
-  "SELECT id, title, source_family FROM source_documents LIMIT 20"
+# List all academic records with chunk_count, body_source, and body_length:
+python -m polytool research-eval-benchmark --discover-corpus
 ```
 
-For each paper you want to include in the evaluation corpus:
+This prints a human-readable table plus a JSON array of candidate records.
+Pipe to a file to use as input when editing the manifest:
 
-1. Find its `id` in the KnowledgeStore (SHA-256 hex string)
-2. Copy `config/research_eval_benchmark_v0_corpus.draft.json` to
-   `config/research_eval_benchmark_v0_corpus.json`
-3. Replace `"REPLACE_WITH_REAL_SHA256_ID"` with the actual document ID
-4. Set the correct `category` (one of: `equation_heavy`, `table_heavy`,
-   `prose_heavy`, `outlier`, or omit for `null`)
-5. Add relevant `tags` for filtering
+```bash
+python -m polytool research-eval-benchmark --discover-corpus > /tmp/candidates.txt
+```
 
-Aim for at least 10-20 papers covering the seed topic keywords:
-prediction market, avellaneda-stoikov, kelly criterion, market microstructure,
-informed trading, adverse selection, bid-ask spread, etc.
+### Promote the draft manifest
+
+The draft manifest at `config/research_eval_benchmark_v0_corpus.draft.json`
+was populated with 23 real academic records (as of 2026-04-30) from the
+KnowledgeStore. It is ready to use for draft runs.
+
+To create the final manifest for baseline creation:
+
+1. Copy the draft:
+   ```bash
+   cp config/research_eval_benchmark_v0_corpus.draft.json \
+      config/research_eval_benchmark_v0_corpus.json
+   ```
+2. Review each entry's `category` against the paper's actual content:
+   - `equation_heavy` — math-formula-dense papers (Avellaneda-Stoikov, etc.)
+   - `table_heavy` — data-table-dense papers
+   - `prose_heavy` — narrative/survey papers
+   - `outlier` — included intentionally to test off-topic detection; remove
+     if these papers shouldn't be in the corpus
+   - `null` — uncategorised; assessed by metrics but excluded from metric 9
+3. Remove any `"off-topic-for-metric-1-test"` tag entries if they are truly
+   off-topic (they were included in the draft to validate metric 1)
+4. Add any new papers ingested since 2026-04-30 using `--discover-corpus`
+
+### Category reference
+
+| Category | Use for |
+|----------|---------|
+| `equation_heavy` | Papers with dense formulas (assessed by metric 9) |
+| `table_heavy` | Papers with data tables (assessed by metric 9) |
+| `prose_heavy` | Narrative/survey papers (not assessed by metric 9) |
+| `outlier` | Intentionally off-topic entries for metric 1 validation |
+| `null` | Uncategorised — counted in all metrics except metric 9 |
+
+Aim for 30-50 papers. The current Layer 0 store has 39 academic records;
+23 were selected for the draft corpus (17 high-quality, 3 outlier, 3 low-chunk).
 
 ---
 
@@ -77,16 +99,45 @@ informed trading, adverse selection, bid-ask spread, etc.
 The draft QA set lives at:
 `tests/fixtures/research_eval_benchmark/golden_qa_v0.draft.json`
 
-To create a reviewed QA set:
+**Current state (2026-04-30):** 5 placeholder QA pairs exist. All
+`expected_paper_id` values are `"REPLACE_WITH_DOC_ID_OR_FILE_PATH"`. No
+final `golden_qa_v0.json` exists yet. This is the operator's review step
+before baseline creation.
 
-1. Copy the draft to `tests/fixtures/research_eval_benchmark/golden_qa_v0.json`
-2. Replace each `"REPLACE_WITH_DOC_ID_OR_FILE_PATH"` with the actual document ID
-   from the KnowledgeStore for the paper that answers each question
-3. Edit `expected_answer_substring` to be a short, distinctive phrase that
-   **actually appears** in the paper's body text
-4. Edit `expected_section_or_page` to the correct section or page number
-5. Add more QA pairs as needed (aim for 10-20 pairs minimum for meaningful P@5)
-6. Change `"review_status": "operator_review_required"` to `"review_status": "reviewed"`
+**Target:** 30-50 reviewed QA pairs for meaningful P@5 and answer quality scores.
+
+To create the reviewed QA set:
+
+1. Copy the draft:
+   ```bash
+   cp tests/fixtures/research_eval_benchmark/golden_qa_v0.draft.json \
+      tests/fixtures/research_eval_benchmark/golden_qa_v0.json
+   ```
+2. For each QA pair, replace `"REPLACE_WITH_DOC_ID_OR_FILE_PATH"` with the
+   real document ID (SHA-256 string) of the paper that answers the question.
+   Verify the ID against `--discover-corpus` or the KnowledgeStore directly.
+3. Verify `expected_answer_substring` actually appears verbatim in the paper's
+   stored body text. Query the chunk store to confirm:
+   ```bash
+   sqlite3 kb/rag/lexical/lexical.sqlite3 \
+     "SELECT chunk_text FROM chunks WHERE doc_id = '<REAL_ID>' LIMIT 5"
+   ```
+4. Edit `expected_section_or_page` to the correct section/page where applicable.
+5. Add more QA pairs (aim for 30 minimum). Each must cover a different paper
+   from the corpus to get meaningful P@5 coverage.
+6. When all pairs are verified, change:
+   ```json
+   "review_status": "operator_review_required"
+   ```
+   to:
+   ```json
+   "review_status": "reviewed"
+   ```
+
+**CRITICAL:** Do not change `review_status` to `"reviewed"` before all
+`expected_paper_id` values are replaced and all `expected_answer_substring`
+values are confirmed against real body text. The baseline depends on this
+being accurate.
 
 ### QA category reference
 
@@ -241,9 +292,13 @@ PDF parsing:
 
 Reports are written to `artifacts/research/eval_benchmark/` by default:
 
-- `YYYY-MM-DD_benchmark_report.md` — Human-readable Markdown report
-- `YYYY-MM-DD_benchmark_report.json` — Machine-readable JSON report
-- `baseline_v0.json` — Frozen baseline (only written with `--save-baseline`)
+- `YYYY-MM-DD_benchmark_report_draft.md` — Markdown report from unreviewed QA run
+- `YYYY-MM-DD_benchmark_report_draft.json` — JSON report from unreviewed QA run
+- `YYYY-MM-DD_benchmark_report.md` — Markdown report from reviewed-QA run
+- `YYYY-MM-DD_benchmark_report.json` — JSON report from reviewed-QA run
+- `baseline_v0.json` — Frozen baseline (only written with `--save-baseline`; requires reviewed QA)
+
+The `_draft` suffix is appended automatically when `review_status != "reviewed"`.
 
 ---
 
