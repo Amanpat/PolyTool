@@ -416,9 +416,11 @@ class MarkerPDFExtractor(Extractor):
         Injectable dict with keys ``"PdfConverter"``, ``"create_model_dict"``,
         ``"text_from_rendered"``.  Used by offline tests to bypass real imports.
     _enable_llm:
-        Reserved LLM-boost flag.  When ``True``, sets ``body_source``
-        to ``"marker_llm_boost"``.  Default ``False`` — no external LLM calls
-        are made regardless.  Can also be activated via ``RIS_MARKER_LLM=1``.
+        Reserved LLM flag.  When ``True`` (or via ``RIS_MARKER_LLM=1``),
+        sets ``marker_llm_requested=True`` and ``marker_llm_applied=False``
+        in the returned metadata.  No external LLM calls are made — wiring
+        LLM-enriched extraction is a Layer 2 deliverable.  ``body_source``
+        is always ``"marker"`` regardless of this flag.
     """
 
     def __init__(

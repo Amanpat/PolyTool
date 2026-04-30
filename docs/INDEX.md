@@ -149,6 +149,7 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Scientific RAG Vault Reconciliation](dev_logs/2026-04-29_scientific-rag-vault-reconciliation.md) | 2026-04-29 | Layer 0/1 status truth-sync; `marker_llm_boost` removed; evaluation benchmark stub created; decision doc cross-ref fixed |
 | [Marker Layer 1 — Docs Close-out](dev_logs/2026-04-27_ris-marker-closeout-docs.md) | 2026-04-27 | Canonical feature doc, INDEX/CURRENT_DEVELOPMENT updated, stale Prompt B doc superseded |
 | [Marker Layer 1 — Concurrency Fix (Prompt D)](dev_logs/2026-04-27_ris-marker-timeout-concurrency-fix.md) | 2026-04-27 | Confirmed semaphore released while worker still ran; `_MARKER_DISABLED` Event prevents zombie stacking; double-call test proves at-most-one thread |
 | [Marker Layer 1 — Timeout and LLM Truthfulness (Prompt C)](dev_logs/2026-04-27_ris-marker-timeout-llm-truthfulness.md) | 2026-04-27 | `_MARKER_DISABLED`; no false `marker_llm_boost`; default parser changed to pdfplumber |

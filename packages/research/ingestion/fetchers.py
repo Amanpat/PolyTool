@@ -159,9 +159,8 @@ class LiveAcademicFetcher:
         Returns (body_text, meta_dict).
         body_source values:
           "pdf"                — pdfplumber success (default or auto without marker)
-          "marker"             — Marker success
-          "marker_llm_boost"   — Marker with LLM flag enabled
-          "pdfplumber_fallback"— Marker failed, pdfplumber succeeded
+          "marker"             — Marker success (opt-in: RIS_PDF_PARSER=auto|marker)
+          "pdfplumber_fallback"— Marker failed or timed out, pdfplumber succeeded
           "abstract_fallback"  — all extraction failed; caller uses abstract
         """
         import os as _os

@@ -79,7 +79,7 @@ Skipping the order produces wasted work. Building Marker integration before fixi
 ## Impact
 
 - The current immediate-fix work packet ([[Work-Packet - Academic Pipeline PDF Download Fix]]) ships unchanged. It is now correctly understood as the *first layer* of the four-layer target, not a one-off bug fix.
-- Five new work packets land in `12-Ideas/` as stubs: Marker integration, PaperQA2 RAG control flow, pre-fetch SVM filter, multi-source harvesters, evaluation benchmark. Each gets a date and scope when activated.
+- Five new work packets were created as stubs in `12-Ideas/`: Marker integration (now scaffold-implemented), PaperQA2 RAG control flow, pre-fetch SVM filter, multi-source harvesters, evaluation benchmark. The evaluation benchmark stub was created in the 2026-04-29 vault reconciliation pass (was missing at decision time). Each gets a date and scope when activated.
 - The five guardrails from the survey's "what we should not do" list are durable — every future RIS packet (academic or otherwise) checks against them before adopting any project.
 - Other ingestion pipelines (reddit, blog, github, youtube) are out of scope for this decision. They have their own scope, and the survey was specifically about scientific RAG. Each will need its own diagnosis if/when it surfaces issues.
 
@@ -88,10 +88,12 @@ Skipping the order produces wasted work. Building Marker integration before fixi
 - [[11-Scientific-RAG-Pipeline-Survey]] — full survey output (source-of-truth for findings)
 - [[11-Scientific-RAG-Target-Architecture]] — the four-layer design
 - [[2026-04-27 Academic Pipeline Diagnosis]] — bug that triggered the survey
-- [[Work-Packet - Academic Pipeline PDF Download Fix]] — immediate fix (layer 1)
+- [[Work-Packet - Academic Pipeline PDF Download Fix]] — immediate fix (layer 0 — shipped 2026-04-27)
+- [[Work-Packet - Marker Structural Parser Integration]] — layer 1 (scaffold implemented 2026-04-27, production deferred)
+- [[Work-Packet - Scientific RAG Evaluation Benchmark]] — evaluation benchmark (stub created 2026-04-29)
 - [[RIS]] — module
 - [[RAG]] — module
 - [[Phase-2-Discovery-Engine]] — parent phase
-- [[Decision - RIS Evaluation Scoring Policy]] — eval gate scoring (still authoritative for layer 1's evaluator)
+- [[Decision - RIS Evaluation Scoring Policy]] — eval gate scoring (still authoritative for the evaluation gate)
 - [[Decision - RIS n8n Pilot Scope]] — n8n alerting surface (still authoritative)
 - [[LLM-Policy]] — Tier 1 provider posture (constrains layer 3 choices)

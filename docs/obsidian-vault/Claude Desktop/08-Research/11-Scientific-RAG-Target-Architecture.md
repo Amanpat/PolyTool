@@ -7,7 +7,7 @@ source: "[[Decision - Scientific RAG Architecture Adoption]]"
 
 # 11 — Scientific RAG Target Architecture
 
-The target-state design for the RIS academic pipeline, synthesized from the GLM-5 survey's "concrete combination" and locked in by [[Decision - Scientific RAG Architecture Adoption]]. This is the design we are building toward, not what currently exists. Each layer is a separate work packet built in order; the current state is everything below Layer 0.
+The target-state design for the RIS academic pipeline, synthesized from the GLM-5 survey's "concrete combination" and locked in by [[Decision - Scientific RAG Architecture Adoption]]. Layer 0 has shipped. Layer 1 scaffold is implemented as an experimental opt-in. Layers 2–4 are future packets. Each layer is a separate work packet built in order.
 
 Full survey backing this design: [[11-Scientific-RAG-Pipeline-Survey]].
 
@@ -17,26 +17,28 @@ Full survey backing this design: [[11-Scientific-RAG-Pipeline-Survey]].
 
 Stacked bottom-up. Each layer assumes the layer below it works.
 
-### Layer 0 — Foundation (immediate fix)
+### Layer 0 — Foundation (shipped)
 
-**Status:** specced, ready to ship via [[Work-Packet - Academic Pipeline PDF Download Fix]].
+**Status:** shipped 2026-04-27. See [[Work-Packet - Academic Pipeline PDF Download Fix]] (status: shipped).
 
-The current `LiveAcademicFetcher` calls the arXiv Atom API (metadata only) and never populates `body_text`. Layer 0 wires pdfplumber into the fetcher: after the Atom call, construct the PDF URL, download via `_http_fn`, extract text via the existing `PDFExtractor`, populate `body_text`. The adapter, eval gate, ChromaDB store, and acquisition review JSONL stay unchanged.
+`LiveAcademicFetcher` now downloads arXiv PDFs via pdfplumber and populates `body_text` with full paper content. Live validation: `body_source=pdf`, `body_length=58927`, `chunk_count=27` confirmed end-to-end including Docker. 54 tests passing. pdfplumber 0.11.9 in `ris` optional group.
 
-This layer is the foundation everything else builds on. Without it, the academic pipeline is silently shallow; with it, the pipeline ingests real paper bodies even before structural parsing arrives.
+This layer is the foundation everything else builds on. Without it, the academic pipeline was silently shallow; with it, the pipeline ingests real paper bodies even before structural parsing arrives.
 
 ### Layer 1 — Structural parser
 
-**Status:** future packet (see [[Work-Packet - Marker Structural Parser Integration]]).
+**Status:** scaffold implemented 2026-04-27 — experimental opt-in, production rollout deferred. See [[Work-Packet - Marker Structural Parser Integration]] and `docs/features/ris-marker-structural-parser-scaffold.md`.
 
-Replace pdfplumber's flat text output with Marker's structured Markdown/JSON. Marker preserves sections, tables, equations (as LaTeX), and images. Output goes into the same `body_text` field but now contains structural markers downstream layers can use:
+`MarkerPDFExtractor` is wired alongside pdfplumber. **pdfplumber remains the default parser** — Marker is explicit opt-in only via `RIS_PDF_PARSER=auto` or `RIS_PDF_PARSER=marker`. CPU Marker timed out at 300 s for all tested papers; GPU required for production throughput. Production rollout is deferred pending GPU host availability.
+
+When Marker succeeds, output goes into the same `body_text` field as structured Markdown/JSON, with structural markers downstream layers can use:
 
 - Section boundaries become candidate chunk boundaries (instead of fixed-size chunks)
 - LaTeX equations survive the embedding step intact (instead of being mangled by PDF text extraction)
 - Tables retain row/column structure (instead of being concatenated cell-by-cell)
 - Page numbers and bounding boxes attach to every element (precise source handles)
 
-pdfplumber stays as fallback for CPU-only environments, large PDFs that exceed Marker's memory budget, or when Marker fails on a specific document. The `body_source` metadata field already specced in Layer 0 grows to include `marker`, `marker_llm_boost`, and `pdfplumber_fallback`.
+pdfplumber stays as fallback for CPU-only environments, large PDFs that exceed Marker's memory budget, or when Marker fails on a specific document. The `body_source` metadata field includes `"marker"`, `"pdfplumber_fallback"`, and `"abstract_fallback"`. There is no `"marker_llm_boost"` value — LLM-enriched extraction is not wired; `RIS_MARKER_LLM=1` sets `marker_llm_requested=True`, `marker_llm_applied=False` only. That is a Layer 2 deliverable.
 
 License posture: Marker is GPL-3.0 + modified Open Rail-M. PolyTool RIS is treated as personal/research tooling under that license. Revisit if commercial deployment changes the posture.
 
@@ -103,15 +105,15 @@ Layer 4 produces metadata-only candidates. Each candidate flows through Layer 3 
 ## Build order and dependencies
 
 ```
-Layer 0 (foundation)         ← ships first, immediate fix
+Layer 0 (foundation)         ← SHIPPED 2026-04-27 (pdfplumber, full PDF body)
    ↓ produces body_text
-Layer 1 (parser)             ← ships next, pdfplumber fallback preserved
-   ↓ produces structured Markdown/JSON
-Layer 2 (RAG control flow)   ← ships after Layer 1's output is stable
+Layer 1 (parser)             ← scaffold implemented; production rollout deferred (GPU required)
+   ↓ produces structured Markdown/JSON (deferred until production rollout)
+Layer 2 (RAG control flow)   ← future packet, ships after Layer 1 production rollout
    ↓ produces query → cited-answer interface
-Layer 3 (pre-filter)         ← parallel-buildable with Layer 2
+Layer 3 (pre-filter)         ← future packet, parallel-buildable with Layer 2
    ↓ produces on-topic / off-topic decision
-Layer 4 (multi-source)       ← ships last, gated by Layer 3 working
+Layer 4 (multi-source)       ← future packet, gated by Layer 3 working
 ```
 
 Skipping the order produces wasted work. Layer 4 without Layer 3 floods the eval gate with off-topic papers. Layer 3 without Layer 1 trains an SVM on degraded text. Layer 2 without Layer 1 builds RCS and citation traversal on chunks that don't preserve structure.
@@ -122,11 +124,12 @@ Skipping the order produces wasted work. Layer 4 without Layer 3 floods the eval
 
 - [[Decision - Scientific RAG Architecture Adoption]] — the operational decision behind this design
 - [[11-Scientific-RAG-Pipeline-Survey]] — the survey that informed the design
-- [[Work-Packet - Academic Pipeline PDF Download Fix]] — Layer 0 packet (ready)
-- [[Work-Packet - Marker Structural Parser Integration]] — Layer 1 packet (stub)
+- [[Work-Packet - Academic Pipeline PDF Download Fix]] — Layer 0 packet (shipped 2026-04-27)
+- [[Work-Packet - Marker Structural Parser Integration]] — Layer 1 packet (scaffold implemented, production deferred)
 - [[Work-Packet - PaperQA2 RAG Control Flow]] — Layer 2 packet (stub)
 - [[Work-Packet - Pre-fetch SVM Topic Filter]] — Layer 3 packet (stub)
 - [[Work-Packet - Multi-source Academic Harvesters]] — Layer 4 packet (stub)
+- [[Work-Packet - Scientific RAG Evaluation Benchmark]] — evaluation packet (stub)
 - [[2026-04-27 Academic Pipeline Diagnosis]] — bug that triggered this architecture
 - [[RIS]] — current module
 - [[RAG]] — current module

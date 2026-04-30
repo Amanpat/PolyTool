@@ -5,7 +5,8 @@ tags:
   - ingestion
   - academic
 date: 2026-04-27
-status: ready
+status: shipped
+shipped-date: 2026-04-27
 priority: high
 phase: 2
 tracks-affected:
@@ -21,8 +22,16 @@ assignee: architect → Claude Code agent
 
 # Work Packet — Academic Pipeline PDF Download Fix
 
-> [!INFO] Scope discipline
-> This packet fixes one specific bug: the academic ingest pipeline never downloads PDFs. It does NOT redesign embedding strategy, multi-source ingestion, or pre-fetch relevance filtering. Those are separate work packets that will be informed by the GLM-5 scientific RAG survey currently running. Land this fix first so the pipeline ingests real paper bodies; the broader rework follows once the survey returns.
+> [!SUCCESS] Shipped 2026-04-27
+> This packet is **complete**. `LiveAcademicFetcher` now downloads arXiv PDFs via pdfplumber and populates `body_text` with full paper content. Layer 0 of the four-layer scientific RAG target is live.
+>
+> Implementation evidence:
+> - Dev log: `docs/dev_logs/2026-04-27_ris-academic-pdf-fix.md` — code changes, 54 tests passing, live arXiv ingest confirmed (`body_source=pdf`, `body_length=58927`)
+> - Docker smoke: `docs/dev_logs/2026-04-27_ris-docker-pdf-deps-smoke.md` — pdfplumber 0.11.9 inside container, `chunk_count=27` confirmed
+> - `pdfplumber>=0.10.0` added to `ris` optional group in `pyproject.toml`
+
+> [!INFO] Original scope discipline (preserved for reference)
+> This packet fixed one specific bug: the academic ingest pipeline never downloaded PDFs. It did NOT redesign embedding strategy, multi-source ingestion, or pre-fetch relevance filtering. Those are separate work packets gated on the GLM-5 scientific RAG survey.
 
 ---
 
