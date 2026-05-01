@@ -1302,3 +1302,331 @@ class TestMetric1AbstractKeyword:
         docs = [{"id": "1", "title": "Some Paper", "_meta": {}}]
         result = compute_metric_1_off_topic_rate(docs, ["  ", ""])
         assert result.status == "error"
+
+
+# ===========================================================================
+# lexical_refresh.py tests
+# ===========================================================================
+
+def _make_cache_file(cache_dir, url: str, body_text: str):
+    """Write a fake raw_source_cache academic JSON file."""
+    import hashlib, json
+    fname = hashlib.sha256(url.encode()).hexdigest()[:16] + ".json"
+    data = {
+        "source_id": fname.replace(".json", ""),
+        "source_family": "academic",
+        "cached_at": "2026-01-01T00:00:00Z",
+        "payload": {
+            "url": url,
+            "title": "Test Paper",
+            "abstract": "Test abstract.",
+            "body_text": body_text,
+            "body_source": "pdf",
+            "body_length": len(body_text),
+        },
+    }
+    fpath = cache_dir / fname
+    fpath.write_text(json.dumps(data), encoding="utf-8")
+    return fpath
+
+
+def _make_knowledge_db(db_path, entries: list) -> None:
+    """Write a minimal KnowledgeStore SQLite DB with source_documents rows."""
+    import sqlite3
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS source_documents (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            source_url TEXT,
+            source_family TEXT,
+            content_hash TEXT,
+            chunk_count INTEGER,
+            published_at TEXT,
+            ingested_at TEXT,
+            confidence_tier TEXT,
+            metadata_json TEXT
+        )
+    """)
+    for entry in entries:
+        conn.execute(
+            "INSERT OR REPLACE INTO source_documents "
+            "(id, title, source_url, source_family) VALUES (?, ?, ?, ?)",
+            (entry["id"], entry.get("title", ""), entry.get("source_url", ""), "academic"),
+        )
+    conn.commit()
+    conn.close()
+
+
+class TestScopedLexicalRefresh:
+    """Tests for packages/research/eval_benchmark/lexical_refresh.py."""
+
+    def test_refresh_indexes_corpus_papers(self, tmp_path):
+        """Scoped refresh inserts chunks for each indexed paper into the lexical DB."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+        from packages.polymarket.rag.lexical import open_lexical_db
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid_a = "a" * 64
+        sid_b = "b" * 64
+        url_a = "https://arxiv.org/abs/0000.0001"
+        url_b = "https://arxiv.org/abs/0000.0002"
+        _make_cache_file(cache_dir, url_a, "prediction market limit order book spread")
+        _make_cache_file(cache_dir, url_b, "avellaneda stoikov inventory risk model")
+        _make_knowledge_db(kb_db, [
+            {"id": sid_a, "source_url": url_a},
+            {"id": sid_b, "source_url": url_b},
+        ])
+
+        result = refresh_lexical_for_corpus(
+            [sid_a, sid_b],
+            lexical_db_path=lex_db,
+            knowledge_db_path=kb_db,
+            cache_dir=cache_dir,
+            verbose=False,
+        )
+
+        assert result.indexed == 2
+        assert result.skipped_no_body == 0
+        assert result.skipped_no_url == 0
+        assert result.total_chunks >= 2
+
+        conn = open_lexical_db(lex_db)
+        rows = conn.execute(
+            "SELECT DISTINCT doc_id FROM chunks WHERE doc_type='academic'"
+        ).fetchall()
+        conn.close()
+        indexed_ids = {r[0] for r in rows}
+        assert sid_a in indexed_ids
+        assert sid_b in indexed_ids
+
+    def test_refresh_skips_missing_cache(self, tmp_path):
+        """Papers with no cache file body are counted as skipped."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid_present = "c" * 64
+        sid_missing = "d" * 64
+        url_present = "https://arxiv.org/abs/0000.0003"
+        url_missing = "https://arxiv.org/abs/0000.0004"
+        _make_cache_file(cache_dir, url_present, "market microstructure bid ask spread")
+        _make_knowledge_db(kb_db, [
+            {"id": sid_present, "source_url": url_present},
+            {"id": sid_missing, "source_url": url_missing},
+        ])
+
+        result = refresh_lexical_for_corpus(
+            [sid_present, sid_missing],
+            lexical_db_path=lex_db,
+            knowledge_db_path=kb_db,
+            cache_dir=cache_dir,
+            verbose=False,
+        )
+
+        assert result.indexed == 1
+        assert result.skipped_no_body == 1
+        assert sid_present in result.indexed_ids
+        assert sid_missing in result.skipped_ids
+
+    def test_refresh_skips_no_url_in_kb(self, tmp_path):
+        """Papers not found in KnowledgeStore are counted as skipped."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+        _make_knowledge_db(kb_db, [])
+
+        sid_orphan = "e" * 64
+        result = refresh_lexical_for_corpus(
+            [sid_orphan],
+            lexical_db_path=lex_db,
+            knowledge_db_path=kb_db,
+            cache_dir=cache_dir,
+            verbose=False,
+        )
+
+        assert result.indexed == 0
+        assert result.skipped_no_url == 1
+
+    def test_refresh_idempotent(self, tmp_path):
+        """Re-running refresh replaces chunks without duplicating them."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+        from packages.polymarket.rag.lexical import open_lexical_db
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid = "f" * 64
+        url = "https://arxiv.org/abs/0000.0005"
+        _make_cache_file(cache_dir, url, "optimal execution limit order book adverse selection")
+        _make_knowledge_db(kb_db, [{"id": sid, "source_url": url}])
+
+        for _ in range(2):
+            refresh_lexical_for_corpus(
+                [sid], lexical_db_path=lex_db, knowledge_db_path=kb_db,
+                cache_dir=cache_dir, verbose=False,
+            )
+
+        conn = open_lexical_db(lex_db)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE doc_id=?", (sid,)
+        ).fetchone()[0]
+        conn.close()
+        assert count > 0
+
+        # Run once more, count must be identical
+        refresh_lexical_for_corpus(
+            [sid], lexical_db_path=lex_db, knowledge_db_path=kb_db,
+            cache_dir=cache_dir, verbose=False,
+        )
+        conn = open_lexical_db(lex_db)
+        count2 = conn.execute(
+            "SELECT COUNT(*) FROM chunks WHERE doc_id=?", (sid,)
+        ).fetchone()[0]
+        conn.close()
+        assert count2 == count
+
+    def test_refresh_only_indexes_requested_ids(self, tmp_path):
+        """Non-corpus papers in the cache directory are NOT indexed."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+        from packages.polymarket.rag.lexical import open_lexical_db
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid_in = "1" * 64
+        sid_out = "2" * 64
+        url_in = "https://arxiv.org/abs/0000.0006"
+        url_out = "https://arxiv.org/abs/0000.0007"
+        _make_cache_file(cache_dir, url_in, "prediction market polymarket")
+        _make_cache_file(cache_dir, url_out, "unrelated biology paper text")
+        _make_knowledge_db(kb_db, [
+            {"id": sid_in, "source_url": url_in},
+            {"id": sid_out, "source_url": url_out},
+        ])
+
+        refresh_lexical_for_corpus(
+            [sid_in],
+            lexical_db_path=lex_db,
+            knowledge_db_path=kb_db,
+            cache_dir=cache_dir,
+            verbose=False,
+        )
+
+        conn = open_lexical_db(lex_db)
+        all_doc_ids = {r[0] for r in conn.execute("SELECT DISTINCT doc_id FROM chunks").fetchall()}
+        conn.close()
+        assert sid_in in all_doc_ids
+        assert sid_out not in all_doc_ids
+
+    def test_refresh_chunks_retrievable_by_fts(self, tmp_path):
+        """After refresh, FTS5 search for a unique body term returns the correct doc_id."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+        from packages.polymarket.rag.lexical import open_lexical_db, lexical_search
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid = "9" * 64
+        url = "https://arxiv.org/abs/0000.0008"
+        unique_phrase = "xylophonic martingale boundary condition"
+        _make_cache_file(
+            cache_dir, url,
+            f"Some background text. {unique_phrase}. More text follows here."
+        )
+        _make_knowledge_db(kb_db, [{"id": sid, "source_url": url}])
+
+        refresh_lexical_for_corpus(
+            [sid], lexical_db_path=lex_db, knowledge_db_path=kb_db,
+            cache_dir=cache_dir, verbose=False,
+        )
+
+        conn = open_lexical_db(lex_db)
+        results = lexical_search(
+            conn, "xylophonic martingale", k=5, private_only=False, public_only=False
+        )
+        conn.close()
+
+        assert len(results) >= 1
+        assert any(r["doc_id"] == sid for r in results)
+
+    def test_refresh_doc_id_matches_source_id(self, tmp_path):
+        """doc_id and file_path in lexical chunks equal the corpus source_id."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+        from packages.polymarket.rag.lexical import open_lexical_db
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid = "abcdef1234abcdef" * 4  # 64-char id
+        url = "https://arxiv.org/abs/1234.5678"
+        _make_cache_file(cache_dir, url, "market microstructure spread inventory risk")
+        _make_knowledge_db(kb_db, [{"id": sid, "source_url": url}])
+
+        refresh_lexical_for_corpus(
+            [sid], lexical_db_path=lex_db, knowledge_db_path=kb_db,
+            cache_dir=cache_dir, verbose=False,
+        )
+
+        conn = open_lexical_db(lex_db)
+        rows = conn.execute(
+            "SELECT DISTINCT doc_id, file_path FROM chunks WHERE doc_id=?", (sid,)
+        ).fetchall()
+        conn.close()
+
+        assert len(rows) >= 1
+        assert rows[0][0] == sid
+        assert rows[0][1] == sid
+
+    def test_refresh_result_fields(self, tmp_path):
+        """RefreshResult dataclass has correct field values after a run."""
+        from packages.research.eval_benchmark.lexical_refresh import refresh_lexical_for_corpus
+
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        kb_db = tmp_path / "knowledge.sqlite3"
+        lex_db = tmp_path / "lexical.sqlite3"
+
+        sid_a = "aa" * 32
+        sid_b = "bb" * 32
+        url_a = "https://arxiv.org/abs/5555.0001"
+        _make_cache_file(cache_dir, url_a, "prediction market informed trading spread")
+        _make_knowledge_db(kb_db, [
+            {"id": sid_a, "source_url": url_a},
+            {"id": sid_b, "source_url": ""},  # no URL -> skipped as no_url
+        ])
+
+        result = refresh_lexical_for_corpus(
+            [sid_a, sid_b],
+            lexical_db_path=lex_db,
+            knowledge_db_path=kb_db,
+            cache_dir=cache_dir,
+            verbose=False,
+        )
+
+        assert result.corpus_entries == 2
+        assert result.indexed == 1
+        assert result.skipped_no_url == 1
+        assert result.total_chunks >= 1
+        assert result.elapsed_seconds >= 0.0
+        assert sid_a in result.indexed_ids
+        assert sid_b in result.skipped_ids

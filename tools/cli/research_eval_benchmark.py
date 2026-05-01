@@ -9,6 +9,7 @@ Usage:
   python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --strict
   python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --save-baseline
   python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --json
+  python -m polytool research-eval-benchmark --corpus v0 --refresh-lexical
 
 Exit codes:
   0 — success
@@ -42,6 +43,9 @@ _DEFAULT_OUTPUT_DIR = _REPO_ROOT / "artifacts" / "research" / "eval_benchmark"
 _DEFAULT_LEXICAL_DB = _REPO_ROOT / "kb" / "rag" / "lexical" / "lexical.sqlite3"
 _DEFAULT_KNOWLEDGE_DB = _REPO_ROOT / "kb" / "rag" / "knowledge" / "knowledge.sqlite3"
 _BASELINE_PATH = _REPO_ROOT / "artifacts" / "research" / "eval_benchmark" / "baseline_v0.json"
+_DEFAULT_RAW_CACHE_DIR = (
+    _REPO_ROOT / "artifacts" / "research" / "raw_source_cache" / "academic"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +220,24 @@ def main(argv: List[str]) -> int:
             "and exit. Outputs JSON array to stdout."
         ),
     )
+    parser.add_argument(
+        "--refresh-lexical",
+        action="store_true",
+        help=(
+            "Build/refresh the FTS5 lexical index for ONLY the corpus papers listed "
+            "in --corpus. Reads body text from --raw-cache instead of running the "
+            "full global rag-refresh. Requires --corpus."
+        ),
+    )
+    parser.add_argument(
+        "--raw-cache",
+        default=str(_DEFAULT_RAW_CACHE_DIR),
+        metavar="PATH",
+        help=(
+            f"Directory of raw academic source JSON files used by --refresh-lexical "
+            f"(default: {_DEFAULT_RAW_CACHE_DIR})"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -250,6 +272,35 @@ def main(argv: List[str]) -> int:
     except Exception as exc:
         print(f"ERROR: Failed to load corpus manifest: {exc}", file=sys.stderr)
         return 1
+
+    # --- Scoped lexical refresh ---
+    if args.refresh_lexical:
+        try:
+            from packages.research.eval_benchmark.lexical_refresh import (
+                refresh_lexical_for_corpus,
+            )
+            source_ids = [e.source_id for e in corpus.entries]
+            result = refresh_lexical_for_corpus(
+                source_ids,
+                lexical_db_path=Path(args.lexical_db),
+                knowledge_db_path=Path(args.db),
+                cache_dir=Path(args.raw_cache),
+                verbose=True,
+            )
+            if result.indexed == 0 and result.corpus_entries > 0:
+                print(
+                    "WARNING: No papers were indexed. "
+                    "Check that --raw-cache points to the correct directory "
+                    f"({args.raw_cache}) and that payload.body_text is non-empty.",
+                    file=sys.stderr,
+                )
+                return 1
+            return 0
+        except Exception as exc:
+            print(f"ERROR: Lexical refresh failed: {exc}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            return 2
 
     # --- Resolve golden QA path ---
     qa_set = None

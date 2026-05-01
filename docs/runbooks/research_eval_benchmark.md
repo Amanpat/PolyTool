@@ -32,10 +32,16 @@ The benchmark outputs a prioritized recommendation (A through E, or NONE):
 
 - RIS Layer 0 ingests have run and the KnowledgeStore DB is populated:
   `kb/rag/knowledge/knowledge.sqlite3`
-- Optionally, the FTS5 lexical DB is built:
+- Academic body text has been cached (populated by `research-acquire`):
+  `artifacts/research/raw_source_cache/academic/*.json`
+- The FTS5 lexical index is built for the corpus papers (see Step 2.5):
   `kb/rag/lexical/lexical.sqlite3`
   (metrics 6 and 7 show as `not_available` without it)
 - Python environment: `python -m polytool --help` succeeds without import errors
+
+> **Do NOT run `python -m polytool rag-refresh`** to build the lexical index for
+> the benchmark. That command scans all `kb/` and `artifacts/` directories (slow,
+> unscoped). Use the dedicated scoped refresh command in Step 2.5 instead.
 
 ---
 
@@ -156,6 +162,71 @@ being accurate.
 | `easy` | Answer appears verbatim; distinctive keyword |
 | `medium` | Answer requires paraphrasing; multiple candidate chunks |
 | `hard` | Answer requires synthesis; answer substring is non-obvious |
+
+---
+
+## Step 2.5: Build the Scoped Lexical Index (Required for Metrics 6 and 7)
+
+Metrics 6 (Retrieval P@5) and 7 (Citation Traceability) require the FTS5 lexical
+index to contain chunks for the corpus papers. Use the **scoped refresh command**
+— it indexes only the 23 corpus papers from the raw source cache in under 10 seconds:
+
+```bash
+python -m polytool research-eval-benchmark --corpus v0 --refresh-lexical
+```
+
+Expected output:
+```
+[refresh-lexical] corpus entries: 23
+[refresh-lexical] cache_dir: .../artifacts/research/raw_source_cache/academic
+[refresh-lexical] lexical_db: .../kb/rag/lexical/lexical.sqlite3
+[refresh-lexical] resolved 23/23 URLs from KnowledgeStore
+[refresh-lexical] found 22 bodies in cache_dir
+  [indexed]      b1982ae05e5cd305...  chunks=33
+  ...
+[refresh-lexical] done — indexed=22, skipped=1 (...), total_chunks=567, elapsed=3.7s
+```
+
+The 1 skipped paper (`d744370b...` — Prediction Market Microstructure stub) has no
+body text in the raw source cache. This is expected for low-chunk stub entries.
+
+### What the scoped refresh does
+
+- Loads the 23 corpus source_ids from the corpus manifest.
+- Looks up each paper's `source_url` in `kb/rag/knowledge/knowledge.sqlite3`.
+- Matches the URL to a raw cache file in `artifacts/research/raw_source_cache/academic/`.
+- Reads `payload.body_text` from the cache file (the full extracted PDF body).
+- Chunks the body text (400 words, 80-word overlap — same as rag-refresh defaults).
+- Inserts chunks into `kb/rag/lexical/lexical.sqlite3` with:
+  - `doc_id = source_id` (matches `expected_paper_id` in QA pairs)
+  - `file_path = source_id` (same, for metric 6 paper matching)
+  - `doc_type = "academic"`
+- Operation is **idempotent** — safe to re-run; stale chunks are replaced.
+
+### Using a custom corpus path or DB
+
+```bash
+# Explicit corpus path
+python -m polytool research-eval-benchmark \
+  --corpus config/research_eval_benchmark_v0_corpus.draft.json \
+  --refresh-lexical
+
+# Non-default lexical DB or raw cache dir
+python -m polytool research-eval-benchmark \
+  --corpus v0 \
+  --refresh-lexical \
+  --lexical-db /path/to/custom/lexical.sqlite3 \
+  --raw-cache /path/to/cache/dir
+```
+
+### Note on Metric 6 retrieval search
+
+Metrics 6 and 7 search the lexical index using each QA pair's
+`expected_answer_substring` (the key claim text from the paper), not the full
+question. This is because BM25 AND-matching on long question sentences rarely
+finds a match in any single chunk. Searching for the answer substring directly
+tests whether the expected content is indexed and retrievable — a valid
+"oracle retrieval" test for corpus quality.
 
 ---
 
@@ -309,11 +380,12 @@ Use `--corpus config/research_eval_benchmark_v0_corpus.json` (no `.draft.`) or
 check that the file exists.
 
 ### Metrics 6 and 7 show "not_available"
-The FTS5 lexical DB is not built. Run:
+The FTS5 lexical DB is not built or has no academic chunks. Run the scoped refresh:
 ```bash
-python -m polytool rag-refresh
+python -m polytool research-eval-benchmark --corpus v0 --refresh-lexical
 ```
-Then re-run the benchmark.
+Do NOT use `python -m polytool rag-refresh` — it scans all directories and is
+too broad/slow for this use case. Re-run the benchmark after the scoped refresh.
 
 ### "strict mode requires reviewed QA"
 Change `review_status` to `"reviewed"` in the golden QA file after operator

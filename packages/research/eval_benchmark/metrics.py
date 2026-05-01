@@ -450,9 +450,12 @@ def compute_metric_6_retrieval_answer_quality(
     try:
         for pair in qa_set.pairs:
             try:
+                # Search with the expected answer substring, not the full question.
+                # FTS5 AND-matches every token, so long Q&A questions rarely hit any
+                # single chunk. The substring is the actual claim we expect to retrieve.
                 results = lexical_search(
                     conn,
-                    pair.question,
+                    pair.expected_answer_substring,
                     k=5,
                     private_only=False,
                     public_only=False,
@@ -571,9 +574,10 @@ def compute_metric_7_citation_traceability(
     try:
         for pair in qa_set.pairs:
             try:
+                # Search with the expected answer substring (same rationale as metric 6).
                 results = lexical_search(
                     conn,
-                    pair.question,
+                    pair.expected_answer_substring,
                     k=5,
                     private_only=False,
                     public_only=False,
