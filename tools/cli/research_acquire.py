@@ -37,8 +37,63 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_FILTER_CONFIG_PATH = _REPO_ROOT / "config" / "research_relevance_filter_v1.json"
+
+
 def _utcnow_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
+
+
+def _score_candidate_for_filter(title: str, abstract: str, source_id: str, args) -> object:
+    """Score a candidate against the relevance filter.
+
+    Returns a FilterDecision if prefetch_filter_mode != 'off', else None.
+    Returns None and prints a warning if imports fail.
+    """
+    if getattr(args, "prefetch_filter_mode", "off") == "off":
+        return None
+    try:
+        from packages.research.relevance_filter.scorer import (
+            CandidateInput,
+            RelevanceScorer,
+            load_filter_config,
+        )
+        config_path = getattr(args, "prefetch_filter_config", None)
+        filter_cfg = load_filter_config(Path(config_path) if config_path else None)
+        scorer = RelevanceScorer(filter_cfg)
+        candidate = CandidateInput(title=title, abstract=abstract, source_id=source_id)
+        return scorer.score(candidate)
+    except Exception as exc:
+        print(f"WARNING: prefetch filter scoring failed: {exc}", file=sys.stderr)
+        return None
+
+
+def _write_filter_audit(decision, source_url: str, enforced: bool, audit_dir: str) -> None:
+    """Write a JSONL audit record for the filter decision. Non-fatal on failure."""
+    try:
+        audit_path = Path(audit_dir) / "filter_decisions.jsonl"
+        audit_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "timestamp": _utcnow_iso(),
+            "source_id": decision.source_id,
+            "source_url": source_url,
+            "title": decision.candidate_title,
+            "decision": decision.decision,
+            "score": decision.score,
+            "raw_score": decision.raw_score,
+            "allow_threshold": decision.allow_threshold,
+            "review_threshold": decision.review_threshold,
+            "reason_codes": decision.reason_codes,
+            "matched_terms": decision.matched_terms,
+            "config_version": decision.config_version,
+            "input_fields_used": decision.input_fields_used,
+            "enforced": enforced,
+        }
+        with audit_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception as exc:
+        print(f"WARNING: failed to write filter audit record: {exc}", file=sys.stderr)
 
 
 def main(argv: list) -> int:
@@ -151,6 +206,24 @@ def main(argv: list) -> int:
         default="artifacts/research/run_log.jsonl",
         help="Path to run log JSONL for health tracking (default: artifacts/research/run_log.jsonl).",
     )
+    parser.add_argument(
+        "--prefetch-filter-mode",
+        dest="prefetch_filter_mode",
+        default="off",
+        choices=["off", "dry-run", "enforce"],
+        help=(
+            "Relevance pre-fetch filter mode (default: off). "
+            "dry-run: score and log but always ingest. "
+            "enforce: skip REJECT candidates; REVIEW candidates are ingested with audit flag."
+        ),
+    )
+    parser.add_argument(
+        "--prefetch-filter-config",
+        dest="prefetch_filter_config",
+        default=None,
+        metavar="PATH",
+        help="Path to relevance filter config JSON (default: auto-discover config/research_relevance_filter_v1.json).",
+    )
 
     if not argv:
         parser.print_help(sys.stderr)
@@ -234,6 +307,39 @@ def main(argv: list) -> int:
     except Exception:
         dedup_status = "new"
         cache = None
+
+    # --- Step 3.5: Pre-fetch relevance filter ---
+    filter_decision = _score_candidate_for_filter(
+        title=normalized_title,
+        abstract=raw_source.get("abstract") or "",
+        source_id=source_id,
+        args=args,
+    )
+    if filter_decision is not None:
+        enforced = args.prefetch_filter_mode == "enforce"
+        _write_filter_audit(filter_decision, args.url, enforced, args.review_dir)
+        if args.prefetch_filter_mode == "dry-run":
+            print(
+                f"[filter:dry-run] decision={filter_decision.decision} "
+                f"score={filter_decision.score:.4f} "
+                f"codes={filter_decision.reason_codes[:3]}",
+                file=sys.stderr,
+            )
+        elif args.prefetch_filter_mode == "enforce" and filter_decision.decision == "reject":
+            if args.output_json:
+                print(json.dumps({
+                    "source_url": args.url, "source_id": source_id,
+                    "filter_decision": filter_decision.decision,
+                    "filter_score": filter_decision.score,
+                    "filter_reason_codes": filter_decision.reason_codes,
+                    "skipped": True,
+                }, indent=2))
+            else:
+                print(
+                    f"[filter:enforce] SKIPPED (reject) | score={filter_decision.score:.4f} "
+                    f"| codes={filter_decision.reason_codes[:3]}"
+                )
+            return 0  # Not an error — just filtered out
 
     # --- Step 4: Dry-run exit ---
     if args.dry_run:
@@ -467,6 +573,35 @@ def _run_search_mode(args) -> int:
                 normalized_title = meta.title or ""
                 canonical_url = canonicalize_url(paper_url) if paper_url else ""
                 source_id = make_source_id(canonical_url) if canonical_url else ""
+
+                filter_decision = _score_candidate_for_filter(
+                    title=normalized_title,
+                    abstract=raw_source.get("abstract") or "",
+                    source_id=source_id,
+                    args=args,
+                )
+                if filter_decision is not None:
+                    enforced = args.prefetch_filter_mode == "enforce"
+                    _write_filter_audit(filter_decision, paper_url, enforced, args.review_dir)
+                    if args.prefetch_filter_mode == "enforce" and filter_decision.decision == "reject":
+                        paper_result = {
+                            "source_url": paper_url,
+                            "source_id": source_id,
+                            "normalized_title": normalized_title,
+                            "filter_decision": "reject",
+                            "filter_score": filter_decision.score,
+                            "filter_reason_codes": filter_decision.reason_codes,
+                            "skipped_by_filter": True,
+                            "rejected": True,
+                            "reject_reason": "filter:reject",
+                        }
+                        results_output.append(paper_result)
+                        if not args.output_json:
+                            print(
+                                f"  [filter:enforce] SKIPPED {normalized_title or paper_url} "
+                                f"| score={filter_decision.score:.4f}"
+                            )
+                        continue  # Skip ingest for this paper
 
                 result = pipeline.ingest_external(
                     raw_source,

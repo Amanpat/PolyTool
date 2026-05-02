@@ -1630,3 +1630,138 @@ class TestScopedLexicalRefresh:
         assert result.elapsed_seconds >= 0.0
         assert sid_a in result.indexed_ids
         assert sid_b in result.skipped_ids
+
+
+# ===========================================================================
+# TestSimulatePrefetchFilterCLI
+# ===========================================================================
+
+class TestSimulatePrefetchFilterCLI:
+    """Tests for --simulate-prefetch-filter CLI path."""
+
+    def _make_minimal_db(self, tmp_path, docs):
+        """Create a minimal SQLite KnowledgeStore DB with the given docs.
+
+        docs is a list of dicts with keys: id, title, metadata_json (optional).
+        """
+        db_path = tmp_path / "knowledge.sqlite3"
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("""
+            CREATE TABLE source_documents (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                source_url TEXT,
+                source_family TEXT,
+                content_hash TEXT,
+                chunk_count INTEGER DEFAULT 5,
+                published_at TEXT,
+                ingested_at TEXT,
+                confidence_tier TEXT,
+                metadata_json TEXT DEFAULT '{}'
+            )
+        """)
+        for doc in docs:
+            conn.execute(
+                "INSERT INTO source_documents (id, title, source_url, source_family, content_hash, "
+                "chunk_count, published_at, ingested_at, confidence_tier, metadata_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    doc["id"],
+                    doc.get("title", ""),
+                    doc.get("source_url", ""),
+                    doc.get("source_family", "academic"),
+                    doc.get("content_hash", ""),
+                    doc.get("chunk_count", 5),
+                    None, None, None,
+                    doc.get("metadata_json", "{}"),
+                ),
+            )
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_simulate_exits_0_with_minimal_corpus(self, tmp_path):
+        """--simulate-prefetch-filter exits 0 with a valid corpus and DB."""
+        corpus_data = _make_corpus_json(
+            version="v0",
+            seed_keywords=["prediction market"],
+            entries=[{"source_id": "doc_abc", "title": "Prediction Market Microstructure"}],
+        )
+        corpus_path = _write_json(tmp_path / "corpus.json", corpus_data)
+        db_path = self._make_minimal_db(tmp_path, [
+            {"id": "doc_abc", "title": "Prediction Market Microstructure",
+             "metadata_json": json.dumps({"abstract": "prediction market limit order book"})}
+        ])
+        from tools.cli.research_eval_benchmark import main
+        rc = main([
+            "--corpus", str(corpus_path),
+            "--db", str(db_path),
+            "--simulate-prefetch-filter",
+        ])
+        assert rc == 0
+
+    def test_simulate_bad_filter_config_exits_1(self, tmp_path):
+        """--simulate-prefetch-filter with nonexistent --filter-config exits 1."""
+        corpus_data = _make_corpus_json(entries=[])
+        corpus_path = _write_json(tmp_path / "corpus.json", corpus_data)
+        db_path = self._make_minimal_db(tmp_path, [])
+        from tools.cli.research_eval_benchmark import main
+        rc = main([
+            "--corpus", str(corpus_path),
+            "--db", str(db_path),
+            "--simulate-prefetch-filter",
+            "--filter-config", str(tmp_path / "nonexistent.json"),
+        ])
+        assert rc == 1
+
+    def test_simulate_reject_counted_correctly(self, tmp_path):
+        """Clearly off-topic paper (hastelloy) appears in REJECT count."""
+        corpus_data = _make_corpus_json(
+            seed_keywords=["prediction market"],
+            entries=[
+                {"source_id": "doc_on_topic", "title": "Prediction Market Microstructure"},
+                {"source_id": "doc_off_topic", "title": "Hastelloy-X SLM Fabricated Fatigue Life"},
+            ],
+        )
+        corpus_path = _write_json(tmp_path / "corpus.json", corpus_data)
+        db_path = self._make_minimal_db(tmp_path, [
+            {"id": "doc_on_topic", "title": "Prediction Market Microstructure",
+             "metadata_json": json.dumps({"abstract": "prediction market analysis"})},
+            {"id": "doc_off_topic", "title": "Hastelloy-X SLM Fabricated Fatigue Life",
+             "metadata_json": json.dumps({"abstract": "hastelloy microstructure fatigue"})},
+        ])
+        from tools.cli.research_eval_benchmark import main
+        rc = main([
+            "--corpus", str(corpus_path),
+            "--db", str(db_path),
+            "--simulate-prefetch-filter",
+        ])
+        assert rc == 0  # simulation always exits 0
+
+    def test_simulate_with_calibrated_fixture_hits_target(self, tmp_path):
+        """A corpus where only clearly on-topic papers remain after filtering hits <10% target."""
+        corpus_data = _make_corpus_json(
+            seed_keywords=["prediction market", "market microstructure"],
+            entries=[
+                {"source_id": "doc_pm", "title": "Prediction Market Limit Order Book Dynamics"},
+                {"source_id": "doc_mm", "title": "Market Microstructure and Market Making"},
+                {"source_id": "doc_off", "title": "Hastelloy-X SLM Fabricated Fatigue Life"},
+            ],
+        )
+        corpus_path = _write_json(tmp_path / "corpus.json", corpus_data)
+        db_path = self._make_minimal_db(tmp_path, [
+            {"id": "doc_pm", "title": "Prediction Market Limit Order Book Dynamics",
+             "metadata_json": json.dumps({"abstract": "prediction market informed trading"})},
+            {"id": "doc_mm", "title": "Market Microstructure and Market Making",
+             "metadata_json": json.dumps({"abstract": "market microstructure bid-ask spread"})},
+            {"id": "doc_off", "title": "Hastelloy-X SLM Fabricated Fatigue Life",
+             "metadata_json": json.dumps({"abstract": "hastelloy fatigue slm fabricated"})},
+        ])
+        from tools.cli.research_eval_benchmark import main
+        rc = main([
+            "--corpus", str(corpus_path),
+            "--db", str(db_path),
+            "--simulate-prefetch-filter",
+        ])
+        assert rc == 0

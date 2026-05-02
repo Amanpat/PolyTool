@@ -212,7 +212,11 @@ def _run_simulate_prefetch_filter(args, corpus, qa_set=None) -> int:
             "title": title,
             "decision": decision.decision,
             "score": decision.score,
+            "raw_score": decision.raw_score,
             "reason_codes": decision.reason_codes,
+            "matched_terms": decision.matched_terms,
+            "allow_threshold": decision.allow_threshold,
+            "review_threshold": decision.review_threshold,
         })
 
         if decision.decision == "allow":
@@ -274,9 +278,25 @@ def _run_simulate_prefetch_filter(args, corpus, qa_set=None) -> int:
     print(f"  {'-'*52} {'-'*8} {'-'*7} {'-'*30}")
     for r in per_paper_results:
         title_trunc = r["title"][:50] if r["title"] else "(no title)"
-        codes_trunc = str(r["reason_codes"][:3])
-        print(f"  {title_trunc:<52} {r['decision']:<8} {r['score']:<7.4f} {codes_trunc}")
+        codes_str = ", ".join(r["reason_codes"])
+        print(f"  {title_trunc:<52} {r['decision']:<8} {r['score']:<7.4f} {codes_str}")
     print("")
+    # --- Detail for REVIEW and REJECT papers ---
+    non_allow = [r for r in per_paper_results if r["decision"] in ("review", "reject")]
+    if non_allow:
+        print("--- Detail for REVIEW and REJECT papers ---")
+        for r in non_allow:
+            print(f"  source_id     : {r['source_id'][:20]}")
+            print(f"  decision      : {r['decision']}")
+            print(f"  score         : {r['score']}")
+            print(f"  raw_score     : {r['raw_score']}")
+            print(f"  allow_thresh  : {r['allow_threshold']}")
+            print(f"  review_thresh : {r['review_threshold']}")
+            print(f"  reason_codes  :")
+            for rc in r["reason_codes"]:
+                print(f"    {rc}")
+            print(f"  matched_terms : {r['matched_terms']}")
+            print("")
     print("--- Projected off_topic_rate ---")
     print(f"  Scenario A (reject excluded, review included) : {scenario_a_rate}%  [{len(scenario_a_docs)} docs]")
     print(f"  Scenario B (reject+review excluded)          : {scenario_b_rate}%  [{len(scenario_b_docs)} docs]")

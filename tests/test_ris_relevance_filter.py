@@ -399,3 +399,86 @@ class TestL5CorpusFalseNegatives:
                 f"Expected ALLOW for microstructure title: {title!r} "
                 f"(got {result.decision}, score={result.score})"
             )
+
+
+# ---------------------------------------------------------------------------
+# TestFilterDecisionAuditFields
+# ---------------------------------------------------------------------------
+
+class TestFilterDecisionAuditFields:
+
+    def test_decision_includes_allow_threshold(self):
+        """FilterDecision carries the allow_threshold from config."""
+        cfg = _make_config(allow_threshold=0.80, review_threshold=0.35)
+        scorer = RelevanceScorer(cfg)
+        result = scorer.score(_make_candidate("prediction market analysis"))
+        assert result.allow_threshold == 0.80
+
+    def test_decision_includes_review_threshold(self):
+        """FilterDecision carries the review_threshold from config."""
+        cfg = _make_config(review_threshold=0.35)
+        scorer = RelevanceScorer(cfg)
+        result = scorer.score(_make_candidate("prediction market analysis"))
+        assert result.review_threshold == 0.35
+
+    def test_decision_includes_config_version(self):
+        """FilterDecision carries the config version."""
+        cfg = FilterConfig(
+            version="v1.1",
+            strong_positive_terms=[],
+            positive_terms=[],
+            strong_negative_terms=[],
+            negative_terms=[],
+        )
+        scorer = RelevanceScorer(cfg)
+        result = scorer.score(_make_candidate("some paper"))
+        assert result.config_version == "v1.1"
+
+    def test_decision_input_fields_used_with_abstract(self):
+        """input_fields_used includes 'abstract' when abstract is non-empty."""
+        cfg = _make_config()
+        scorer = RelevanceScorer(cfg)
+        result = scorer.score(_make_candidate("some paper", abstract="some abstract"))
+        assert "title" in result.input_fields_used
+        assert "abstract" in result.input_fields_used
+
+    def test_decision_input_fields_used_title_only(self):
+        """input_fields_used is ['title'] when abstract is empty."""
+        cfg = _make_config()
+        scorer = RelevanceScorer(cfg)
+        result = scorer.score(_make_candidate("some paper", abstract=""))
+        assert result.input_fields_used == ["title"]
+
+
+# ---------------------------------------------------------------------------
+# TestThresholdCalibrationV1_1
+# ---------------------------------------------------------------------------
+
+class TestThresholdCalibrationV1_1:
+    """Tests for v1.1 calibrated thresholds (allow=0.80)."""
+
+    def test_single_positive_term_scores_review_not_allow(self):
+        """With allow_threshold=0.80, a paper matching only one positive term (raw=1.0)
+        should score REVIEW, not ALLOW, since sigmoid(1.0)=0.731 < 0.80."""
+        cfg = load_filter_config()  # uses actual v1.1 config
+        assert cfg.allow_threshold == 0.80, f"Expected v1.1 allow_threshold=0.80, got {cfg.allow_threshold}"
+        scorer = RelevanceScorer(cfg)
+        # "financial market" is a positive (+1), nothing else
+        result = scorer.score(_make_candidate("The Indian Financial Market Cross-correlation Study"))
+        # sigmoid(1.0) = 0.731 < 0.80 => review
+        assert result.decision == "review", (
+            f"Expected review for single-positive paper, got {result.decision} "
+            f"(score={result.score}, raw_score={result.raw_score})"
+        )
+
+    def test_two_positive_terms_scores_allow(self):
+        """With allow_threshold=0.80, a paper matching two positive terms (raw=2.0)
+        should score ALLOW since sigmoid(2.0)=0.880 >= 0.80."""
+        cfg = load_filter_config()
+        scorer = RelevanceScorer(cfg)
+        # "market microstructure" (+1) + "microstructure" (+1) = raw=2
+        result = scorer.score(_make_candidate("Semi-Markov model for market microstructure"))
+        assert result.decision == "allow", (
+            f"Expected allow for two-positive paper, got {result.decision} "
+            f"(score={result.score}, raw_score={result.raw_score})"
+        )

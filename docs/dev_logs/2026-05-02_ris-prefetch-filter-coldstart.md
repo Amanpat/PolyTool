@@ -100,17 +100,23 @@ All remaining corpus papers with at least one matching term:
   "market maker", "automated market maker", "financial market", "microstructure",
   "liquidity", or "high frequency" in title.
 
-### Projected Off-Topic Rates (Title-Only)
+### Projected Off-Topic Rates (TITLE-ONLY ESTIMATES)
+
+> **NOTE (2026-05-02):** These are TITLE-ONLY estimates without abstract data.
+> DB-backed simulation with allow_threshold=0.55 showed 20.0% for both Scenario A and B.
+> Threshold was raised to 0.80 in v1.1. See dev log 2026-05-02_ris-prefetch-filter-v0-fix.md
+> for DB-backed results.
 
 | Scenario | Corpus size | Off-topic count | Off-topic rate |
 |----------|------------|-----------------|----------------|
 | Baseline | 23 | 7 | 30.43% |
 | A: reject excluded, review included | 20 | 4 | 20.0% |
-| B: reject+review excluded (allow only) | 16 | 1 | 6.25% ✓ |
+| B: reject+review excluded (allow only) | 16 | 1 | 6.25% ✓ (title-only estimate) |
 
-**Scenario B reaches the target (<10%)**. Only 1 paper remains off-topic
-(Indian Financial Market cross-correlation), which matched `financial market`
-(positive term, +1) but doesn't contain direct prediction market keywords.
+**Scenario B reaches the target (<10%) in this title-only estimate**. Only 1 paper
+remains off-topic (Indian Financial Market cross-correlation), which matched
+`financial market` (positive term, +1) but doesn't contain direct prediction market
+keywords.
 
 **Note:** Scenario B also excludes 2 QA papers (`Inelastic Market Hypothesis`
 and `Market Ecology`) into REVIEW because their titles lack seed terms. With
@@ -120,7 +126,7 @@ running DB is expected to show better results.
 
 ---
 
-## False Negative Analysis
+## False Negative Analysis (Title-Only Estimate)
 
 **False negative definition:** A QA/golden paper that receives REJECT.
 
@@ -202,4 +208,4 @@ when the SVM is ready, without breaking the existing evaluation pipeline.
 
 ## Codex Review
 
-Tier: Skip — no execution-path code changed. Pure analytics layer.
+Codex review: FAIL — see docs/dev_logs/2026-05-02_codex-review-ris-prefetch-filter-v0.md

@@ -1,11 +1,11 @@
 {
-  "version": "v1",
+  "version": "v1.1",
   "description": "Cold-start lexical relevance filter for RIS pre-fetch candidate scoring. Scores paper metadata against domain-specific seed terms to produce allow/review/reject decisions without ML dependencies.",
   "strong_positive_weight": 2.0,
   "positive_weight": 1.0,
   "strong_negative_weight": -3.0,
   "negative_weight": -1.5,
-  "allow_threshold": 0.55,
+  "allow_threshold": 0.80,
   "review_threshold": 0.35,
   "strong_positive_terms": [
     "prediction market",

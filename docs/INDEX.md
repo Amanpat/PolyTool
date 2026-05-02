@@ -150,7 +150,8 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
-| [RIS L3 Pre-fetch Filter — Cold-Start Lexical Scorer](dev_logs/2026-05-02_ris-prefetch-filter-coldstart.md) | 2026-05-02 | Cold-start lexical scorer; 16 strong-positive / 6 strong-negative terms; 20 tests; FN=0; projected scenario-B off_topic_rate 6.25% (below 10% target) |
+| [RIS L3 Pre-fetch Filter — Cold-Start Lexical Scorer v0](dev_logs/2026-05-02_ris-prefetch-filter-coldstart.md) | 2026-05-02 | Cold-start v0; title-only estimate; DB-backed 20% at allow=0.55; v1.1 (allow=0.80) fix in v0-fix log |
+| [RIS L3 Pre-fetch Filter — v0 Fix (Codex)](dev_logs/2026-05-02_ris-prefetch-filter-v0-fix.md) | 2026-05-02 | v1.1 threshold calibration; research-acquire filter flags; audit fields; simulation tests |
 | [RIS Eval Benchmark v0 Close-out](dev_logs/2026-05-02_ris-eval-benchmark-v0-closeout.md) | 2026-05-02 | Baseline locked; feature doc created; bulk-accept shortcut documented as one-time; next packet = Pre-fetch Relevance Filtering |
 | [RIS Eval Benchmark — Golden QA Finalized](dev_logs/2026-05-02_ris-eval-benchmark-golden-qa-finalized.md) | 2026-05-02 | 35-pair QA set reviewed; 4 weak substrings fixed; dry-run passed; baseline not yet created at that step |
 | [Scientific RAG Vault Reconciliation](dev_logs/2026-04-29_scientific-rag-vault-reconciliation.md) | 2026-04-29 | Layer 0/1 status truth-sync; `marker_llm_boost` removed; evaluation benchmark stub created; decision doc cross-ref fixed |

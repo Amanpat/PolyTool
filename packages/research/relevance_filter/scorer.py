@@ -36,6 +36,11 @@ class FilterDecision:
     matched_terms: dict  # {"strong_positive": [...], "positive": [...], "strong_negative": [...], "negative": [...]}
     candidate_title: str = ""
     source_id: str = ""
+    # Audit fields (populated by RelevanceScorer.score())
+    allow_threshold: float = 0.0
+    review_threshold: float = 0.0
+    config_version: str = ""
+    input_fields_used: list = field(default_factory=list)
 
 
 @dataclass
@@ -124,6 +129,11 @@ class RelevanceScorer:
         if not reason_codes:
             reason_codes = ["no_matched_terms"]
 
+        # Determine which input fields were used
+        input_fields_used: List[str] = ["title"]
+        if candidate.abstract:
+            input_fields_used.append("abstract")
+
         return FilterDecision(
             decision=decision,
             score=round(score, 6),
@@ -132,6 +142,10 @@ class RelevanceScorer:
             matched_terms=matched,
             candidate_title=candidate.title,
             source_id=candidate.source_id,
+            allow_threshold=cfg.allow_threshold,
+            review_threshold=cfg.review_threshold,
+            config_version=cfg.version,
+            input_fields_used=input_fields_used,
         )
 
 
