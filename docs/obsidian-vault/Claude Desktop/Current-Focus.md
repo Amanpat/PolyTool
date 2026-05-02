@@ -1,7 +1,7 @@
 ---
 tags: [meta, focus]
 created: 2026-04-22
-updated: 2026-04-29
+updated: 2026-05-02
 ---
 # Current Focus
 
@@ -11,7 +11,7 @@ Living document — updated each session when priorities shift. Read this first 
 
 ## Active Priorities
 
-1. **RIS Scientific RAG roadmap** — primary active workstream. Layer 0 shipped 2026-04-27. Layer 1 scaffold implemented but production deferred. Next active packet is **L5 (Evaluation Benchmark v0)**, refined to ready 2026-04-29 — handed to architect to convert into a Claude Code prompt. Parallel: Layer 1 (Marker production rollout) is also `status: ready` after architectural decision to make Marker the single production parser, gated on the hosting decision below.
+1. **RIS Scientific RAG roadmap** — primary active workstream. Layer 0 shipped 2026-04-27. Layer 1 scaffold implemented but production deferred. **L5 (Evaluation Benchmark v0) shipped 2026-05-02** — baseline locked: off_topic_rate=30.43%, P@5=1.0, Recommendation A. **L3 (Pre-fetch Relevance Filter) shipped 2026-05-02** — Codex re-review PASS; dry-run-ready; Scenario B=5.88%. L2 and L4 remain stubs. Marker production rollout (`status: ready`) remains gated on the hosting decision below.
 2. **Gate 2 unblock** — Silver tapes produce zero fills for politics/sports. Crypto bucket positive (7/10) but blocked on new markets. WAIT_FOR_CRYPTO policy active. Escalation deadline for benchmark_v2 was 2026-04-12 — needs decision on next steps.
 3. **Track 1A Crypto Pair Bot** — BLOCKED on no active BTC/ETH/SOL 5m/15m markets on Polymarket. Check periodically with `crypto-pair-watch --one-shot`.
 
@@ -21,16 +21,16 @@ Living document — updated each session when priorities shift. Read this first 
 - **Benchmark_v2 strategy** — the 2026-04-12 escalation deadline has passed. What's the path forward for Gate 2?
 - **Polymarket account setup** (KYC, wallet, USDC funding) — Phase 0 item still open.
 
-## RIS Scientific RAG Status (as of 2026-04-29)
+## RIS Scientific RAG Status (as of 2026-05-01)
 
 | Layer | Packet | Status |
 |---|---|---|
 | L0 | [[Work-Packet - Academic Pipeline PDF Download Fix]] | ✅ Shipped 2026-04-27. pdfplumber wired in. Real arXiv ingests confirmed. |
 | L1 | [[Work-Packet - Marker Structural Parser Integration]] | `status: ready` — promoted to production rollout 2026-04-29. Marker becomes single production parser; pdfplumber retired. Gated on [[Decision - Academic Pipeline Hosting]]. |
 | L2 | [[Work-Packet - PaperQA2 RAG Control Flow]] | Stub. Activation gated on L5 baseline + L1 production. |
-| L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | Stub. Activation gated on L5 off-topic-rate measurement OR review queue accumulation. |
+| L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | ✅ Shipped 2026-05-02. Codex re-review PASS. Scenario B=5.88%, QA REJECT=0. Dry-run-ready; enforce experimental. Feature doc: `FEATURE-ris-prefetch-relevance-filter-v0.md`. |
 | L4 | [[Work-Packet - Multi-source Academic Harvesters]] | Stub. Activation gated on L1 + L3. Updated 2026-04-29 to add backfill-vs-monitoring distinction. |
-| L5 | [[Work-Packet - Scientific RAG Evaluation Benchmark]] | `status: ready` — refined from stub 2026-04-29. **Next active packet for the architect.** |
+| L5 | [[Work-Packet - Scientific RAG Evaluation Benchmark]] | ✅ Shipped 2026-05-02. Baseline locked: corpus=23, off_topic_rate=30.43%, P@5=1.0, Recommendation A. |
 
 Reference materials:
 - [[11-Scientific-RAG-Target-Architecture]] — four-layer target design
@@ -39,6 +39,8 @@ Reference materials:
 
 ## Recent Session Context
 
+- **2026-05-02**: L3 v0 close-out. Codex re-review PASS WITH FIXES. All original FAIL blockers resolved. DB-backed Scenario B=5.88%, QA REJECT=0. Title-only 6.25% overclaim corrected. Filter modes corrected: default `off`, not dry-run; flag `--prefetch-filter-mode enforce`, not `--enforce-relevance-filter`. Feature doc created. CURRENT_DEVELOPMENT Feature 3 freed. Dry-run safe; enforce experimental (Scenario A=20.0%, not <10%). Dev log: `docs/dev_logs/2026-05-02_ris-prefetch-filter-v0-closeout.md`.
+- **2026-05-01**: L3 packet activation pass. L5 baseline locked 2026-05-02 (off_topic_rate=30.43%, Rule A fired). L3 promoted from stub → active. Work packet refined: v0 scope = deterministic cold-start metadata filter; v1 scope = SPECTER2/S2FOS/SVM after ≥30+30 labels. Acceptance gates set with concrete numbers. Training data plan documented (labels.jsonl path, YELLOW queue accumulation, model ledger for v1). CURRENT_DEVELOPMENT Feature 3 slot filled with L3. Dev log: `docs/dev_logs/2026-05-01_ris-prefetch-filter-packet-activation.md`.
 - **2026-04-29**: Vault reconciliation pass and L5 promotion. Scientific RAG architecture review with operator. Decided: Marker becomes single production parser (no fallback), pdfplumber retires. Updated L1, L2, L3, L4 packets with reference materials and architectural changes. Created [[Decision - Academic Pipeline Hosting]] as prerequisite for L1. Promoted L5 from stub to ready with full nine-metric breakdown and corpus selection rule.
 - **2026-04-27**: L0 shipped. PDF download fix landed in production with full Docker validation.
 - **2026-04-22**: Reorganized Obsidian vault into two top-level folders. Added AGENT.md entry point and this Current-Focus.md file.
@@ -49,14 +51,14 @@ Reference materials:
 | Blocker | Affects | Status |
 |---------|---------|--------|
 | Academic pipeline hosting decision | L1 Marker production rollout | Operator must answer [[Decision - Academic Pipeline Hosting]] open questions |
-| L5 corpus accumulation | L5 ship date | Layer 0 needs ~2-4 weeks of production runtime to accumulate the 30-50-paper corpus |
+| L5 corpus accumulation | L5 ship date | ✅ Resolved — baseline locked 2026-05-02 with 23-paper corpus |
 | No active crypto 5m/15m markets | Track 1A | Monitoring |
 | Gate 2 failed (7/50 = 14%) | Track 1B live deployment | Needs decision on benchmark_v2 |
 | Silver tape zero-fill issue | Gate 2 sweep validity | Tied to crypto market availability |
 
 ---
 
-*Last updated by Claude Project — 2026-04-29*
+*Last updated by Claude Code — 2026-05-02*
 
 ---
 

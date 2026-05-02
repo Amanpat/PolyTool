@@ -116,6 +116,7 @@ router/operator-facing surface only.
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 | [RIS Operational Readiness Phase 2A](features/ris_operational_readiness_phase2a.md) | WP1-WP5: scoring fixes, Gemini+DeepSeek routing, budget enforcement, n8n visual improvements, ClickHouse+Grafana monitoring, 31-query retrieval benchmark with P@5 and baseline save |
 | [RIS Marker Structural Parser Scaffold (Layer 1)](features/ris-marker-structural-parser-scaffold.md) | **Experimental.** Optional Marker PDF parsing alongside pdfplumber; default stays pdfplumber; two-layer concurrency guard; CPU timeouts at 300 s; GPU required for production use; Layer 2 chunking/retrieval deferred |
+| [RIS L3 Pre-fetch Relevance Filter v0](features/FEATURE-ris-prefetch-relevance-filter-v0.md) | Lexical scorer v1.1 (allow=0.80); `--prefetch-filter-mode {off,dry-run,enforce}`; Scenario B 5.88% (<10% met); QA REJECT=0; dry-run-ready; enforce experimental (Scenario A=20.0%) |
 | [RIS Scientific RAG Evaluation Benchmark v0](features/FEATURE-ris-scientific-eval-benchmark-v0.md) | Baseline locked 2026-05-02: corpus_size=23, P@5=1.0, off_topic_rate=30.43%, Recommendation A (pre-fetch relevance filtering); Rule D secondary/heuristic |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 | [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
@@ -150,8 +151,12 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
-| [RIS L3 Pre-fetch Filter — Cold-Start Lexical Scorer v0](dev_logs/2026-05-02_ris-prefetch-filter-coldstart.md) | 2026-05-02 | Cold-start v0; title-only estimate; DB-backed 20% at allow=0.55; v1.1 (allow=0.80) fix in v0-fix log |
+| [RIS L3 Pre-fetch Filter — v0 Close-out](dev_logs/2026-05-02_ris-prefetch-filter-v0-closeout.md) | 2026-05-02 | Codex re-review PASS; completion protocol; enforce readiness record; title-only overclaim corrected; feature doc + INDEX + CURRENT_DEVELOPMENT updated |
+| [Codex Re-review: RIS L3 Pre-fetch Filter v0](dev_logs/2026-05-02_codex-rereview-ris-prefetch-filter-v0.md) | 2026-05-02 | PASS WITH FIXES; Scenario B 5.88% YES; QA REJECT=0; dry-run safe; enforce experimental; Scenario A=20.0% ≠ <10% |
 | [RIS L3 Pre-fetch Filter — v0 Fix (Codex)](dev_logs/2026-05-02_ris-prefetch-filter-v0-fix.md) | 2026-05-02 | v1.1 threshold calibration; research-acquire filter flags; audit fields; simulation tests |
+| [Codex Review: RIS L3 Pre-fetch Filter v0](dev_logs/2026-05-02_codex-review-ris-prefetch-filter-v0.md) | 2026-05-02 | FAIL; 3 blockers: Scenario B 20% (not <10%), acquire not wired, auditability incomplete; docs overclaim title-only 6.25% |
+| [RIS L3 Pre-fetch Filter — Cold-Start Lexical Scorer v0](dev_logs/2026-05-02_ris-prefetch-filter-coldstart.md) | 2026-05-02 | Cold-start v0; title-only estimate; DB-backed 20% at allow=0.55; v1.1 (allow=0.80) fix in v0-fix log |
+| [RIS L3 Pre-fetch Filter — Packet Activation](dev_logs/2026-05-01_ris-prefetch-filter-packet-activation.md) | 2026-05-01 | Stub → active; L5 Rule A evidence; v0/v1 scope boundary; acceptance gates; training data plan |
 | [RIS Eval Benchmark v0 Close-out](dev_logs/2026-05-02_ris-eval-benchmark-v0-closeout.md) | 2026-05-02 | Baseline locked; feature doc created; bulk-accept shortcut documented as one-time; next packet = Pre-fetch Relevance Filtering |
 | [RIS Eval Benchmark — Golden QA Finalized](dev_logs/2026-05-02_ris-eval-benchmark-golden-qa-finalized.md) | 2026-05-02 | 35-pair QA set reviewed; 4 weak substrings fixed; dry-run passed; baseline not yet created at that step |
 | [Scientific RAG Vault Reconciliation](dev_logs/2026-04-29_scientific-rag-vault-reconciliation.md) | 2026-04-29 | Layer 0/1 status truth-sync; `marker_llm_boost` removed; evaluation benchmark stub created; decision doc cross-ref fixed |

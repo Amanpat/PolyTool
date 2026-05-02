@@ -105,14 +105,13 @@ Aim for 30-50 papers. The current Layer 0 store has 39 academic records;
 The draft QA set lives at:
 `tests/fixtures/research_eval_benchmark/golden_qa_v0.draft.json`
 
-**Current state (2026-04-30):** 5 placeholder QA pairs exist. All
-`expected_paper_id` values are `"REPLACE_WITH_DOC_ID_OR_FILE_PATH"`. No
-final `golden_qa_v0.json` exists yet. This is the operator's review step
-before baseline creation.
+**Current state (2026-05-02):** `tests/fixtures/research_eval_benchmark/golden_qa_v0.json`
+exists with 35 reviewed pairs (`review_status="reviewed"`). `baseline_v0.json` is locked.
+For v1 and future versions, follow the full operator review protocol below.
 
 **Target:** 30-50 reviewed QA pairs for meaningful P@5 and answer quality scores.
 
-To create the reviewed QA set:
+To create or extend the reviewed QA set:
 
 1. Copy the draft:
    ```bash
@@ -128,10 +127,12 @@ To create the reviewed QA set:
    sqlite3 kb/rag/lexical/lexical.sqlite3 \
      "SELECT chunk_text FROM chunks WHERE doc_id = '<REAL_ID>' LIMIT 5"
    ```
+   Or verify against `artifacts/research/raw_source_cache/academic/<hash>.json`
+   `payload.body_text` (this is where v0 substrings were verified).
 4. Edit `expected_section_or_page` to the correct section/page where applicable.
 5. Add more QA pairs (aim for 30 minimum). Each must cover a different paper
    from the corpus to get meaningful P@5 coverage.
-6. When all pairs are verified, change:
+6. When all pairs are verified by the operator (not auto-accepted), change:
    ```json
    "review_status": "operator_review_required"
    ```
@@ -144,6 +145,12 @@ To create the reviewed QA set:
 `expected_paper_id` values are replaced and all `expected_answer_substring`
 values are confirmed against real body text. The baseline depends on this
 being accurate.
+
+**CRITICAL:** Operator review of each pair is required. Do not bulk-accept
+QA candidates without individually verifying that the expected_answer_substring
+answers the question and is present verbatim in the paper body. The v0 baseline
+was established via a one-time expedited review pass (bulk-accept + 4 targeted
+fixes); future QA additions must be reviewed individually.
 
 ### QA category reference
 
@@ -340,6 +347,12 @@ against it to detect regressions or improvements.
 
 **Policy:** `--save-baseline` requires `review_status: "reviewed"` in the QA
 set. The command will refuse and exit 1 if the QA is still in draft.
+
+**Current state (2026-05-02):** `baseline_v0.json` is locked. Key metrics:
+- off_topic_rate=30.43%, Recommendation=A (pre-fetch relevance filtering)
+- fallback_rate=0.0%, retrieval P@5=1.0, median_chunks=25
+- Rule D also fired (secondary/heuristic; see feature doc for interpretation)
+- See `docs/features/FEATURE-ris-scientific-eval-benchmark-v0.md` for full metrics.
 
 ---
 
