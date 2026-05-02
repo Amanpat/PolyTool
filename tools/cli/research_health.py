@@ -152,6 +152,23 @@ def _determine_overall_category(results: list) -> str:
     return "FAILURE"
 
 
+def _prefetch_review_stats() -> dict:
+    """Read prefetch queue and label store counts. Returns empty dict on any error."""
+    try:
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore, LabelStore
+        queue = ReviewQueueStore()
+        labels = LabelStore()
+        counts = labels.counts()
+        return {
+            "pending_review_count": queue.pending_count(),
+            "label_count": counts["total"],
+            "allowed_label_count": counts["allow"],
+            "rejected_label_count": counts["reject"],
+        }
+    except Exception:
+        return {}
+
+
 def _output_json(results: list, run_count: int) -> int:
     """Print JSON summary to stdout."""
     # Determine overall summary status
@@ -184,6 +201,7 @@ def _output_json(results: list, run_count: int) -> int:
         "overall_category": overall_category,
         "run_count": run_count,
         "deferred_checks": deferred_checks,
+        "prefetch_filter": _prefetch_review_stats(),
     }
     print(json.dumps(output, indent=2))
     return 0
@@ -233,5 +251,15 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
             "Note: Checks marked [DEFERRED] are not yet wired to data sources. "
             "GREEN = no data, not verified healthy."
         )
+
+    # Supplementary: L3 prefetch filter queue / label store counters
+    pf = _prefetch_review_stats()
+    if pf:
+        print("")
+        print("L3 Prefetch Filter")
+        print(f"  pending_review_count  : {pf.get('pending_review_count', 0)}")
+        print(f"  label_count           : {pf.get('label_count', 0)}")
+        print(f"  allowed_label_count   : {pf.get('allowed_label_count', 0)}")
+        print(f"  rejected_label_count  : {pf.get('rejected_label_count', 0)}")
 
     return 0

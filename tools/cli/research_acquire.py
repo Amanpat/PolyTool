@@ -69,6 +69,39 @@ def _score_candidate_for_filter(title: str, abstract: str, source_id: str, args)
         return None
 
 
+def _write_to_review_queue(decision, source_url: str, abstract: str, queue_dir: str) -> None:
+    """Write a REVIEW-decision candidate to the hold-review queue. Non-fatal on failure."""
+    try:
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore,
+            candidate_id_from_url,
+        )
+        queue_path = Path(queue_dir) / "review_queue.jsonl"
+        store = ReviewQueueStore(queue_path)
+        record = {
+            "candidate_id": candidate_id_from_url(source_url),
+            "source_url": source_url,
+            "title": decision.candidate_title,
+            "abstract": abstract,
+            "score": decision.score,
+            "raw_score": decision.raw_score,
+            "decision": decision.decision,
+            "reason_codes": decision.reason_codes,
+            "matched_terms": decision.matched_terms,
+            "allow_threshold": decision.allow_threshold,
+            "review_threshold": decision.review_threshold,
+            "config_version": decision.config_version,
+        }
+        written = store.enqueue(record)
+        if not written:
+            print(
+                f"[filter:hold-review] already queued: {source_url}",
+                file=__import__("sys").stderr,
+            )
+    except Exception as exc:
+        print(f"WARNING: failed to write review queue record: {exc}", file=__import__("sys").stderr)
+
+
 def _write_filter_audit(decision, source_url: str, enforced: bool, audit_dir: str) -> None:
     """Write a JSONL audit record for the filter decision. Non-fatal on failure."""
     try:
@@ -210,11 +243,12 @@ def main(argv: list) -> int:
         "--prefetch-filter-mode",
         dest="prefetch_filter_mode",
         default="off",
-        choices=["off", "dry-run", "enforce"],
+        choices=["off", "dry-run", "enforce", "hold-review"],
         help=(
             "Relevance pre-fetch filter mode (default: off). "
             "dry-run: score and log but always ingest. "
-            "enforce: skip REJECT candidates; REVIEW candidates are ingested with audit flag."
+            "enforce: skip REJECT; ingest REVIEW with audit flag. "
+            "hold-review: ingest ALLOW only; skip REJECT; queue REVIEW without ingesting."
         ),
     )
     parser.add_argument(
@@ -223,6 +257,13 @@ def main(argv: list) -> int:
         default=None,
         metavar="PATH",
         help="Path to relevance filter config JSON (default: auto-discover config/research_relevance_filter_v1.json).",
+    )
+    parser.add_argument(
+        "--prefetch-review-queue-dir",
+        dest="prefetch_review_queue_dir",
+        default=None,
+        metavar="PATH",
+        help="Directory for the hold-review JSONL queue (default: artifacts/research/prefetch_review_queue).",
     )
 
     if not argv:
@@ -316,7 +357,7 @@ def main(argv: list) -> int:
         args=args,
     )
     if filter_decision is not None:
-        enforced = args.prefetch_filter_mode == "enforce"
+        enforced = args.prefetch_filter_mode in ("enforce", "hold-review")
         _write_filter_audit(filter_decision, args.url, enforced, args.review_dir)
         if args.prefetch_filter_mode == "dry-run":
             print(
@@ -325,7 +366,7 @@ def main(argv: list) -> int:
                 f"codes={filter_decision.reason_codes[:3]}",
                 file=sys.stderr,
             )
-        elif args.prefetch_filter_mode == "enforce" and filter_decision.decision == "reject":
+        elif args.prefetch_filter_mode in ("enforce", "hold-review") and filter_decision.decision == "reject":
             if args.output_json:
                 print(json.dumps({
                     "source_url": args.url, "source_id": source_id,
@@ -336,10 +377,33 @@ def main(argv: list) -> int:
                 }, indent=2))
             else:
                 print(
-                    f"[filter:enforce] SKIPPED (reject) | score={filter_decision.score:.4f} "
+                    f"[filter:{args.prefetch_filter_mode}] SKIPPED (reject) | score={filter_decision.score:.4f} "
                     f"| codes={filter_decision.reason_codes[:3]}"
                 )
             return 0  # Not an error — just filtered out
+        elif args.prefetch_filter_mode == "hold-review" and filter_decision.decision == "review":
+            queue_dir = getattr(args, "prefetch_review_queue_dir", None) or "artifacts/research/prefetch_review_queue"
+            _write_to_review_queue(
+                filter_decision,
+                args.url,
+                raw_source.get("abstract") or "",
+                queue_dir,
+            )
+            if args.output_json:
+                print(json.dumps({
+                    "source_url": args.url, "source_id": source_id,
+                    "filter_decision": filter_decision.decision,
+                    "filter_score": filter_decision.score,
+                    "filter_reason_codes": filter_decision.reason_codes,
+                    "queued_for_review": True,
+                    "skipped": True,
+                }, indent=2))
+            else:
+                print(
+                    f"[filter:hold-review] QUEUED (review) | score={filter_decision.score:.4f} "
+                    f"| codes={filter_decision.reason_codes[:3]}"
+                )
+            return 0  # Held for operator review — not ingested
 
     # --- Step 4: Dry-run exit ---
     if args.dry_run:
@@ -581,9 +645,12 @@ def _run_search_mode(args) -> int:
                     args=args,
                 )
                 if filter_decision is not None:
-                    enforced = args.prefetch_filter_mode == "enforce"
+                    enforced = args.prefetch_filter_mode in ("enforce", "hold-review")
                     _write_filter_audit(filter_decision, paper_url, enforced, args.review_dir)
-                    if args.prefetch_filter_mode == "enforce" and filter_decision.decision == "reject":
+                    if (
+                        args.prefetch_filter_mode in ("enforce", "hold-review")
+                        and filter_decision.decision == "reject"
+                    ):
                         paper_result = {
                             "source_url": paper_url,
                             "source_id": source_id,
@@ -598,10 +665,40 @@ def _run_search_mode(args) -> int:
                         results_output.append(paper_result)
                         if not args.output_json:
                             print(
-                                f"  [filter:enforce] SKIPPED {normalized_title or paper_url} "
+                                f"  [filter:{args.prefetch_filter_mode}] SKIPPED {normalized_title or paper_url} "
                                 f"| score={filter_decision.score:.4f}"
                             )
                         continue  # Skip ingest for this paper
+                    elif (
+                        args.prefetch_filter_mode == "hold-review"
+                        and filter_decision.decision == "review"
+                    ):
+                        queue_dir = getattr(args, "prefetch_review_queue_dir", None) or "artifacts/research/prefetch_review_queue"
+                        _write_to_review_queue(
+                            filter_decision,
+                            paper_url,
+                            raw_source.get("abstract") or "",
+                            queue_dir,
+                        )
+                        paper_result = {
+                            "source_url": paper_url,
+                            "source_id": source_id,
+                            "normalized_title": normalized_title,
+                            "filter_decision": "review",
+                            "filter_score": filter_decision.score,
+                            "filter_reason_codes": filter_decision.reason_codes,
+                            "queued_for_review": True,
+                            "skipped_by_filter": True,
+                            "rejected": True,
+                            "reject_reason": "filter:hold-review",
+                        }
+                        results_output.append(paper_result)
+                        if not args.output_json:
+                            print(
+                                f"  [filter:hold-review] QUEUED {normalized_title or paper_url} "
+                                f"| score={filter_decision.score:.4f}"
+                            )
+                        continue  # Skip ingest; held for operator review
 
                 result = pipeline.ingest_external(
                     raw_source,

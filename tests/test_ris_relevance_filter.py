@@ -482,3 +482,169 @@ class TestThresholdCalibrationV1_1:
             f"Expected allow for two-positive paper, got {result.decision} "
             f"(score={result.score}, raw_score={result.raw_score})"
         )
+
+
+# ---------------------------------------------------------------------------
+# TestReviewQueueStore
+# ---------------------------------------------------------------------------
+
+class TestReviewQueueStore:
+    """Tests for the file-backed JSONL review queue."""
+
+    def test_enqueue_writes_record(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        record = {
+            "source_url": "https://arxiv.org/abs/1234.5678",
+            "title": "Test Paper",
+            "score": 0.65,
+            "decision": "review",
+        }
+        added = q.enqueue(record)
+        assert added is True
+        records = q.all_records()
+        assert len(records) == 1
+        assert records[0]["source_url"] == "https://arxiv.org/abs/1234.5678"
+        assert records[0]["title"] == "Test Paper"
+        assert "candidate_id" in records[0]
+        assert "created_at" in records[0]
+
+    def test_enqueue_idempotent_same_url(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        rec = {"source_url": "https://arxiv.org/abs/1234.5678", "title": "P1"}
+        assert q.enqueue(rec) is True
+        assert q.enqueue(rec) is False  # duplicate by candidate_id
+        assert len(q.all_records()) == 1
+
+    def test_enqueue_idempotent_explicit_candidate_id(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore, candidate_id_from_url
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        url = "https://arxiv.org/abs/9999.0000"
+        cid = candidate_id_from_url(url)
+        rec1 = {"source_url": url, "candidate_id": cid, "title": "Paper A"}
+        rec2 = {"source_url": url, "candidate_id": cid, "title": "Paper A duplicate"}
+        assert q.enqueue(rec1) is True
+        assert q.enqueue(rec2) is False
+        assert len(q.all_records()) == 1
+
+    def test_multiple_distinct_urls_all_written(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        for i in range(3):
+            q.enqueue({"source_url": f"https://example.com/paper{i}", "title": f"Paper {i}"})
+        assert len(q.all_records()) == 3
+
+    def test_pending_count_matches_records(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        assert q.pending_count() == 0
+        q.enqueue({"source_url": "https://a.com/1", "title": "A"})
+        q.enqueue({"source_url": "https://a.com/2", "title": "B"})
+        assert q.pending_count() == 2
+
+    def test_empty_queue_returns_empty_list(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        assert q.all_records() == []
+
+    def test_candidate_id_from_url_is_stable(self):
+        from packages.research.relevance_filter.queue_store import candidate_id_from_url
+        url = "https://arxiv.org/abs/2301.12345"
+        assert candidate_id_from_url(url) == candidate_id_from_url(url)
+        assert len(candidate_id_from_url(url)) == 64  # sha256 hex
+
+    def test_record_preserves_audit_fields(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        rec = {
+            "source_url": "https://arxiv.org/abs/5555.0001",
+            "title": "Audit Test",
+            "score": 0.72,
+            "raw_score": 1.0,
+            "decision": "review",
+            "reason_codes": ["positive:liquidity"],
+            "matched_terms": {"positive": ["liquidity"]},
+            "allow_threshold": 0.80,
+            "review_threshold": 0.35,
+            "config_version": "v1.1",
+        }
+        q.enqueue(rec)
+        stored = q.all_records()[0]
+        assert stored["score"] == 0.72
+        assert stored["config_version"] == "v1.1"
+        assert stored["reason_codes"] == ["positive:liquidity"]
+
+
+# ---------------------------------------------------------------------------
+# TestLabelStore
+# ---------------------------------------------------------------------------
+
+class TestLabelStore:
+    """Tests for the file-backed JSONL label store."""
+
+    def test_append_label_allow(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import LabelStore, candidate_id_from_url
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        url = "https://arxiv.org/abs/1111.2222"
+        record = ls.append_label(
+            candidate_id=candidate_id_from_url(url),
+            source_url=url,
+            title="Test Allow",
+            label="allow",
+        )
+        assert record["label"] == "allow"
+        assert record["source_url"] == url
+        assert "labeled_at" in record
+
+    def test_append_label_reject(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import LabelStore, candidate_id_from_url
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        url = "https://arxiv.org/abs/3333.4444"
+        record = ls.append_label(
+            candidate_id=candidate_id_from_url(url),
+            source_url=url,
+            title="Test Reject",
+            label="reject",
+            note="clearly off-topic",
+        )
+        assert record["label"] == "reject"
+        assert record["note"] == "clearly off-topic"
+
+    def test_append_label_invalid_raises(self, tmp_path):
+        import pytest
+        from packages.research.relevance_filter.queue_store import LabelStore, candidate_id_from_url
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        with pytest.raises(ValueError, match="allow.*reject"):
+            ls.append_label(
+                candidate_id="abc",
+                source_url="https://x.com",
+                title="X",
+                label="maybe",
+            )
+
+    def test_counts_empty(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import LabelStore
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        counts = ls.counts()
+        assert counts == {"total": 0, "allow": 0, "reject": 0}
+
+    def test_counts_accumulate(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import LabelStore, candidate_id_from_url
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        for i in range(3):
+            ls.append_label(candidate_id_from_url(f"https://a.com/{i}"), f"https://a.com/{i}", f"P{i}", "allow")
+        for i in range(2):
+            ls.append_label(candidate_id_from_url(f"https://b.com/{i}"), f"https://b.com/{i}", f"Q{i}", "reject")
+        counts = ls.counts()
+        assert counts == {"total": 5, "allow": 3, "reject": 2}
+
+    def test_all_labels_returns_all(self, tmp_path):
+        from packages.research.relevance_filter.queue_store import LabelStore, candidate_id_from_url
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        ls.append_label("cid1", "https://x.com/1", "T1", "allow")
+        ls.append_label("cid2", "https://x.com/2", "T2", "reject")
+        labels = ls.all_labels()
+        assert len(labels) == 2
+        assert labels[0]["label"] == "allow"
+        assert labels[1]["label"] == "reject"

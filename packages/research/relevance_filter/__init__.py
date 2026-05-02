@@ -7,6 +7,11 @@ from packages.research.relevance_filter.scorer import (
     RelevanceScorer,
     load_filter_config,
 )
+from packages.research.relevance_filter.queue_store import (
+    ReviewQueueStore,
+    LabelStore,
+    candidate_id_from_url,
+)
 
 __all__ = [
     "CandidateInput",
@@ -14,4 +19,7 @@ __all__ = [
     "FilterDecision",
     "RelevanceScorer",
     "load_filter_config",
+    "ReviewQueueStore",
+    "LabelStore",
+    "candidate_id_from_url",
 ]
