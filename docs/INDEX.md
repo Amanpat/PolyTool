@@ -116,6 +116,7 @@ router/operator-facing surface only.
 | [Wallet Discovery v1](features/wallet-discovery-v1.md) | Shipped: Loop A leaderboard discovery, watchlist/queue/snapshot ClickHouse tables, unified scan --quick, MVF computation |
 | [RIS Operational Readiness Phase 2A](features/ris_operational_readiness_phase2a.md) | WP1-WP5: scoring fixes, Gemini+DeepSeek routing, budget enforcement, n8n visual improvements, ClickHouse+Grafana monitoring, 31-query retrieval benchmark with P@5 and baseline save |
 | [RIS Marker Structural Parser Scaffold (Layer 1)](features/ris-marker-structural-parser-scaffold.md) | **Experimental.** Optional Marker PDF parsing alongside pdfplumber; default stays pdfplumber; two-layer concurrency guard; CPU timeouts at 300 s; GPU required for production use; Layer 2 chunking/retrieval deferred |
+| [RIS Scientific RAG Evaluation Benchmark v0](features/FEATURE-ris-scientific-eval-benchmark-v0.md) | Baseline locked 2026-05-02: corpus_size=23, P@5=1.0, off_topic_rate=30.43%, Recommendation A (pre-fetch relevance filtering); Rule D secondary/heuristic |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 | [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
 | [vera-hermes-agent Operator Baseline](features/vera_hermes_operator_baseline.md) | Isolated Hermes operator profile on WSL2; read-only scope, SOUL.md guardrails, healthcheck script, path for future operator query skills |
@@ -149,6 +150,9 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [RIS L3 Pre-fetch Filter — Cold-Start Lexical Scorer](dev_logs/2026-05-02_ris-prefetch-filter-coldstart.md) | 2026-05-02 | Cold-start lexical scorer; 16 strong-positive / 6 strong-negative terms; 20 tests; FN=0; projected scenario-B off_topic_rate 6.25% (below 10% target) |
+| [RIS Eval Benchmark v0 Close-out](dev_logs/2026-05-02_ris-eval-benchmark-v0-closeout.md) | 2026-05-02 | Baseline locked; feature doc created; bulk-accept shortcut documented as one-time; next packet = Pre-fetch Relevance Filtering |
+| [RIS Eval Benchmark — Golden QA Finalized](dev_logs/2026-05-02_ris-eval-benchmark-golden-qa-finalized.md) | 2026-05-02 | 35-pair QA set reviewed; 4 weak substrings fixed; dry-run passed; baseline not yet created at that step |
 | [Scientific RAG Vault Reconciliation](dev_logs/2026-04-29_scientific-rag-vault-reconciliation.md) | 2026-04-29 | Layer 0/1 status truth-sync; `marker_llm_boost` removed; evaluation benchmark stub created; decision doc cross-ref fixed |
 | [Marker Layer 1 — Docs Close-out](dev_logs/2026-04-27_ris-marker-closeout-docs.md) | 2026-04-27 | Canonical feature doc, INDEX/CURRENT_DEVELOPMENT updated, stale Prompt B doc superseded |
 | [Marker Layer 1 — Concurrency Fix (Prompt D)](dev_logs/2026-04-27_ris-marker-timeout-concurrency-fix.md) | 2026-04-27 | Confirmed semaphore released while worker still ran; `_MARKER_DISABLED` Event prevents zombie stacking; double-call test proves at-most-one thread |

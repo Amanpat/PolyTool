@@ -10,6 +10,8 @@ Usage:
   python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --save-baseline
   python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --json
   python -m polytool research-eval-benchmark --corpus v0 --refresh-lexical
+  python -m polytool research-eval-benchmark --corpus v0 --simulate-prefetch-filter
+  python -m polytool research-eval-benchmark --corpus v0 --golden-set v0 --simulate-prefetch-filter
 
 Exit codes:
   0 — success
@@ -46,6 +48,7 @@ _BASELINE_PATH = _REPO_ROOT / "artifacts" / "research" / "eval_benchmark" / "bas
 _DEFAULT_RAW_CACHE_DIR = (
     _REPO_ROOT / "artifacts" / "research" / "raw_source_cache" / "academic"
 )
+_DEFAULT_FILTER_CONFIG = _REPO_ROOT / "config" / "research_relevance_filter_v1.json"
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +142,161 @@ def _run_discover_corpus(db_path: Path) -> int:
         )
     print()
     print(json.dumps(candidates, indent=2))
+    return 0
+
+
+def _run_simulate_prefetch_filter(args, corpus, qa_set=None) -> int:
+    """Simulate the L3 lexical relevance filter against the corpus.
+
+    Reports projected off_topic_rate for allow/review/reject scenarios.
+    Does not modify any DB state.
+    """
+    from packages.research.relevance_filter.scorer import (
+        CandidateInput,
+        RelevanceScorer,
+        load_filter_config,
+    )
+    from packages.research.eval_benchmark.metrics import (
+        _load_docs_from_db,
+        compute_metric_1_off_topic_rate,
+    )
+
+    # Load filter config
+    filter_config_path = Path(args.filter_config) if args.filter_config else None
+    try:
+        filter_cfg = load_filter_config(filter_config_path)
+    except FileNotFoundError as exc:
+        print(f"ERROR: Filter config not found: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"ERROR: Failed to load filter config: {exc}", file=sys.stderr)
+        return 1
+
+    scorer = RelevanceScorer(filter_cfg)
+
+    # Load docs from DB (same pattern as compute_all_metrics)
+    source_ids = [e.source_id for e in corpus.entries]
+    docs = _load_docs_from_db(Path(args.db), source_ids)
+
+    # Build a title lookup from corpus entries (fallback when doc not in DB)
+    corpus_title_map = {e.source_id: (e.title or "") for e in corpus.entries}
+
+    # Score each corpus entry
+    allow_ids: list = []
+    review_ids: list = []
+    reject_ids: list = []
+    per_paper_results: list = []
+
+    for entry in corpus.entries:
+        sid = entry.source_id
+        # Find matching doc from DB if available
+        doc = next((d for d in docs if d["id"] == sid), None)
+        title = ""
+        abstract = ""
+        if doc is not None:
+            title = doc.get("title") or ""
+            meta = doc.get("_meta", {})
+            abstract = meta.get("abstract") or ""
+        else:
+            title = corpus_title_map.get(sid, "")
+
+        candidate = CandidateInput(
+            title=title,
+            abstract=abstract,
+            source_id=sid,
+        )
+        decision = scorer.score(candidate)
+
+        per_paper_results.append({
+            "source_id": sid,
+            "title": title,
+            "decision": decision.decision,
+            "score": decision.score,
+            "reason_codes": decision.reason_codes,
+        })
+
+        if decision.decision == "allow":
+            allow_ids.append(sid)
+        elif decision.decision == "review":
+            review_ids.append(sid)
+        else:
+            reject_ids.append(sid)
+
+    # --- Baseline off_topic_rate (all docs) ---
+    baseline_m1 = compute_metric_1_off_topic_rate(docs, corpus.seed_topic_keywords)
+    baseline_off_topic_count = baseline_m1.value.get("off_topic_count", 0) if baseline_m1.status == "ok" else 0
+    baseline_total = baseline_m1.value.get("total", len(docs)) if baseline_m1.status == "ok" else len(docs)
+    baseline_rate = baseline_m1.value.get("off_topic_rate_pct", 0.0) if baseline_m1.status == "ok" else 0.0
+
+    # --- Scenario A: reject excluded, review included ---
+    scenario_a_ids = allow_ids + review_ids
+    scenario_a_docs = [d for d in docs if d["id"] in set(scenario_a_ids)]
+    scenario_a_m1 = compute_metric_1_off_topic_rate(scenario_a_docs, corpus.seed_topic_keywords)
+    scenario_a_rate = scenario_a_m1.value.get("off_topic_rate_pct", 0.0) if scenario_a_m1.status == "ok" else 0.0
+
+    # --- Scenario B: reject + review excluded (allow only) ---
+    scenario_b_docs = [d for d in docs if d["id"] in set(allow_ids)]
+    scenario_b_m1 = compute_metric_1_off_topic_rate(scenario_b_docs, corpus.seed_topic_keywords)
+    scenario_b_rate = scenario_b_m1.value.get("off_topic_rate_pct", 0.0) if scenario_b_m1.status == "ok" else 0.0
+
+    # --- False negative analysis (if golden set provided) ---
+    fn_in_reject: list = []
+    fn_in_review: list = []
+    if qa_set is not None and qa_set.pairs:
+        qa_paper_ids = {pair.expected_paper_id for pair in qa_set.pairs}
+        reject_set = set(reject_ids)
+        review_set = set(review_ids)
+        fn_in_reject = [pid for pid in qa_paper_ids if pid in reject_set]
+        fn_in_review = [pid for pid in qa_paper_ids if pid in review_set]
+
+    # --- Print report ---
+    print("")
+    print("=" * 70)
+    print("PREFETCH FILTER SIMULATION REPORT")
+    print("=" * 70)
+    print(f"Filter config version : {filter_cfg.version}")
+    print(f"Allow threshold       : {filter_cfg.allow_threshold}")
+    print(f"Review threshold      : {filter_cfg.review_threshold}")
+    print(f"Corpus entries        : {len(corpus.entries)}")
+    print(f"Docs loaded from DB   : {len(docs)}")
+    print("")
+    print("--- Baseline (no filter) ---")
+    print(f"  Off-topic count : {baseline_off_topic_count} / {baseline_total}")
+    print(f"  Off-topic rate  : {baseline_rate}%")
+    print("")
+    print("--- Filter decisions ---")
+    print(f"  ALLOW  : {len(allow_ids)}")
+    print(f"  REVIEW : {len(review_ids)}")
+    print(f"  REJECT : {len(reject_ids)}")
+    print("")
+    print("--- Per-paper decisions ---")
+    print(f"  {'Title':<52} {'Decision':<8} {'Score':<7} Reason codes")
+    print(f"  {'-'*52} {'-'*8} {'-'*7} {'-'*30}")
+    for r in per_paper_results:
+        title_trunc = r["title"][:50] if r["title"] else "(no title)"
+        codes_trunc = str(r["reason_codes"][:3])
+        print(f"  {title_trunc:<52} {r['decision']:<8} {r['score']:<7.4f} {codes_trunc}")
+    print("")
+    print("--- Projected off_topic_rate ---")
+    print(f"  Scenario A (reject excluded, review included) : {scenario_a_rate}%  [{len(scenario_a_docs)} docs]")
+    print(f"  Scenario B (reject+review excluded)          : {scenario_b_rate}%  [{len(scenario_b_docs)} docs]")
+    print("")
+    if qa_set is not None and qa_set.pairs:
+        print("--- False negative analysis (QA papers in reject/review) ---")
+        print(f"  QA paper source_ids tracked : {len({p.expected_paper_id for p in qa_set.pairs})}")
+        print(f"  QA papers in REJECT         : {len(fn_in_reject)}")
+        if fn_in_reject:
+            for pid in fn_in_reject:
+                print(f"    - {pid}")
+        print(f"  QA papers in REVIEW         : {len(fn_in_review)}")
+        if fn_in_review:
+            for pid in fn_in_review:
+                print(f"    - {pid}")
+        print("")
+    target_met = scenario_b_rate < 10.0
+    print(f"Target <10% off_topic (scenario B): {'YES' if target_met else 'NO'} ({scenario_b_rate}%)")
+    print("=" * 70)
+
     return 0
 
 
@@ -238,6 +396,24 @@ def main(argv: List[str]) -> int:
             f"(default: {_DEFAULT_RAW_CACHE_DIR})"
         ),
     )
+    parser.add_argument(
+        "--simulate-prefetch-filter",
+        action="store_true",
+        help=(
+            "Simulate the L3 lexical relevance filter against the corpus and report "
+            "projected off_topic_rate for allow/review/reject scenarios. "
+            "Requires --corpus. Does not modify any DB state."
+        ),
+    )
+    parser.add_argument(
+        "--filter-config",
+        default=None,
+        metavar="PATH",
+        help=(
+            f"Path to relevance filter config JSON "
+            f"(default: auto-discover {_DEFAULT_FILTER_CONFIG})"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -272,6 +448,20 @@ def main(argv: List[str]) -> int:
     except Exception as exc:
         print(f"ERROR: Failed to load corpus manifest: {exc}", file=sys.stderr)
         return 1
+
+    # --- Simulate prefetch filter ---
+    if args.simulate_prefetch_filter:
+        # Load golden QA if provided (for false-negative analysis)
+        pf_qa_set = None
+        if args.golden_set is not None:
+            golden_path = _resolve_golden_path(args.golden_set)
+            if golden_path is not None:
+                try:
+                    from packages.research.eval_benchmark.golden_qa import load_golden_qa
+                    pf_qa_set = load_golden_qa(golden_path)
+                except Exception as exc:
+                    print(f"WARNING: Could not load golden QA for false-negative analysis: {exc}", file=sys.stderr)
+        return _run_simulate_prefetch_filter(args, corpus, qa_set=pf_qa_set)
 
     # --- Scoped lexical refresh ---
     if args.refresh_lexical:
