@@ -125,7 +125,8 @@ services:
     networks:
       - polytool
 
-  # APScheduler RIS scheduler -- always-on in default stack (no compose profile).
+  # APScheduler RIS scheduler (CPU pipelines: reddit, blog, youtube, github).
+  # Runs on partner machine or any CPU host. Does NOT handle academic PDF ingest.
   # To use n8n instead: docker compose stop ris-scheduler && docker compose --profile ris-n8n up -d n8n
   # See docs/adr/0013-ris-n8n-pilot-scoped.md for scheduler mutual exclusion.
   ris-scheduler:
@@ -135,11 +136,50 @@ services:
     container_name: polytool-ris-scheduler
     env_file:
       - .env
+    environment:
+      # Explicit pdfplumber on CPU host — no GPU, no Marker model load.
+      - RIS_PDF_PARSER=pdfplumber
     command: ["python", "-m", "polytool", "research-scheduler", "start"]
     restart: unless-stopped
     volumes:
       - ./kb:/app/kb
       - ./artifacts:/app/artifacts
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - polytool
+
+  # GPU-enabled RIS scheduler for academic PDF ingest (dev machine with RTX 2070 Super).
+  # Requires: Docker Desktop 29.x with WSL2 GPU passthrough (--gpus all works automatically).
+  # Model weights are volume-mounted from host ~/.cache/datalab — NOT baked into the image.
+  # First run downloads Marker weights (~1-3 GB); subsequent runs use the host cache.
+  # To start: docker compose --profile ris-gpu up -d ris-scheduler-gpu
+  ris-scheduler-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.ris
+    container_name: polytool-ris-scheduler-gpu
+    env_file:
+      - .env
+    environment:
+      - RIS_PDF_PARSER=marker
+    command: ["python", "-m", "polytool", "research-scheduler", "start"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - ris-gpu
+    volumes:
+      - ./kb:/app/kb
+      - ./artifacts:/app/artifacts
+      # Host Marker model weight cache — mount read-write so first-run download persists.
+      - ${USERPROFILE}/.cache/datalab:/root/.cache/datalab
     depends_on:
       clickhouse:
         condition: service_healthy

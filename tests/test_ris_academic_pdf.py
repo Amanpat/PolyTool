@@ -604,8 +604,8 @@ class TestMarkerFetcherIntegration:
         assert result.get("marker_version") == "1.3.0"
         assert result.get("structured_metadata") == smd
 
-    def test_marker_short_output_falls_back(self):
-        """Marker returns <200 chars → triggers pdfplumber fallback."""
+    def test_marker_short_output_returns_marker_failed(self):
+        """Marker returns <200 chars → marker_failed, no pdfplumber fallback."""
         from packages.research.ingestion.fetchers import LiveAcademicFetcher
 
         short_body = "X" * 50
@@ -621,11 +621,11 @@ class TestMarkerFetcherIntegration:
         )
         result = fetcher.fetch("https://arxiv.org/abs/2510.10003")
 
-        assert result["body_source"] != "marker"
-        assert "marker output too short" in result.get("fallback_reason", "")
+        assert result["body_source"] == "marker_failed"
+        assert "marker output too short" in result.get("failure_reason", "")
 
     def test_marker_import_error_explicit_mode(self):
-        """_pdf_parser='marker' + ImportError → body_source='pdfplumber_fallback'."""
+        """_pdf_parser='marker' + ImportError → body_source='marker_failed', no pdfplumber."""
         from packages.research.ingestion.fetchers import LiveAcademicFetcher
 
         class _MarkerNotAvailable:
@@ -643,8 +643,8 @@ class TestMarkerFetcherIntegration:
         )
         result = fetcher.fetch("https://arxiv.org/abs/2510.10004")
 
-        assert result["body_source"] == "pdfplumber_fallback"
-        assert "fallback_reason" in result
+        assert result["body_source"] == "marker_failed"
+        assert "failure_reason" in result
 
     def test_auto_mode_marker_not_installed_stays_pdf(self):
         """auto mode + Marker ImportError → body_source='pdf' (silent fallback)."""
@@ -703,8 +703,8 @@ class TestMarkerFetcherIntegration:
         assert result["body_source"] == "pdf"
         assert result["body_text"] == long_pdf
 
-    def test_marker_timeout_falls_back_to_pdfplumber(self):
-        """Marker wall-clock timeout → body_source='pdfplumber_fallback'."""
+    def test_marker_timeout_returns_marker_failed(self):
+        """Marker wall-clock timeout → body_source='marker_failed', no pdfplumber."""
         import time
         from packages.research.ingestion.fetchers import LiveAcademicFetcher
 
@@ -726,8 +726,8 @@ class TestMarkerFetcherIntegration:
         result = fetcher.fetch("https://arxiv.org/abs/2510.10009")
 
         from packages.research.ingestion import fetchers as _f
-        assert result["body_source"] == "pdfplumber_fallback"
-        reason = result.get("fallback_reason", "")
+        assert result["body_source"] == "marker_failed"
+        reason = result.get("failure_reason", "")
         assert "marker_timeout" in reason.lower() or "timed out" in reason.lower()
         # After a timeout, _MARKER_DISABLED must be set so no new threads can start.
         assert _f._MARKER_DISABLED.is_set(), "_MARKER_DISABLED must be set after timeout"
@@ -761,15 +761,15 @@ class TestMarkerFetcherIntegration:
             _marker_timeout_seconds=0.05,
         )
 
-        # First call: Marker times out, _MARKER_DISABLED set, falls back.
+        # First call: Marker times out, _MARKER_DISABLED set, paper rejected.
         r1 = fetcher.fetch("https://arxiv.org/abs/2510.10011")
-        assert r1["body_source"] == "pdfplumber_fallback"
+        assert r1["body_source"] == "marker_failed"
         assert _f._MARKER_DISABLED.is_set()
 
         # Second call: _MARKER_DISABLED prevents any new Marker worker.
         r2 = fetcher.fetch("https://arxiv.org/abs/2510.10011")
-        assert r2["body_source"] == "pdfplumber_fallback"
-        assert "marker_disabled" in r2.get("fallback_reason", "")
+        assert r2["body_source"] == "marker_failed"
+        assert "marker_disabled" in r2.get("failure_reason", "")
 
         # Only one worker was ever started — not two.
         assert worker_start_count["n"] == 1, (
@@ -799,8 +799,8 @@ class TestMarkerFetcherIntegration:
         finally:
             _MARKER_WORK_SEMAPHORE.release()
 
-        assert result["body_source"] == "pdfplumber_fallback"
-        assert "marker_busy" in result.get("fallback_reason", "")
+        assert result["body_source"] == "marker_failed"
+        assert "marker_busy" in result.get("failure_reason", "")
 
     def test_marker_json_size_cap_flagged_in_result(self):
         """structured_metadata_truncated=True propagates into fetch result."""
@@ -877,3 +877,87 @@ class TestAcademicAdapterMarkerMetadata:
         doc = AcademicAdapter().adapt(raw)
 
         assert doc.metadata["structured_metadata_truncated"] is True
+
+
+# ---------------------------------------------------------------------------
+# Production default: Marker is the default parser
+# ---------------------------------------------------------------------------
+
+
+class TestMarkerProductionDefault:
+    """Verify Marker is the production default and failures are explicit rejections."""
+
+    @pytest.fixture(autouse=True)
+    def reset_marker_state(self):
+        from packages.research.ingestion import fetchers as _f
+        _f._MARKER_DISABLED.clear()
+        while _f._MARKER_WORK_SEMAPHORE.acquire(blocking=False):
+            _f._MARKER_WORK_SEMAPHORE.release()
+            break
+        yield
+        _f._MARKER_DISABLED.clear()
+
+    def test_default_parser_is_marker(self, monkeypatch):
+        """LiveAcademicFetcher() with no args and no env override defaults to marker."""
+        monkeypatch.delenv("RIS_PDF_PARSER", raising=False)
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        fetcher = LiveAcademicFetcher()
+        assert fetcher._pdf_parser == "marker"
+
+    def test_marker_production_import_error_returns_marker_failed(self):
+        """Default marker path + ImportError → body_source='marker_failed', failure_reason set."""
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        class _MarkerAbsent:
+            def extract(self, *a, **kw):
+                raise ImportError("marker-pdf not installed")
+
+        fetcher = LiveAcademicFetcher(
+            _http_fn=lambda url, t, h: _arxiv_atom("2510.20001"),
+            _pdf_http_fn=lambda url, t, h: b"fake",
+            _marker_extractor_cls=_MarkerAbsent,
+        )
+        result = fetcher.fetch("https://arxiv.org/abs/2510.20001")
+
+        assert result["body_source"] == "marker_failed"
+        assert "failure_reason" in result
+        assert result["failure_reason"]  # non-empty
+
+    def test_marker_failed_body_text_is_empty_not_abstract(self):
+        """marker_failed → body_text='' in fetch result (no silent abstract downgrade)."""
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        abstract = "This is the abstract text."
+
+        class _MarkerAbsent:
+            def extract(self, *a, **kw):
+                raise ImportError("marker-pdf not installed")
+
+        fetcher = LiveAcademicFetcher(
+            _http_fn=lambda url, t, h: _arxiv_atom("2510.20002", abstract=abstract),
+            _pdf_http_fn=lambda url, t, h: b"fake",
+            _marker_extractor_cls=_MarkerAbsent,
+        )
+        result = fetcher.fetch("https://arxiv.org/abs/2510.20002")
+
+        assert result["body_source"] == "marker_failed"
+        assert result["body_text"] == ""
+        # Abstract is still preserved in the result under its own key
+        assert result["abstract"] == abstract
+
+    def test_pdfplumber_env_override_still_works(self, monkeypatch):
+        """RIS_PDF_PARSER=pdfplumber env override routes to pdfplumber (debug path)."""
+        monkeypatch.setenv("RIS_PDF_PARSER", "pdfplumber")
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        long_pdf = "pdfplumber body text. " * 200
+        fetcher = LiveAcademicFetcher(
+            _http_fn=lambda url, t, h: _arxiv_atom("2510.20003"),
+            _pdf_http_fn=lambda url, t, h: b"fake",
+            _pdfplumber_extractor_cls=_make_pdf_extractor_mock(long_pdf, page_count=5),
+        )
+        result = fetcher.fetch("https://arxiv.org/abs/2510.20003")
+
+        assert result["body_source"] == "pdf"
+        assert result["body_text"] == long_pdf

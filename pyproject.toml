@@ -59,9 +59,10 @@ live = [
 ris = [
     "apscheduler>=3.10.0,<4.0",
     "pdfplumber>=0.10.0",
+    "marker-pdf>=1.0",
 ]
 ris-marker = [
-    "marker-pdf>=1.0",
+    "marker-pdf>=1.0",  # backward-compat alias; marker is now bundled in [ris]
 ]
 all = [
     "polytool[rag,mcp,simtrader,studio,dev,historical,historical-import,live]",

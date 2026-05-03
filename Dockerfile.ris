@@ -1,0 +1,123 @@
+# syntax=docker/dockerfile:1
+# GPU-enabled Dockerfile for the RIS academic ingest service.
+#
+# Requires NVIDIA GPU with Docker GPU passthrough (--gpus all).
+# Tested: Docker Desktop 29.x on Windows 11 with WSL2 + RTX 2070 Super.
+#
+# Model weights are NOT baked in. Mount ~/.cache/datalab from the host:
+#   volumes:
+#     - ${HOME}/.cache/datalab:/root/.cache/datalab
+# First run downloads weights (~1-3 GB); subsequent runs hit the host cache.
+#
+# CUDA torch: CUDA 12.4 wheels are installed BEFORE marker-pdf so pip satisfies
+# the torch dependency from the already-installed CUDA build. The bundled CUDA
+# runtime libs in the torch wheel provide GPU support without a separate
+# nvidia/cuda base image.
+
+# ── Stage 1: builder ─────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends gcc libffi-dev
+
+WORKDIR /app
+
+# Layer 1: dependency manifests only — changes rarely
+COPY pyproject.toml ./
+
+# Stub README.md and all declared package directories so setuptools can resolve
+# metadata during the deps-only install.
+RUN echo "# PolyTool" > README.md \
+    && mkdir -p polytool/reports \
+    && mkdir -p packages/polymarket/rag \
+    && mkdir -p packages/polymarket/hypotheses \
+    && mkdir -p packages/polymarket/notifications \
+    && mkdir -p packages/polymarket/market_selection \
+    && mkdir -p packages/polymarket/historical_import \
+    && mkdir -p packages/polymarket/simtrader/studio \
+    && mkdir -p packages/polymarket/simtrader/tape \
+    && mkdir -p packages/polymarket/simtrader/orderbook \
+    && mkdir -p packages/polymarket/simtrader/replay \
+    && mkdir -p packages/polymarket/simtrader/broker \
+    && mkdir -p packages/polymarket/simtrader/batch \
+    && mkdir -p packages/polymarket/simtrader/execution \
+    && mkdir -p packages/polymarket/simtrader/portfolio \
+    && mkdir -p packages/polymarket/simtrader/shadow \
+    && mkdir -p packages/polymarket/simtrader/strategies \
+    && mkdir -p packages/polymarket/simtrader/strategy \
+    && mkdir -p packages/polymarket/simtrader/sweeps \
+    && mkdir -p packages/polymarket/crypto_pairs \
+    && mkdir -p packages/research/hypotheses \
+    && mkdir -p packages/research/scheduling \
+    && mkdir -p tools/cli \
+    && mkdir -p tools/guard \
+    && find polytool packages tools -type d -exec touch {}/__init__.py \;
+
+# Layer 2: install CUDA torch FIRST (cu124 wheels bundle the CUDA runtime).
+# Subsequent pip install of [ris] finds torch already satisfied and won't
+# downgrade to the CPU build pulled from PyPI by marker-pdf's dependency spec.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip \
+    && pip install torch torchvision \
+        --index-url https://download.pytorch.org/whl/cu124
+
+# Layer 3: install all RIS service deps.
+# [ris] now includes marker-pdf (moved from [ris-marker] in L1 rollout).
+# [mcp] = MCP server SDK; [historical] = duckdb; [historical-import] = pyarrow.
+# Excluded: [rag] (lazy imports), [studio] (separate API service), [dev] (not runtime).
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install ".[ris,mcp,simtrader,historical,historical-import,live]"
+
+# Layer 4: copy application source (changes often; deps cached above)
+COPY polytool/ ./polytool/
+COPY packages/ ./packages/
+COPY tools/ ./tools/
+COPY services/ ./services/
+
+# Re-install with --no-deps so entry points and metadata are correct
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-deps ".[ris,mcp,simtrader,historical,historical-import,live]"
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+# Lean runtime image: no gcc, no libffi-dev, no build tools.
+# CUDA runtime libs come from torch wheel — no nvidia base image required.
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    # Marker is the production default; override to pdfplumber only for debugging.
+    RIS_PDF_PARSER=marker
+
+# curl is required by compose healthchecks
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends curl
+
+RUN groupadd -r polytool && useradd -r -g polytool -m polytool
+
+WORKDIR /app
+
+# Copy pre-built Python packages from builder (includes CUDA torch runtime libs)
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+# Copy entry point scripts (polytool, etc.)
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy application source
+COPY --from=builder /app/polytool ./polytool/
+COPY --from=builder /app/packages ./packages/
+COPY --from=builder /app/tools ./tools/
+COPY --from=builder /app/services ./services/
+
+RUN chown -R polytool:polytool /app
+
+USER polytool
+
+# No ENTRYPOINT or CMD — compose service sets its own command

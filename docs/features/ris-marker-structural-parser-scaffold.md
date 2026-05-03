@@ -1,12 +1,13 @@
-# Feature: RIS Marker Structural Parser Scaffold (Layer 1)
+# Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: Experimental scaffold — not a production parser rollout**
+**Status: Production default — Marker is the only academic PDF parser**
 
-Layer 1 adds optional Marker PDF parsing alongside the existing pdfplumber
-(Layer 0) path. pdfplumber remains the default. Marker is installed separately,
-requires explicit opt-in, and is gated by concurrency guards that prevent
-zombie thread accumulation. CPU Marker consistently times out at 300 s — a GPU
-is required for practical throughput.
+Layer 1 ships Marker as the default and only production PDF parser for the
+academic ingest pipeline. pdfplumber is no longer the active production path;
+it remains in the codebase as a debug override (`RIS_PDF_PARSER=pdfplumber`)
+only. GPU is required: RTX 2070 Super on the dev machine, Docker GPU
+passthrough verified (Docker Desktop 29.x + WSL2), ~5–10 s/paper on GPU vs
+300 s timeout on CPU.
 
 ---
 
@@ -25,56 +26,65 @@ Four work packets (Prompts A–D) implemented and hardened the Layer 1 scaffold:
 
 ## Default Parser Behavior
 
-**Default parser: pdfplumber — always, without configuration.**
+**Default parser: Marker — production default with GPU.**
 
-`LiveAcademicFetcher` defaults to `_pdf_parser="pdfplumber"`. Marker is never
-attempted unless the operator explicitly opts in via:
+`LiveAcademicFetcher` defaults to `_pdf_parser="marker"`. pdfplumber is only
+used when explicitly overridden for debugging. Marker failure is an explicit
+rejection (`body_source="marker_failed"`) — no silent downgrade to pdfplumber
+or abstract-only records.
 
-- `RIS_PDF_PARSER=auto` — try Marker if installed, fall back silently on any failure
-- `RIS_PDF_PARSER=marker` — try Marker explicitly, fall back to pdfplumber on failure
-- Constructor arg `_pdf_parser="auto"` or `_pdf_parser="marker"` (code-level opt-in)
-
-The env var overrides the constructor default at runtime; constructor arg
-overrides the compiled default.
+Override options:
+- `RIS_PDF_PARSER=pdfplumber` — debug/test override; not production-equivalent
+- `RIS_PDF_PARSER=auto` — try Marker if installed, fall back silently on ImportError
+- `RIS_PDF_PARSER=marker` — explicit production mode (same as default)
 
 ### Parser decision table
 
-| `RIS_PDF_PARSER` | Marker installed | Outcome | `body_source` |
-|---|---|---|---|
-| `pdfplumber` (default) | any | pdfplumber runs | `"pdf"` |
-| `auto` | No | pdfplumber (silent) | `"pdf"` |
-| `auto` | Yes, success | Marker Markdown | `"marker"` |
-| `auto` | Yes, error/timeout | pdfplumber | `"pdfplumber_fallback"` |
-| `marker` | No | pdfplumber fallback | `"pdfplumber_fallback"` |
-| `marker` | Yes, success | Marker Markdown | `"marker"` |
-| `marker` | Yes, error/timeout | pdfplumber fallback | `"pdfplumber_fallback"` |
+| `RIS_PDF_PARSER` | Outcome | `body_source` |
+|---|---|---|
+| `marker` (default) | Marker success | `"marker"` |
+| `marker` (default) | Marker failure / timeout / not installed | `"marker_failed"` |
+| `auto` | Marker success | `"marker"` |
+| `auto` | Marker ImportError (not installed) | `"pdf"` (silent pdfplumber) |
+| `auto` | Marker runtime error / timeout | `"pdfplumber_fallback"` |
+| `pdfplumber` (debug override) | pdfplumber runs | `"pdf"` |
 
-If `_MARKER_DISABLED` is set (any prior timeout in this process): all `auto`/`marker` requests return `body_source="pdfplumber_fallback"` with `fallback_reason="marker_disabled: ..."` immediately, without starting a new thread.
+**`marker_failed` semantics:** `body_text=""` in the fetch result — the paper
+is rejected, not silently downgraded to abstract. `failure_reason` is
+populated. `abstract` key still present in the result for traceability.
+
+If `_MARKER_DISABLED` is set (prior timeout in this process): `marker` mode
+returns `body_source="marker_failed"` with
+`failure_reason="marker_disabled: ..."` immediately, no new thread spawned.
 
 ---
 
-## Marker Opt-In Installation
+## Installation
 
-### Base RIS (Docker-safe default — no change needed)
+### Production install (GPU host — includes Marker)
 
 ```bash
 pip install "polytool[ris]"
+# or from repo root:
+python -m pip install -e ".[ris]"
 ```
 
-pdfplumber only. No PyTorch. No model weights. Used by the base Docker image.
-Do not add `ris-marker` to the base Docker image without Director approval.
+`[ris]` now includes `marker-pdf>=1.0` (surya-ocr, PyTorch). First run
+downloads model weights into `~/.cache/datalab/` (~1–3 GB). GPU required
+for production throughput (~5–10 s/paper on RTX 2070 Super; 300 s timeout
+on CPU).
 
-### With Marker (host or GPU machine)
+For Docker GPU service use `Dockerfile.ris` which installs CUDA torch (cu124)
+before `[ris]` to ensure the GPU build is used.
+
+### Backward-compat alias (unchanged)
 
 ```bash
 pip install "polytool[ris-marker]"
-# or from repo root:
-python -m pip install -e ".[ris-marker]"
 ```
 
-Pulls `marker-pdf>=1.0` (surya-ocr, PyTorch dependency). First run downloads
-model weights into `~/.cache/datalab/` (~1–3 GB). PyTorch must already be
-installed or will be pulled.
+`[ris-marker]` is now a backward-compat alias that still installs
+`marker-pdf>=1.0`. Functionally equivalent to `[ris]` for Marker purposes.
 
 ### Smoke test after install
 

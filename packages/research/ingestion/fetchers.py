@@ -129,7 +129,7 @@ class LiveAcademicFetcher:
         _http_fn: Optional[Callable] = None,
         _pdf_http_fn: Optional[Callable] = None,
         _pdf_extractor_cls=None,
-        _pdf_parser: str = "pdfplumber",
+        _pdf_parser: str = "marker",
         _marker_extractor_cls=None,
         _pdfplumber_extractor_cls=None,
         _marker_timeout_seconds: float = 300.0,
@@ -143,8 +143,9 @@ class LiveAcademicFetcher:
         self._marker_timeout_seconds = _marker_timeout_seconds
 
         # RIS_PDF_PARSER env var overrides constructor default.
-        # Default is "pdfplumber" (safe on CPU); set RIS_PDF_PARSER=auto or
-        # RIS_PDF_PARSER=marker to opt into Marker parsing explicitly.
+        # Default is "marker" (production default with GPU).
+        # Set RIS_PDF_PARSER=pdfplumber for debug override only — not production-equivalent.
+        # Set RIS_PDF_PARSER=auto to try Marker and fall back silently on ImportError.
         import os as _os
         _env = _os.environ.get("RIS_PDF_PARSER", "").lower()
         self._pdf_parser = _env if _env in ("auto", "pdfplumber", "marker") else _pdf_parser
@@ -194,9 +195,14 @@ class LiveAcademicFetcher:
             return self._compat_extract(tmp_path)
 
         if self._pdf_parser == "pdfplumber":
+            # Debug/override path only — not production-equivalent.
             return self._pdfplumber_extract(tmp_path, fallback_reason=None)
 
-        # "auto" or "marker": try Marker first, fall back to pdfplumber
+        if self._pdf_parser == "marker":
+            # Production default: Marker only, no pdfplumber fallback.
+            return self._marker_production_extract(tmp_path)
+
+        # "auto": try Marker, fall back silently to pdfplumber on ImportError or failure
         return self._try_marker_or_fallback(tmp_path)
 
     def _compat_extract(self, tmp_path: str) -> "tuple[str, dict]":
@@ -218,6 +224,78 @@ class LiveAcademicFetcher:
             })
         except Exception as exc:
             return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
+
+    def _marker_production_extract(self, tmp_path: str) -> "tuple[str, dict]":
+        """Production Marker extraction — no pdfplumber fallback.
+
+        On any Marker failure (ImportError, timeout, runtime error, short output),
+        returns body_source='marker_failed' with failure_reason set.  Callers must
+        treat empty body_text + marker_failed as a recoverable rejection; the paper
+        is not silently downgraded to abstract-only or pdfplumber output.
+
+        Concurrency contract is identical to _try_marker_or_fallback:
+        _MARKER_WORK_SEMAPHORE prevents stacking; _MARKER_DISABLED prevents new
+        threads after a timeout.
+        """
+        import concurrent.futures as _cf
+
+        if _MARKER_DISABLED.is_set():
+            _logger.warning(
+                "Marker: disabled after a previous timeout; paper rejected (marker_failed)"
+            )
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": "marker_disabled: previous timeout, Marker disabled for this process",
+            })
+
+        if not _MARKER_WORK_SEMAPHORE.acquire(blocking=False):
+            _logger.warning(
+                "Marker: another conversion is already running; paper rejected (marker_failed)"
+            )
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": "marker_busy: conversion already running",
+            })
+
+        try:
+            from packages.research.ingestion.extractors import MarkerPDFExtractor
+            marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
+            extractor = marker_cls()
+
+            _pool = _cf.ThreadPoolExecutor(max_workers=1)
+            _fut = _pool.submit(extractor.extract, tmp_path)
+            try:
+                doc = _fut.result(timeout=self._marker_timeout_seconds)
+            except _cf.TimeoutError:
+                _pool.shutdown(wait=False)
+                _MARKER_DISABLED.set()
+                raise TimeoutError(
+                    f"marker_timeout: extraction timed out after "
+                    f"{self._marker_timeout_seconds}s"
+                )
+            finally:
+                _pool.shutdown(wait=False)
+
+            body_text = doc.body or ""
+            if len(body_text) < 200:
+                return ("", {
+                    "body_source": "marker_failed",
+                    "failure_reason": f"marker output too short ({len(body_text)} chars)",
+                })
+            return self._build_marker_result(body_text, doc.metadata)
+
+        except ImportError as exc:
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": f"marker-pdf not installed: {exc}",
+            })
+        except Exception as exc:
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": str(exc)[:200],
+            })
+        finally:
+            _MARKER_WORK_SEMAPHORE.release()
 
     def _try_marker_or_fallback(self, tmp_path: str) -> "tuple[str, dict]":
         """Attempt Marker extraction; fall back to pdfplumber on any failure.
@@ -412,13 +490,21 @@ class LiveAcademicFetcher:
 
         body_text, body_meta = self._fetch_pdf_body(arxiv_id)
 
+        # marker_failed = explicit rejection: do not silently use abstract as body.
+        if body_text:
+            _body_text = body_text
+        elif body_meta.get("body_source") == "marker_failed":
+            _body_text = ""
+        else:
+            _body_text = abstract
+
         result = {
             "url": canonical_url,
             "title": title,
             "abstract": abstract,
             "authors": authors,
             "published_date": published_date,
-            "body_text": body_text if body_text else abstract,
+            "body_text": _body_text,
         }
         result.update(body_meta)
 
@@ -523,7 +609,12 @@ class LiveAcademicFetcher:
 
             if arxiv_id:
                 body_text, body_meta = self._fetch_pdf_body(arxiv_id)
-                entry_dict["body_text"] = body_text if body_text else abstract
+                if body_text:
+                    entry_dict["body_text"] = body_text
+                elif body_meta.get("body_source") == "marker_failed":
+                    entry_dict["body_text"] = ""
+                else:
+                    entry_dict["body_text"] = abstract
                 entry_dict.update(body_meta)
                 _body_source = body_meta.get("body_source", "unknown")
                 if body_meta.get("body_length"):

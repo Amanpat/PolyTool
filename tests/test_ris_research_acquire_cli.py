@@ -11,6 +11,19 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Module-level fixture: force pdfplumber for all CLI tests
+# ---------------------------------------------------------------------------
+# The production default is now _pdf_parser="marker". Marker is installed on the
+# dev machine, so any test that creates LiveAcademicFetcher() without an injected
+# mock would trigger a real model load. Override to pdfplumber for all offline
+# CLI tests so they stay fast and don't crash on torch model loading.
+
+@pytest.fixture(autouse=True)
+def _force_pdfplumber_for_cli_tests(monkeypatch):
+    monkeypatch.setenv("RIS_PDF_PARSER", "pdfplumber")
+
+
+# ---------------------------------------------------------------------------
 # Helpers — canned HTTP responses
 # ---------------------------------------------------------------------------
 
@@ -124,6 +137,9 @@ class TestInvalidSourceFamily:
 class TestDryRunJson:
     def test_academic_dry_run_json(self, monkeypatch, capsys):
         """Dry-run with JSON output: returns 0, stdout has expected keys."""
+        # Force pdfplumber for this offline test — prevents Marker from loading
+        # real model weights when Marker is installed on the dev machine.
+        monkeypatch.setenv("RIS_PDF_PARSER", "pdfplumber")
         import packages.research.ingestion.fetchers as fetchers_mod
         monkeypatch.setattr(fetchers_mod, "_default_urlopen", _make_arxiv_http_fn())
 

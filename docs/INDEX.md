@@ -151,6 +151,7 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Academic Pipeline Hosting Decision](dev_logs/2026-05-03_academic-pipeline-hosting-decision.md) | 2026-05-03 | Hosting decision accepted: Docker+GPU dev machine, passthrough verified (RTX 2070 Super, CUDA 13.2), volume-mount weights, hard-cutover rollout; L1 Marker production rollout unblocked |
 | [RIS L3.1 Prefetch Review Queue — Closeout](dev_logs/2026-05-02_ris-prefetch-review-queue-closeout.md) | 2026-05-02 | Docs-only close-out: feature doc status updated; CURRENT_DEVELOPMENT + INDEX + Current-Focus synced; next path = label accumulation for SVM |
 | [RIS L3.1 Prefetch Review Queue — Codex Fixes](dev_logs/2026-05-02_ris-prefetch-review-queue-fixes.md) | 2026-05-02 | PASS WITH FIXES resolved: M1 queue write status, L2 malformed JSONL warning, L1 feature doc, L3 search-mode test; 160 tests pass |
 | [Codex Review: RIS L3.1 Prefetch Review Queue](dev_logs/2026-05-02_codex-review-ris-prefetch-review-queue.md) | 2026-05-02 | PASS WITH FIXES; hold-review safe; M1 queue write failure misleading; L1 feature doc stale; L2 silent JSONL drop; L3 search-mode untested |
