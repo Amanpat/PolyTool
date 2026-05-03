@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -41,13 +42,16 @@ def _read_jsonl(path: Path) -> list[dict]:
         return []
     records: list[dict] = []
     with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
+        for lineno, line in enumerate(fh, start=1):
             line = line.strip()
             if line:
                 try:
                     records.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as exc:
+                    print(
+                        f"WARNING: malformed JSONL in {path} at line {lineno}: {exc}",
+                        file=sys.stderr,
+                    )
     return records
 
 
@@ -114,6 +118,53 @@ class ReviewQueueStore:
     def pending_count(self) -> int:
         """Return total number of queued records (labeled or not)."""
         return len(_read_jsonl(self._path))
+
+    def queue_stats(self, label_store: "LabelStore | None" = None) -> dict:
+        """Return joined counts across queue and label store.
+
+        Parameters
+        ----------
+        label_store:
+            If provided, cross-joins with label records to determine which
+            queue items have been labeled.
+
+        Returns
+        -------
+        dict with keys:
+            total_queued       -- all records in the queue (labeled or not)
+            pending_unlabeled  -- queued records with no label yet
+            labeled_total      -- queued records that have at least one label
+            labeled_allow      -- label records with label='allow' for queued items
+            labeled_reject     -- label records with label='reject' for queued items
+        """
+        records = _read_jsonl(self._path)
+        total_queued = len(records)
+        queued_ids = {r.get("candidate_id") for r in records}
+
+        labeled_ids: set[str] = set()
+        labeled_allow: int = 0
+        labeled_reject: int = 0
+
+        if label_store is not None:
+            for lr in label_store.all_labels():
+                cid = lr.get("candidate_id", "")
+                if cid in queued_ids:
+                    labeled_ids.add(cid)
+                    if lr.get("label") == "allow":
+                        labeled_allow += 1
+                    elif lr.get("label") == "reject":
+                        labeled_reject += 1
+
+        labeled_total = len(labeled_ids)
+        pending_unlabeled = total_queued - labeled_total
+
+        return {
+            "total_queued": total_queued,
+            "pending_unlabeled": pending_unlabeled,
+            "labeled_total": labeled_total,
+            "labeled_allow": labeled_allow,
+            "labeled_reject": labeled_reject,
+        }
 
 
 class LabelStore:

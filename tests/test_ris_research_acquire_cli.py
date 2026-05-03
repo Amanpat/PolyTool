@@ -558,6 +558,49 @@ class TestPrefetchFilterModes:
         records = [_json.loads(l) for l in queue_file.read_text(encoding="utf-8").splitlines() if l.strip()]
         assert len(records) == 1
 
+    def test_hold_review_queue_write_failure_reports_error(self, monkeypatch, tmp_path, capsys):
+        """hold-review: queue write failure reports queued_for_review=false + queue_error; candidate not ingested."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        # "liquidity" → positive term → sigmoid(1.0)=0.731 < 0.80 → review decision
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "A study on market liquidity", "This paper studies liquidity."
+            ),
+        )
+        config_path = _make_filter_config(tmp_path)
+        queue_dir = tmp_path / "prefetch_review_queue"
+
+        # Force enqueue to raise an IOError
+        import packages.research.relevance_filter.queue_store as qs_mod
+
+        def _failing_enqueue(self, record):
+            raise IOError("simulated disk failure")
+
+        monkeypatch.setattr(qs_mod.ReviewQueueStore, "enqueue", _failing_enqueue)
+
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--json",
+            "--prefetch-filter-mode", "hold-review",
+            "--prefetch-filter-config", str(config_path),
+            "--prefetch-review-queue-dir", str(queue_dir),
+            "--cache-dir", str(tmp_path / "cache"),
+            "--review-dir", str(tmp_path / "reviews"),
+        ])
+        # rc=0 because candidate is still held out (not ingested), even when queue write fails
+        assert rc == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["queued_for_review"] is False
+        assert "queue_error" in data
+        assert "simulated disk failure" in data["queue_error"]
+        # Candidate was not ingested — cache dir must not exist
+        assert not (tmp_path / "cache").exists()
+
     def test_hold_review_allow_proceeds_normally(self, monkeypatch, tmp_path, capsys):
         """hold-review: ALLOW candidates proceed to dry-run as normal (no queue)."""
         import packages.research.ingestion.fetchers as fetchers_mod
@@ -743,3 +786,111 @@ class TestResearchPrefetchReviewCLI:
         with pytest.raises(SystemExit) as exc_info:
             main(["--help"])
         assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: search-mode hold-review
+# ---------------------------------------------------------------------------
+
+
+class TestSearchModeHoldReview:
+    """Offline tests for --search + --prefetch-filter-mode hold-review."""
+
+    def test_search_mode_hold_review_queues_review_does_not_ingest(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """search mode hold-review: REVIEW papers queued; REJECT papers skipped; neither ingested."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        import packages.research.ingestion.pipeline as pipeline_mod
+        import packages.polymarket.rag.knowledge_store as ks_mod
+
+        # Two papers:
+        #   9001.0001 — "liquidity" positive term → sigmoid(1.0)=0.731 < 0.80 → review
+        #   9001.0002 — "hastelloy" strong-negative → reject
+        papers = [
+            {
+                "url": "https://arxiv.org/abs/9001.0001",
+                "title": "A study of liquidity provision",
+                "abstract": "",
+                "authors": [],
+                "published_date": "2024-01-01",
+            },
+            {
+                "url": "https://arxiv.org/abs/9001.0002",
+                "title": "Hastelloy X alloy fatigue study",
+                "abstract": "hastelloy x alloy",
+                "authors": [],
+                "published_date": "2024-01-01",
+            },
+        ]
+        monkeypatch.setattr(
+            fetchers_mod.LiveAcademicFetcher,
+            "search_by_topic",
+            lambda self, query, max_results: papers,
+        )
+
+        # Spy on ingest_external — it must never be called for hold-review REVIEW/REJECT papers
+        ingest_calls = []
+        original_ingest = pipeline_mod.IngestPipeline.ingest_external
+
+        def _spy_ingest(self, raw_source, family, **kwargs):
+            ingest_calls.append(raw_source.get("url", ""))
+            return original_ingest(self, raw_source, family, **kwargs)
+
+        monkeypatch.setattr(pipeline_mod.IngestPipeline, "ingest_external", _spy_ingest)
+
+        # Stub KnowledgeStore to avoid real DB I/O (both papers are filtered so no writes occur,
+        # but KnowledgeStore is still instantiated before the per-paper loop)
+        class _FakeStore:
+            def close(self):
+                pass
+
+        monkeypatch.setattr(ks_mod, "KnowledgeStore", lambda *a, **kw: _FakeStore())
+
+        config_path = _make_filter_config(tmp_path)
+        queue_dir = tmp_path / "queue"
+
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--search", "liquidity market",
+            "--source-family", "academic",
+            "--no-eval",
+            "--json",
+            "--prefetch-filter-mode", "hold-review",
+            "--prefetch-filter-config", str(config_path),
+            "--prefetch-review-queue-dir", str(queue_dir),
+            "--cache-dir", str(tmp_path / "cache"),
+            "--review-dir", str(tmp_path / "reviews"),
+        ])
+        assert rc == 0
+
+        # Neither paper should have triggered ingest
+        assert ingest_calls == [], f"ingest_external called unexpectedly for: {ingest_calls}"
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        results = data["results"]
+        assert len(results) == 2
+
+        # REVIEW paper was queued and held out
+        review_r = next(r for r in results if "9001.0001" in r["source_url"])
+        assert review_r["queued_for_review"] is True
+        assert review_r["skipped_by_filter"] is True
+        assert review_r["filter_decision"] == "review"
+
+        # REJECT paper was skipped (not queued)
+        reject_r = next(r for r in results if "9001.0002" in r["source_url"])
+        assert reject_r["skipped_by_filter"] is True
+        assert reject_r["filter_decision"] == "reject"
+        assert not reject_r.get("queued_for_review")
+
+        # Queue file has exactly 1 record (the REVIEW paper)
+        queue_file = queue_dir / "review_queue.jsonl"
+        assert queue_file.exists()
+        records = [
+            json.loads(line)
+            for line in queue_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(records) == 1
+        assert "9001.0001" in records[0]["source_url"]

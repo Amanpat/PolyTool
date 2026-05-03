@@ -69,8 +69,15 @@ def _score_candidate_for_filter(title: str, abstract: str, source_id: str, args)
         return None
 
 
-def _write_to_review_queue(decision, source_url: str, abstract: str, queue_dir: str) -> None:
-    """Write a REVIEW-decision candidate to the hold-review queue. Non-fatal on failure."""
+def _write_to_review_queue(decision, source_url: str, abstract: str, queue_dir: str):
+    """Write a REVIEW-decision candidate to the hold-review queue.
+
+    Returns
+    -------
+    tuple[bool, Optional[str]]
+        (True, None) on successful write (including idempotent already-queued).
+        (False, error_message) if the write raised an exception.
+    """
     try:
         from packages.research.relevance_filter.queue_store import (
             ReviewQueueStore,
@@ -96,10 +103,11 @@ def _write_to_review_queue(decision, source_url: str, abstract: str, queue_dir: 
         if not written:
             print(
                 f"[filter:hold-review] already queued: {source_url}",
-                file=__import__("sys").stderr,
+                file=sys.stderr,
             )
+        return True, None
     except Exception as exc:
-        print(f"WARNING: failed to write review queue record: {exc}", file=__import__("sys").stderr)
+        return False, str(exc)
 
 
 def _write_filter_audit(decision, source_url: str, enforced: bool, audit_dir: str) -> None:
@@ -383,27 +391,38 @@ def main(argv: list) -> int:
             return 0  # Not an error — just filtered out
         elif args.prefetch_filter_mode == "hold-review" and filter_decision.decision == "review":
             queue_dir = getattr(args, "prefetch_review_queue_dir", None) or "artifacts/research/prefetch_review_queue"
-            _write_to_review_queue(
+            queue_ok, queue_err = _write_to_review_queue(
                 filter_decision,
                 args.url,
                 raw_source.get("abstract") or "",
                 queue_dir,
             )
+            if not queue_ok:
+                print(f"WARNING: hold-review queue write failed: {queue_err}", file=sys.stderr)
             if args.output_json:
-                print(json.dumps({
+                out = {
                     "source_url": args.url, "source_id": source_id,
                     "filter_decision": filter_decision.decision,
                     "filter_score": filter_decision.score,
                     "filter_reason_codes": filter_decision.reason_codes,
-                    "queued_for_review": True,
+                    "queued_for_review": queue_ok,
                     "skipped": True,
-                }, indent=2))
+                }
+                if not queue_ok:
+                    out["queue_error"] = queue_err
+                print(json.dumps(out, indent=2))
             else:
-                print(
-                    f"[filter:hold-review] QUEUED (review) | score={filter_decision.score:.4f} "
-                    f"| codes={filter_decision.reason_codes[:3]}"
-                )
-            return 0  # Held for operator review — not ingested
+                if queue_ok:
+                    print(
+                        f"[filter:hold-review] QUEUED (review) | score={filter_decision.score:.4f} "
+                        f"| codes={filter_decision.reason_codes[:3]}"
+                    )
+                else:
+                    print(
+                        f"[filter:hold-review] QUEUE WRITE FAILED (held out) | score={filter_decision.score:.4f} "
+                        f"| error={queue_err}"
+                    )
+            return 0  # Held for operator review — not ingested regardless of queue write failure
 
     # --- Step 4: Dry-run exit ---
     if args.dry_run:
@@ -674,12 +693,17 @@ def _run_search_mode(args) -> int:
                         and filter_decision.decision == "review"
                     ):
                         queue_dir = getattr(args, "prefetch_review_queue_dir", None) or "artifacts/research/prefetch_review_queue"
-                        _write_to_review_queue(
+                        queue_ok, queue_err = _write_to_review_queue(
                             filter_decision,
                             paper_url,
                             raw_source.get("abstract") or "",
                             queue_dir,
                         )
+                        if not queue_ok:
+                            print(
+                                f"WARNING: hold-review queue write failed for {paper_url}: {queue_err}",
+                                file=sys.stderr,
+                            )
                         paper_result = {
                             "source_url": paper_url,
                             "source_id": source_id,
@@ -687,18 +711,26 @@ def _run_search_mode(args) -> int:
                             "filter_decision": "review",
                             "filter_score": filter_decision.score,
                             "filter_reason_codes": filter_decision.reason_codes,
-                            "queued_for_review": True,
+                            "queued_for_review": queue_ok,
                             "skipped_by_filter": True,
                             "rejected": True,
                             "reject_reason": "filter:hold-review",
                         }
+                        if not queue_ok:
+                            paper_result["queue_error"] = queue_err
                         results_output.append(paper_result)
                         if not args.output_json:
-                            print(
-                                f"  [filter:hold-review] QUEUED {normalized_title or paper_url} "
-                                f"| score={filter_decision.score:.4f}"
-                            )
-                        continue  # Skip ingest; held for operator review
+                            if queue_ok:
+                                print(
+                                    f"  [filter:hold-review] QUEUED {normalized_title or paper_url} "
+                                    f"| score={filter_decision.score:.4f}"
+                                )
+                            else:
+                                print(
+                                    f"  [filter:hold-review] QUEUE WRITE FAILED {normalized_title or paper_url} "
+                                    f"| error={queue_err}"
+                                )
+                        continue  # Skip ingest; held for operator review regardless of queue write failure
 
                 result = pipeline.ingest_external(
                     raw_source,

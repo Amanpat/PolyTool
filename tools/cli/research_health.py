@@ -158,12 +158,19 @@ def _prefetch_review_stats() -> dict:
         from packages.research.relevance_filter.queue_store import ReviewQueueStore, LabelStore
         queue = ReviewQueueStore()
         labels = LabelStore()
-        counts = labels.counts()
+        stats = queue.queue_stats(labels)
+        label_counts = labels.counts()
         return {
-            "pending_review_count": queue.pending_count(),
-            "label_count": counts["total"],
-            "allowed_label_count": counts["allow"],
-            "rejected_label_count": counts["reject"],
+            "total_queued": stats["total_queued"],
+            "pending_unlabeled": stats["pending_unlabeled"],
+            "labeled_total": stats["labeled_total"],
+            "labeled_allow": stats["labeled_allow"],
+            "labeled_reject": stats["labeled_reject"],
+            # Legacy keys for backward compat with any JSON consumers
+            "pending_review_count": stats["total_queued"],
+            "label_count": label_counts["total"],
+            "allowed_label_count": label_counts["allow"],
+            "rejected_label_count": label_counts["reject"],
         }
     except Exception:
         return {}
@@ -257,9 +264,10 @@ def _output_table(results: list, run_count: int, window_hours: int) -> int:
     if pf:
         print("")
         print("L3 Prefetch Filter")
-        print(f"  pending_review_count  : {pf.get('pending_review_count', 0)}")
-        print(f"  label_count           : {pf.get('label_count', 0)}")
-        print(f"  allowed_label_count   : {pf.get('allowed_label_count', 0)}")
-        print(f"  rejected_label_count  : {pf.get('rejected_label_count', 0)}")
+        print(f"  total_queued          : {pf.get('total_queued', 0)}")
+        print(f"  pending_unlabeled     : {pf.get('pending_unlabeled', 0)}")
+        print(f"  labeled_total         : {pf.get('labeled_total', 0)}")
+        print(f"  labeled_allow         : {pf.get('labeled_allow', 0)}")
+        print(f"  labeled_reject        : {pf.get('labeled_reject', 0)}")
 
     return 0

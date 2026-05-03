@@ -1,8 +1,8 @@
 # Feature: RIS L3 Pre-fetch Relevance Filter v0
 
-**Status:** Complete — dry-run-ready; reject-only enforce experimental — 2026-05-02
+**Status:** Complete — L3.1 hold-review queue + label store shipped; Codex PASS WITH FIXES resolved — 2026-05-02
 **Track:** Research Intelligence System (L3)
-**Codex review:** PASS WITH FIXES (`1520e18`)
+**Codex review:** L3 v0: PASS WITH FIXES (`1520e18`); L3.1: PASS WITH FIXES resolved (`ac3aebc`)
 **Config:** `config/research_relevance_filter_v1.json` (version v1.1)
 
 ---
@@ -12,7 +12,7 @@
 A metadata-only lexical relevance filter inserted into the `research-acquire` pipeline
 **before any PDF download**. Scores paper candidates (title + abstract) against
 domain-specific seed terms, produces an allow/review/reject decision with reason codes,
-and supports three operating modes.
+and supports four operating modes.
 
 This is **L3** in the RIS layer numbering:
 - L0: Ingestion (research-acquire, research-ingest)
@@ -29,17 +29,24 @@ firing Rule A (threshold: >30%). This was activation condition (b) for the L3 wo
 
 ## Filter Modes
 
-Three modes, operated via `--prefetch-filter-mode` on `research-acquire`:
+Four modes, operated via `--prefetch-filter-mode` on `research-acquire`:
 
-```
---prefetch-filter-mode {off,dry-run,enforce}
-    off      — filter is not called (default)
-    dry-run  — score and log; always proceed with ingest
-    enforce  — REJECT candidates skipped; REVIEW candidates ingested with audit flag
-```
+| Mode | Behavior |
+|------|----------|
+| `off` | Filter not called (default — safe by design) |
+| `dry-run` | Score and log to stderr; always proceed with ingest |
+| `enforce` | REJECT candidates skipped; REVIEW candidates ingested with audit flag |
+| `hold-review` | ALLOW ingested; REJECT skipped; REVIEW queued to review queue, **not ingested** |
 
-**Default is `off`.** The filter must be explicitly activated. This is the safe-by-default
-behavior Codex confirmed in the re-review.
+**Default is `off`.** The filter must be explicitly activated.
+
+In `hold-review` mode, REVIEW candidates are written to the review queue
+(`artifacts/research/prefetch_review_queue/review_queue.jsonl`) and held out of
+ingestion entirely. A failed queue write is reported via `queued_for_review: false` +
+`queue_error` in JSON output (and a WARNING to stderr), but the candidate is still **not
+ingested** — the hold-out invariant is preserved even when the disk write fails.
+
+Use `research-prefetch-review` to list, label (allow/reject), and count queued candidates.
 
 ---
 
@@ -133,15 +140,27 @@ both REVIEW and REJECT). Current enforce mode is reject-only, which corresponds 
 |------|---------|
 | `packages/research/relevance_filter/__init__.py` | Package exports |
 | `packages/research/relevance_filter/scorer.py` | `CandidateInput`, `FilterDecision`, `FilterConfig`, `RelevanceScorer`, `load_filter_config` |
+| `packages/research/relevance_filter/queue_store.py` | `ReviewQueueStore`, `LabelStore`, `candidate_id_from_url` |
 | `config/research_relevance_filter_v1.json` | Seed term config (v1.1: allow=0.80, review=0.35) |
-| `tools/cli/research_acquire.py` | `--prefetch-filter-mode`, `--prefetch-filter-config`, filter integration, audit JSONL writer |
+| `tools/cli/research_acquire.py` | `--prefetch-filter-mode`, `--prefetch-filter-config`, `--prefetch-review-queue-dir`, filter integration, audit JSONL writer |
+| `tools/cli/research_prefetch_review.py` | `list`, `label`, `counts` subcommands for hold-review queue management |
 | `tools/cli/research_eval_benchmark.py` | `--simulate-prefetch-filter`, `--filter-config`, simulation report |
 
 ---
 
+## Artifact Paths
+
+All three artifact paths are gitignored under `artifacts/**`.
+
+| Artifact | Path | Purpose |
+|----------|------|---------|
+| Filter audit | `artifacts/research/acquisition_reviews/filter_decisions.jsonl` | Every filter decision (all modes) |
+| Hold-review queue | `artifacts/research/prefetch_review_queue/review_queue.jsonl` | REVIEW candidates held out by hold-review mode |
+| Label store | `artifacts/research/svm_filter_labels/labels.jsonl` | Operator allow/reject labels for future SVM training |
+
 ## Audit Output
 
-Acquisition filter decisions written to `{review_dir}/filter_decisions.jsonl`:
+Filter decisions written to `{review_dir}/filter_decisions.jsonl`:
 
 ```json
 {
@@ -162,6 +181,40 @@ Acquisition filter decisions written to `{review_dir}/filter_decisions.jsonl`:
 }
 ```
 
+Hold-review queue records written to `artifacts/research/prefetch_review_queue/review_queue.jsonl`:
+
+```json
+{
+  "candidate_id": "sha256hex",
+  "source_url": "...",
+  "title": "...",
+  "abstract": "...",
+  "score": 0.65,
+  "raw_score": 1.0,
+  "decision": "review",
+  "reason_codes": [...],
+  "matched_terms": {...},
+  "allow_threshold": 0.80,
+  "review_threshold": 0.35,
+  "config_version": "v1.1",
+  "created_at": "ISO8601"
+}
+```
+
+## Health Counters
+
+`python -m polytool research-prefetch-review counts [--json]` reports:
+
+| Counter | Source |
+|---------|--------|
+| `pending_review_count` | Lines in `review_queue.jsonl` |
+| `label_count` | Lines in `labels.jsonl` |
+| `allowed_label_count` | Labels with `label=allow` |
+| `rejected_label_count` | Labels with `label=reject` |
+
+`python -m polytool research-health [--json]` also includes these counters in
+the L3 prefetch filter health summary.
+
 ---
 
 ## Test Results
@@ -180,8 +233,6 @@ Full suite (prior to closeout): `2397 passed, 1 pre-existing failure (test_ris_c
 
 | Item | Path | Reason |
 |------|------|--------|
-| Label store file | `artifacts/research/svm_filter_labels/labels.jsonl` | Empty file with schema comment; no labels yet; deferred to first operator ingest pass |
-| `research-health` label_count counter | `tools/cli/research_health.py` | Counter useful once labels accumulate; deferred to v1 prep pass |
 | Enforce fail-closed on config errors | `tools/cli/research_acquire.py` | Scoring/config exception currently proceeds silently in enforce mode; operator risk is low pre-production |
 | Deeper simulation CLI tests | `tests/test_ris_eval_benchmark.py` | Exit-code assertions added; output content assertions not yet full regression guards |
 
@@ -216,5 +267,5 @@ at `artifacts/research/svm_filter_labels/labels.jsonl`.
 Each YELLOW queue accept/reject decision accumulates one labeled example.
 v1 model ledger path: `artifacts/research/svm_filter_models/`.
 
-**Near-term:** Use `--prefetch-filter-mode dry-run` with new `research-acquire` sessions
-to begin accumulating audit data without affecting ingest.
+**Near-term:** Use `--prefetch-filter-mode hold-review` in operator-approved acquisition
+sessions to accumulate review labels. Use `dry-run` when ingestion must remain unaffected.

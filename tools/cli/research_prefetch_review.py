@@ -73,30 +73,75 @@ def _open_labels(args: argparse.Namespace):
 # ---------------------------------------------------------------------------
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    store = _open_queue(args)
-    records = store.all_records()
+    queue = _open_queue(args)
+    label_store = _open_labels(args)
+
+    all_records = queue.all_records()
+    stats = queue.queue_stats(label_store)
+
+    # Build label lookup: candidate_id -> label (last label wins for each ID)
+    label_by_id: dict[str, str] = {}
+    for lr in label_store.all_labels():
+        cid = lr.get("candidate_id", "")
+        label_by_id[cid] = lr.get("label", "?")
+    queued_ids = {r.get("candidate_id") for r in all_records}
+    labeled_ids = set(label_by_id.keys()) & queued_ids
+
+    show_all = getattr(args, "show_all", False)
+    records = all_records if show_all else [
+        r for r in all_records if r.get("candidate_id") not in labeled_ids
+    ]
 
     if args.output_json:
-        print(json.dumps(records, indent=2))
+        out = []
+        for r in records:
+            annotated = dict(r)
+            if show_all:
+                cid = r.get("candidate_id", "")
+                annotated["label"] = label_by_id.get(cid)
+            out.append(annotated)
+        print(json.dumps(out, indent=2))
         return 0
 
-    if not records:
-        print("No items in prefetch review queue.")
-        return 0
+    total = stats["total_queued"]
+    pending = stats["pending_unlabeled"]
 
-    print(f"Prefetch review queue — {len(records)} item(s)")
+    if not show_all:
+        if not records:
+            if total:
+                print(
+                    f"No pending unlabeled items. "
+                    f"({total} total queued, all labeled. Use --all to see labeled items.)"
+                )
+            else:
+                print("No items in prefetch review queue.")
+            return 0
+        print(f"Prefetch review queue — {pending} unlabeled pending item(s)  ({total} total queued)")
+    else:
+        labeled_count = total - pending
+        print(
+            f"Prefetch review queue — {total} total item(s)  "
+            f"({pending} pending, {labeled_count} labeled)"
+        )
+
     print("")
     for rec in records:
-        cid = rec.get("candidate_id", "")[:12]
+        cid = rec.get("candidate_id", "")
+        cid_short = cid[:12]
         title = rec.get("title") or "(no title)"
         score = rec.get("score", 0.0)
         url = rec.get("source_url", "")
         created = rec.get("created_at", "")[:10]
-        print(f"  {cid}  score={score:.4f}  [{created}]  {title}")
+        label_tag = ""
+        if show_all:
+            lbl = label_by_id.get(cid)
+            label_tag = f"  [label={lbl}]" if lbl else "  [pending]"
+        print(f"  {cid_short}  score={score:.4f}  [{created}]{label_tag}  {title}")
         if url:
             print(f"           {url}")
     print("")
-    print("Use 'research-prefetch-review label <CANDIDATE_ID> allow|reject' to label an item.")
+    if not show_all:
+        print("Use 'research-prefetch-review label <CANDIDATE_ID> allow|reject' to label an item.")
     return 0
 
 
@@ -161,23 +206,35 @@ def _cmd_counts(args: argparse.Namespace) -> int:
     queue = _open_queue(args)
     label_store = _open_labels(args)
 
-    pending = queue.pending_count()
-    counts = label_store.counts()
+    stats = queue.queue_stats(label_store)
+    label_counts = label_store.counts()
 
     if args.output_json:
         print(json.dumps({
-            "pending_review_count": pending,
-            "label_count": counts["total"],
-            "allowed_label_count": counts["allow"],
-            "rejected_label_count": counts["reject"],
+            "total_queued": stats["total_queued"],
+            "pending_unlabeled": stats["pending_unlabeled"],
+            "labeled_total": stats["labeled_total"],
+            "labeled_allow": stats["labeled_allow"],
+            "labeled_reject": stats["labeled_reject"],
+            # Legacy keys kept for backward compat with existing test consumers
+            "pending_review_count": stats["total_queued"],
+            "label_count": label_counts["total"],
+            "allowed_label_count": label_counts["allow"],
+            "rejected_label_count": label_counts["reject"],
         }, indent=2))
         return 0
 
-    print(f"Prefetch review queue : {pending} item(s) pending")
-    print(f"Label store           : {counts['total']} total  |  {counts['allow']} allow  |  {counts['reject']} reject")
+    print(
+        f"Prefetch review queue : {stats['total_queued']} total queued  |  "
+        f"{stats['pending_unlabeled']} pending unlabeled"
+    )
+    print(
+        f"Labels (in queue)     : {stats['labeled_total']} labeled  |  "
+        f"{stats['labeled_allow']} allow  |  {stats['labeled_reject']} reject"
+    )
     svm_target = 30
-    allow_gap = max(0, svm_target - counts["allow"])
-    reject_gap = max(0, svm_target - counts["reject"])
+    allow_gap = max(0, svm_target - stats["labeled_allow"])
+    reject_gap = max(0, svm_target - stats["labeled_reject"])
     if allow_gap or reject_gap:
         print(f"SVM trigger (>={svm_target} each) : need {allow_gap} more allow, {reject_gap} more reject")
     else:
@@ -202,10 +259,17 @@ def main(argv: list[str] | None = None) -> int:
     # --- list ---
     list_parser = subparsers.add_parser(
         "list",
-        help="List all items in the prefetch review queue.",
+        help="List items in the prefetch review queue (pending unlabeled only by default).",
     )
     _add_queue_path_arg(list_parser)
+    _add_label_path_arg(list_parser)
     _add_json_arg(list_parser)
+    list_parser.add_argument(
+        "--all",
+        dest="show_all",
+        action="store_true",
+        help="Show all queue items including already-labeled ones.",
+    )
 
     # --- label ---
     label_parser = subparsers.add_parser(

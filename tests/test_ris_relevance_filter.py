@@ -575,6 +575,23 @@ class TestReviewQueueStore:
         assert stored["config_version"] == "v1.1"
         assert stored["reason_codes"] == ["positive:liquidity"]
 
+    def test_malformed_jsonl_warns(self, tmp_path, capsys):
+        """Malformed JSONL lines are skipped and a WARNING is printed to stderr."""
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        queue_path = tmp_path / "queue.jsonl"
+        valid = {"source_url": "https://a.com/1", "title": "Good Paper", "candidate_id": "abc123"}
+        queue_path.write_text(
+            json.dumps(valid) + "\n" + "NOT VALID JSON {{{\n",
+            encoding="utf-8",
+        )
+        q = ReviewQueueStore(queue_path)
+        records = q.all_records()
+        assert len(records) == 1
+        assert records[0]["source_url"] == "https://a.com/1"
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "malformed" in captured.err.lower()
+
 
 # ---------------------------------------------------------------------------
 # TestLabelStore
@@ -648,3 +665,231 @@ class TestLabelStore:
         assert len(labels) == 2
         assert labels[0]["label"] == "allow"
         assert labels[1]["label"] == "reject"
+
+
+# ---------------------------------------------------------------------------
+# TestQueueLabelJoin
+# ---------------------------------------------------------------------------
+
+class TestQueueLabelJoin:
+    """Tests for queue_stats() cross-join between ReviewQueueStore and LabelStore."""
+
+    def test_labeled_item_not_in_pending_unlabeled(self, tmp_path):
+        """Queue item that has been labeled does not count as pending_unlabeled."""
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        url = "https://arxiv.org/abs/1234.0001"
+        q.enqueue({"source_url": url, "title": "Paper A"})
+        cid = candidate_id_from_url(url)
+        ls.append_label(cid, url, "Paper A", "allow")
+        stats = q.queue_stats(ls)
+        assert stats["total_queued"] == 1
+        assert stats["pending_unlabeled"] == 0
+        assert stats["labeled_total"] == 1
+        assert stats["labeled_allow"] == 1
+        assert stats["labeled_reject"] == 0
+
+    def test_unlabeled_item_counts_as_pending(self, tmp_path):
+        """Queue item with no label appears in pending_unlabeled."""
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore, LabelStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        q.enqueue({"source_url": "https://arxiv.org/abs/1234.0002", "title": "Paper B"})
+        stats = q.queue_stats(ls)
+        assert stats["total_queued"] == 1
+        assert stats["pending_unlabeled"] == 1
+        assert stats["labeled_total"] == 0
+
+    def test_mixed_labeled_and_unlabeled(self, tmp_path):
+        """With 3 queued items and 2 labeled, pending_unlabeled=1."""
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        urls = [f"https://example.com/paper{i}" for i in range(3)]
+        for url in urls:
+            q.enqueue({"source_url": url, "title": f"Paper {url[-1]}"})
+        for url in urls[:2]:
+            cid = candidate_id_from_url(url)
+            ls.append_label(cid, url, f"P-{url[-1]}", "allow")
+        stats = q.queue_stats(ls)
+        assert stats["total_queued"] == 3
+        assert stats["pending_unlabeled"] == 1
+        assert stats["labeled_total"] == 2
+        assert stats["labeled_allow"] == 2
+        assert stats["labeled_reject"] == 0
+
+    def test_all_labeled_pending_unlabeled_is_zero(self, tmp_path):
+        """After labeling all items, total_queued=3, pending_unlabeled=0."""
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        ls = LabelStore(tmp_path / "labels.jsonl")
+        urls = [f"https://example.com/p{i}" for i in range(3)]
+        for url in urls:
+            q.enqueue({"source_url": url, "title": f"Paper {url[-1]}"})
+        for url in urls:
+            cid = candidate_id_from_url(url)
+            ls.append_label(cid, url, "T", "allow")
+        stats = q.queue_stats(ls)
+        assert stats["total_queued"] == 3
+        assert stats["pending_unlabeled"] == 0
+        assert stats["labeled_total"] == 3
+        assert stats["labeled_allow"] == 3
+
+    def test_queue_stats_no_label_store_all_pending(self, tmp_path):
+        """queue_stats() with no label_store treats all items as unlabeled."""
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        q = ReviewQueueStore(tmp_path / "queue.jsonl")
+        q.enqueue({"source_url": "https://example.com/p1", "title": "P1"})
+        q.enqueue({"source_url": "https://example.com/p2", "title": "P2"})
+        stats = q.queue_stats()
+        assert stats["total_queued"] == 2
+        assert stats["pending_unlabeled"] == 2
+        assert stats["labeled_total"] == 0
+        assert stats["labeled_allow"] == 0
+        assert stats["labeled_reject"] == 0
+
+
+# ---------------------------------------------------------------------------
+# TestListCommand
+# ---------------------------------------------------------------------------
+
+class TestListCommand:
+    """CLI-level tests for 'research-prefetch-review list'."""
+
+    def test_default_list_shows_unlabeled_only(self, tmp_path, capsys):
+        """Default list hides labeled items, shows only pending unlabeled."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        url1 = "https://arxiv.org/abs/0001.0001"
+        url2 = "https://arxiv.org/abs/0002.0002"
+        q.enqueue({"source_url": url1, "title": "Unlabeled Paper"})
+        q.enqueue({"source_url": url2, "title": "Labeled Paper"})
+        ls.append_label(candidate_id_from_url(url2), url2, "Labeled Paper", "allow")
+        rc = main(["list", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Unlabeled Paper" in out
+        assert "Labeled Paper" not in out
+
+    def test_labeled_item_disappears_from_default_list(self, tmp_path, capsys):
+        """Labeling an item removes it from the default list view."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        url = "https://arxiv.org/abs/5555.9999"
+        q.enqueue({"source_url": url, "title": "Now Labeled"})
+        # Before labeling: should appear
+        rc = main(["list", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        assert "Now Labeled" in capsys.readouterr().out
+        # After labeling: should disappear
+        ls.append_label(candidate_id_from_url(url), url, "Now Labeled", "reject")
+        rc = main(["list", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        assert "Now Labeled" not in capsys.readouterr().out
+
+    def test_all_flag_shows_labeled_items(self, tmp_path, capsys):
+        """--all shows both labeled and unlabeled items."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        url1 = "https://arxiv.org/abs/0001.0001"
+        url2 = "https://arxiv.org/abs/0002.0002"
+        q.enqueue({"source_url": url1, "title": "Unlabeled Paper"})
+        q.enqueue({"source_url": url2, "title": "Labeled Paper"})
+        ls.append_label(candidate_id_from_url(url2), url2, "Labeled Paper", "allow")
+        rc = main(["list", "--all", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Unlabeled Paper" in out
+        assert "Labeled Paper" in out
+
+    def test_all_flag_shows_label_status(self, tmp_path, capsys):
+        """--all annotates labeled items with their label value."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        url = "https://arxiv.org/abs/0001.0001"
+        q.enqueue({"source_url": url, "title": "My Paper"})
+        ls.append_label(candidate_id_from_url(url), url, "My Paper", "allow")
+        rc = main(["list", "--all", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "label=allow" in out
+
+
+# ---------------------------------------------------------------------------
+# TestCountsCommand
+# ---------------------------------------------------------------------------
+
+class TestCountsCommand:
+    """CLI-level tests for 'research-prefetch-review counts'."""
+
+    def test_counts_distinguish_total_queued_and_pending(self, tmp_path, capsys):
+        """counts output shows total_queued=3 and pending_unlabeled=0 after all labeled."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        for i in range(3):
+            url = f"https://arxiv.org/abs/000{i}.0001"
+            q.enqueue({"source_url": url, "title": f"Paper {i}"})
+            ls.append_label(candidate_id_from_url(url), url, f"Paper {i}", "allow")
+        rc = main(["counts", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "3" in out   # total_queued=3
+        assert "0" in out   # pending_unlabeled=0
+
+    def test_counts_json_has_new_keys(self, tmp_path, capsys):
+        """counts --json output includes total_queued and pending_unlabeled keys."""
+        from tools.cli.research_prefetch_review import main
+        from packages.research.relevance_filter.queue_store import (
+            ReviewQueueStore, LabelStore, candidate_id_from_url,
+        )
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+        q = ReviewQueueStore(queue_path)
+        ls = LabelStore(label_path)
+        url = "https://arxiv.org/abs/1111.0001"
+        q.enqueue({"source_url": url, "title": "Paper A"})
+        ls.append_label(candidate_id_from_url(url), url, "Paper A", "allow")
+        rc = main(["counts", "--json", "--queue-path", str(queue_path), "--label-path", str(label_path)])
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["total_queued"] == 1
+        assert data["pending_unlabeled"] == 0
+        assert data["labeled_allow"] == 1
+        assert data["labeled_reject"] == 0
