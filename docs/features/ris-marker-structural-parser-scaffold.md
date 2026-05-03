@@ -102,14 +102,15 @@ python -m polytool research-parser-benchmark --urls 2510.15205 \
 
 | Field | Type | Description |
 |---|---|---|
-| `body_source` | str | `"pdf"`, `"marker"`, `"pdfplumber_fallback"`, `"abstract_fallback"` |
+| `body_source` | str | `"marker"` (success), `"marker_failed"` (production rejection), `"pdf"` (pdfplumber debug override), `"pdfplumber_fallback"` (auto mode only), `"abstract_fallback"` (download/IO failure) |
 | `body_length` | int | Characters in extracted body |
 | `page_count` | int | Parser-reported page count |
 | `has_structured_metadata` | bool | `True` when Marker produced structured output |
 | `marker_version` | str | `marker-pdf` version at extraction time |
 | `structured_metadata` | dict | Full Marker output dict (may be large; 20 MB cap enforced) |
 | `structured_metadata_truncated` | bool | `True` if metadata exceeded 20 MB and was replaced by a compact stub |
-| `fallback_reason` | str | Why Marker fell back (if applicable); includes `"marker_timeout:"`, `"marker_busy:"`, `"marker_disabled:"` prefixes for grepping |
+| `failure_reason` | str | Why Marker failed (production mode); includes `"marker_timeout:"`, `"marker_busy:"`, `"marker_disabled:"` prefixes for grepping |
+| `fallback_reason` | str | Legacy key from `auto` mode pdfplumber fallback path (not set in production Marker mode) |
 
 ### In `ExtractedDocument.metadata` (propagated to adapter / ChromaDB)
 
@@ -166,7 +167,7 @@ _cf.TimeoutError fires
 → _MARKER_DISABLED.set()          # Layer 2: flag set FIRST
 → pool.shutdown(wait=False)
 → outer finally: semaphore.release()
-second request checks _MARKER_DISABLED.is_set() → True → immediate pdfplumber
+second request checks _MARKER_DISABLED.is_set() → True → immediate marker_failed
 # At most one zombie thread per process lifetime ✓
 ```
 
@@ -223,9 +224,12 @@ Tests live in `tests/test_ris_academic_pdf.py`.
 | `TestMarkerPDFExtractorUnit` | 6 | Import error, injection success, page count, 20 MB cap, LLM flag intent (not boost), file-not-found |
 | `TestMarkerFetcherIntegration` | 11 | Success path, metadata propagation, short output fallback, ImportError (explicit/auto modes), RuntimeError, pdfplumber mode, timeout, second-call disabled guard, busy semaphore, JSON size cap |
 | `TestAcademicAdapterMarkerMetadata` | 2 | has_structured_metadata, marker_version, structured_metadata_summary, truncation flag |
+| `TestMarkerProductionDefault` | 4 | Default parser=marker, ImportError→marker_failed, body_text=""≠abstract on failure, pdfplumber env override |
+| `TestAcademicAdapterMarkerFailedRejection` | 2 | marker_failed body="" in adapter (not abstract), failure_reason propagated |
+| `TestSchedulerExcludeJobs` (new file) | 5 | exclude_job_ids=[academic_ingest] skips it, all other jobs present, empty list = all jobs |
 
-All 73 targeted tests pass. Full suite: 2397 passed, 1 pre-existing failure
-(`test_ris_claim_extraction` — unrelated).
+Targeted: 76 passed, 0 failed. Full suite: 2403 passed, 1 pre-existing failure
+(`test_ris_claim_extraction` — unrelated, actor string mismatch).
 
 ---
 
@@ -233,13 +237,14 @@ All 73 targeted tests pass. Full suite: 2397 passed, 1 pre-existing failure
 
 | Item | Deferred to |
 |---|---|
-| Subprocess/process-boundary cancellation of timed-out Marker workers | Future hardening pass; needed if Marker becomes production parser |
-| GPU validation and production Marker rollout | After GPU host is available and throughput is confirmed |
+| Subprocess/process-boundary cancellation of timed-out Marker workers | Future hardening pass — `_MARKER_DISABLED` prevents re-entry; true cancellation requires `multiprocessing` boundary |
+| GPU performance benchmark (live arXiv, 3-paper warm timing) | PENDING: Docker not running in current session; operator must run `docker compose --profile ris-gpu run --rm ris-scheduler-gpu python -m polytool research-parser-benchmark` |
+| Live Docker GPU validation (nvidia-smi smoke + live parse) | PENDING: same as above |
 | Layer 2 structured chunking strategy | Separate feature — uses Marker section boundaries for smarter chunk splits |
 | Layer 2 image-aware retrieval | Separate feature — uses Marker image metadata |
 | LLM-enriched Marker extraction (`marker_llm_applied=True`) | Layer 2 deliverable; requires wiring Marker's LLM config |
 | Retrieval quality claims from Marker output | Cannot be made until Layer 2 chunking is implemented and benchmarked |
-| Adding Marker to base Docker image | Requires Director decision; GPU pass-through needed for practical use |
+| Re-ingest of pdfplumber-parsed corpus | Separate cleanup task; walk cache, re-parse through Marker, compare chunk counts |
 
 ---
 
@@ -252,3 +257,6 @@ All 73 targeted tests pass. Full suite: 2397 passed, 1 pre-existing failure
 | [`2026-04-27_ris-marker-hardening-validation`](../dev_logs/2026-04-27_ris-marker-hardening-validation.md) | Prompt B: 4 Codex fixes, Docker validation, live smoke, benchmark, operator docs |
 | [`2026-04-27_ris-marker-timeout-llm-truthfulness`](../dev_logs/2026-04-27_ris-marker-timeout-llm-truthfulness.md) | Prompt C: LLM truthfulness, `_MARKER_DISABLED`, default changed to pdfplumber |
 | [`2026-04-27_ris-marker-timeout-concurrency-fix`](../dev_logs/2026-04-27_ris-marker-timeout-concurrency-fix.md) | Prompt D: semaphore-release-before-thread-done bug confirmed and fixed; two-layer guard proven |
+| [`2026-05-03_ris-marker-production-rollout-core`](../dev_logs/2026-05-03_ris-marker-production-rollout-core.md) | L1 rollout Prompt A: Marker default, GPU Dockerfile, explicit failure semantics, 69 tests |
+| [`2026-05-03_codex-review-ris-marker-production-rollout`](../dev_logs/2026-05-03_codex-review-ris-marker-production-rollout.md) | Codex review: 3 blocking findings (adapter fallback, scheduler split, cache mount) |
+| [`2026-05-03_ris-marker-production-rollout-validation`](../dev_logs/2026-05-03_ris-marker-production-rollout-validation.md) | Prompt B: Codex blockers resolved; GPU validation PENDING (Docker not running in session) |

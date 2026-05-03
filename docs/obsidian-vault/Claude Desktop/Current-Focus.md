@@ -1,7 +1,7 @@
 ---
 tags: [meta, focus]
 created: 2026-04-22
-updated: 2026-05-02
+updated: 2026-05-03
 ---
 # Current Focus
 
@@ -11,13 +11,13 @@ Living document — updated each session when priorities shift. Read this first 
 
 ## Active Priorities
 
-1. **RIS Scientific RAG roadmap** — primary active workstream. Layer 0 shipped 2026-04-27. Layer 1 scaffold implemented but production deferred. **L5 (Evaluation Benchmark v0) shipped 2026-05-02** — baseline locked: off_topic_rate=30.43%, P@5=1.0, Recommendation A. **L3 (Pre-fetch Relevance Filter) shipped 2026-05-02** — Codex re-review PASS; dry-run-ready; Scenario B=5.88%. L2 and L4 remain stubs. Marker production rollout (`status: ready`) remains gated on the hosting decision below.
+1. **RIS Scientific RAG roadmap** — primary active workstream. **L1 Marker production rollout Codex fixes applied 2026-05-03** — adapter rejection, scheduler CPU/GPU split, cache mount path all resolved; 7 new tests; 76 targeted pass. **GPU validation PENDING**: Docker not running in validation session; operator must run `docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi` then `research-parser-benchmark` with 3 arXiv papers before L1 can be marked complete. L5 shipped 2026-05-02; L3/L3.1 shipped 2026-05-02. L2 and L4 remain stubs. See [[Work-Packet - Marker Structural Parser Integration]] acceptance gates.
 2. **Gate 2 unblock** — Silver tapes produce zero fills for politics/sports. Crypto bucket positive (7/10) but blocked on new markets. WAIT_FOR_CRYPTO policy active. Escalation deadline for benchmark_v2 was 2026-04-12 — needs decision on next steps.
 3. **Track 1A Crypto Pair Bot** — BLOCKED on no active BTC/ETH/SOL 5m/15m markets on Polymarket. Check periodically with `crypto-pair-watch --one-shot`.
 
 ## Open Decisions Needed
 
-- **Academic pipeline hosting** — where does the academic ingest pipeline run in production? Operator confirmed GPU available on dev machine; recommendation is Docker with GPU passthrough on dev machine, but operator must answer the open questions in [[Decision - Academic Pipeline Hosting]] before [[Work-Packet - Marker Structural Parser Integration]] can ship.
+- ~~**Academic pipeline hosting**~~ — **RESOLVED 2026-05-02.** Docker with GPU passthrough on dev machine. RTX 2070 Super, CUDA 13.2. Docker GPU passthrough verified via `docker run --gpus all`. Model weights volume-mounted from `~/.cache/datalab/`. See [[Decision - Academic Pipeline Hosting]] (status: accepted). L1 Marker production rollout is now unblocked.
 - **Benchmark_v2 strategy** — the 2026-04-12 escalation deadline has passed. What's the path forward for Gate 2?
 - **Polymarket account setup** (KYC, wallet, USDC funding) — Phase 0 item still open.
 
@@ -26,7 +26,7 @@ Living document — updated each session when priorities shift. Read this first 
 | Layer | Packet | Status |
 |---|---|---|
 | L0 | [[Work-Packet - Academic Pipeline PDF Download Fix]] | ✅ Shipped 2026-04-27. pdfplumber wired in. Real arXiv ingests confirmed. |
-| L1 | [[Work-Packet - Marker Structural Parser Integration]] | `status: ready` — promoted to production rollout 2026-04-29. Marker becomes single production parser; pdfplumber retired. Gated on [[Decision - Academic Pipeline Hosting]]. |
+| L1 | [[Work-Packet - Marker Structural Parser Integration]] | Code + Codex fixes DONE 2026-05-03. Adapter rejection, scheduler split, cache mount resolved. **GPU validation PENDING** — Docker not running in session. Run nvidia-smi smoke + 3-paper benchmark to close. |
 | L2 | [[Work-Packet - PaperQA2 RAG Control Flow]] | Stub. Activation gated on L5 baseline + L1 production. |
 | L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | ✅ Shipped 2026-05-02. **L3.1 also shipped 2026-05-02** — `hold-review` mode: REVIEW candidates queued, not ingested; `ReviewQueueStore` + `LabelStore`; `research-prefetch-review` CLI; Codex PASS WITH FIXES resolved; 160 tests. Next: accumulate ≥30+30 labels for SVM trigger. Feature doc: `FEATURE-ris-prefetch-relevance-filter-v0.md`. |
 | L4 | [[Work-Packet - Multi-source Academic Harvesters]] | Stub. Activation gated on L1 + L3. Updated 2026-04-29 to add backfill-vs-monitoring distinction. |
@@ -39,6 +39,8 @@ Reference materials:
 
 ## Recent Session Context
 
+- **2026-05-03**: L1 Marker validation session. Codex FAIL (3 blockers) resolved: (1) `AcademicAdapter` now blocks `marker_failed` from becoming abstract — `body=""` explicit rejection; (2) `start_research_scheduler(exclude_job_ids=...)` + `--exclude-jobs academic_ingest` on CPU service implements scheduler split; (3) docker-compose.yml cache mount corrected to `/home/polytool/.cache/datalab`. 7 new tests (76 targeted pass, 2403 full suite pass). GPU validation PENDING — Docker Desktop not running in session. Run: `docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi` then `research-parser-benchmark --urls 2510.15205,2309.01454,2206.14965 --parsers marker` to close L1.
+- **2026-05-03**: Academic pipeline hosting decision accepted. Docker GPU passthrough verified (RTX 2070 Super, CUDA 13.2, `docker run --gpus all` succeeds). Q1→B (Docker+GPU dev machine), Q2→confirmed, Q3→moot, Q4→academic on dev / others on partner, Q5→volume-mount host cache. L1 Marker production rollout unblocked. Next packet: [[Work-Packet - Marker Structural Parser Integration]]. Dev log: `docs/dev_logs/2026-05-03_academic-pipeline-hosting-decision.md`.
 - **2026-05-02**: L3.1 close-out. Codex PASS WITH FIXES resolved: M1 (queue write failure now visible via `queued_for_review=false` + `queue_error`), L2 (malformed JSONL warns to stderr), L1 (feature doc updated with hold-review, artifact paths, health counters), L3 (search-mode hold-review offline test added). 160/160 tests pass. Feature doc, CURRENT_DEVELOPMENT, INDEX, and Current-Focus synced. Next: use `--prefetch-filter-mode hold-review` in live acquisition sessions to accumulate labels; run `research-prefetch-review counts` to track progress toward ≥30+30 SVM trigger. Dev logs: `2026-05-02_ris-prefetch-review-queue-label-store.md`, `2026-05-02_codex-review-ris-prefetch-review-queue.md`, `2026-05-02_ris-prefetch-review-queue-fixes.md`, `2026-05-02_ris-prefetch-review-queue-closeout.md`.
 - **2026-05-02**: L3 v0 close-out. Codex re-review PASS WITH FIXES. All original FAIL blockers resolved. DB-backed Scenario B=5.88%, QA REJECT=0. Title-only 6.25% overclaim corrected. Filter modes corrected: default `off`, not dry-run; flag `--prefetch-filter-mode enforce`, not `--enforce-relevance-filter`. Feature doc created. CURRENT_DEVELOPMENT Feature 3 freed. Dry-run safe; enforce experimental (Scenario A=20.0%, not <10%). Dev log: `docs/dev_logs/2026-05-02_ris-prefetch-filter-v0-closeout.md`.
 - **2026-05-01**: L3 packet activation pass. L5 baseline locked 2026-05-02 (off_topic_rate=30.43%, Rule A fired). L3 promoted from stub → active. Work packet refined: v0 scope = deterministic cold-start metadata filter; v1 scope = SPECTER2/S2FOS/SVM after ≥30+30 labels. Acceptance gates set with concrete numbers. Training data plan documented (labels.jsonl path, YELLOW queue accumulation, model ledger for v1). CURRENT_DEVELOPMENT Feature 3 slot filled with L3. Dev log: `docs/dev_logs/2026-05-01_ris-prefetch-filter-packet-activation.md`.
@@ -51,7 +53,7 @@ Reference materials:
 
 | Blocker | Affects | Status |
 |---------|---------|--------|
-| Academic pipeline hosting decision | L1 Marker production rollout | Operator must answer [[Decision - Academic Pipeline Hosting]] open questions |
+| ~~Academic pipeline hosting decision~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-02** — Docker GPU passthrough verified; decision accepted |
 | L5 corpus accumulation | L5 ship date | ✅ Resolved — baseline locked 2026-05-02 with 23-paper corpus |
 | No active crypto 5m/15m markets | Track 1A | Monitoring |
 | Gate 2 failed (7/50 = 14%) | Track 1B live deployment | Needs decision on benchmark_v2 |
@@ -59,7 +61,7 @@ Reference materials:
 
 ---
 
-*Last updated by Claude Code — 2026-05-02*
+*Last updated by Claude Code — 2026-05-03*
 
 ---
 

@@ -72,9 +72,25 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
   - [ ] End-to-end validation run complete (operator manual step — see acceptance dev log)
   - [ ] CURRENT_STATE.md RIS section updated (after validation run)
 
-### Feature 3: [empty slot]
+### Feature 3: RIS L1 Marker Production Rollout — Validation
 
-Freed by L3 Pre-fetch Relevance Filter v0 + L3.1 Prefetch Review Queue closeout (2026-05-02). Reserve for next Active feature.
+- **Track:** Research Intelligence System (Layer 1)
+- **Status:** Codex fixes applied; Docker GPU validation in progress
+- **Started:** 2026-05-03
+- **Last updated:** 2026-05-03
+- **Owner:** Aman
+- **Current step:** Docker GPU build → nvidia-smi smoke → live arXiv parse → 3-paper benchmark
+- **Blockers:** None. Codex blocking issues resolved (adapter rejection, scheduler split, cache mount).
+- **Definition of done:**
+  - [x] Codex FAIL blocking issues resolved: adapter rejection, scheduler split, cache mount path
+  - [x] New tests: `TestAcademicAdapterMarkerFailedRejection` (2 tests), `TestSchedulerExcludeJobs` (5 tests)
+  - [ ] Docker GPU image builds successfully (`polytool-ris-gpu`)
+  - [ ] `nvidia-smi` smoke inside container confirms GPU passthrough
+  - [ ] Live arXiv parse: `body_source=marker`, structured metadata present
+  - [ ] 3-paper benchmark: ≤10 s/paper warm (acceptance gate)
+  - [ ] `docs/features/ris-marker-production-rollout.md` created
+  - [ ] `docs/INDEX.md` updated
+  - [ ] Dev log written
 
 ## Completion-Doc Debt (tracked, not Active)
 

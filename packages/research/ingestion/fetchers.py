@@ -158,11 +158,10 @@ class LiveAcademicFetcher:
         """Download arXiv PDF and extract body text.
 
         Returns (body_text, meta_dict).
-        body_source values:
-          "pdf"                — pdfplumber success (default or auto without marker)
-          "marker"             — Marker success (opt-in: RIS_PDF_PARSER=auto|marker)
-          "pdfplumber_fallback"— Marker failed or timed out, pdfplumber succeeded
-          "abstract_fallback"  — all extraction failed; caller uses abstract
+        body_source values (production mode, RIS_PDF_PARSER=marker):
+          "marker"        — Marker success
+          "marker_failed" — Marker failed; body_text="" so adapter rejects the document
+          "abstract_fallback" — download/IO failure before parser ran
         """
         import os as _os
         import tempfile

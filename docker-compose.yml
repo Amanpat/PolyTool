@@ -139,7 +139,7 @@ services:
     environment:
       # Explicit pdfplumber on CPU host — no GPU, no Marker model load.
       - RIS_PDF_PARSER=pdfplumber
-    command: ["python", "-m", "polytool", "research-scheduler", "start"]
+    command: ["python", "-m", "polytool", "research-scheduler", "start", "--exclude-jobs", "academic_ingest"]
     restart: unless-stopped
     volumes:
       - ./kb:/app/kb
@@ -179,7 +179,8 @@ services:
       - ./kb:/app/kb
       - ./artifacts:/app/artifacts
       # Host Marker model weight cache — mount read-write so first-run download persists.
-      - ${USERPROFILE}/.cache/datalab:/root/.cache/datalab
+      # Target is /home/polytool/.cache/datalab (runtime user is polytool, not root).
+      - ${USERPROFILE}/.cache/datalab:/home/polytool/.cache/datalab
     depends_on:
       clickhouse:
         condition: service_healthy

@@ -57,11 +57,16 @@ def _cmd_start(args: argparse.Namespace) -> int:
     """Start the APScheduler background loop."""
     from packages.research.scheduling.scheduler import JOB_REGISTRY  # lazy import
 
+    exclude: list[str] = args.exclude_jobs or []
+
     if args.dry_run:
+        active = [j for j in JOB_REGISTRY if j["id"] not in exclude]
         print("RIS Scheduler -- Dry-run mode (no scheduler started)")
-        print(f"Registered jobs ({len(JOB_REGISTRY)}):")
-        for job in JOB_REGISTRY:
+        print(f"Registered jobs ({len(active)}):")
+        for job in active:
             print(f"  {job['id']:<22} {job['trigger_description']}")
+        if exclude:
+            print(f"Excluded jobs: {', '.join(exclude)}")
         print()
         print("Note: Twitter/X ingestion is not scheduled (fetcher not yet implemented).")
         return 0
@@ -74,11 +79,13 @@ def _cmd_start(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        scheduler = start_research_scheduler()
+        scheduler = start_research_scheduler(exclude_job_ids=exclude if exclude else None)
     except ImportError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    if exclude:
+        print(f"Excluded jobs: {', '.join(exclude)}")
     print("Scheduler started. Press Ctrl-C to stop.")
     try:
         while True:
@@ -153,6 +160,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         dest="dry_run",
         help="Register jobs and print schedule, then exit (no scheduler started)",
+    )
+    p_start.add_argument(
+        "--exclude-jobs",
+        nargs="+",
+        default=[],
+        dest="exclude_jobs",
+        metavar="JOB_ID",
+        help=(
+            "Job ids to skip (space-separated). CPU scheduler uses "
+            "--exclude-jobs academic_ingest so only the GPU service runs academic PDF ingest."
+        ),
     )
 
     # run-job

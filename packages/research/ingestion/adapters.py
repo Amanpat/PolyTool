@@ -131,10 +131,16 @@ class AcademicAdapter(SourceAdapter):
         authors = raw_source.get("authors", [])
         published_date = raw_source.get("published_date", None)
 
-        # Build body: prefer body_text, fall back to abstract
-        body = body_text if body_text else abstract
-        if not body:
-            body = title  # last-resort fallback
+        body_source = raw_source.get("body_source", "")
+        # marker_failed: Marker rejected this paper — do NOT silently fall back to abstract.
+        # body="" forces the downstream hard-stop length check to reject the document.
+        if body_source == "marker_failed":
+            body = ""
+        else:
+            # Build body: prefer body_text, fall back to abstract
+            body = body_text if body_text else abstract
+            if not body:
+                body = title  # last-resort fallback
 
         # Normalize metadata
         meta: NormalizedMetadata = normalize_metadata(raw_source, "academic")
@@ -163,6 +169,7 @@ class AcademicAdapter(SourceAdapter):
             "body_length",
             "page_count",
             "fallback_reason",
+            "failure_reason",   # marker_failed path uses this key
             "has_structured_metadata",
             "marker_version",
             "structured_metadata_truncated",

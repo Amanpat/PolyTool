@@ -315,8 +315,9 @@ def start_research_scheduler(
     _scheduler_factory: Optional[Callable[[], Any]] = None,
     _job_runner: Optional[Callable[[str], None]] = None,
     _run_log_fn: Optional[Callable] = None,
+    exclude_job_ids: Optional[list] = None,
 ) -> Any:
-    """Start the RIS background scheduler with all 8 registered jobs.
+    """Start the RIS background scheduler with registered jobs.
 
     Parameters
     ----------
@@ -333,6 +334,11 @@ def start_research_scheduler(
         Threaded through to run_job() in the real background path (else branch).
         When None, run_job() uses the real append_run from run_log module.
         Provide a replacement for offline testing without filesystem side-effects.
+    exclude_job_ids:
+        Optional list of job ids to skip when registering jobs.
+        Used to split CPU and GPU scheduler services: the CPU host passes
+        ``exclude_job_ids=["academic_ingest"]`` so academic PDF jobs only run
+        on the GPU service.
 
     Returns
     -------
@@ -370,10 +376,16 @@ def start_research_scheduler(
         "weekly_digest": {"day_of_week": "sun", "hour": 8},
     }
 
+    _excluded = set(exclude_job_ids) if exclude_job_ids else set()
+
     for job_entry in JOB_REGISTRY:
         jid = job_entry["id"]
         jname = job_entry["name"]
         callable_name = job_entry["callable_name"]
+
+        if jid in _excluded:
+            logger.info("start_research_scheduler: skipping excluded job %r", jid)
+            continue
 
         if _job_runner is not None:
             # Replace job function with the injected runner (passes job_id)

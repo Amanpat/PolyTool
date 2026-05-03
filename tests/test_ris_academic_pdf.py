@@ -961,3 +961,53 @@ class TestMarkerProductionDefault:
 
         assert result["body_source"] == "pdf"
         assert result["body_text"] == long_pdf
+
+
+# ---------------------------------------------------------------------------
+# AcademicAdapter: marker_failed is an explicit rejection (not abstract fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestAcademicAdapterMarkerFailedRejection:
+    """marker_failed must not silently downgrade to the abstract in the adapter."""
+
+    def test_marker_failed_body_is_empty_in_adapter(self):
+        """AcademicAdapter with body_source=marker_failed sets body='' (not abstract)."""
+        from packages.research.ingestion.adapters import AcademicAdapter
+
+        abstract = "This abstract is long enough to pass a naive length check."
+        raw = {
+            "url": "https://arxiv.org/abs/2501.99001",
+            "title": "Image-only Paper",
+            "abstract": abstract,
+            "authors": ["A"],
+            "published_date": "2024-01-01",
+            "body_text": "",
+            "body_source": "marker_failed",
+            "failure_reason": "marker output too short (0 chars)",
+        }
+        doc = AcademicAdapter().adapt(raw)
+
+        assert doc.body == ""
+        assert doc.metadata["body_source"] == "marker_failed"
+        assert doc.metadata["failure_reason"] == "marker output too short (0 chars)"
+
+    def test_marker_failed_abstract_not_used_as_body(self):
+        """marker_failed with non-empty abstract: abstract must NOT become doc.body."""
+        from packages.research.ingestion.adapters import AcademicAdapter
+
+        raw = {
+            "url": "https://arxiv.org/abs/2501.99002",
+            "title": "Encrypted PDF",
+            "abstract": "A" * 200,  # long enough to trick a naive fallback
+            "authors": [],
+            "published_date": "2024-01-01",
+            "body_text": "",
+            "body_source": "marker_failed",
+            "failure_reason": "encrypted PDF",
+        }
+        doc = AcademicAdapter().adapt(raw)
+
+        assert doc.body == ""
+        # Abstract still present in metadata for traceability
+        assert doc.metadata["abstract"]
