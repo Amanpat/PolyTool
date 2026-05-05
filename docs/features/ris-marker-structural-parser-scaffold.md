@@ -1,25 +1,31 @@
 # Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: CODE COMPLETE — VALIDATION BLOCKED (2026-05-05)**
+**Status: CODE COMPLETE — L1 PRODUCTION BLOCKED ON PERFORMANCE GATE (2026-05-05)**
 
-> **L1 production rollout is not accepted.** Validation attempted 2026-05-05
-> and failed. One-shot benchmarks timed out on both test papers (1200-1800s).
-> Scheduler lacks single-paper submit path, process-boundary cancel, and
-> per-paper parse metadata. This feature doc describes what is **implemented**
-> in the codebase, not what is validated for production use.
+> **Controlled parse validated 2026-05-05 — but too slow for synchronous production default.**
+> One paper parsed successfully via `run-academic-url`:
+> `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`.
+> **`parse_seconds=85.95s` fails the ≤10s/paper production gate by ~8.6×.**
 >
-> **Gated on:** [[Work-Packet - Marker Single-Paper Validation Control Surface]]
-> **Evidence:** `docs/dev_logs/2026-05-05_ris-marker-short-paper-smoke.md`,
-> `docs/dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md`,
-> `docs/dev_logs/2026-05-05_marker-production-rollout-reconciliation.md`
+> Marker works on GPU Docker. It is not fast enough for synchronous default production
+> on RTX 2070 Super with cold-start per invocation. The ~5–10s/paper estimate from the
+> architecture survey was not replicated — each `docker compose run --rm` reloads models
+> from disk (~80s cold-start dominates the budget).
+>
+> **L1 production rollout requires an operator decision before resuming:**
+> - Option A: async parse queue (pdfplumber stays default; Marker enriches async)
+> - Option B: warm-model optimization (long-running scheduler service, quantized models)
+> - Option C: keep pdfplumber as production default; use Marker only for targeted enrichment
+>
+> **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 
 Layer 1 code ships Marker as the default and only production PDF parser for the
 academic ingest pipeline. pdfplumber is no longer the active production path;
 it remains in the codebase as a debug override (`RIS_PDF_PARSER=pdfplumber`)
 only. GPU is required: RTX 2070 Super on the dev machine, Docker GPU
 passthrough verified (Docker Desktop 29.x + WSL2). The ~5–10 s/paper GPU
-performance claim from the architecture survey is **not yet validated** —
-smoke tests show math-heavy papers time out at 1200-1800s in one-shot mode.
+performance claim from the architecture survey **was not validated** —
+controlled parse on a 15-page prose paper returned `parse_seconds=85.95s`.
 
 ---
 

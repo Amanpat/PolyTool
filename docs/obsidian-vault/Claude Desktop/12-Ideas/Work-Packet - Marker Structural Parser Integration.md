@@ -2,7 +2,7 @@
 tags: [work-packet, ris, ingestion, academic, parser]
 date: 2026-04-29
 status: blocked
-blocked-reason: "Validation failed 2026-05-05. One-shot benchmarks time out on math-heavy papers. Scheduler lacks single-paper submit path, hard cancel, and per-paper parse metadata. Production rollout is not accepted until the Marker Single-Paper Validation Control Surface work packet ships."
+blocked-reason: "Control surface validated 2026-05-05: Marker parses successfully (body_source=marker, body_length=56923). But parse_seconds=85.95s on a 15-page prose paper far exceeds the ≤10s/paper production gate. The ~5-10s/paper GPU estimate from the architecture survey was optimistic for RTX 2070 Super. Production rollout as synchronous default parser is not viable until performance gap is resolved."
 updated: 2026-05-05
 priority: high
 phase: 2
@@ -20,25 +20,40 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 
 # Work Packet — Marker Structural Parser Integration (Production Rollout)
 
-> [!DANGER] Status: BLOCKED — Validation Failed 2026-05-05
-> L1 Marker production rollout was attempted on 2026-05-05 and failed validation.
-> **Do not ship or resume this packet until [[Work-Packet - Marker Single-Paper Validation Control Surface]] completes.**
+> [!DANGER] Status: BLOCKED — Performance Gate Failure 2026-05-05
+> The control surface (`run-academic-url`) was validated on 2026-05-05.
+> Marker parses successfully — but is too slow for synchronous production default.
+> **Do not ship this packet without operator decision on the performance gap.**
 >
-> **What failed:**
-> - One-shot benchmark (`research-parser-benchmark`) timed out on both test papers:
->   - `2604.21675` (6 pages, ML with equations): timed out at 1200.5s; box 114 alone consumed 273s
->   - `2510.15205` (25 pages, math-heavy): timed out at 1800.2s
->   - Root cause: math-dense final pages spike to 100-300s/box; page count is not a reliable proxy; cold model load (~136-270s) consumes 11-23% of any budget before text starts
+> **Controlled parse result (2026-05-05):**
+> - Paper: `2604.24366` — The Anatomy of a Decentralized Prediction Market (15 pages, prose-heavy)
+> - `body_source=marker` ✅ | `body_length=56923` ✅ | `exit_code=0` ✅
+> - `parse_seconds=85.95s` ❌ — **fails ≤10s/paper production gate by ~8.6×**
+> - `total_seconds=89.41s` (includes arXiv API + PDF download)
 >
-> **Why scheduler validation is not safe as-is:**
-> - GPU scheduler registers all 8 RIS jobs; an academic-only mode does not exist
-> - `academic_ingest` is hardcoded to two topic searches — no single arXiv ID submit path
-> - Marker timeout is thread-based, not a process boundary — the underlying worker cannot be killed (confirmed in code: `pool.shutdown(wait=False)` does not cancel threads on Windows)
-> - After the first timeout, Marker is disabled for the entire scheduler process lifetime until restart
-> - Scheduler `run_job()` reports `exit_status="ok"` even when `research_acquire.main()` returns nonzero
-> - No per-paper `body_source`, `body_length`, `parse_seconds`, or `failure_reason` in scheduler JSON output
+> **Root cause:** RTX 2070 Super cold-load time dominates per-paper budget. The ~5–10s/paper
+> estimate in the architecture survey was from a warm-model benchmark not replicated here.
+> Cold-start each `docker compose run --rm` invocation = model reload from disk on every paper.
 >
-> **Evidence:** `docs/dev_logs/2026-05-05_ris-marker-short-paper-smoke.md` and `docs/dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md`
+> **Previous blockers (resolved 2026-05-05):**
+> - ✅ One-shot benchmark timeouts → fixed by `run-academic-url` + process-boundary cancel
+> - ✅ No single-paper submit path → `run-academic-url` provides it
+> - ✅ No per-paper parse metadata → `parse_seconds`, `body_source`, `body_length` in JSON output
+>
+> **Remaining blocker:** `parse_seconds=85.95s` >> `≤10s/paper` (acceptance gate 2)
+>
+> **Next options (operator decision required):**
+> - **Option A — Async parse queue:** Marker runs as a background enrichment job for selected
+>   papers; pdfplumber remains the synchronous production default; Marker results replace
+>   pdfplumber chunks asynchronously. No per-paper latency gate. New packet required.
+> - **Option B — Model/config optimization:** Investigate warm-model reuse across papers in a
+>   long-running service (scheduler mode), quantized models, or smaller Marker config variants.
+>   Could bring per-paper time closer to ~10s on warm VRAM. New packet required.
+> - **Option C — Keep pdfplumber production + Marker for targeted enrichment:** Defer Marker
+>   as production default; use it only for high-value papers operator submits explicitly.
+>   No new packet required — pdfplumber path is already the debug override.
+>
+> **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 
 > [!IMPORTANT] Architectural change vs. previous packet
 > The earlier version of this packet specified Marker as an opt-in experimental fallback with pdfplumber as the default. **This version supersedes that.** Marker becomes the **single production parser** for the academic pipeline. pdfplumber is retired from the active path.

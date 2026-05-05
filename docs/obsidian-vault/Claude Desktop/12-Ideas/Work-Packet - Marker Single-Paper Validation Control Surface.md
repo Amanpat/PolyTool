@@ -1,7 +1,8 @@
 ---
 tags: [work-packet, ris, ingestion, academic, parser, validation]
 date: 2026-05-05
-status: ready
+status: validated
+validated: 2026-05-05
 priority: high
 phase: 2
 target-layer: 1
@@ -10,10 +11,28 @@ parent-decision: "[[Decision - Academic Pipeline Hosting]]"
 prerequisites:
   - "[[Work-Packet - Marker Structural Parser Integration]] — code complete; this packet provides the validation path"
 unblocks:
-  - "[[Work-Packet - Marker Structural Parser Integration]] (production rollout resume)"
+  - "[[Work-Packet - Marker Structural Parser Integration]] (production rollout resume — **still blocked on ≤10s/paper gate**)"
 ---
 
 # Work Packet — Marker Single-Paper Validation Control Surface
+
+> [!SUCCESS] Status: VALIDATED 2026-05-05
+> Control surface infrastructure is complete and validated. One controlled parse succeeded.
+> **However, `parse_seconds=85.95s` exceeds the ≤10s/paper production gate.**
+> L1 Marker production rollout therefore remains blocked — this packet validated the tooling, not production readiness.
+>
+> **Validation result (2026-05-05):**
+> ```
+> paper:         2604.24366 — The Anatomy of a Decentralized Prediction Market
+> body_source:   marker
+> body_length:   56923 chars
+> parse_seconds: 85.95s  ← FAILS ≤10s/paper gate
+> total_seconds: 89.41s
+> rejected:      false
+> exit_code:     0
+> ```
+>
+> **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 
 ## Purpose
 
@@ -113,7 +132,25 @@ service rather than a one-shot command.
 
 ---
 
-## Acceptance Gates
+## Acceptance Gate Verdicts (2026-05-05)
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Single-paper controlled run | **PASS** | `body_source=marker`, `body_length=56923`, exit_code=0 |
+| 2. Timeout kills worker process | **NOT TESTED** | Process-boundary code exists; timeout test not run |
+| 3. No zombie after kill | **NOT TESTED** | Deferred — no timeout occurred in validation run |
+| 4. Per-paper parse metadata present | **PASS** | `body_source`, `body_length`, `parse_seconds`, `page_count` all present |
+| 5. Failure case surfaced | **NOT TESTED** | No timeout-paper run attempted |
+| 6. No scheduler loop | **PASS** | Verified by `test_run_academic_url_no_scheduler_started` |
+| 7. Existing tests pass | **PASS** | 2403 passed, 1 pre-existing failure unchanged |
+| 8. Dev log written | **PASS** | `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md` |
+
+**Control surface verdict: VALIDATED** — the tooling works.
+**L1 production verdict: BLOCKED** — `parse_seconds=85.95s` >> `≤10s/paper` production gate.
+
+---
+
+## Acceptance Gates (Original)
 
 1. **Single-paper controlled run.** The following command sequence completes
    without hanging, zombie containers, or unhandled errors:

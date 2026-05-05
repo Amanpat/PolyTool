@@ -151,6 +151,7 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Marker Control Surface — Validation Close-out](dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md) | 2026-05-05 | body_source=marker, body_length=56923, parse_seconds=85.95s; control surface PASS; L1 production BLOCKED — ≤10s/paper gate fails 8.6×; next-step options A/B/C documented |
 | [Marker Single-Paper Validation Control Surface](dev_logs/2026-05-05_ris-marker-single-paper-validation-control-surface.md) | 2026-05-05 | `run-academic-url` subcommand; process-boundary cancel (subprocess); `parse_seconds` in result; 5 new tests; 2403 pass |
 | [L1 Marker Production Rollout — Reconciliation](dev_logs/2026-05-05_marker-production-rollout-reconciliation.md) | 2026-05-05 | L1 blocked: one-shot timeouts on math-heavy papers; scheduler unsafe for single-paper validation; docs updated; new control surface packet created |
 | [RIS GPU Scheduler Safety Audit](dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md) | 2026-05-05 | Read-only mapping: no single-paper submit path, thread-based cancel, coarse success metadata, all-8-jobs registration; min safe command shape documented |
