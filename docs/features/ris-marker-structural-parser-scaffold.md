@@ -1,13 +1,25 @@
 # Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: Production default — Marker is the only academic PDF parser**
+**Status: CODE COMPLETE — VALIDATION BLOCKED (2026-05-05)**
 
-Layer 1 ships Marker as the default and only production PDF parser for the
+> **L1 production rollout is not accepted.** Validation attempted 2026-05-05
+> and failed. One-shot benchmarks timed out on both test papers (1200-1800s).
+> Scheduler lacks single-paper submit path, process-boundary cancel, and
+> per-paper parse metadata. This feature doc describes what is **implemented**
+> in the codebase, not what is validated for production use.
+>
+> **Gated on:** [[Work-Packet - Marker Single-Paper Validation Control Surface]]
+> **Evidence:** `docs/dev_logs/2026-05-05_ris-marker-short-paper-smoke.md`,
+> `docs/dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md`,
+> `docs/dev_logs/2026-05-05_marker-production-rollout-reconciliation.md`
+
+Layer 1 code ships Marker as the default and only production PDF parser for the
 academic ingest pipeline. pdfplumber is no longer the active production path;
 it remains in the codebase as a debug override (`RIS_PDF_PARSER=pdfplumber`)
 only. GPU is required: RTX 2070 Super on the dev machine, Docker GPU
-passthrough verified (Docker Desktop 29.x + WSL2), ~5–10 s/paper on GPU vs
-300 s timeout on CPU.
+passthrough verified (Docker Desktop 29.x + WSL2). The ~5–10 s/paper GPU
+performance claim from the architecture survey is **not yet validated** —
+smoke tests show math-heavy papers time out at 1200-1800s in one-shot mode.
 
 ---
 
@@ -260,3 +272,6 @@ Targeted: 76 passed, 0 failed. Full suite: 2403 passed, 1 pre-existing failure
 | [`2026-05-03_ris-marker-production-rollout-core`](../dev_logs/2026-05-03_ris-marker-production-rollout-core.md) | L1 rollout Prompt A: Marker default, GPU Dockerfile, explicit failure semantics, 69 tests |
 | [`2026-05-03_codex-review-ris-marker-production-rollout`](../dev_logs/2026-05-03_codex-review-ris-marker-production-rollout.md) | Codex review: 3 blocking findings (adapter fallback, scheduler split, cache mount) |
 | [`2026-05-03_ris-marker-production-rollout-validation`](../dev_logs/2026-05-03_ris-marker-production-rollout-validation.md) | Prompt B: Codex blockers resolved; GPU validation PENDING (Docker not running in session) |
+| [`2026-05-05_ris-marker-short-paper-smoke`](../dev_logs/2026-05-05_ris-marker-short-paper-smoke.md) | Smoke validation: two papers timed out (1200-1800s); systematic math-density timeout pattern diagnosed; one-shot CLI not viable for ML papers |
+| [`2026-05-05_context-ris-gpu-scheduler-marker-validation`](../dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md) | Scheduler safety audit: no single-paper submit path, thread-based cancel, coarse success metadata, all-8-jobs registration |
+| [`2026-05-05_marker-production-rollout-reconciliation`](../dev_logs/2026-05-05_marker-production-rollout-reconciliation.md) | Reconciliation: L1 blocked; docs updated; new control surface packet created |

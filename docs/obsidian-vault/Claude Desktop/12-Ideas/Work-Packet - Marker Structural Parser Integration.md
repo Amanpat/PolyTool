@@ -1,7 +1,9 @@
 ---
 tags: [work-packet, ris, ingestion, academic, parser]
 date: 2026-04-29
-status: ready
+status: blocked
+blocked-reason: "Validation failed 2026-05-05. One-shot benchmarks time out on math-heavy papers. Scheduler lacks single-paper submit path, hard cancel, and per-paper parse metadata. Production rollout is not accepted until the Marker Single-Paper Validation Control Surface work packet ships."
+updated: 2026-05-05
 priority: high
 phase: 2
 target-layer: 1
@@ -11,11 +13,32 @@ related-decisions:
   - "[[Decision - Academic Pipeline Hosting]]"
 prerequisites:
   - "[[Work-Packet - Academic Pipeline PDF Download Fix]] (Layer 0 — shipped 2026-04-27)"
-  - "Hosting decision: which machine hosts the academic pipeline (must have GPU)"
+  - "Hosting decision: which machine hosts the academic pipeline (must have GPU) — RESOLVED 2026-05-02"
+  - "[[Work-Packet - Marker Single-Paper Validation Control Surface]] — REQUIRED before rollout can resume"
 supersedes-status: "Previous status (implemented-experimental-scaffold) is superseded. Marker becomes the production parser; pdfplumber path is retired."
 ---
 
 # Work Packet — Marker Structural Parser Integration (Production Rollout)
+
+> [!DANGER] Status: BLOCKED — Validation Failed 2026-05-05
+> L1 Marker production rollout was attempted on 2026-05-05 and failed validation.
+> **Do not ship or resume this packet until [[Work-Packet - Marker Single-Paper Validation Control Surface]] completes.**
+>
+> **What failed:**
+> - One-shot benchmark (`research-parser-benchmark`) timed out on both test papers:
+>   - `2604.21675` (6 pages, ML with equations): timed out at 1200.5s; box 114 alone consumed 273s
+>   - `2510.15205` (25 pages, math-heavy): timed out at 1800.2s
+>   - Root cause: math-dense final pages spike to 100-300s/box; page count is not a reliable proxy; cold model load (~136-270s) consumes 11-23% of any budget before text starts
+>
+> **Why scheduler validation is not safe as-is:**
+> - GPU scheduler registers all 8 RIS jobs; an academic-only mode does not exist
+> - `academic_ingest` is hardcoded to two topic searches — no single arXiv ID submit path
+> - Marker timeout is thread-based, not a process boundary — the underlying worker cannot be killed (confirmed in code: `pool.shutdown(wait=False)` does not cancel threads on Windows)
+> - After the first timeout, Marker is disabled for the entire scheduler process lifetime until restart
+> - Scheduler `run_job()` reports `exit_status="ok"` even when `research_acquire.main()` returns nonzero
+> - No per-paper `body_source`, `body_length`, `parse_seconds`, or `failure_reason` in scheduler JSON output
+>
+> **Evidence:** `docs/dev_logs/2026-05-05_ris-marker-short-paper-smoke.md` and `docs/dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md`
 
 > [!IMPORTANT] Architectural change vs. previous packet
 > The earlier version of this packet specified Marker as an opt-in experimental fallback with pdfplumber as the default. **This version supersedes that.** Marker becomes the **single production parser** for the academic pipeline. pdfplumber is retired from the active path.
@@ -87,11 +110,12 @@ The architect should read these before writing the implementation prompt:
 
 ## Open questions for architect
 
-1. **Hosting answer.** Where does the academic pipeline run? Dev machine (2070 Super, confirmed available)? Docker on the same machine? Partner machine (does it have a GPU)? This is the prerequisite that must be resolved in `[[Decision - Academic Pipeline Hosting]]` before the packet ships.
-2. **GPU passthrough to Docker.** If the production host is Docker, `nvidia-container-toolkit` must be configured on the host. Architect should confirm the partner's machine setup if applicable, or specify a non-Docker production deployment.
-3. **Model weight handling.** Marker's model weights are several GB. Should they be downloaded at first run (and cached on the host), baked into the Docker image, or volume-mounted? Trade-off: image size vs. cold-start time.
+1. ~~**Hosting answer.**~~ **RESOLVED 2026-05-02.** Docker + GPU passthrough on dev machine. RTX 2070 Super, CUDA 13.2. Model weights volume-mounted from `~/.cache/datalab/`. See [[Decision - Academic Pipeline Hosting]] (status: accepted).
+2. ~~**GPU passthrough to Docker.**~~ **RESOLVED 2026-05-02.** `docker run --gpus all` verified on dev machine.
+3. **Model weight handling.** Volume-mounted from host cache. Resolved by hosting decision (Q5→volume-mount).
 4. **Failure-mode policy for Marker rejections.** When Marker fails, the paper is rejected. Should the rejection be recoverable (e.g., a future packet adds OCR for image-only papers) or final? Recommend: recoverable, with the rejected source_id remaining in cache so a future re-ingest can re-attempt.
-5. **Rollout strategy.** Hard cutover (next ingest run uses Marker for everything) or gradual (Marker for new papers, existing pdfplumber papers remain until the cleanup task runs)? Recommend: hard cutover for new ingests, cleanup as a parallel task with its own packet.
+5. **Rollout strategy.** Hard cutover recommended for new ingests, cleanup as a parallel task. However this question is now moot until the control surface packet ships — rollout cannot begin until single-paper controlled validation succeeds.
+6. **NEW (2026-05-05): Math-heavy paper timeout.** Cold model load (~136-270s) + math-dense box spikes (100-300s/box) make one-shot per-paper timeouts unreliable for ML/quant papers. Does acceptance gate 2 ("≤10s warm") assume warm scheduler mode only? Warm scheduler mode requires a process-boundary cancel to be safe. The control surface packet must resolve this.
 
 ## Cross-references
 

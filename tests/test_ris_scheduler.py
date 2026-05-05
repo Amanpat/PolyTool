@@ -508,3 +508,138 @@ class TestSchedulerBackgroundPath:
 
         assert len(records) == 1
         assert records[0].exit_status == "error"
+
+
+# ---------------------------------------------------------------------------
+# TestRunAcademicUrl — run-academic-url CLI subcommand
+# ---------------------------------------------------------------------------
+
+
+class TestRunAcademicUrl:
+    """Tests for 'research-scheduler run-academic-url' subcommand."""
+
+    def _make_success_raw(self) -> dict:
+        return {
+            "url": "https://arxiv.org/abs/2604.24366",
+            "title": "Test Paper",
+            "abstract": "Abstract text.",
+            "authors": ["Author A"],
+            "published_date": "2024-01-01",
+            "body_text": "# Title\n\nContent. " * 100,
+            "body_source": "marker",
+            "body_length": 1800,
+            "page_count": 10,
+            "parse_seconds": 8.4,
+        }
+
+    def _make_failed_raw(self) -> dict:
+        return {
+            "url": "https://arxiv.org/abs/2604.21675",
+            "title": "Math Paper",
+            "abstract": "Abstract.",
+            "authors": [],
+            "published_date": "2024-01-01",
+            "body_text": "",
+            "body_source": "marker_failed",
+            "failure_reason": "marker_timeout: extraction timed out after 60.0s",
+            "parse_seconds": 60.5,
+        }
+
+    def test_run_academic_url_success_json_fields(self) -> None:
+        """Success case: JSON output has body_source=marker, body_length, exit_code=0."""
+        from tools.cli.research_scheduler import main
+        from unittest.mock import patch, MagicMock
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.return_value.fetch.return_value = self._make_success_raw()
+
+        buf = io.StringIO()
+        with patch("packages.research.ingestion.fetchers.LiveAcademicFetcher", mock_fetcher):
+            with redirect_stdout(buf):
+                result = main(["run-academic-url", "--url", "https://arxiv.org/abs/2604.24366", "--json"])
+
+        assert result == 0
+        data = json.loads(buf.getvalue())
+        assert data["body_source"] == "marker"
+        assert data["body_length"] == 1800
+        assert data["exit_code"] == 0
+        assert data["rejected"] is False
+        assert data["parse_seconds"] == 8.4
+
+    def test_run_academic_url_marker_failed_json(self) -> None:
+        """marker_failed case: JSON has rejected=True, exit_code=1, failure_reason."""
+        from tools.cli.research_scheduler import main
+        from unittest.mock import patch, MagicMock
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.return_value.fetch.return_value = self._make_failed_raw()
+
+        buf = io.StringIO()
+        with patch("packages.research.ingestion.fetchers.LiveAcademicFetcher", mock_fetcher):
+            with redirect_stdout(buf):
+                result = main(["run-academic-url", "--url", "2604.21675", "--marker-timeout", "60", "--json"])
+
+        assert result == 1
+        data = json.loads(buf.getvalue())
+        assert data["body_source"] == "marker_failed"
+        assert data["rejected"] is True
+        assert data["exit_code"] == 1
+        assert "marker_timeout" in data["failure_reason"]
+        assert data["marker_timeout"] == 60.0
+
+    def test_run_academic_url_bare_id_normalised(self) -> None:
+        """Bare arXiv ID (no URL prefix) is normalized to full URL."""
+        from tools.cli.research_scheduler import main
+        from unittest.mock import patch, MagicMock
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.return_value.fetch.return_value = self._make_success_raw()
+
+        buf = io.StringIO()
+        with patch("packages.research.ingestion.fetchers.LiveAcademicFetcher", mock_fetcher):
+            with redirect_stdout(buf):
+                result = main(["run-academic-url", "--url", "2604.24366", "--json"])
+
+        assert result == 0
+        data = json.loads(buf.getvalue())
+        assert data["url"].startswith("https://arxiv.org/abs/")
+
+    def test_run_academic_url_no_scheduler_started(self) -> None:
+        """run-academic-url must not start APScheduler or register any jobs."""
+        from tools.cli.research_scheduler import main
+        from unittest.mock import patch, MagicMock
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.return_value.fetch.return_value = self._make_success_raw()
+
+        start_calls = []
+        buf = io.StringIO()
+        with patch("packages.research.ingestion.fetchers.LiveAcademicFetcher", mock_fetcher):
+            with patch(
+                "packages.research.scheduling.scheduler.start_research_scheduler",
+                side_effect=lambda *a, **kw: start_calls.append(1),
+            ):
+                with redirect_stdout(buf):
+                    main(["run-academic-url", "--url", "2604.24366", "--json"])
+
+        assert start_calls == [], "start_research_scheduler must NOT be called by run-academic-url"
+
+    def test_run_academic_url_fetch_exception_returns_1(self) -> None:
+        """Network/fetch exception => exit_code=1, body_source='error' in JSON."""
+        from tools.cli.research_scheduler import main
+        from unittest.mock import patch, MagicMock
+        from packages.research.ingestion.fetchers import FetchError
+
+        mock_fetcher = MagicMock()
+        mock_fetcher.return_value.fetch.side_effect = FetchError("arXiv API timeout")
+
+        buf = io.StringIO()
+        with patch("packages.research.ingestion.fetchers.LiveAcademicFetcher", mock_fetcher):
+            with redirect_stdout(buf):
+                result = main(["run-academic-url", "--url", "2604.24366", "--json"])
+
+        assert result == 1
+        data = json.loads(buf.getvalue())
+        assert data["body_source"] == "error"
+        assert data["rejected"] is True
+        assert data["exit_code"] == 1

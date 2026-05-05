@@ -129,6 +129,90 @@ def _cmd_run_job(args: argparse.Namespace) -> int:
     return exit_code
 
 
+
+# ---------------------------------------------------------------------------
+# run-academic-url handler
+# ---------------------------------------------------------------------------
+
+
+def _cmd_run_academic_url(args: argparse.Namespace) -> int:
+    """Fetch and parse one arXiv paper through LiveAcademicFetcher. No scheduler started."""
+    import re as _re
+    import time as _time
+
+    url = args.url
+    marker_timeout = args.marker_timeout
+
+    # Accept bare arXiv IDs like "2604.24366" as well as full URLs
+    if _re.match(r"^\d{4}\.\d{4,5}$", url):
+        url = f"https://arxiv.org/abs/{url}"
+
+    if not args.json:
+        print(f"run-academic-url: fetching {url} (marker_timeout={marker_timeout}s)")
+
+    result: dict = {
+        "url": url,
+        "arxiv_id": None,
+        "title": "",
+        "body_source": "unknown",
+        "body_length": 0,
+        "page_count": 0,
+        "parse_seconds": 0.0,
+        "failure_reason": None,
+        "rejected": False,
+        "marker_timeout": marker_timeout,
+        "exit_code": 0,
+    }
+
+    # Extract arXiv ID for result
+    id_match = _re.search(r"(\d{4}\.\d{4,5})", url)
+    if id_match:
+        result["arxiv_id"] = id_match.group(1)
+
+    t0 = _time.monotonic()
+    try:
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+
+        fetcher = LiveAcademicFetcher(_marker_timeout_seconds=float(marker_timeout))
+        raw_source = fetcher.fetch(url)
+
+        result["title"] = raw_source.get("title", "")
+        result["body_source"] = raw_source.get("body_source", "unknown")
+        result["body_length"] = raw_source.get("body_length", 0)
+        result["page_count"] = raw_source.get("page_count", 0)
+        result["parse_seconds"] = raw_source.get("parse_seconds", 0.0)
+
+        if result["body_source"] == "marker_failed":
+            result["failure_reason"] = raw_source.get("failure_reason", "unknown")
+            result["rejected"] = True
+            result["exit_code"] = 1
+
+    except Exception as exc:
+        result["body_source"] = "error"
+        result["failure_reason"] = str(exc)[:300]
+        result["rejected"] = True
+        result["exit_code"] = 1
+
+    result["total_seconds"] = round(_time.monotonic() - t0, 2)
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        status = "PASS" if not result["rejected"] else "FAIL"
+        print(f"[{status}] {result['url']}")
+        print(f"  body_source:   {result['body_source']}")
+        if result["body_length"]:
+            print(f"  body_length:   {result['body_length']:,} chars")
+        if result["page_count"]:
+            print(f"  page_count:    {result['page_count']}")
+        if result["parse_seconds"]:
+            print(f"  parse_seconds: {result['parse_seconds']:.1f}s")
+        if result["failure_reason"]:
+            print(f"  failure:       {result['failure_reason']}")
+
+    return result["exit_code"]
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -185,6 +269,39 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output result as JSON",
     )
 
+    # run-academic-url
+    p_run_url = subparsers.add_parser(
+        "run-academic-url",
+        help="Fetch and parse one arXiv paper through LiveAcademicFetcher (no scheduler loop)",
+    )
+    p_run_url.add_argument(
+        "--url",
+        required=True,
+        metavar="URL_OR_ID",
+        help="arXiv URL (https://arxiv.org/abs/XXXX.XXXXX) or bare ID (XXXX.XXXXX)",
+    )
+    p_run_url.add_argument(
+        "--marker-timeout",
+        type=float,
+        default=900.0,
+        dest="marker_timeout",
+        metavar="SECONDS",
+        help="Hard timeout for Marker extraction subprocess (default: 900s)",
+    )
+    p_run_url.add_argument(
+        "--no-eval",
+        action="store_true",
+        default=False,
+        dest="no_eval",
+        help="No-op flag for compatibility with research-acquire conventions",
+    )
+    p_run_url.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output result as JSON",
+    )
+
     return parser
 
 
@@ -211,6 +328,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_start(args)
     elif args.subcommand == "run-job":
         return _cmd_run_job(args)
+    elif args.subcommand == "run-academic-url":
+        return _cmd_run_academic_url(args)
     else:
         print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
         return 1

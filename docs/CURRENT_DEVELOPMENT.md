@@ -72,25 +72,6 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
   - [ ] End-to-end validation run complete (operator manual step — see acceptance dev log)
   - [ ] CURRENT_STATE.md RIS section updated (after validation run)
 
-### Feature 3: RIS L1 Marker Production Rollout — Validation
-
-- **Track:** Research Intelligence System (Layer 1)
-- **Status:** Codex fixes applied; Docker GPU validation in progress
-- **Started:** 2026-05-03
-- **Last updated:** 2026-05-03
-- **Owner:** Aman
-- **Current step:** Docker GPU build → nvidia-smi smoke → live arXiv parse → 3-paper benchmark
-- **Blockers:** None. Codex blocking issues resolved (adapter rejection, scheduler split, cache mount).
-- **Definition of done:**
-  - [x] Codex FAIL blocking issues resolved: adapter rejection, scheduler split, cache mount path
-  - [x] New tests: `TestAcademicAdapterMarkerFailedRejection` (2 tests), `TestSchedulerExcludeJobs` (5 tests)
-  - [ ] Docker GPU image builds successfully (`polytool-ris-gpu`)
-  - [ ] `nvidia-smi` smoke inside container confirms GPU passthrough
-  - [ ] Live arXiv parse: `body_source=marker`, structured metadata present
-  - [ ] 3-paper benchmark: ≤10 s/paper warm (acceptance gate)
-  - [ ] `docs/features/ris-marker-production-rollout.md` created
-  - [ ] `docs/INDEX.md` updated
-  - [ ] Dev log written
 
 ## Completion-Doc Debt (tracked, not Active)
 
@@ -125,6 +106,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                | Paused         | Reason                                                                            | Resume trigger                                                |
 | ------------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| RIS L1 Marker Production Rollout — Validation          | 2026-05-05     | Validation failed: one-shot benchmarks time out on math-heavy papers (up to 1800s); scheduler has no single-paper submit path, no process-boundary cancel, no per-paper parse metadata. See dev log `2026-05-05_marker-production-rollout-reconciliation.md`. | [[Work-Packet - Marker Single-Paper Validation Control Surface]] ships and passes acceptance gates |
 | Crypto Gold Tape Resumption                            | 2026-04-21     | Director paused pending Gate 2 decision                                           | Gate 2 Option 1 or 4 chosen                                   |
 | Wallet Discovery Loop B (Alchemy watched-wallet)       | 2026-04-15     | Feasibility probe complete; implementation not started                            | Alchemy key + Track 2 soak result known                       |
 | Wallet Discovery Loop D (managed CLOB + anomaly)       | 2026-04-15     | Feasibility probe complete; ClobStreamClient blockers open                        | ClobStreamClient PING keepalive + dynamic subscription landed |
@@ -148,4 +130,5 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"
 - **RIS Phase 2A implementation is COMPLETE (2026-04-23).** WP1 ✓, WP2-core ✓ (WP2-D/E/F/G deferred to Phase 2B), WP3 ✓, WP4 ✓, WP5 ✓. Next operator action: end-to-end validation run (11 steps in `docs/dev_logs/2026-04-23_ris_phase2a_acceptance_pass.md`). Feature doc at `docs/features/ris_operational_readiness_phase2a.md`. **Hermes is OUT OF SCOPE for Phase 2A and Phase 2B base.** Hermes enters only at WP7, which is conditional on a collaborator contributing via WP6 for 2+ weeks AND explicitly requesting continuous mode. Do not design prompts that introduce Hermes into Phase 2A or WP6 work. **Phase 2B (WP6)** starts only when: Phase 2A e2e validation passes AND at least one friend explicitly agrees to contribute.
 - **RIS Scientific RAG Evaluation Benchmark v0 is COMPLETE (2026-05-02).** Baseline locked: corpus_size=23, P@5=1.0, off_topic_rate=30.43%, Recommendation A. Feature doc at `docs/features/FEATURE-ris-scientific-eval-benchmark-v0.md`. Rule D (parser quality) is secondary/heuristic; do not treat it as a blocker ahead of Recommendation A.
+- **RIS L1 Marker Production Rollout is PAUSED/DEFERRED (2026-05-05).** Validation failed — one-shot benchmarks time out on math-heavy arXiv papers; scheduler is not safe for single-paper controlled validation without a new control surface. Feature 3 slot is now free. Do NOT design prompts that resume L1 until [[Work-Packet - Marker Single-Paper Validation Control Surface]] completes. Do NOT start L2. Next RIS work: Marker Single-Paper Validation Control Surface (new packet) OR L3 label accumulation (≥30+30 SVM trigger).
 - **RIS L3 Pre-fetch Relevance Filter v0 + L3.1 are COMPLETE (2026-05-02).** Feature doc at `docs/features/FEATURE-ris-prefetch-relevance-filter-v0.md`. DB-backed results: Scenario B = 5.88% (<10% target met), QA REJECT = 0. All four filter modes shipped: `--prefetch-filter-mode {off,dry-run,enforce,hold-review}`, default `off`. **`hold-review` holds REVIEW candidates in `artifacts/research/prefetch_review_queue/review_queue.jsonl` without ingesting — hold-out invariant preserved even on queue write failure.** `research-prefetch-review list/label/counts` CLI manages the queue. Labels accumulate at `artifacts/research/svm_filter_labels/labels.jsonl`. **Dry-run is safe now. Reject-only enforce is mechanically safe but experimental — corresponds to Scenario A (20.0%), not the <10% Scenario B simulation.** Do not claim reject-only enforcement achieves <10%. Full enforce-ready deferred. Do not claim SVM is implemented — v1 (SPECTER2+SVM) triggered by ≥30 allow + ≥30 reject labels. 160 tests pass. Codex PASS WITH FIXES (M1 queue write status, L2 malformed JSONL warning, L3 search-mode coverage) resolved.

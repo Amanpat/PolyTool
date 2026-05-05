@@ -45,6 +45,32 @@ _logger = logging.getLogger(__name__)
 _MARKER_WORK_SEMAPHORE = threading.Semaphore(1)
 _MARKER_DISABLED = threading.Event()  # set after any timeout; cleared only explicitly
 
+import sys as _sys
+_MARKER_DEFAULT_USE_PROCESS = _sys.platform != "win32"
+
+
+
+
+# ---------------------------------------------------------------------------
+# Subprocess worker for process-boundary Marker extraction
+# ---------------------------------------------------------------------------
+
+def _marker_process_worker(tmp_path_str: str, result_queue) -> None:
+    """Subprocess entry point for Marker extraction. Must be module-level for spawn-safe pickling."""
+    import time as _time
+    t0 = _time.monotonic()
+    try:
+        from packages.research.ingestion.extractors import MarkerPDFExtractor
+        extractor = MarkerPDFExtractor()
+        doc = extractor.extract(tmp_path_str)
+        parse_seconds = round(_time.monotonic() - t0, 2)
+        meta = {k: v for k, v in doc.metadata.items()
+                if isinstance(v, (str, int, float, bool, type(None)))}
+        result_queue.put({"status": "ok", "body": doc.body or "", "meta": meta, "parse_seconds": parse_seconds})
+    except Exception as exc:
+        result_queue.put({"status": "error", "error": str(exc)[:300],
+                          "parse_seconds": round(_time.monotonic() - t0, 2)})
+
 
 # ---------------------------------------------------------------------------
 # FetchError
@@ -133,6 +159,7 @@ class LiveAcademicFetcher:
         _marker_extractor_cls=None,
         _pdfplumber_extractor_cls=None,
         _marker_timeout_seconds: float = 300.0,
+        _marker_use_process: bool = _MARKER_DEFAULT_USE_PROCESS,
     ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
@@ -141,6 +168,7 @@ class LiveAcademicFetcher:
         self._marker_extractor_cls = _marker_extractor_cls
         self._pdfplumber_extractor_cls = _pdfplumber_extractor_cls
         self._marker_timeout_seconds = _marker_timeout_seconds
+        self._marker_use_process = _marker_use_process
 
         # RIS_PDF_PARSER env var overrides constructor default.
         # Default is "marker" (production default with GPU).
@@ -224,19 +252,10 @@ class LiveAcademicFetcher:
         except Exception as exc:
             return ("", {"body_source": "abstract_fallback", "fallback_reason": str(exc)[:200]})
 
-    def _marker_production_extract(self, tmp_path: str) -> "tuple[str, dict]":
-        """Production Marker extraction — no pdfplumber fallback.
-
-        On any Marker failure (ImportError, timeout, runtime error, short output),
-        returns body_source='marker_failed' with failure_reason set.  Callers must
-        treat empty body_text + marker_failed as a recoverable rejection; the paper
-        is not silently downgraded to abstract-only or pdfplumber output.
-
-        Concurrency contract is identical to _try_marker_or_fallback:
-        _MARKER_WORK_SEMAPHORE prevents stacking; _MARKER_DISABLED prevents new
-        threads after a timeout.
-        """
+    def _marker_production_extract_thread(self, tmp_path: str) -> "tuple[str, dict]":
+        """Thread-based Marker extraction (Windows-safe). No pdfplumber fallback."""
         import concurrent.futures as _cf
+        import time as _time
 
         if _MARKER_DISABLED.is_set():
             _logger.warning(
@@ -256,6 +275,7 @@ class LiveAcademicFetcher:
                 "failure_reason": "marker_busy: conversion already running",
             })
 
+        t0 = _time.monotonic()
         try:
             from packages.research.ingestion.extractors import MarkerPDFExtractor
             marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
@@ -275,12 +295,15 @@ class LiveAcademicFetcher:
             finally:
                 _pool.shutdown(wait=False)
 
+            parse_seconds = round(_time.monotonic() - t0, 2)
             body_text = doc.body or ""
             if len(body_text) < 200:
                 return ("", {
                     "body_source": "marker_failed",
                     "failure_reason": f"marker output too short ({len(body_text)} chars)",
+                    "parse_seconds": parse_seconds,
                 })
+            doc.metadata["parse_seconds"] = parse_seconds
             return self._build_marker_result(body_text, doc.metadata)
 
         except ImportError as exc:
@@ -295,6 +318,104 @@ class LiveAcademicFetcher:
             })
         finally:
             _MARKER_WORK_SEMAPHORE.release()
+
+    def _marker_production_extract_subprocess(self, tmp_path: str) -> "tuple[str, dict]":
+        """Process-boundary Marker extraction -- terminates worker on timeout (Linux/Docker)."""
+        import multiprocessing as _mp
+        import queue as _queue_mod
+        import time as _time
+
+        if _MARKER_DISABLED.is_set():
+            _logger.warning(
+                "Marker: disabled after a previous timeout; paper rejected (marker_failed)"
+            )
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": "marker_disabled: previous timeout, Marker disabled for this process",
+            })
+
+        if not _MARKER_WORK_SEMAPHORE.acquire(blocking=False):
+            _logger.warning(
+                "Marker: another conversion is already running; paper rejected (marker_failed)"
+            )
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": "marker_busy: conversion already running",
+            })
+
+        t0 = _time.monotonic()
+        try:
+            ctx = _mp.get_context("spawn")
+            result_queue = ctx.Queue()
+            proc = ctx.Process(
+                target=_marker_process_worker,
+                args=(tmp_path, result_queue),
+                daemon=True,
+            )
+            proc.start()
+            proc.join(timeout=self._marker_timeout_seconds)
+            parse_seconds = round(_time.monotonic() - t0, 2)
+
+            if proc.is_alive():
+                _logger.warning(
+                    "Marker subprocess timed out after %ss -- terminating (process-boundary kill)",
+                    self._marker_timeout_seconds,
+                )
+                proc.terminate()
+                proc.join(timeout=5.0)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=2.0)
+                _MARKER_DISABLED.set()
+                return ("", {
+                    "body_source": "marker_failed",
+                    "failure_reason": (
+                        f"marker_timeout: extraction timed out after {self._marker_timeout_seconds}s"
+                    ),
+                    "parse_seconds": parse_seconds,
+                })
+
+            try:
+                result = result_queue.get_nowait()
+            except _queue_mod.Empty:
+                return ("", {
+                    "body_source": "marker_failed",
+                    "failure_reason": "marker process exited without result (crash or OOM)",
+                    "parse_seconds": parse_seconds,
+                })
+
+            if result.get("status") == "error":
+                return ("", {
+                    "body_source": "marker_failed",
+                    "failure_reason": result.get("error", "unknown subprocess error")[:200],
+                    "parse_seconds": result.get("parse_seconds", parse_seconds),
+                })
+
+            body_text = result.get("body", "")
+            meta = result.get("meta", {})
+            parse_s = result.get("parse_seconds", parse_seconds)
+            if len(body_text) < 200:
+                return ("", {
+                    "body_source": "marker_failed",
+                    "failure_reason": f"marker output too short ({len(body_text)} chars)",
+                    "parse_seconds": parse_s,
+                })
+            meta["parse_seconds"] = parse_s
+            return self._build_marker_result(body_text, meta)
+
+        except Exception as exc:
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": str(exc)[:200],
+            })
+        finally:
+            _MARKER_WORK_SEMAPHORE.release()
+
+    def _marker_production_extract(self, tmp_path: str) -> "tuple[str, dict]":
+        """Dispatch to thread or subprocess Marker extraction based on _marker_use_process."""
+        if self._marker_use_process:
+            return self._marker_production_extract_subprocess(tmp_path)
+        return self._marker_production_extract_thread(tmp_path)
 
     def _try_marker_or_fallback(self, tmp_path: str) -> "tuple[str, dict]":
         """Attempt Marker extraction; fall back to pdfplumber on any failure.
@@ -427,6 +548,8 @@ class LiveAcademicFetcher:
             meta["structured_metadata"] = doc_meta["structured_metadata"]
         if doc_meta.get("structured_metadata_truncated"):
             meta["structured_metadata_truncated"] = True
+        if doc_meta.get("parse_seconds") is not None:
+            meta["parse_seconds"] = doc_meta["parse_seconds"]
         return (body_text, meta)
 
     def fetch(self, url: str) -> dict:
