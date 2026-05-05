@@ -183,8 +183,11 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="polytool research-marker-queue",
         description=(
             "Marker Canonical Academic Parse Queue v0. "
-            "Enqueue arXiv papers, process them with a warm Marker worker, "
-            "and track which papers are RAG-ready (marker_ready=true)."
+            "Enqueue arXiv papers, process them with Marker, "
+            "and track which papers are RAG-ready (marker_ready=true). "
+            "On Windows, Marker models are pre-loaded once per batch (warm). "
+            "On Linux/Docker, models reload per paper (subprocess mode; "
+            "warm IPC worker is v1)."
         ),
     )
     parser.add_argument(
@@ -246,7 +249,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # process
     p_process = subparsers.add_parser(
         "process",
-        help="Process next N pending items using Marker (warm-model worker)",
+        help=(
+            "Process next N pending items using Marker. "
+            "Warm batch on Windows (thread mode); cold per paper on Linux/Docker."
+        ),
     )
     p_process.add_argument(
         "--max-items",

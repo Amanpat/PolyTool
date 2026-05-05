@@ -160,6 +160,7 @@ class LiveAcademicFetcher:
         _pdfplumber_extractor_cls=None,
         _marker_timeout_seconds: float = 300.0,
         _marker_use_process: bool = _MARKER_DEFAULT_USE_PROCESS,
+        _preloaded_model_dict: Optional[dict] = None,
     ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
@@ -169,6 +170,10 @@ class LiveAcademicFetcher:
         self._pdfplumber_extractor_cls = _pdfplumber_extractor_cls
         self._marker_timeout_seconds = _marker_timeout_seconds
         self._marker_use_process = _marker_use_process
+        # Pre-loaded Marker model dict for warm-thread-worker batch mode.
+        # Only used in thread path (_marker_use_process=False). Subprocess path
+        # cannot share model objects across process boundaries.
+        self._preloaded_model_dict = _preloaded_model_dict
 
         # RIS_PDF_PARSER env var overrides constructor default.
         # Default is "marker" (production default with GPU).
@@ -177,6 +182,46 @@ class LiveAcademicFetcher:
         import os as _os
         _env = _os.environ.get("RIS_PDF_PARSER", "").lower()
         self._pdf_parser = _env if _env in ("auto", "pdfplumber", "marker") else _pdf_parser
+
+    @classmethod
+    def create_warm_thread_worker(
+        cls,
+        _marker_timeout_seconds: float = 900.0,
+        **kwargs,
+    ) -> "LiveAcademicFetcher":
+        """Create a fetcher with the Marker model pre-loaded (thread mode, Windows only).
+
+        Pre-loads create_model_dict() once so all papers in a batch reuse the same
+        model weights rather than paying the cold-load cost per paper.
+
+        Raises
+        ------
+        RuntimeError
+            On Linux/Docker where subprocess mode is used.  Passing model objects
+            across process boundaries requires IPC — deferred to v1.
+        """
+        if _MARKER_DEFAULT_USE_PROCESS:
+            raise RuntimeError(
+                "create_warm_thread_worker: subprocess mode (Linux/Docker) cannot "
+                "pre-load Marker model dict across process boundaries. "
+                "Warm IPC worker is deferred to v1."
+            )
+        preloaded: Optional[dict] = None
+        try:
+            from packages.research.ingestion.extractors import MarkerPDFExtractor
+            mods = MarkerPDFExtractor()._load_marker()
+            preloaded = mods["create_model_dict"]()
+            _logger.info("Marker: model dict pre-loaded for warm-thread-worker batch")
+        except ImportError:
+            _logger.info("Marker not installed; warm pre-load skipped (cold fallback)")
+        except Exception as exc:
+            _logger.warning("Marker warm pre-load failed: %s; using cold fetcher", exc)
+        return cls(
+            _marker_timeout_seconds=_marker_timeout_seconds,
+            _marker_use_process=False,
+            _preloaded_model_dict=preloaded,
+            **kwargs,
+        )
 
     # ------------------------------------------------------------------
     # PDF body extraction helpers
@@ -278,8 +323,14 @@ class LiveAcademicFetcher:
         t0 = _time.monotonic()
         try:
             from packages.research.ingestion.extractors import MarkerPDFExtractor
-            marker_cls = self._marker_extractor_cls or MarkerPDFExtractor
-            extractor = marker_cls()
+            if self._marker_extractor_cls is not None:
+                # Injected class (tests/compat): no preloaded dict support
+                extractor = self._marker_extractor_cls()
+            else:
+                # Pass preloaded model dict when available (warm-thread-worker batch)
+                extractor = MarkerPDFExtractor(
+                    _preloaded_model_dict=self._preloaded_model_dict
+                )
 
             _pool = _cf.ThreadPoolExecutor(max_workers=1)
             _fut = _pool.submit(extractor.extract, tmp_path)

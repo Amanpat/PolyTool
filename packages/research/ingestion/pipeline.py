@@ -19,6 +19,10 @@ from packages.polymarket.rag.knowledge_store import KnowledgeStore
 from packages.research.ingestion.extractors import Extractor, PlainTextExtractor
 from packages.research.ingestion.source_cache import RawSourceCache
 
+# Minimum Marker body length required for academic RAG indexing.
+# Must stay in sync with marker_queue.MIN_MARKER_BODY_LENGTH (= 5000).
+_ACADEMIC_MIN_MARKER_BODY_LENGTH = 5000
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -265,6 +269,30 @@ class IngestPipeline:
         for field_name, value in kwargs.items():
             if hasattr(extracted, field_name):
                 setattr(extracted, field_name, value)
+
+        # Marker-only gate: academic sources must carry a Marker-quality body.
+        # pdfplumber, abstract_fallback, and short Marker outputs are not indexed
+        # as canonical academic corpus regardless of body length.
+        if source_family == "academic":
+            _body_source = extracted.metadata.get("body_source", "unknown")
+            _body_length = int(extracted.metadata.get("body_length") or 0)
+            _marker_ready = (
+                _body_source == "marker"
+                and _body_length >= _ACADEMIC_MIN_MARKER_BODY_LENGTH
+            )
+            if not _marker_ready:
+                return IngestResult(
+                    doc_id="",
+                    chunk_count=0,
+                    gate_decision=None,
+                    rejected=True,
+                    reject_reason=(
+                        f"academic_marker_gate: body_source={_body_source!r} with "
+                        f"body_length={_body_length} is not Marker-quality; "
+                        f"only Marker-parsed bodies (>= {_ACADEMIC_MIN_MARKER_BODY_LENGTH} "
+                        f"chars) are indexed as canonical academic corpus"
+                    ),
+                )
 
         # Determine source_type for EvalDocument
         source_type = extracted.metadata.get("source_type", source_family)

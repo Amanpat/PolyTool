@@ -22,6 +22,7 @@ import sys
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -453,11 +454,36 @@ class TestProcessFailure:
         results = q.process_next(max_items=1, _fetcher=_FakeFetcher(short_raw))
         r = results[0]
         assert r["body_source"] == "marker"
-        # marker output but too short for RAG
         assert r["marker_ready"] is False
-        # Note: the fetcher returned "marker" source so rejected=False, queue=done
-        assert r["rejected"] is False
-        assert r["queue_status"] == "done"
+        # Short Marker output is an auditable failure — not silently marked done
+        assert r["rejected"] is True
+        assert r["exit_code"] == 1
+        assert "marker_body_too_short" in r["failure_reason"]
+        # First attempt: retryable (pending), not yet terminal
+        assert r["queue_status"] == "pending"
+
+    def test_marker_short_body_failure_reason_contains_lengths(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MIN_MARKER_BODY_LENGTH
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        short_body_len = MIN_MARKER_BODY_LENGTH - 1
+        results = q.process_next(
+            max_items=1, _fetcher=_FakeFetcher(_marker_raw(body_length=short_body_len))
+        )
+        r = results[0]
+        assert str(short_body_len) in r["failure_reason"]
+        assert str(MIN_MARKER_BODY_LENGTH) in r["failure_reason"]
+
+    def test_marker_short_body_becomes_failed_after_max_attempts(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MAX_ATTEMPTS, MIN_MARKER_BODY_LENGTH
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        fetcher = _FakeFetcher(_marker_raw(body_length=MIN_MARKER_BODY_LENGTH - 1))
+        for _ in range(MAX_ATTEMPTS):
+            q.process_next(max_items=1, _fetcher=fetcher)
+        records = q.list_queue()
+        assert records[0]["status"] == "failed"
+        assert records[0]["attempts"] == MAX_ATTEMPTS
 
 
 # ---------------------------------------------------------------------------
@@ -611,3 +637,220 @@ class TestCLI:
         data = json.loads(out)
         assert data["pending"] == 1
         assert data["total"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Warm-worker behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestWarmWorkerBehavior:
+    """Verify warm-worker implementation is honest about platform limits."""
+
+    def test_platform_selects_correct_marker_mode(self) -> None:
+        """Windows uses thread mode; Linux/Docker uses subprocess mode."""
+        import sys
+        from packages.research.ingestion.fetchers import _MARKER_DEFAULT_USE_PROCESS
+        if sys.platform == "win32":
+            assert not _MARKER_DEFAULT_USE_PROCESS
+        else:
+            assert _MARKER_DEFAULT_USE_PROCESS
+
+    def test_warm_thread_worker_raises_on_subprocess_platform(self) -> None:
+        """create_warm_thread_worker raises RuntimeError on Linux/Docker (subprocess mode)."""
+        import sys
+        from packages.research.ingestion.fetchers import (
+            LiveAcademicFetcher,
+            _MARKER_DEFAULT_USE_PROCESS,
+        )
+        if sys.platform != "win32":
+            # Linux/Docker: warm thread worker is explicitly unsupported
+            with pytest.raises(RuntimeError, match="subprocess mode"):
+                LiveAcademicFetcher.create_warm_thread_worker()
+        else:
+            pytest.skip("subprocess mode not active on Windows")
+
+    def test_preloaded_model_dict_skips_create_model_dict(self, tmp_path: "Path") -> None:
+        """MarkerPDFExtractor does NOT call create_model_dict when preloaded dict provided."""
+        import tempfile
+        import os
+        from packages.research.ingestion.extractors import MarkerPDFExtractor
+
+        call_count = [0]
+        fake_body = "# Title\n\n" + "Research content. " * 2000  # > MIN_MARKER_BODY_LENGTH
+
+        def fake_create_model_dict():
+            call_count[0] += 1
+            return {}
+
+        fake_converter = MagicMock()
+        fake_rendered = MagicMock()
+        fake_converter.return_value = fake_rendered
+
+        def fake_text_from_rendered(rendered):
+            return (fake_body, {"page_count": 10})
+
+        marker_modules = {
+            "PdfConverter": fake_converter,
+            "create_model_dict": fake_create_model_dict,
+            "text_from_rendered": fake_text_from_rendered,
+        }
+        preloaded = {"already": "loaded"}
+
+        extractor = MarkerPDFExtractor(
+            _marker_modules=marker_modules,
+            _preloaded_model_dict=preloaded,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            pdf_tmp = f.name
+        try:
+            doc = extractor.extract(pdf_tmp)
+        finally:
+            os.unlink(pdf_tmp)
+
+        # create_model_dict must NOT have been called (preloaded dict was used)
+        assert call_count[0] == 0
+        # PdfConverter was called with the preloaded dict, not a fresh one
+        fake_converter.assert_called_once_with(artifact_dict=preloaded)
+        assert doc.body == fake_body
+
+    def test_cold_extractor_calls_create_model_dict(self, tmp_path: "Path") -> None:
+        """Without preloaded dict, create_model_dict IS called once per extract()."""
+        import tempfile
+        import os
+        from packages.research.ingestion.extractors import MarkerPDFExtractor
+
+        call_count = [0]
+        fake_body = "# Title\n\n" + "Research content. " * 2000
+
+        def fake_create_model_dict():
+            call_count[0] += 1
+            return {}
+
+        fake_converter = MagicMock()
+        fake_converter.return_value = MagicMock()
+
+        marker_modules = {
+            "PdfConverter": fake_converter,
+            "create_model_dict": fake_create_model_dict,
+            "text_from_rendered": lambda r: (fake_body, {"page_count": 5}),
+        }
+
+        extractor = MarkerPDFExtractor(_marker_modules=marker_modules)
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            pdf_tmp = f.name
+        try:
+            extractor.extract(pdf_tmp)
+        finally:
+            os.unlink(pdf_tmp)
+
+        assert call_count[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Pipeline gate: academic Marker-only indexing
+# ---------------------------------------------------------------------------
+
+
+class TestAcademicPipelineMarkerGate:
+    """Verify IngestPipeline.ingest_external() rejects non-Marker academic bodies."""
+
+    def _make_pipeline(self):
+        from packages.polymarket.rag.knowledge_store import KnowledgeStore
+        from packages.research.ingestion.pipeline import IngestPipeline
+        store = KnowledgeStore(db_path=":memory:")
+        return IngestPipeline(store=store)
+
+    # Realistic sentence that passes hard-stop checks (mixed case, normal text)
+    _SENTENCE = (
+        "This paper presents novel findings on prediction market microstructure "
+        "and probability calibration using Bayesian inference methods. "
+    )
+
+    def _make_body(self, length: int) -> str:
+        """Build a realistic body text of at least *length* chars."""
+        repeat = (length // len(self._SENTENCE)) + 2
+        return (self._SENTENCE * repeat)[:max(length, len(self._SENTENCE))]
+
+    def _academic_raw(self, body_source: str, body_length: int, body_text: str = "") -> dict:
+        if not body_text:
+            body_text = self._make_body(body_length)
+        return {
+            "url": "https://arxiv.org/abs/2604.99999",
+            "title": "Test Paper on Prediction Markets",
+            "abstract": "Abstract of test paper.",
+            "authors": ["Author One"],
+            "published_date": "2024-01-01",
+            "body_text": body_text,
+            "body_source": body_source,
+            "body_length": body_length,
+        }
+
+    def test_marker_ready_body_is_accepted(self) -> None:
+        from packages.research.ingestion.pipeline import _ACADEMIC_MIN_MARKER_BODY_LENGTH
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("marker", _ACADEMIC_MIN_MARKER_BODY_LENGTH)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert not result.rejected, f"Expected accepted, got: {result.reject_reason}"
+        assert result.chunk_count > 0
+
+    def test_pdfplumber_body_is_rejected(self) -> None:
+        from packages.research.ingestion.pipeline import _ACADEMIC_MIN_MARKER_BODY_LENGTH
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("pdfplumber_fallback", _ACADEMIC_MIN_MARKER_BODY_LENGTH * 2)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert result.rejected
+        assert "academic_marker_gate" in result.reject_reason
+        assert "pdfplumber_fallback" in result.reject_reason
+
+    def test_abstract_fallback_body_is_rejected(self) -> None:
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("abstract_fallback", 500)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert result.rejected
+        assert "academic_marker_gate" in result.reject_reason
+
+    def test_marker_failed_body_is_rejected(self) -> None:
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("marker_failed", 0)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert result.rejected
+        assert "academic_marker_gate" in result.reject_reason
+
+    def test_short_marker_body_is_rejected(self) -> None:
+        from packages.research.ingestion.pipeline import _ACADEMIC_MIN_MARKER_BODY_LENGTH
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("marker", _ACADEMIC_MIN_MARKER_BODY_LENGTH - 1)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert result.rejected
+        assert "academic_marker_gate" in result.reject_reason
+
+    def test_unknown_body_source_is_rejected(self) -> None:
+        from packages.research.ingestion.pipeline import _ACADEMIC_MIN_MARKER_BODY_LENGTH
+        pipeline = self._make_pipeline()
+        raw = self._academic_raw("unknown", _ACADEMIC_MIN_MARKER_BODY_LENGTH * 2)
+        result = pipeline.ingest_external(raw, source_family="academic")
+        assert result.rejected
+        assert "academic_marker_gate" in result.reject_reason
+
+    def test_non_academic_family_not_gated(self) -> None:
+        """Gate only applies to academic; blog sources pass through regardless of body_source."""
+        from packages.polymarket.rag.knowledge_store import KnowledgeStore
+        from packages.research.ingestion.pipeline import IngestPipeline
+        store = KnowledgeStore(db_path=":memory:")
+        pipeline = IngestPipeline(store=store)
+        body = self._make_body(3000)
+        raw = {
+            "url": "https://example.com/post",
+            "title": "A Blog Post on Markets",
+            "body_text": body,
+            "body_source": "pdfplumber_fallback",  # should be ignored for blog
+            "author": "Jane Doe",
+            "published_date": "2024-01-01",
+            "publisher": "ExampleBlog",
+        }
+        result = pipeline.ingest_external(raw, source_family="blog")
+        # Blog passes the gate (no academic_marker_gate check)
+        assert "academic_marker_gate" not in (result.reject_reason or "")

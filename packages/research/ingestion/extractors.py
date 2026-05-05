@@ -427,8 +427,12 @@ class MarkerPDFExtractor(Extractor):
         self,
         _marker_modules: "Optional[dict]" = None,
         _enable_llm: bool = False,
+        _preloaded_model_dict: "Optional[dict]" = None,
     ) -> None:
         self._marker_modules = _marker_modules
+        # Pre-loaded model dict — if provided, create_model_dict() is skipped.
+        # Used by warm-thread-worker to amortize cold-load across a batch.
+        self._preloaded_model_dict = _preloaded_model_dict
         import os as _os
         self._enable_llm = _enable_llm or _os.environ.get("RIS_MARKER_LLM", "").lower() in ("1", "true")
 
@@ -478,7 +482,10 @@ class MarkerPDFExtractor(Extractor):
         create_model_dict = mods["create_model_dict"]
         text_from_rendered = mods["text_from_rendered"]
 
-        model_dict = create_model_dict()
+        if self._preloaded_model_dict is not None:
+            model_dict = self._preloaded_model_dict
+        else:
+            model_dict = create_model_dict()
         converter = PdfConverter(artifact_dict=model_dict)
         rendered = converter(str(source_path))
 

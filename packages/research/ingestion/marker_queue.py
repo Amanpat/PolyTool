@@ -213,26 +213,54 @@ class MarkerParseQueue:
     ) -> list[dict]:
         """Process up to *max_items* pending items using LiveAcademicFetcher.
 
-        Items are processed sequentially so Marker model weights remain in VRAM
-        after the first paper's cold-load, reducing per-paper cost to ~6s.
+        Items are processed sequentially within one call.
+
+        Warm-worker behaviour depends on platform:
+        - **Windows (thread mode)**: Marker model weights are pre-loaded once before
+          the first paper using ``create_warm_thread_worker()``, then reused for every
+          subsequent paper in the batch.  This amortizes the cold-load cost (~80 s)
+          across all items.
+        - **Linux/Docker (subprocess mode)**: a fresh Marker process is spawned for
+          each paper and ``create_model_dict()`` runs per extraction.  Warm model
+          reuse across subprocess boundaries requires IPC — deferred to v1.
 
         Parameters
         ----------
         max_items:
             Maximum number of pending queue items to process this call.
         marker_timeout:
-            Marker extraction subprocess timeout in seconds.
+            Marker extraction timeout in seconds.
         _fetcher:
             Injectable fetcher (for tests). Must have a .fetch(url) -> dict method.
-            If None, creates LiveAcademicFetcher with marker_timeout.
+            If None, a LiveAcademicFetcher is created automatically.
 
         Returns
         -------
         list of result dicts (one per processed item, in order).
         """
         if _fetcher is None:
-            from packages.research.ingestion.fetchers import LiveAcademicFetcher
-            fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
+            from packages.research.ingestion.fetchers import (
+                LiveAcademicFetcher,
+                _MARKER_DEFAULT_USE_PROCESS,
+            )
+            if not _MARKER_DEFAULT_USE_PROCESS and max_items > 1:
+                # Thread mode (Windows): pre-load Marker model once for the whole batch
+                try:
+                    fetcher = LiveAcademicFetcher.create_warm_thread_worker(
+                        _marker_timeout_seconds=marker_timeout
+                    )
+                    _logger.info(
+                        "marker_queue: warm thread worker created; model pre-loaded"
+                    )
+                except Exception as exc:
+                    _logger.warning(
+                        "marker_queue: warm pre-load failed (%s); using cold fetcher", exc
+                    )
+                    fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
+            else:
+                # Subprocess mode (Linux/Docker): each paper spawns a new process.
+                # Model reloads per extraction; warm IPC worker is deferred to v1.
+                fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
         else:
             fetcher = _fetcher
 
@@ -334,6 +362,13 @@ class MarkerParseQueue:
                     raw.get("failure_reason")
                     or raw.get("fallback_reason")
                     or f"non-marker output: body_source={result['body_source']!r}"
+                )
+                result["rejected"] = True
+                result["exit_code"] = 1
+            elif result["body_length"] < MIN_MARKER_BODY_LENGTH:
+                result["failure_reason"] = (
+                    f"marker_body_too_short: {result['body_length']} chars < "
+                    f"{MIN_MARKER_BODY_LENGTH} threshold"
                 )
                 result["rejected"] = True
                 result["exit_code"] = 1
