@@ -4,16 +4,32 @@
 # Requires NVIDIA GPU with Docker GPU passthrough (--gpus all).
 # Tested: Docker Desktop 29.x on Windows 11 with WSL2 + RTX 2070 Super.
 #
+# STORAGE BUDGET (approximate):
+#   python:3.11-slim base:         ~200 MB
+#   torch 2.11.0+cu130:          ~2,500 MB  (CUDA runtime bundled in wheel)
+#   torchvision 0.26.0+cu130:      ~150 MB
+#   marker-pdf deps (transformers,
+#     timm, surya-ocr, etc.):    ~2,000 MB
+#   app source + other deps:       ~300 MB
+#   Total runtime image:         ~5,200 MB (~5–6 GB)
+#   BuildKit pip cache (host):   ~3,500 MB  (kept across builds, not in image)
+#   Model weights (host-mounted): ~1,000–3,000 MB (~/.cache/datalab)
+#
+#   Minimum free space on Docker's drive before a full rebuild: 15 GB.
+#   See docs/runbooks/docker_storage.md for audit/cleanup/compact steps.
+#
 # Model weights are NOT baked in. Mount ~/.cache/datalab from the host.
 # Runtime user is `polytool` (not root), so mount to /home/polytool/.cache/datalab:
 #   volumes:
 #     - ${USERPROFILE}/.cache/datalab:/home/polytool/.cache/datalab
 # First run downloads weights (~1-3 GB); subsequent runs hit the host cache.
 #
-# CUDA torch: CUDA 12.4 wheels are installed BEFORE marker-pdf so pip satisfies
-# the torch dependency from the already-installed CUDA build. The bundled CUDA
-# runtime libs in the torch wheel provide GPU support without a separate
-# nvidia/cuda base image.
+# CUDA torch: torch+torchvision are pinned to matching cu130 wheels and installed
+# BEFORE marker-pdf so pip satisfies the torch>=2.7 requirement from the already-
+# installed CUDA build. The bundled CUDA runtime libs in the torch wheel provide
+# GPU support without a separate nvidia/cuda base image. Mismatched CUDA versions
+# (e.g. torch cu130 + torchvision cu124) cause torchvision::nms operator failure
+# at import time, making every paper return marker_failed. Keep both pins in sync.
 
 # ── Stage 1: builder ─────────────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
@@ -60,13 +76,16 @@ RUN echo "# PolyTool" > README.md \
     && mkdir -p tools/guard \
     && find polytool packages tools -type d -exec touch {}/__init__.py \;
 
-# Layer 2: install CUDA torch FIRST (cu124 wheels bundle the CUDA runtime).
-# Subsequent pip install of [ris] finds torch already satisfied and won't
-# downgrade to the CPU build pulled from PyPI by marker-pdf's dependency spec.
+# Layer 2: install CUDA torch+torchvision FIRST, pinned to cu130 wheels.
+# marker-pdf>=1.0 requires torch>=2.7; the current latest on the whl index is
+# 2.11.0+cu130 + torchvision 0.26.0+cu130. Pinning here prevents Layer 3's
+# marker-pdf install from upgrading torch from the pip cache (which may contain
+# cu130 wheels) while leaving torchvision at the old cu124 build — the mismatch
+# that causes "operator torchvision::nms does not exist" at Marker import time.
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip \
-    && pip install torch torchvision \
-        --index-url https://download.pytorch.org/whl/cu124
+    && pip install "torch==2.11.0+cu130" "torchvision==0.26.0+cu130" \
+        --index-url https://download.pytorch.org/whl/cu130
 
 # Layer 3: install all RIS service deps.
 # [ris] now includes marker-pdf (moved from [ris-marker] in L1 rollout).
@@ -118,6 +137,14 @@ COPY --from=builder /app/tools ./tools/
 COPY --from=builder /app/services ./services/
 
 RUN chown -R polytool:polytool /app
+
+# marker-pdf and its dependency tree attempt to create site-packages/static on
+# first import (web-asset serving path in surya-ocr / marker server). Pre-create
+# it owned by the runtime user so the write does not fail with EPERM. Only this
+# specific directory needs write access; the rest of site-packages stays
+# root-owned and read-only.
+RUN mkdir -p /usr/local/lib/python3.11/site-packages/static \
+    && chown polytool:polytool /usr/local/lib/python3.11/site-packages/static
 
 USER polytool
 
