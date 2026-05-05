@@ -1,23 +1,20 @@
 # Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: CODE COMPLETE — L1 PRODUCTION BLOCKED ON PERFORMANCE GATE (2026-05-05)**
+**Status: CODE COMPLETE — L1 PRODUCTION BLOCKED (awaiting async queue implementation, 2026-05-05)**
 
-> **Controlled parse validated 2026-05-05 — but too slow for synchronous production default.**
-> One paper parsed successfully via `run-academic-url`:
-> `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`.
-> **`parse_seconds=85.95s` fails the ≤10s/paper production gate by ~8.6×.**
+> **Operator decision recorded 2026-05-05: Option A — async parse queue.**
+> Controlled parse validated: `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`.
+> `parse_seconds=85.95s` fails the ≤10s/paper production gate by ~8.6× (cold-start model load ~80s dominates).
 >
-> Marker works on GPU Docker. It is not fast enough for synchronous default production
-> on RTX 2070 Super with cold-start per invocation. The ~5–10s/paper estimate from the
-> architecture survey was not replicated — each `docker compose run --rm` reloads models
-> from disk (~80s cold-start dominates the budget).
+> **pdfplumber is legacy/debug only.** `RIS_PDF_PARSER=pdfplumber` is a debug override, not a production path.
+> **Final academic embeddings must be Marker-only.** `body_source=marker` is the RAG-readiness gate.
+> A warm GPU worker (models loaded once, queue processed sequentially) is the production path.
 >
-> **L1 production rollout requires an operator decision before resuming:**
-> - Option A: async parse queue (pdfplumber stays default; Marker enriches async)
-> - Option B: warm-model optimization (long-running scheduler service, quantized models)
-> - Option C: keep pdfplumber as production default; use Marker only for targeted enrichment
+> **Next packet:** [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: ready).
+> L1 production rollout resumes when the async queue ships and warm worker validates ≥3 papers at ≤10s/paper.
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
+> **Decision log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`
 
 Layer 1 code ships Marker as the default and only production PDF parser for the
 academic ingest pipeline. pdfplumber is no longer the active production path;
@@ -280,4 +277,5 @@ Targeted: 76 passed, 0 failed. Full suite: 2403 passed, 1 pre-existing failure
 | [`2026-05-03_ris-marker-production-rollout-validation`](../dev_logs/2026-05-03_ris-marker-production-rollout-validation.md) | Prompt B: Codex blockers resolved; GPU validation PENDING (Docker not running in session) |
 | [`2026-05-05_ris-marker-short-paper-smoke`](../dev_logs/2026-05-05_ris-marker-short-paper-smoke.md) | Smoke validation: two papers timed out (1200-1800s); systematic math-density timeout pattern diagnosed; one-shot CLI not viable for ML papers |
 | [`2026-05-05_context-ris-gpu-scheduler-marker-validation`](../dev_logs/2026-05-05_context-ris-gpu-scheduler-marker-validation.md) | Scheduler safety audit: no single-paper submit path, thread-based cancel, coarse success metadata, all-8-jobs registration |
+| [`2026-05-05_marker-canonical-parse-queue-packet`](../dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md) | Operator chose Option A (async parse queue); pdfplumber declared legacy/debug only; state model + acceptance gates defined; Feature 3 assigned |
 | [`2026-05-05_marker-production-rollout-reconciliation`](../dev_logs/2026-05-05_marker-production-rollout-reconciliation.md) | Reconciliation: L1 blocked; docs updated; new control surface packet created |

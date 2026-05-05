@@ -10,6 +10,7 @@ Usage::
     python -m polytool research-parser-benchmark
     python -m polytool research-parser-benchmark --urls 2510.15205,2309.01454,2401.12345
     python -m polytool research-parser-benchmark --marker-timeout 120 --output-dir artifacts/benchmark/parser
+    python -m polytool research-parser-benchmark --parsers marker --verbose
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import re
 import sys
 import tempfile
 import time
+import traceback
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -51,8 +53,12 @@ class ParserResult:
     equation_inline_count: int
     parse_seconds: float
     cache_meta_bytes: int
+    # failure_reason: set for marker_failed (explicit rejection from _marker_production_extract)
+    failure_reason: str
+    # fallback_reason: set for pdfplumber_fallback or abstract_fallback
     fallback_reason: str
     error: str
+    traceback_text: str
 
 
 def _count_metrics(text: str) -> dict:
@@ -64,7 +70,7 @@ def _count_metrics(text: str) -> dict:
     }
 
 
-def _run_parser(arxiv_id: str, parser: str, timeout: float) -> ParserResult:
+def _run_parser(arxiv_id: str, parser: str, timeout: float, verbose: bool = False) -> ParserResult:
     from packages.research.ingestion.fetchers import LiveAcademicFetcher
 
     t0 = time.perf_counter()
@@ -90,6 +96,11 @@ def _run_parser(arxiv_id: str, parser: str, timeout: float) -> ParserResult:
         cache_meta = meta.get("structured_metadata")
         cache_meta_bytes = len(json.dumps(cache_meta).encode()) if cache_meta else 0
 
+        # failure_reason: used by marker_failed (explicit Marker rejection)
+        # fallback_reason: used by pdfplumber_fallback / abstract_fallback
+        failure_reason = meta.get("failure_reason", "")
+        fallback_reason = meta.get("fallback_reason", "")
+
         try:
             import os
             os.unlink(tmp_path)
@@ -107,12 +118,15 @@ def _run_parser(arxiv_id: str, parser: str, timeout: float) -> ParserResult:
             equation_inline_count=metrics["equation_inline_count"],
             parse_seconds=round(elapsed, 2),
             cache_meta_bytes=cache_meta_bytes,
-            fallback_reason=meta.get("fallback_reason", ""),
+            failure_reason=failure_reason,
+            fallback_reason=fallback_reason,
             error="",
+            traceback_text="",
         )
 
     except Exception as exc:
         elapsed = time.perf_counter() - t0
+        tb_text = traceback.format_exc() if verbose else ""
         return ParserResult(
             arxiv_id=arxiv_id,
             parser=parser,
@@ -124,12 +138,19 @@ def _run_parser(arxiv_id: str, parser: str, timeout: float) -> ParserResult:
             equation_inline_count=0,
             parse_seconds=round(elapsed, 2),
             cache_meta_bytes=0,
+            failure_reason="",
             fallback_reason="",
-            error=str(exc)[:200],
+            error=str(exc),
+            traceback_text=tb_text,
         )
 
 
-def _print_table(results: list[ParserResult]) -> None:
+def _get_note(r: "ParserResult") -> str:
+    """Return the diagnostic note for a result (failure_reason, fallback_reason, or error)."""
+    return r.failure_reason or r.fallback_reason or r.error or ""
+
+
+def _print_table(results: list[ParserResult], verbose: bool = False) -> None:
     header = (
         f"{'arxiv_id':<14} {'parser':<11} {'body_src':<22} "
         f"{'len':>7} {'sec':>4} {'tbl':>4} {'eq_b':>5} {'eq_i':>5} "
@@ -138,13 +159,23 @@ def _print_table(results: list[ParserResult]) -> None:
     print(header)
     print("-" * len(header))
     for r in results:
-        note = r.fallback_reason[:40] if r.fallback_reason else (r.error[:40] if r.error else "")
+        note = _get_note(r)
+        note_display = note if verbose else note[:60]
         print(
             f"{r.arxiv_id:<14} {r.parser:<11} {r.body_source:<22} "
             f"{r.body_length:>7} {r.section_count:>4} {r.table_count:>4} "
             f"{r.equation_block_count:>5} {r.equation_inline_count:>5} "
-            f"{r.parse_seconds:>6.1f} {r.cache_meta_bytes // 1024:>8}  {note}"
+            f"{r.parse_seconds:>6.1f} {r.cache_meta_bytes // 1024:>8}  {note_display}"
         )
+
+    if verbose:
+        print()
+        for r in results:
+            note = _get_note(r)
+            if note:
+                print(f"[{r.arxiv_id}/{r.parser}] note: {note}")
+            if r.traceback_text:
+                print(f"[{r.arxiv_id}/{r.parser}] traceback:\n{r.traceback_text}")
 
 
 def main(argv: list) -> int:
@@ -179,6 +210,13 @@ def main(argv: list) -> int:
         "--json", dest="json_out", action="store_true",
         help="Print results as JSON instead of table.",
     )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help=(
+            "Show full failure_reason/fallback_reason/error without truncation. "
+            "Also captures full Python traceback for outer exceptions."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -199,23 +237,29 @@ def main(argv: list) -> int:
     print(f"arXiv IDs : {', '.join(arxiv_ids)}")
     print(f"Parsers   : {', '.join(parsers)}")
     print(f"Marker timeout: {args.marker_timeout}s")
+    if args.verbose:
+        print("Verbose: ON (full failure_reason, full tracebacks)")
     print()
 
     results: list[ParserResult] = []
     for arxiv_id in arxiv_ids:
         for p in parsers:
             print(f"  {arxiv_id} / {p} ... ", end="", flush=True)
-            r = _run_parser(arxiv_id, p, args.marker_timeout)
+            r = _run_parser(arxiv_id, p, args.marker_timeout, verbose=args.verbose)
             results.append(r)
-            status = r.body_source if not r.error else f"ERROR: {r.error[:40]}"
+            note = _get_note(r)
+            note_summary = note[:80] if note else ""
+            status = r.body_source if not r.error else f"ERROR: {r.error[:60]}"
             print(f"{status} ({r.parse_seconds:.1f}s, body={r.body_length})")
+            if note_summary and args.verbose:
+                print(f"    -> {note_summary}")
 
     print()
 
     if args.json_out:
         print(json.dumps([asdict(r) for r in results], indent=2))
     else:
-        _print_table(results)
+        _print_table(results, verbose=args.verbose)
 
     if args.output_dir:
         out_path = Path(args.output_dir)

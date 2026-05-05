@@ -72,6 +72,27 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
   - [ ] End-to-end validation run complete (operator manual step — see acceptance dev log)
   - [ ] CURRENT_STATE.md RIS section updated (after validation run)
 
+### Feature 3: RIS Marker Canonical Academic Parse Queue
+
+- **Track:** Research Intelligence System
+- **Status:** Packet created (status: ready) — implementation not yet started
+- **Started:** 2026-05-05
+- **Last updated:** 2026-05-05
+- **Owner:** Aman
+- **Current step:** Implement queue per [[Work-Packet - Marker Canonical Academic Parse Queue]]. Key deliverables: `ParseQueue` (SQLite), `MarkerWorker` (warm-load loop), `LiveAcademicFetcher` enqueue mode, embedding Marker-only gate, `run-marker-worker` CLI subcommand.
+- **Blockers:** None. Docker GPU passthrough confirmed. Operator decision recorded (Option A).
+- **Definition of done:**
+  - [ ] `packages/research/ingestion/queue.py` — ParseQueue: enqueue, dequeue, update_state, list_by_state
+  - [ ] `packages/research/ingestion/worker.py` — MarkerWorker: warm-load loop, processes ≥3 papers; parse_seconds ≤10s for papers 2+
+  - [ ] `LiveAcademicFetcher` enqueues instead of parsing inline when queue mode active
+  - [ ] EmbeddingPipeline refuses non-marker bodies by default (logs warning, skips paper)
+  - [ ] Queue persistence (SQLite or file-backed; survives worker restart)
+  - [ ] `research-scheduler run-marker-worker` subcommand
+  - [ ] `tests/test_ris_parse_queue.py` with ≥6 tests
+  - [ ] Dev log `docs/dev_logs/YYYY-MM-DD_marker-canonical-parse-queue-impl.md` with warm-timing evidence
+  - [ ] `docs/features/ris-marker-canonical-parse-queue.md` created
+  - [ ] CURRENT_DEVELOPMENT.md + INDEX.md updated
+
 
 ## Completion-Doc Debt (tracked, not Active)
 
@@ -107,7 +128,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                | Paused         | Reason                                                                            | Resume trigger                                                |
 | ------------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| RIS L1 Marker Production Rollout — Validation          | 2026-05-05     | Control surface validated 2026-05-05: Marker parses successfully (`body_source=marker`, `body_length=56923`). But `parse_seconds=85.95s` >> ≤10s/paper production gate (~8.6× over). Operator must decide: (A) async parse queue, (B) warm-model optimization, (C) keep pdfplumber default + selective Marker enrichment. | Operator decision on Marker production strategy recorded; performance gap resolved or gate revised |
+| RIS L1 Marker Production Rollout — Validation          | 2026-05-05     | Operator chose Option A 2026-05-05: async parse queue. Implementation in progress (Feature 3). pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. | [[Work-Packet - Marker Canonical Academic Parse Queue]] ships; warm worker processes ≥3 papers with `parse_seconds ≤10s` for papers 2+ |
 | Crypto Gold Tape Resumption                            | 2026-04-21     | Director paused pending Gate 2 decision                                           | Gate 2 Option 1 or 4 chosen                                   |
 | Wallet Discovery Loop B (Alchemy watched-wallet)       | 2026-04-15     | Feasibility probe complete; implementation not started                            | Alchemy key + Track 2 soak result known                       |
 | Wallet Discovery Loop D (managed CLOB + anomaly)       | 2026-04-15     | Feasibility probe complete; ClobStreamClient blockers open                        | ClobStreamClient PING keepalive + dynamic subscription landed |
@@ -131,6 +152,6 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - When Active count hits 3, stop offering architectural next-moves that would create a 4th. Redirect to "which Active feature needs a next step?"
 - **RIS Phase 2A implementation is COMPLETE (2026-04-23).** WP1 ✓, WP2-core ✓ (WP2-D/E/F/G deferred to Phase 2B), WP3 ✓, WP4 ✓, WP5 ✓. Next operator action: end-to-end validation run (11 steps in `docs/dev_logs/2026-04-23_ris_phase2a_acceptance_pass.md`). Feature doc at `docs/features/ris_operational_readiness_phase2a.md`. **Hermes is OUT OF SCOPE for Phase 2A and Phase 2B base.** Hermes enters only at WP7, which is conditional on a collaborator contributing via WP6 for 2+ weeks AND explicitly requesting continuous mode. Do not design prompts that introduce Hermes into Phase 2A or WP6 work. **Phase 2B (WP6)** starts only when: Phase 2A e2e validation passes AND at least one friend explicitly agrees to contribute.
 - **RIS Scientific RAG Evaluation Benchmark v0 is COMPLETE (2026-05-02).** Baseline locked: corpus_size=23, P@5=1.0, off_topic_rate=30.43%, Recommendation A. Feature doc at `docs/features/FEATURE-ris-scientific-eval-benchmark-v0.md`. Rule D (parser quality) is secondary/heuristic; do not treat it as a blocker ahead of Recommendation A.
-- **RIS L1 Marker Production Rollout is PAUSED/DEFERRED (updated 2026-05-05).** Control surface validated — Marker parses successfully on GPU Docker. But `parse_seconds=85.95s` fails the ≤10s/paper production gate by ~8.6×. Feature 3 slot is free. Do NOT design prompts that resume L1 as synchronous default parser without operator decision on strategy. Do NOT start L2. Next RIS work: operator chooses Marker production strategy (A: async queue, B: warm-model optimization, C: pdfplumber-default + selective Marker) OR L3 label accumulation (≥30+30 SVM trigger).
+- **RIS Marker Canonical Academic Parse Queue is ACTIVE as Feature 3 (2026-05-05).** Operator chose Option A: async parse queue. [[Work-Packet - Marker Canonical Academic Parse Queue]] is `ready` — implementation has not started. pdfplumber is legacy/debug only (`RIS_PDF_PARSER=pdfplumber` for debug only). RAG-ready requires `body_source=marker`. Do NOT design prompts that use pdfplumber as a production fallback for canonical academic corpus. Do NOT start L2 until queue ships and ≥3 papers process warm. **L1 Marker Production Rollout remains PAUSED** — blocked on async queue shipping. Active count is now 3 (Feature 1 + Feature 2 + Feature 3) — do NOT add a 4th without pausing one.
 - **Marker Single-Paper Validation Control Surface is COMPLETE (2026-05-05).** `run-academic-url` subcommand + process-boundary subprocess cancel shipped. One-paper controlled parse validated: `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`. 5 new tests (43 targeted / 2403 full pass). Dev log: `docs/dev_logs/2026-05-05_ris-marker-single-paper-validation-control-surface.md`.
 - **RIS L3 Pre-fetch Relevance Filter v0 + L3.1 are COMPLETE (2026-05-02).** Feature doc at `docs/features/FEATURE-ris-prefetch-relevance-filter-v0.md`. DB-backed results: Scenario B = 5.88% (<10% target met), QA REJECT = 0. All four filter modes shipped: `--prefetch-filter-mode {off,dry-run,enforce,hold-review}`, default `off`. **`hold-review` holds REVIEW candidates in `artifacts/research/prefetch_review_queue/review_queue.jsonl` without ingesting — hold-out invariant preserved even on queue write failure.** `research-prefetch-review list/label/counts` CLI manages the queue. Labels accumulate at `artifacts/research/svm_filter_labels/labels.jsonl`. **Dry-run is safe now. Reject-only enforce is mechanically safe but experimental — corresponds to Scenario A (20.0%), not the <10% Scenario B simulation.** Do not claim reject-only enforcement achieves <10%. Full enforce-ready deferred. Do not claim SVM is implemented — v1 (SPECTER2+SVM) triggered by ≥30 allow + ≥30 reject labels. 160 tests pass. Codex PASS WITH FIXES (M1 queue write status, L2 malformed JSONL warning, L3 search-mode coverage) resolved.

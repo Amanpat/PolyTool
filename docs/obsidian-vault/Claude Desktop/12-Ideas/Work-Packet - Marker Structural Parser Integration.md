@@ -2,7 +2,7 @@
 tags: [work-packet, ris, ingestion, academic, parser]
 date: 2026-04-29
 status: blocked
-blocked-reason: "Control surface validated 2026-05-05: Marker parses successfully (body_source=marker, body_length=56923). But parse_seconds=85.95s on a 15-page prose paper far exceeds the ≤10s/paper production gate. The ~5-10s/paper GPU estimate from the architecture survey was optimistic for RTX 2070 Super. Production rollout as synchronous default parser is not viable until performance gap is resolved."
+blocked-reason: "Operator chose Option A 2026-05-05: async parse queue. L1 production rollout cannot ship as synchronous default (parse_seconds=85.95s >> ≤10s/paper gate; cold-start dominates). Blocked pending [[Work-Packet - Marker Canonical Academic Parse Queue]] shipping. pdfplumber is legacy/debug only. Final embeddings must be Marker-only."
 updated: 2026-05-05
 priority: high
 phase: 2
@@ -20,10 +20,10 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 
 # Work Packet — Marker Structural Parser Integration (Production Rollout)
 
-> [!DANGER] Status: BLOCKED — Performance Gate Failure 2026-05-05
+> [!DANGER] Status: BLOCKED — Awaiting Async Queue Implementation (updated 2026-05-05)
 > The control surface (`run-academic-url`) was validated on 2026-05-05.
 > Marker parses successfully — but is too slow for synchronous production default.
-> **Do not ship this packet without operator decision on the performance gap.**
+> **Operator decision recorded 2026-05-05: Option A — async parse queue.**
 >
 > **Controlled parse result (2026-05-05):**
 > - Paper: `2604.24366` — The Anatomy of a Decentralized Prediction Market (15 pages, prose-heavy)
@@ -33,27 +33,20 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 >
 > **Root cause:** RTX 2070 Super cold-load time dominates per-paper budget. The ~5–10s/paper
 > estimate in the architecture survey was from a warm-model benchmark not replicated here.
-> Cold-start each `docker compose run --rm` invocation = model reload from disk on every paper.
+> Cold-start per `docker compose run --rm` invocation = model reload from disk on every paper.
+> Warm-worker approach (models loaded once, queue processed sequentially) solves this.
 >
-> **Previous blockers (resolved 2026-05-05):**
-> - ✅ One-shot benchmark timeouts → fixed by `run-academic-url` + process-boundary cancel
-> - ✅ No single-paper submit path → `run-academic-url` provides it
-> - ✅ No per-paper parse metadata → `parse_seconds`, `body_source`, `body_length` in JSON output
+> **Operator decision — Option A: Async Parse Queue:**
+> - pdfplumber is **legacy/debug only** (`RIS_PDF_PARSER=pdfplumber` debug override only)
+> - Final academic embeddings must be **Marker-only** (`body_source=marker`)
+> - New papers enqueued immediately; a warm GPU worker processes the queue
+> - Models load once at worker start; papers 2+ expected ≤10s on warm RTX 2070 Super VRAM
+> - New packet created: [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: ready)
 >
-> **Remaining blocker:** `parse_seconds=85.95s` >> `≤10s/paper` (acceptance gate 2)
->
-> **Next options (operator decision required):**
-> - **Option A — Async parse queue:** Marker runs as a background enrichment job for selected
->   papers; pdfplumber remains the synchronous production default; Marker results replace
->   pdfplumber chunks asynchronously. No per-paper latency gate. New packet required.
-> - **Option B — Model/config optimization:** Investigate warm-model reuse across papers in a
->   long-running service (scheduler mode), quantized models, or smaller Marker config variants.
->   Could bring per-paper time closer to ~10s on warm VRAM. New packet required.
-> - **Option C — Keep pdfplumber production + Marker for targeted enrichment:** Defer Marker
->   as production default; use it only for high-value papers operator submits explicitly.
->   No new packet required — pdfplumber path is already the debug override.
+> **This packet resumes when [[Work-Packet - Marker Canonical Academic Parse Queue]] ships.**
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
+> **Decision log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`
 
 > [!IMPORTANT] Architectural change vs. previous packet
 > The earlier version of this packet specified Marker as an opt-in experimental fallback with pdfplumber as the default. **This version supersedes that.** Marker becomes the **single production parser** for the academic pipeline. pdfplumber is retired from the active path.
