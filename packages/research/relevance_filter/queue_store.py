@@ -80,7 +80,7 @@ class ReviewQueueStore:
     def __init__(self, queue_path: Optional[Path] = None) -> None:
         self._path = Path(queue_path) if queue_path else _DEFAULT_QUEUE_PATH
 
-    def enqueue(self, record: dict) -> bool:
+    def enqueue(self, record: dict, force: bool = False) -> bool:
         """Append a record to the queue if not already present.
 
         Parameters
@@ -88,18 +88,23 @@ class ReviewQueueStore:
         record:
             Must include at least 'source_url'. 'candidate_id' is derived from
             source_url if absent. 'created_at' is set if not present.
+        force:
+            When True, skip the duplicate check and always write. A second
+            record for the same URL can exist in the queue; useful when
+            re-discovering with an updated filter config.
 
         Returns
         -------
         bool
-            True if written; False if already present (idempotent).
+            True if written; False if already present (and force is False).
         """
         source_url = record.get("source_url", "")
         candidate_id = record.get("candidate_id") or candidate_id_from_url(source_url)
 
-        existing_ids = {r.get("candidate_id") for r in _read_jsonl(self._path)}
-        if candidate_id in existing_ids:
-            return False
+        if not force:
+            existing_ids = {r.get("candidate_id") for r in _read_jsonl(self._path)}
+            if candidate_id in existing_ids:
+                return False
 
         out = dict(record)
         out["candidate_id"] = candidate_id

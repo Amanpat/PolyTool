@@ -1,7 +1,7 @@
 ---
 tags: [work-packet, ris, ingestion, academic, parser, async-queue]
 date: 2026-05-05
-status: ready
+status: implemented-v0
 priority: high
 phase: 2
 target-layer: 1
@@ -12,8 +12,8 @@ prerequisites:
   - "Operator decision on Marker production strategy — RESOLVED 2026-05-05: Option A (async parse queue)"
 supersedes: "Option A in [[Work-Packet - Marker Structural Parser Integration]]'s DANGER callout"
 unblocks:
-  - "[[Work-Packet - Marker Structural Parser Integration]] — L1 production rollout resumes when queue ships"
-  - "[[Work-Packet - PaperQA2 RAG Control Flow]] — L2 gated on Marker-parsed corpus"
+  - "[[Work-Packet - Marker Structural Parser Integration]] — L1 STILL BLOCKED: v0 queue shipped; Docker IPC warm-worker (v1) required for throughput validation"
+  - "[[Work-Packet - PaperQA2 RAG Control Flow]] — L2 gated on Marker-parsed corpus (v0 queue satisfies code-side gate; live corpus needs warm-worker)"
 ---
 
 # Work Packet — Marker Canonical Academic Parse Queue
@@ -30,6 +30,27 @@ unblocks:
 > - New papers are discovered and enqueued immediately; Marker parse happens asynchronously
 > - A warm GPU worker loads models once and processes the queue — no cold-load per paper
 > - RAG-ready status requires `body_source=marker`; pdfplumber-parsed papers are not RAG-eligible
+
+> [!INFO] Implementation Status: v0 Shipped — Docker IPC Warm-Worker Deferred to v1 (2026-05-05)
+> Codex re-review PASS. Queue v0 is complete. L1 Marker production rollout remains blocked on v1.
+>
+> **v0 Shipped (offline-only; no Docker validation required):**
+> - File-backed parse queue (`queue.jsonl` + `results.jsonl`), surviving worker restarts
+> - CLI surface: `enqueue`, `list`, `process`, `counts`
+> - `is_marker_ready(body_source, body_length)` — canonical RAG-readiness rule
+> - Short Marker body rejection: retryable until `MAX_ATTEMPTS=3`, then `failed`; `failure_reason` populated
+> - Marker-only academic indexing gate in `IngestPipeline.ingest_external()` — rejects pdfplumber/abstract/marker_failed
+> - Honest platform docs: Windows thread mode = warm (pre-loads model dict once); Linux/Docker subprocess = cold per paper
+> - `create_warm_thread_worker()` on `LiveAcademicFetcher` for Windows warm-batch sessions
+> - 43 offline tests; Codex re-review PASS
+>
+> **v1 Deferred (Docker IPC warm-worker):**
+> - Persistent subprocess on Linux/Docker with IPC (sockets/pipes) — keeps models loaded across papers
+> - Multi-paper warm throughput validation: ≥3 papers, `parse_seconds ≤10s` for papers 2+
+> - L1 Marker production throughput claim cannot be made until this ships
+> - Acceptance gates 2 and 3 from this packet are NOT yet met
+>
+> **Close-out log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-v0-closeout.md`
 
 ## Goal
 

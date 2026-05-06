@@ -1,7 +1,7 @@
 ---
 tags: [meta, focus]
 created: 2026-04-22
-updated: 2026-05-05 (async queue packet activation)
+updated: 2026-05-05 (L3.2 label discovery closeout)
 ---
 # Current Focus
 
@@ -11,7 +11,7 @@ Living document — updated each session when priorities shift. Read this first 
 
 ## Active Priorities
 
-1. **RIS Scientific RAG roadmap** — primary active workstream. **L1 Marker production rollout remains BLOCKED** — operator decision recorded 2026-05-05: **Option A (async parse queue)**. New packet [[Work-Packet - Marker Canonical Academic Parse Queue]] created (status: ready). Feature 3 assigned. pdfplumber is legacy/debug only. Final academic embeddings must be Marker-only (`body_source=marker`). L1 blocked until queue ships. L5 shipped 2026-05-02; L3/L3.1 shipped 2026-05-02. L2 and L4 remain stubs. Do NOT start L2 yet.
+1. **RIS Scientific RAG roadmap** — primary active workstream. **L3.2 Prefetch Label Discovery Mode is COMPLETE (2026-05-05).** SVM trigger reached: **30 allow / 31 reject / 1 pending unlabeled** (pending does not block). Feature 3 slot is FREE. **Next recommended action: open L3 v1 SVM Topic Filter Readiness + Training packet** (SPECTER2 + S2FOS embeddings + SVM classifier). **L1 Marker production rollout remains BLOCKED** — queue v0 shipped 2026-05-05; Docker IPC warm-worker (v1) deferred. L1 blocked until IPC warm-worker validates ≥3 papers warm. pdfplumber is legacy/debug only. **Docker/Linux IPC warm-worker Option A is deferred, NOT canceled — must be revisited after L3/SVM stream or before L2 production.** L5 shipped 2026-05-02; L3/L3.1/L3.2 shipped 2026-05-02/05. L2 and L4 remain stubs. Do NOT start L2 yet.
 2. **Gate 2 unblock** — Silver tapes produce zero fills for politics/sports. Crypto bucket positive (7/10) but blocked on new markets. WAIT_FOR_CRYPTO policy active. Escalation deadline for benchmark_v2 was 2026-04-12 — needs decision on next steps.
 3. **Track 1A Crypto Pair Bot** — BLOCKED on no active BTC/ETH/SOL 5m/15m markets on Polymarket. Check periodically with `crypto-pair-watch --one-shot`.
 
@@ -21,14 +21,14 @@ Living document — updated each session when priorities shift. Read this first 
 - **Benchmark_v2 strategy** — the 2026-04-12 escalation deadline has passed. What's the path forward for Gate 2?
 - **Polymarket account setup** (KYC, wallet, USDC funding) — Phase 0 item still open.
 
-## RIS Scientific RAG Status (as of 2026-05-01)
+## RIS Scientific RAG Status (as of 2026-05-05)
 
 | Layer | Packet | Status |
 |---|---|---|
 | L0 | [[Work-Packet - Academic Pipeline PDF Download Fix]] | ✅ Shipped 2026-04-27. pdfplumber wired in. Real arXiv ingests confirmed. |
-| L1 | [[Work-Packet - Marker Structural Parser Integration]] | **BLOCKED — awaiting async queue.** Operator decided 2026-05-05: Option A (async parse queue). [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: ready) is the unblocker. pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. |
+| L1 | [[Work-Packet - Marker Structural Parser Integration]] | **BLOCKED — awaiting Docker IPC warm-worker (v1).** Queue v0 shipped 2026-05-05 (queue, CLI, indexing gate, failure semantics, 43 tests). Docker IPC warm-worker deferred to v1. L1 production Marker rollout remains blocked until v1 IPC warm-worker validates ≥3 papers warm (≤10s/paper for papers 2+). pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. |
 | L2 | [[Work-Packet - PaperQA2 RAG Control Flow]] | Stub. Activation gated on L5 baseline + L1 production. |
-| L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | ✅ Shipped 2026-05-02. **L3.1 also shipped 2026-05-02** — `hold-review` mode: REVIEW candidates queued, not ingested; `ReviewQueueStore` + `LabelStore`; `research-prefetch-review` CLI; Codex PASS WITH FIXES resolved; 160 tests. Next: accumulate ≥30+30 labels for SVM trigger. Feature doc: `FEATURE-ris-prefetch-relevance-filter-v0.md`. |
+| L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | ✅ Shipped 2026-05-02. **L3.1 also shipped 2026-05-02** — `hold-review` mode, `ReviewQueueStore` + `LabelStore`, `research-prefetch-review` CLI; 160 tests. **L3.2 COMPLETE 2026-05-05** — `research-prefetch-discover`: arXiv metadata search → score → enqueue, no PDF/Marker/index; 36 tests. **SVM trigger MET: 30 allow / 31 reject / 1 pending unlabeled.** Next: [[Work-Packet - L3 v1 SVM Topic Filter Training]]. Feature doc: `FEATURE-ris-prefetch-relevance-filter-v0.md`. |
 | L4 | [[Work-Packet - Multi-source Academic Harvesters]] | Stub. Activation gated on L1 + L3. Updated 2026-04-29 to add backfill-vs-monitoring distinction. |
 | L5 | [[Work-Packet - Scientific RAG Evaluation Benchmark]] | ✅ Shipped 2026-05-02. Baseline locked: corpus=23, off_topic_rate=30.43%, P@5=1.0, Recommendation A. |
 
@@ -39,6 +39,9 @@ Reference materials:
 
 ## Recent Session Context
 
+- **2026-05-05 (L3.2 closeout)**: L3.2 complete. SVM trigger reached: 30 allow / 31 reject / 1 pending unlabeled (pending does not block). `research-prefetch-discover` CLI shipped: arXiv metadata search → `RelevanceScorer` → `ReviewQueueStore` enqueue; no PDF/Marker/index; `--force` idempotency override; 36 tests. Feature 3 slot freed. **Next recommended packet: L3 v1 SVM Topic Filter Readiness + Training** (SPECTER2 + S2FOS + SVM). Marker Docker/Linux IPC warm-worker Option A remains deferred, not canceled — must be revisited after L3/SVM stream or before L2 production. Dev log: `docs/dev_logs/2026-05-05_l3-2-prefetch-label-discovery-closeout.md`.
+- **2026-05-05 (L3.2 activation)**: L3.2 Prefetch Label Discovery Mode activated as Feature 3. `research-acquire` is no longer ideal for label accumulation — the Marker-only academic gate (queue v0) blocks non-Marker candidates before they become label examples. L3.2 provides a metadata-only path: arXiv metadata search → `RelevanceScorer` → `ReviewQueueStore` enqueue; no PDF download, no Marker, no ingest. Current label counts: 7 allow / 20 reject (SVM trigger ≥30+30). Work packet created. CURRENT_DEVELOPMENT, Current-Focus, INDEX updated. Explicit reminder recorded: Docker/Linux IPC warm-worker Option A is deferred, not canceled — must be revisited after L3/SVM stream or before L2 production. Dev log: `docs/dev_logs/2026-05-05_l3-2-prefetch-label-discovery-activation.md`.
+- **2026-05-05 (queue v0 close-out)**: Codex re-review PASS. Queue v0 shipped: file-backed queue, CLI surface, `is_marker_ready()` gate, Marker-only academic indexing gate (`IngestPipeline`), short Marker body rejection (retryable/terminal), honest platform docs (thread=warm on Windows; subprocess=cold on Linux/Docker), `create_warm_thread_worker()`. Docker/Linux IPC warm-worker deferred to v1. Live Docker multi-paper throughput validation may NOT proceed as L1 acceptance gate. L1 Marker production rollout remains blocked on IPC warm-worker. Feature 3 moved to Recently Completed in CURRENT_DEVELOPMENT.md. Dev log: `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-v0-closeout.md`.
 - **2026-05-05 (queue packet)**: Operator decision recorded: Option A (async parse queue). [[Work-Packet - Marker Canonical Academic Parse Queue]] created (status: ready). State model defined: `discovered → marker_queued → marker_processing → marker_ready → rag_ready` plus `marker_failed_retryable/terminal`. 9 acceptance gates set: ≥3 papers in one warm worker session, `parse_seconds ≤10s` for papers 2+, embedding enforces `body_source=marker`, no pdfplumber fallback, queue persistence. pdfplumber declared legacy/debug only. Feature 3 slot assigned. Dev log: `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`.
 - **2026-05-05 (close-out)**: Marker single-paper control surface validated. `run-academic-url` on `2604.24366` (15 pages, prose) returned `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`. Control surface tooling works. **L1 production rollout remains blocked**: `parse_seconds=85.95s` fails ≤10s/paper gate by ~8.6×. RTX 2070 Super cold-start dominates; survey's ~5-10s/paper estimate was optimistic. Operator decision needed: (A) async parse queue, (B) warm-model optimization, or (C) keep pdfplumber production + Marker selective enrichment. Control surface packet status → validated. Dev log: `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`.
 - **2026-05-05**: L1 Marker production rollout reconciliation. Validation failed — blocked. Two papers timed out: `2604.21675` (6 pages, ML) at 1200.5s (box 114 alone = 273s); `2510.15205` (25 pages, math-heavy) at 1800.2s. Root cause: cold model load 136-270s + math-dense box spikes up to 273s/box; page count is not predictive of processing time. Scheduler validation not safe: no single-paper submit path, hardcoded topic searches, thread-based (not process-boundary) timeout, Marker disabled for entire process on first timeout, scheduler success metadata too coarse. Work packet updated to BLOCKED. New packet created: [[Work-Packet - Marker Single-Paper Validation Control Surface]]. CURRENT_DEVELOPMENT Feature 3 moved to Blocked/Deferred. Dev log: `docs/dev_logs/2026-05-05_marker-production-rollout-reconciliation.md`.
@@ -59,7 +62,7 @@ Reference materials:
 | ~~Academic pipeline hosting decision~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-02** — Docker GPU passthrough verified; decision accepted |
 | ~~L1 Marker validation control surface~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-05** — `run-academic-url` control surface shipped and validated; Marker parses successfully |
 | ~~L1 Marker performance gate~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-05** — Operator chose Option A (async parse queue). |
-| L1 async queue not yet implemented | L1 Marker production rollout | **NEW 2026-05-05** — [[Work-Packet - Marker Canonical Academic Parse Queue]] is `ready` but not yet implemented. L1 blocked until queue ships. |
+| Docker IPC warm-worker not yet implemented (v1) | L1 Marker production rollout | **UPDATED 2026-05-05** — Queue v0 shipped (queue, CLI, indexing gate, failure semantics). Docker IPC warm-worker is v1 — deferred. L1 blocked until warm-worker validates ≥3 papers at ≤10s/paper. |
 | L5 corpus accumulation | L5 ship date | ✅ Resolved — baseline locked 2026-05-02 with 23-paper corpus |
 | No active crypto 5m/15m markets | Track 1A | Monitoring |
 | Gate 2 failed (7/50 = 14%) | Track 1B live deployment | Needs decision on benchmark_v2 |
@@ -67,7 +70,7 @@ Reference materials:
 
 ---
 
-*Last updated by Claude Code — 2026-05-05 (async queue packet activation)*
+*Last updated by Claude Code — 2026-05-05 (L3.2 label discovery closeout — SVM trigger met)*
 
 ---
 
