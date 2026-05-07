@@ -97,6 +97,7 @@ research_bridge_main = _command_entrypoint("tools.cli.research_bridge")
 research_eval_benchmark_main = _command_entrypoint("tools.cli.research_eval_benchmark")
 research_prefetch_review_main = _command_entrypoint("tools.cli.research_prefetch_review")
 research_prefetch_discover_main = _command_entrypoint("tools.cli.research_prefetch_discover")
+research_prefetch_svm_train_main = _command_entrypoint("tools.cli.research_prefetch_svm_train")
 research_marker_queue_main = _command_entrypoint("tools.cli.research_marker_queue")
 discovery_main = _command_entrypoint("tools.cli.discovery")
 
@@ -169,6 +170,7 @@ _COMMAND_HANDLER_NAMES = {
     "research-eval-benchmark": "research_eval_benchmark_main",
     "research-prefetch-review": "research_prefetch_review_main",
     "research-prefetch-discover": "research_prefetch_discover_main",
+    "research-prefetch-svm-train": "research_prefetch_svm_train_main",
     "research-marker-queue": "research_marker_queue_main",
     "discovery": "discovery_main",
 }
@@ -242,6 +244,7 @@ def print_usage() -> None:
     print("  research-eval-benchmark   Measure corpus + retrieval quality across nine metrics")
     print("  research-prefetch-review  List/label L3 hold-review queue items; export label counts for SVM")
     print("  research-prefetch-discover  L3.2 metadata-only arXiv discovery: score + enqueue for labels (no PDF)")
+    print("  research-prefetch-svm-train L3 v1 SVM topic filter: train + eval on labeled examples (default-off)")
     print("  research-marker-queue     Enqueue/process arXiv papers through Marker; track RAG-ready status")
     print("")
     print("--- Crypto Pair Bot (Track 2 / Phase 1A — standalone) -----------------")

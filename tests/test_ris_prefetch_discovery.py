@@ -914,3 +914,219 @@ class TestQueueRecordIntegration:
         )
         counts = ls.counts()
         assert counts["allow"] == 1
+
+
+# ---------------------------------------------------------------------------
+# TestSvmScorerDiscover
+# ---------------------------------------------------------------------------
+
+
+class TestSvmScorerDiscover:
+    """SVM scorer integration tests for research-prefetch-discover (default-off)."""
+
+    def test_svm_requires_model_path(self, capsys):
+        """--filter-scorer svm without --svm-model returns 1 with clear error."""
+        rc = main(
+            ["--search", "test query", "--filter-scorer", "svm"],
+            _http_fn=lambda url, timeout: _EMPTY_XML,
+        )
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "svm-model" in err.lower()
+
+    def test_lexical_default_unchanged(self, tmp_path):
+        """Default lexical scorer works exactly as before; SVM never imported."""
+        http_fn = _make_http_fn(_THREE_PAPER_XML)
+        cfg_path = _write_filter_config(tmp_path)
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+
+        rc = main(
+            [
+                "--search", "test",
+                "--filter-config", str(cfg_path),
+                "--queue-path", str(queue_path),
+                "--label-path", str(label_path),
+            ],
+            _http_fn=http_fn,
+        )
+        assert rc == 0
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        records = ReviewQueueStore(queue_path).all_records()
+        assert len(records) == 1
+        assert records[0]["decision"] == "review"
+
+    def test_svm_scorer_called_when_specified(self, monkeypatch, tmp_path, capsys):
+        """--filter-scorer svm uses SvmRelevanceScorer instead of lexical."""
+        from packages.research.relevance_filter.scorer import FilterDecision
+        fake_decision = FilterDecision(
+            decision="review",
+            score=0.42,
+            raw_score=-0.20,
+            reason_codes=["svm_prediction:review"],
+            matched_terms={},
+            candidate_title="Test Paper",
+            allow_threshold=0.50,
+            review_threshold=0.35,
+            config_version="LinearSVC",
+            scorer="svm",
+            svm_model_name="BAAI/bge-large-en-v1.5",
+        )
+
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score", lambda self, cand: fake_decision
+        )
+
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+
+        rc = main(
+            [
+                "--search", "test",
+                "--filter-scorer", "svm",
+                "--svm-model", str(tmp_path / "fake_model.joblib"),
+                "--decision-filter", "all",
+                "--queue-path", str(queue_path),
+                "--label-path", str(label_path),
+            ],
+            _http_fn=_make_http_fn(_THREE_PAPER_XML),
+        )
+        assert rc == 0
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        records = ReviewQueueStore(queue_path).all_records()
+        # All three papers scored "review" by the fake SVM scorer → all queued
+        assert len(records) == 3
+
+    def test_svm_dry_run_record_includes_audit_fields(self, monkeypatch, tmp_path, capsys):
+        """SVM dry-run would_queue records include scorer and all SVM model audit fields."""
+        from packages.research.relevance_filter.scorer import FilterDecision
+        fake_decision = FilterDecision(
+            decision="review",
+            score=0.42,
+            raw_score=-0.20,
+            reason_codes=["svm_prediction:review", "svm_df:-0.3", "svm_allow_confidence:0.42"],
+            matched_terms={},
+            candidate_title="Test Paper",
+            allow_threshold=0.50,
+            review_threshold=0.35,
+            config_version="LinearSVC",
+            scorer="svm",
+            svm_model_name="BAAI/bge-large-en-v1.5",
+            svm_model_path="/models/svm_model_BAAI_42.joblib",
+            svm_random_state=42,
+            svm_lexical_baseline_note="Lexical v1.1 Scenario B: 5.88% off-topic rate",
+        )
+
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score", lambda self, cand: fake_decision
+        )
+
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+
+        rc = main(
+            [
+                "--search", "test",
+                "--filter-scorer", "svm",
+                "--svm-model", str(tmp_path / "fake_model.joblib"),
+                "--decision-filter", "all",
+                "--dry-run",
+                "--json",
+                "--queue-path", str(queue_path),
+                "--label-path", str(label_path),
+            ],
+            _http_fn=_make_http_fn(_THREE_PAPER_XML),
+        )
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["dry_run"] is True
+        records = data["would_queue"]
+        assert len(records) == 3
+        for rec in records:
+            assert rec["scorer"] == "svm", f"Expected scorer='svm', got {rec.get('scorer')!r}"
+            assert rec["svm_model_name"] == "BAAI/bge-large-en-v1.5"
+            assert rec["svm_model_path"] == "/models/svm_model_BAAI_42.joblib"
+            assert rec["svm_random_state"] == 42
+            assert rec["svm_lexical_baseline_note"] == "Lexical v1.1 Scenario B: 5.88% off-topic rate"
+
+    def test_svm_queued_record_includes_audit_fields(self, monkeypatch, tmp_path):
+        """SVM queue records (written to JSONL) include scorer and SVM model audit fields."""
+        from packages.research.relevance_filter.scorer import FilterDecision
+        fake_decision = FilterDecision(
+            decision="review",
+            score=0.44,
+            raw_score=-0.25,
+            reason_codes=["svm_prediction:review"],
+            matched_terms={},
+            candidate_title="Test Paper",
+            allow_threshold=0.50,
+            review_threshold=0.35,
+            config_version="LinearSVC",
+            scorer="svm",
+            svm_model_name="BAAI/bge-large-en-v1.5",
+            svm_model_path="/models/svm_model_BAAI_42.joblib",
+            svm_random_state=42,
+            svm_lexical_baseline_note="Lexical v1.1 Scenario B: 5.88% off-topic rate",
+        )
+
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score", lambda self, cand: fake_decision
+        )
+
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+
+        rc = main(
+            [
+                "--search", "test",
+                "--filter-scorer", "svm",
+                "--svm-model", str(tmp_path / "fake_model.joblib"),
+                "--decision-filter", "all",
+                "--queue-path", str(queue_path),
+                "--label-path", str(label_path),
+            ],
+            _http_fn=_make_http_fn(_THREE_PAPER_XML),
+        )
+        assert rc == 0
+
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        records = ReviewQueueStore(queue_path).all_records()
+        assert len(records) == 3
+        for rec in records:
+            assert rec["scorer"] == "svm", f"Expected scorer='svm', got {rec.get('scorer')!r}"
+            assert rec["svm_model_name"] == "BAAI/bge-large-en-v1.5"
+            assert rec["svm_model_path"] == "/models/svm_model_BAAI_42.joblib"
+            assert rec["svm_random_state"] == 42
+            assert rec["svm_lexical_baseline_note"] == "Lexical v1.1 Scenario B: 5.88% off-topic rate"
+
+    def test_lexical_record_has_scorer_field(self, tmp_path):
+        """Lexical-scored queue records include scorer='lexical' and empty SVM fields."""
+        http_fn = _make_http_fn(_THREE_PAPER_XML)
+        cfg_path = _write_filter_config(tmp_path)
+        queue_path = tmp_path / "queue.jsonl"
+        label_path = tmp_path / "labels.jsonl"
+
+        rc = main(
+            [
+                "--search", "test",
+                "--decision-filter", "all",
+                "--filter-config", str(cfg_path),
+                "--queue-path", str(queue_path),
+                "--label-path", str(label_path),
+            ],
+            _http_fn=http_fn,
+        )
+        assert rc == 0
+
+        from packages.research.relevance_filter.queue_store import ReviewQueueStore
+        records = ReviewQueueStore(queue_path).all_records()
+        assert len(records) == 3
+        for rec in records:
+            assert rec["scorer"] == "lexical", f"Expected scorer='lexical', got {rec.get('scorer')!r}"
+            assert rec["svm_model_name"] == ""
+            assert rec["svm_model_path"] == ""
+            assert rec["svm_random_state"] == 0
+            assert rec["svm_lexical_baseline_note"] == ""

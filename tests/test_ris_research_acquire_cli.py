@@ -910,3 +910,321 @@ class TestSearchModeHoldReview:
         ]
         assert len(records) == 1
         assert "9001.0001" in records[0]["source_url"]
+
+
+# ---------------------------------------------------------------------------
+# Test: SVM scorer integration (default-off)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_svm_decision(decision: str = "review", score: float = 0.42):
+    """Return a FilterDecision with scorer='svm' for monkeypatching."""
+    from packages.research.relevance_filter.scorer import FilterDecision
+    return FilterDecision(
+        decision=decision,
+        score=score,
+        raw_score=-0.20,
+        reason_codes=[
+            f"svm_prediction:{decision}",
+            "svm_df:-0.20",
+            f"svm_allow_confidence:{score}",
+        ],
+        matched_terms={},
+        candidate_title="Test Paper",
+        source_id="test_source_id",
+        allow_threshold=0.50,
+        review_threshold=0.35,
+        config_version="LinearSVC",
+        scorer="svm",
+        svm_model_name="BAAI/bge-large-en-v1.5",
+        svm_model_path="/fake/path/svm_model.joblib",
+    )
+
+
+class TestSvmScorerIntegration:
+    """Tests for --prefetch-filter-scorer svm in research-acquire (default-off)."""
+
+    def test_svm_enforce_blocked(self, capsys):
+        """scorer=svm, mode=enforce → rc=1 with 'blocked' in error."""
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--prefetch-filter-mode", "enforce",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", "/fake/model.joblib",
+        ])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "enforce" in err.lower()
+        assert "blocked" in err.lower()
+
+    def test_svm_requires_model_path_when_mode_active(self, capsys):
+        """scorer=svm, mode=dry-run, no model path → rc=1 with clear error."""
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--prefetch-filter-mode", "dry-run",
+            "--prefetch-filter-scorer", "svm",
+            # deliberately no --prefetch-svm-model
+        ])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "svm-model" in err.lower() or "prefetch-svm-model" in err.lower()
+
+    def test_svm_off_mode_does_not_require_model_path(self, monkeypatch, capsys):
+        """mode=off (default): SVM scorer never loaded even with scorer=svm."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title("Test paper title"),
+        )
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--dry-run",
+            "--no-eval",
+            # mode=off is the default; no model path needed
+            "--prefetch-filter-scorer", "svm",
+        ])
+        assert rc == 0
+
+    def test_svm_dry_run_logs_svm_decision_to_stderr(self, monkeypatch, tmp_path, capsys):
+        """scorer=svm, mode=dry-run: SvmRelevanceScorer.score called; stderr logs scorer."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "Prediction market microstructure", "abstract text"
+            ),
+        )
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score",
+            lambda self, cand: _make_fake_svm_decision("review", 0.42),
+        )
+
+        audit_dir = tmp_path / "reviews"
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--dry-run",
+            "--no-eval",
+            "--prefetch-filter-mode", "dry-run",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", str(tmp_path / "fake_model.joblib"),
+            "--review-dir", str(audit_dir),
+        ])
+        assert rc == 0
+        # Audit record written with scorer=svm
+        audit_file = audit_dir / "filter_decisions.jsonl"
+        assert audit_file.exists()
+        record = json.loads(audit_file.read_text(encoding="utf-8").strip())
+        assert record["scorer"] == "svm"
+        assert record["svm_model_name"] == "BAAI/bge-large-en-v1.5"
+
+    def test_svm_hold_review_queues_with_svm_audit(self, monkeypatch, tmp_path, capsys):
+        """scorer=svm, mode=hold-review, REVIEW decision → queued; audit has scorer=svm."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "A trading strategy study", "abstract text"
+            ),
+        )
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score",
+            lambda self, cand: _make_fake_svm_decision("review", 0.42),
+        )
+
+        queue_dir = tmp_path / "queue"
+        audit_dir = tmp_path / "reviews"
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--json",
+            "--prefetch-filter-mode", "hold-review",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", str(tmp_path / "fake_model.joblib"),
+            "--prefetch-review-queue-dir", str(queue_dir),
+            "--review-dir", str(audit_dir),
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+        assert rc == 0
+        out_data = json.loads(capsys.readouterr().out)
+        assert out_data["queued_for_review"] is True
+        assert out_data["filter_decision"] == "review"
+
+        # Audit record must have scorer=svm
+        audit_file = audit_dir / "filter_decisions.jsonl"
+        assert audit_file.exists()
+        record = json.loads(audit_file.read_text(encoding="utf-8").strip())
+        assert record["scorer"] == "svm"
+
+    def test_svm_hold_review_allow_proceeds_normally(self, monkeypatch, tmp_path, capsys):
+        """scorer=svm, mode=hold-review, ALLOW decision → proceeds to dry-run (not queued)."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "Prediction market microstructure", "abstract"
+            ),
+        )
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score",
+            lambda self, cand: _make_fake_svm_decision("allow", 0.85),
+        )
+
+        queue_dir = tmp_path / "queue"
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--dry-run",  # skip ingest
+            "--prefetch-filter-mode", "hold-review",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", str(tmp_path / "fake_model.joblib"),
+            "--prefetch-review-queue-dir", str(queue_dir),
+            "--review-dir", str(tmp_path / "reviews"),
+        ])
+        assert rc == 0
+        # ALLOW → not queued
+        queue_file = queue_dir / "review_queue.jsonl"
+        assert not queue_file.exists()
+
+    def test_lexical_default_unaffected_by_new_flags(self, monkeypatch, tmp_path, capsys):
+        """Existing lexical tests: adding new flags does not break default behavior."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "Hastelloy X alloy fatigue study", "hastelloy alloy"
+            ),
+        )
+        config_path = _make_filter_config(tmp_path)
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--json",
+            "--prefetch-filter-mode", "enforce",
+            "--prefetch-filter-config", str(config_path),
+            # scorer defaults to lexical — no svm flags needed
+            "--cache-dir", str(tmp_path / "cache"),
+            "--review-dir", str(tmp_path / "reviews"),
+        ])
+        assert rc == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["filter_decision"] == "reject"
+        assert data["skipped"] is True
+
+    # ------------------------------------------------------------------
+    # P1 fail-closed tests: SVM score-time errors must not bypass filtering
+    # ------------------------------------------------------------------
+
+    def test_svm_hold_review_model_load_error_fails_closed(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """scorer=svm, mode=hold-review, SvmModelLoadError at score() → rc=1, not unfiltered."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "A trading strategy study", "abstract text"
+            ),
+        )
+        from packages.research.relevance_filter.svm_scorer import SvmModelLoadError
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score",
+            lambda self, cand: (_ for _ in ()).throw(
+                SvmModelLoadError("SVM model file not found: /fake/model.joblib")
+            ),
+        )
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--no-eval",
+            "--prefetch-filter-mode", "hold-review",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", str(tmp_path / "fake_model.joblib"),
+            "--prefetch-review-queue-dir", str(tmp_path / "queue"),
+            "--review-dir", str(tmp_path / "reviews"),
+            "--cache-dir", str(tmp_path / "cache"),
+        ])
+        assert rc == 1, f"Expected rc=1 (fail closed), got rc={rc}"
+        err = capsys.readouterr().err
+        assert "svm" in err.lower() or "scoring" in err.lower() or "aborting" in err.lower()
+        # Confirm nothing was queued — acquisition did not proceed unfiltered
+        queue_file = tmp_path / "queue" / "review_queue.jsonl"
+        assert not queue_file.exists()
+
+    def test_svm_dry_run_score_error_fails_closed(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """scorer=svm, mode=dry-run, score() raises generic error → rc=1, not unfiltered."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title(
+                "Prediction market microstructure", "abstract text"
+            ),
+        )
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        monkeypatch.setattr(
+            svm_mod.SvmRelevanceScorer, "score",
+            lambda self, cand: (_ for _ in ()).throw(
+                RuntimeError("sentence-transformers not installed")
+            ),
+        )
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--dry-run",
+            "--no-eval",
+            "--prefetch-filter-mode", "dry-run",
+            "--prefetch-filter-scorer", "svm",
+            "--prefetch-svm-model", str(tmp_path / "fake_model.joblib"),
+            "--review-dir", str(tmp_path / "reviews"),
+        ])
+        assert rc == 1, f"Expected rc=1 (fail closed), got rc={rc}"
+        err = capsys.readouterr().err
+        assert "svm" in err.lower() or "scoring" in err.lower() or "aborting" in err.lower()
+
+    def test_svm_off_mode_never_invokes_scorer(self, monkeypatch, tmp_path, capsys):
+        """mode=off + scorer=svm: SvmRelevanceScorer is never instantiated or called."""
+        import packages.research.ingestion.fetchers as fetchers_mod
+        monkeypatch.setattr(
+            fetchers_mod, "_default_urlopen",
+            lambda url, timeout, headers: _arxiv_xml_for_title("Test paper title"),
+        )
+        # If SVM scorer is ever called when mode=off, blow up loudly
+        import packages.research.relevance_filter.svm_scorer as svm_mod
+        def _must_not_be_called(self, cand):
+            raise AssertionError("SvmRelevanceScorer.score must not be called when mode=off")
+        monkeypatch.setattr(svm_mod.SvmRelevanceScorer, "score", _must_not_be_called)
+
+        from tools.cli.research_acquire import main
+        rc = main([
+            "--url", "https://arxiv.org/abs/2301.99999",
+            "--source-family", "academic",
+            "--dry-run",
+            "--no-eval",
+            "--prefetch-filter-mode", "off",
+            "--prefetch-filter-scorer", "svm",
+            # no model path — should be fine since mode=off skips all scoring
+        ])
+        assert rc == 0

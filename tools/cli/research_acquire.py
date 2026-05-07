@@ -48,25 +48,45 @@ def _utcnow_iso() -> str:
 def _score_candidate_for_filter(title: str, abstract: str, source_id: str, args) -> object:
     """Score a candidate against the relevance filter.
 
+    Dispatches to lexical (default) or SVM scorer based on --prefetch-filter-scorer.
     Returns a FilterDecision if prefetch_filter_mode != 'off', else None.
-    Returns None and prints a warning if imports fail.
+
+    SVM mode: exceptions propagate to the caller so it can fail closed.
+    Lexical mode: exceptions are caught, a warning is printed, and None is returned
+    (preserves existing behavior).
     """
     if getattr(args, "prefetch_filter_mode", "off") == "off":
         return None
-    try:
-        from packages.research.relevance_filter.scorer import (
-            CandidateInput,
-            RelevanceScorer,
-            load_filter_config,
+    scorer_type = getattr(args, "prefetch_filter_scorer", "lexical")
+    if scorer_type == "svm":
+        # Intentionally no try/except — load/score errors must propagate so callers
+        # can fail closed rather than proceeding as unfiltered acquisition.
+        from packages.research.relevance_filter.scorer import CandidateInput
+        from packages.research.relevance_filter.svm_scorer import (
+            SvmRelevanceScorer,
+            SvmRuntimeConfig,
         )
-        config_path = getattr(args, "prefetch_filter_config", None)
-        filter_cfg = load_filter_config(Path(config_path) if config_path else None)
-        scorer = RelevanceScorer(filter_cfg)
+        model_path = getattr(args, "prefetch_svm_model", None)
+        metadata_path = getattr(args, "prefetch_svm_metadata", None)
+        cfg = SvmRuntimeConfig(model_path=model_path, metadata_path=metadata_path)
+        scorer = SvmRelevanceScorer(cfg)
         candidate = CandidateInput(title=title, abstract=abstract, source_id=source_id)
         return scorer.score(candidate)
-    except Exception as exc:
-        print(f"WARNING: prefetch filter scoring failed: {exc}", file=sys.stderr)
-        return None
+    else:
+        try:
+            from packages.research.relevance_filter.scorer import (
+                CandidateInput,
+                RelevanceScorer,
+                load_filter_config,
+            )
+            config_path = getattr(args, "prefetch_filter_config", None)
+            filter_cfg = load_filter_config(Path(config_path) if config_path else None)
+            scorer = RelevanceScorer(filter_cfg)
+            candidate = CandidateInput(title=title, abstract=abstract, source_id=source_id)
+            return scorer.score(candidate)
+        except Exception as exc:
+            print(f"WARNING: prefetch filter scoring failed: {exc}", file=sys.stderr)
+            return None
 
 
 def _write_to_review_queue(decision, source_url: str, abstract: str, queue_dir: str):
@@ -115,6 +135,7 @@ def _write_filter_audit(decision, source_url: str, enforced: bool, audit_dir: st
     try:
         audit_path = Path(audit_dir) / "filter_decisions.jsonl"
         audit_path.parent.mkdir(parents=True, exist_ok=True)
+        scorer_id = getattr(decision, "scorer", "lexical")
         record = {
             "timestamp": _utcnow_iso(),
             "source_id": decision.source_id,
@@ -129,8 +150,12 @@ def _write_filter_audit(decision, source_url: str, enforced: bool, audit_dir: st
             "matched_terms": decision.matched_terms,
             "config_version": decision.config_version,
             "input_fields_used": decision.input_fields_used,
+            "scorer": scorer_id,
             "enforced": enforced,
         }
+        if scorer_id == "svm":
+            record["svm_model_name"] = getattr(decision, "svm_model_name", "")
+            record["svm_model_path"] = getattr(decision, "svm_model_path", "")
         with audit_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
     except Exception as exc:
@@ -273,12 +298,58 @@ def main(argv: list) -> int:
         metavar="PATH",
         help="Directory for the hold-review JSONL queue (default: artifacts/research/prefetch_review_queue).",
     )
+    parser.add_argument(
+        "--prefetch-filter-scorer",
+        dest="prefetch_filter_scorer",
+        default="lexical",
+        choices=["lexical", "svm"],
+        help=(
+            "Relevance filter scorer backend (default: lexical). "
+            "lexical: keyword-based v1.1 scorer (production default). "
+            "svm: trained SVM model — requires --prefetch-svm-model; "
+            "enforce mode is blocked for SVM until >=150 labels and Director approval."
+        ),
+    )
+    parser.add_argument(
+        "--prefetch-svm-model",
+        dest="prefetch_svm_model",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to trained SVM .joblib model artifact "
+            "(required when --prefetch-filter-scorer svm and mode is not off)."
+        ),
+    )
+    parser.add_argument(
+        "--prefetch-svm-metadata",
+        dest="prefetch_svm_metadata",
+        default=None,
+        metavar="PATH",
+        help="Path to SVM metadata JSON (optional; inferred from model path when omitted).",
+    )
 
     if not argv:
         parser.print_help(sys.stderr)
         return 1
 
     args = parser.parse_args(argv)
+
+    # SVM-specific validation (before URL/search check so error fires early)
+    if args.prefetch_filter_scorer == "svm":
+        if args.prefetch_filter_mode == "enforce":
+            print(
+                "Error: SVM enforce is blocked until >=150 labels and Director approval. "
+                "Use --prefetch-filter-mode dry-run or hold-review for evidence collection.",
+                file=sys.stderr,
+            )
+            return 1
+        if args.prefetch_filter_mode != "off" and not args.prefetch_svm_model:
+            print(
+                "Error: --prefetch-svm-model PATH is required when "
+                "--prefetch-filter-scorer svm is used with an active filter mode.",
+                file=sys.stderr,
+            )
+            return 1
 
     # Validate required arguments
     if not args.url and not args.search:
@@ -358,12 +429,21 @@ def main(argv: list) -> int:
         cache = None
 
     # --- Step 3.5: Pre-fetch relevance filter ---
-    filter_decision = _score_candidate_for_filter(
-        title=normalized_title,
-        abstract=raw_source.get("abstract") or "",
-        source_id=source_id,
-        args=args,
-    )
+    try:
+        filter_decision = _score_candidate_for_filter(
+            title=normalized_title,
+            abstract=raw_source.get("abstract") or "",
+            source_id=source_id,
+            args=args,
+        )
+    except Exception as exc:
+        # SVM scorer raises on model/metadata/dep failures — fail closed.
+        print(
+            f"Error: SVM scoring failed — aborting to prevent unfiltered acquisition. "
+            f"Cause: {exc}",
+            file=sys.stderr,
+        )
+        return 1
     if filter_decision is not None:
         enforced = args.prefetch_filter_mode in ("enforce", "hold-review")
         _write_filter_audit(filter_decision, args.url, enforced, args.review_dir)
@@ -657,12 +737,24 @@ def _run_search_mode(args) -> int:
                 canonical_url = canonicalize_url(paper_url) if paper_url else ""
                 source_id = make_source_id(canonical_url) if canonical_url else ""
 
-                filter_decision = _score_candidate_for_filter(
-                    title=normalized_title,
-                    abstract=raw_source.get("abstract") or "",
-                    source_id=source_id,
-                    args=args,
-                )
+                try:
+                    filter_decision = _score_candidate_for_filter(
+                        title=normalized_title,
+                        abstract=raw_source.get("abstract") or "",
+                        source_id=source_id,
+                        args=args,
+                    )
+                except Exception as _score_exc:
+                    if getattr(args, "prefetch_filter_scorer", "lexical") == "svm":
+                        # Fail closed: SVM load/dep/score errors abort the whole batch.
+                        # The outer finally will still close the store before return.
+                        print(
+                            f"Error: SVM scoring failed — aborting to prevent "
+                            f"unfiltered acquisition. Cause: {_score_exc}",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    filter_decision = None
                 if filter_decision is not None:
                     enforced = args.prefetch_filter_mode in ("enforce", "hold-review")
                     _write_filter_audit(filter_decision, paper_url, enforced, args.review_dir)

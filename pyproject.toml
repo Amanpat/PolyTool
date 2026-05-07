@@ -64,6 +64,11 @@ ris = [
 ris-marker = [
     "marker-pdf>=1.0",  # backward-compat alias; marker is now bundled in [ris]
 ]
+ris-svm = [
+    "scikit-learn>=1.3.0",
+    "sentence-transformers>=2.2.0",
+    "joblib>=1.3.0",
+]
 all = [
     "polytool[rag,mcp,simtrader,studio,dev,historical,historical-import,live]",
 ]
@@ -85,6 +90,7 @@ packages = [
     "packages.polymarket.historical_import",
     "packages.research", "packages.research.hypotheses",
     "packages.research.scheduling",
+    "packages.research.relevance_filter",
     "packages.polymarket.simtrader",
     "packages.polymarket.simtrader.studio",
     "packages.polymarket.simtrader.tape",

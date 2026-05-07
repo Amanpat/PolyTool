@@ -199,8 +199,9 @@ def main(
         prog="research-prefetch-discover",
         description=(
             "L3.2 Prefetch Label Discovery: search arXiv metadata only, score candidates "
-            "with the lexical relevance filter, and enqueue to the prefetch review queue. "
-            "No PDFs are downloaded. No ingestion, no embeddings, no Marker."
+            "with the relevance filter, and enqueue to the prefetch review queue. "
+            "No PDFs are downloaded. No ingestion, no Marker. "
+            "(Lexical mode: no embeddings. SVM mode --filter-scorer svm: uses embedding model.)"
         ),
     )
     parser.add_argument(
@@ -294,8 +295,40 @@ def main(
         action="store_true",
         help="Score and show what would be queued without writing anything.",
     )
+    parser.add_argument(
+        "--filter-scorer",
+        dest="filter_scorer",
+        default="lexical",
+        choices=["lexical", "svm"],
+        help=(
+            "Relevance filter scorer backend (default: lexical). "
+            "svm: use trained SVM model — requires --svm-model."
+        ),
+    )
+    parser.add_argument(
+        "--svm-model",
+        dest="svm_model",
+        default=None,
+        metavar="PATH",
+        help="Path to trained SVM .joblib model artifact (required when --filter-scorer svm).",
+    )
+    parser.add_argument(
+        "--svm-metadata",
+        dest="svm_metadata",
+        default=None,
+        metavar="PATH",
+        help="Path to SVM metadata JSON (optional; inferred from model path when omitted).",
+    )
 
     args = parser.parse_args(argv)
+
+    # SVM validation
+    if args.filter_scorer == "svm" and not args.svm_model:
+        print(
+            "Error: --svm-model PATH is required when --filter-scorer svm.",
+            file=sys.stderr,
+        )
+        return 1
 
     # Resolve queue decision set
     if args.decision_filter is not None:
@@ -309,16 +342,27 @@ def main(
         if args.include_allow:
             queue_decisions.add("allow")
 
-    # Load relevance filter config and scorer
+    # Load scorer — lexical (default) or SVM
     try:
-        from packages.research.relevance_filter.scorer import (
-            CandidateInput,
-            RelevanceScorer,
-            load_filter_config,
-        )
-        cfg_path = Path(args.filter_config) if args.filter_config else None
-        cfg = load_filter_config(cfg_path)
-        scorer = RelevanceScorer(cfg)
+        from packages.research.relevance_filter.scorer import CandidateInput
+        if args.filter_scorer == "svm":
+            from packages.research.relevance_filter.svm_scorer import (
+                SvmRelevanceScorer,
+                SvmRuntimeConfig,
+            )
+            svm_cfg = SvmRuntimeConfig(
+                model_path=args.svm_model,
+                metadata_path=args.svm_metadata,
+            )
+            scorer = SvmRelevanceScorer(svm_cfg)
+        else:
+            from packages.research.relevance_filter.scorer import (
+                RelevanceScorer,
+                load_filter_config,
+            )
+            cfg_path = Path(args.filter_config) if args.filter_config else None
+            cfg = load_filter_config(cfg_path)
+            scorer = RelevanceScorer(cfg)
     except FileNotFoundError as exc:
         print(f"Error loading filter config: {exc}", file=sys.stderr)
         return 1
@@ -382,6 +426,12 @@ def main(
             "allow_threshold": result.allow_threshold,
             "review_threshold": result.review_threshold,
             "config_version": result.config_version,
+            # Scorer audit fields — always present; SVM keys are empty for lexical scorer
+            "scorer": result.scorer,
+            "svm_model_name": result.svm_model_name,
+            "svm_model_path": result.svm_model_path,
+            "svm_random_state": result.svm_random_state,
+            "svm_lexical_baseline_note": result.svm_lexical_baseline_note,
             "source_family": args.source_family,
             "discovery_query": args.search,
         }

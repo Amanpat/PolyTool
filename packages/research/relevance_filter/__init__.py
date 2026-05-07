@@ -1,4 +1,4 @@
-"""Cold-start lexical relevance filter for RIS pre-fetch candidate scoring."""
+"""Relevance filter for RIS pre-fetch candidate scoring (lexical + SVM)."""
 
 from packages.research.relevance_filter.scorer import (
     CandidateInput,
@@ -12,6 +12,12 @@ from packages.research.relevance_filter.queue_store import (
     LabelStore,
     candidate_id_from_url,
 )
+from packages.research.relevance_filter.svm_scorer import (
+    SvmModelLoadError,
+    SvmRuntimeConfig,
+    SvmRelevanceScorer,
+)
+from packages.research.relevance_filter.svm_training import SvmMissingDepsError
 
 __all__ = [
     "CandidateInput",
@@ -22,4 +28,8 @@ __all__ = [
     "ReviewQueueStore",
     "LabelStore",
     "candidate_id_from_url",
+    "SvmRuntimeConfig",
+    "SvmRelevanceScorer",
+    "SvmModelLoadError",
+    "SvmMissingDepsError",
 ]

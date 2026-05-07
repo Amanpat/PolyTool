@@ -41,6 +41,12 @@ class FilterDecision:
     review_threshold: float = 0.0
     config_version: str = ""
     input_fields_used: list = field(default_factory=list)
+    # SVM-specific audit fields (populated when scorer="svm"; defaults preserve lexical behavior)
+    scorer: str = "lexical"
+    svm_model_name: str = ""
+    svm_model_path: str = ""
+    svm_random_state: int = 0
+    svm_lexical_baseline_note: str = ""
 
 
 @dataclass

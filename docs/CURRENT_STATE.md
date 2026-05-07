@@ -1727,3 +1727,75 @@ Deferred items (explicit):
 - n8n owning scheduling -- APScheduler remains the default scheduler; n8n schedule triggers are disabled in the committed workflow JSON.
 - FastAPI wrapper for RIS endpoints -- Phase 3 deliverable.
 - Autoresearch `import-results` -- Phase 4 deliverable.
+
+## RIS L3 v1 SVM Topic Filter — Default-Off Integrated (2026-05-07)
+
+SVM-based relevance scorer shipped as an opt-in default-off backend for the L3 prefetch
+filter pipeline. **Lexical scorer v1.1 remains the production default.** SVM is activated
+only by explicit CLI flags plus a model path.
+
+**Director decision (2026-05-07):** `BAAI/bge-large-en-v1.5` approved as the L3 v1 SVM
+production model for default-off use. Enforce deferred — requires future explicit Director
+approval before autonomous rejection is enabled.
+
+**What shipped:**
+
+- `research-prefetch-svm-train` CLI — reads `labels.jsonl`, embeds via BGE-large,
+  fits `LinearSVC` with `random_state=42`, prints full eval report, exports `.joblib`
+  model and metadata ledger. Embedding cache under
+  `artifacts/research/svm_filter_models/embeddings/` (re-used across runs).
+- `SVMRelevanceScorer` runtime — loaded from a `.joblib` path; graceful `ImportError`
+  when `sentence-transformers` or `scikit-learn` are absent.
+- `research-acquire --prefetch-filter-scorer svm --prefetch-svm-model PATH`
+- `research-prefetch-discover --filter-scorer svm --svm-model PATH`
+- SVM enforce returns `rc=1` with a clear error — permanently blocked until future
+  Director approval.
+
+**Evidence (expanded 156-label run, 2026-05-06):**
+
+- Labels: 156 total (74 allow / 82 reject, 3 pending)
+- Train/test split: 117 / 39 (stratified, `random_state=42`)
+- Embedding model: `BAAI/bge-large-en-v1.5`
+- Model type: `LinearSVC`
+- Accuracy: 1.000, Macro F1: 1.000
+- Confusion matrix: `[[19, 0], [0, 20]]`
+- Prior 61-label run: no degradation at 2.5× larger test set
+- 123 targeted SVM tests pass (offline, no model weight downloads)
+- Labels SHA256: `56CEBCC2210BA7FF1A47BA1CB6A64DE649472833D23FB9D3EB4E38BEC387767E` (unchanged)
+
+**Artifacts (gitignored):**
+
+- `artifacts/research/svm_filter_models/expanded_156/svm_model_BAAI_bge-large-en-v1.5_42.joblib`
+- `artifacts/research/svm_filter_models/expanded_156/svm_metadata_BAAI_bge-large-en-v1.5_42.json`
+- `artifacts/research/svm_filter_labels/labels.jsonl`
+
+**Known caveats:**
+
+- 39-sample perfect score is encouraging but not statistically conclusive.
+- SPECTER2 AdapterHub path blocked (`peft_type` key mismatch); BGE-large declared production.
+- `peft` is NOT in `pyproject.toml` ris-svm extras and is not needed for the BGE-large path.
+- No autonomous rejection is enabled — all enforce paths blocked at rc=1.
+
+**Deferred:**
+
+- SVM enforce — requires future Director approval.
+- L2 PaperQA2 activation — gated on L1 Marker Docker IPC warm-worker v1.
+- Marker Docker IPC warm-worker v1 — deferred from Queue v0 (2026-05-05); NOT canceled.
+
+**New modules:**
+`packages/research/relevance_filter/svm_scorer.py`,
+`packages/research/relevance_filter/svm_training.py`,
+`tools/cli/research_prefetch_svm_train.py`
+
+**Extended modules:**
+`packages/research/relevance_filter/__init__.py`,
+`packages/research/relevance_filter/scorer.py`,
+`tools/cli/research_acquire.py`,
+`tools/cli/research_prefetch_discover.py`,
+`polytool/__main__.py`,
+`pyproject.toml` (ris-svm extras)
+
+**Tests:** 123 new targeted SVM tests + extensions to acquire/discover CLI tests.
+
+See `docs/features/FEATURE-ris-svm-filter-v1.md` and
+`docs/dev_logs/2026-05-07_l3-v1-svm-feature-closeout.md`.
