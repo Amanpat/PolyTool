@@ -155,6 +155,7 @@ router/operator-facing surface only.
 
 | Log | Date | Topic |
 |-----|------|-------|
+| [Fix: RIS L1 Closeout — Codex FAIL Blockers](dev_logs/2026-05-09_fix-ris-l1-closeout-codex-blockers.md) | 2026-05-09 | Feature 3 removed from Active Features; stale "L1 NOT unblocked" and ≤10s source comments corrected. 197 tests pass. Active count: 2 (Features 1, 2). |
 | [RIS L1 Marker Production Readiness Rollout](dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md) | 2026-05-09 | L1 DoD met: runbook created, stale CLI text fixed, 158 tests pass. Feature doc + completion protocol executed. L2/L4 now unblocked. Active count: 2 (Features 1, 2). |
 | [Fix: Marker Final Obsidian Active-Feature-3 References](dev_logs/2026-05-08_fix-marker-final-obsidian-active-feature3-references.md) | 2026-05-08 | Docs-only. Four Obsidian files fixed: "Active Feature 3" and "L1 blocked until Feature 3 closeout verification passes" replaced with closed/resolved language. 10 locations across 4 files. No code/tests/artifacts touched. Codex closeout verification may rerun. |
 | [Fix: Marker Final L1-Blocked Status References](dev_logs/2026-05-08_fix-marker-final-l1-blocked-status.md) | 2026-05-08 | Docs-only. Final three stale "L1 blocked on IPC warm-worker" references removed from scaffold feature doc, INDEX, and CURRENT_DEVELOPMENT. Dangling "Active Feature 3" pointer in scaffold doc also updated. No code/tests/artifacts touched. Codex closeout verification may rerun. |

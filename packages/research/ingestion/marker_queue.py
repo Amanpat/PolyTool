@@ -228,8 +228,8 @@ class MarkerParseQueue:
           subsequent paper in the batch.  This amortizes the cold-load cost (~80 s)
           across all items.
         - **Linux/Docker (subprocess mode)**: a fresh Marker process is spawned for
-          each paper and ``create_model_dict()`` runs per extraction.  Warm model
-          reuse across subprocess boundaries requires IPC — deferred to v1.
+          each paper and ``create_model_dict()`` runs per extraction.  For warm model
+          reuse across subprocess boundaries use ``process_next_ipc()`` instead.
 
         Parameters
         ----------
@@ -266,7 +266,7 @@ class MarkerParseQueue:
                     fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
             else:
                 # Subprocess mode (Linux/Docker): each paper spawns a new process.
-                # Model reloads per extraction; warm IPC worker is deferred to v1.
+                # Model reloads per extraction. For warm IPC reuse, call process_next_ipc().
                 fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
         else:
             fetcher = _fetcher
@@ -350,8 +350,9 @@ class MarkerParseQueue:
 
         On Windows (thread mode) falls back to create_warm_thread_worker().
 
-        NOTE: L1 production is NOT unblocked. Live validation required before
-        production deployment of this path.
+        L1 production readiness rollout COMPLETE 2026-05-09. IPC warm-worker
+        validated 2026-05-08 (Feature 3 closed). See
+        docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md.
 
         Parameters
         ----------

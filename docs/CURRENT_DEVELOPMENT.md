@@ -35,30 +35,6 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
 
 ## Active Features (max 3)
 
-### Feature 3: RIS L1 Marker Production Readiness Rollout
-
-- **Track:** Research Intelligence System — Layer 1
-- **Status:** COMPLETE 2026-05-09
-- **Started:** 2026-05-09
-- **Last updated:** 2026-05-09
-- **Owner:** Aman
-- **Definition of done:**
-  - [x] Feature 3 activated in CURRENT_DEVELOPMENT.md — COMPLETE 2026-05-09
-  - [x] Dependency matrix produced (completed/active/gated) — COMPLETE 2026-05-09
-  - [x] L1 DoD: one documented operator path (enqueue → warm-process → inspect) — COMPLETE 2026-05-09
-  - [x] L1 DoD: Marker-only accepted docs (`body_source=marker`) — already enforced by IngestPipeline gate
-  - [x] L1 DoD: no pdfplumber production fallback — already enforced; marker_failed → rejection
-  - [x] L1 DoD: queue states understandable and recoverable — state machine + recovery documented in runbook
-  - [x] L1 DoD: bad/short parses rejected or retryable — MIN_MARKER_BODY_LENGTH=5000; MAX_ATTEMPTS=3
-  - [x] L1 DoD: output location and inspection commands documented — `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` created
-  - [x] L1 DoD: smoke test proves path (existing evidence: 3 papers, body_source=marker, ipc_warm_worker_used=true) — no fresh Docker parse needed
-  - [x] Stale "L1 production gated" CLI text removed from research_marker_queue.py — COMPLETE 2026-05-09
-  - [x] 158 tests pass (0 regressions) — VERIFIED 2026-05-09
-  - [x] `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` created
-  - [x] `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` created
-  - [x] CURRENT_STATE.md and Current-Focus updated
-  - [x] Dev log written: `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`
-
 ### Feature 1: Track 2 Paper Soak — 24h Run
 
 - **Track:** 1A (crypto pair bot)

@@ -5,16 +5,19 @@ Platform: Linux/Docker only.
   This module is NOT used on Windows. Do not call from Windows paths.
 
 Problem solved: on Linux/Docker, each subprocess spawn cold-loads Marker models
-(~80-270s on RTX 2070 Super), failing the ≤10s/paper gate for papers 2+.
+(~80-270s on RTX 2070 Super), adding cold-start overhead for every paper.
 This warm-worker loads models once and serves parse requests via multiprocessing
-queues across the subprocess boundary.
+queues across the subprocess boundary. Per-paper inference time (~45-70s on RTX
+2070 Super) is a hardware constant; the warm-worker eliminates the cold-load
+overhead for papers 2+. Validated 2026-05-08: paper 2 delta=0.13s, paper 3
+delta=0.22s. Original ≤10s/paper target was rejected as unrealistic.
 
 Integration contract (for queue consumer — implemented separately):
 
     worker = MarkerIPCWorker()
     worker.start()                              # cold load once (~80-270s)
     try:
-        result = worker.parse(pdf_path)         # warm parse, ≤10s for papers 2+
+        result = worker.parse(pdf_path)         # warm parse, ~45-70s inference (delta ≤1s papers 2+)
         # result: {
         #   "status": "ok" | "error",
         #   "body": str,
@@ -155,7 +158,7 @@ class MarkerIPCWorker:
         worker = MarkerIPCWorker()
         worker.start()                    # spawns subprocess, cold load begins
         try:
-            result = worker.parse(path)   # papers 2+: warm, ≤10s on RTX 2070 Super
+            result = worker.parse(path)   # papers 2+: warm inference ~45-70s, cold-load delta ≤1s
         finally:
             worker.shutdown()             # poison pill → join → force-kill
 
@@ -267,7 +270,9 @@ class MarkerIPCWorker:
         """Spawn the worker subprocess and begin model loading.
 
         The first parse() call will include cold-load time (~80-270s on RTX 2070 Super).
-        Subsequent parse() calls return from warm VRAM (target: ≤10s/paper).
+        Subsequent parse() calls return from warm VRAM (~45-70s inference; cold-load
+        overhead eliminated for papers 2+). Original ≤10s/paper target was rejected
+        as unrealistic — measured: paper 2 delta=0.13s, paper 3 delta=0.22s.
 
         Raises
         ------
