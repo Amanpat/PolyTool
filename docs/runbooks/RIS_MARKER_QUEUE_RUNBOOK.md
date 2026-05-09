@@ -227,10 +227,53 @@ Validated timings from 2026-05-08 live session:
 
 ---
 
+## Querying the Academic Corpus (L2 — research-query)
+
+Once papers are processed (`queue_status=done, marker_ready=True`), query
+the academic corpus with the `research-query` command:
+
+```bash
+# Basic query — returns paper-level citations from the KS
+python -m polytool research-query --question "market microstructure"
+
+# More citations with step-back context angle
+python -m polytool research-query \
+  --question "sports betting inefficiencies" \
+  --k 10 --step-back
+
+# Single-angle query (primary only, no template expansions)
+python -m polytool research-query \
+  --question "avellaneda stoikov spread model" \
+  --max-angles 1
+```
+
+**How it works:**
+
+1. Multi-angle query planning (up to `--max-angles` template variants)
+2. KnowledgeStore queried with `source_family="academic"` for each angle
+3. Claims deduplicated by ID; grouped by source paper
+4. Papers ranked by highest claim score
+5. Citations returned with: title, arxiv_id, source_url, snippet, body_source
+
+**Prerequisite:** Papers must be ingested into the KnowledgeStore first.
+Use `research-marker-queue` (Steps 1–4 above) then run:
+
+```bash
+python -m polytool research-ingest --file path/to/paper.json --source-type academic
+# OR the full acquire path:
+python -m polytool research-acquire --url https://arxiv.org/abs/2604.24366
+```
+
+Feature doc: `docs/features/FEATURE-ris-l2-academic-query.md`
+
+---
+
 ## Scope Notes
 
-- **L2 PaperQA2** remains a stub. Gated on L1 production rollout closeout.
-- **L4 Multi-source harvesters** remain stubs. Gated on L1 + L3.
+- **L2 PaperQA2** — COMPLETE 2026-05-09. `research-query` CLI ships multi-angle
+  KS query with paper-level citations. See feature doc above.
+- **L4 Multi-source harvesters** — Stub. Gated on explicit Director workpacket.
+  Requires 5 new fetcher classes, session handling, new deps. Not in current sprint.
 - **SVM enforce** remains hard-blocked at rc=1. Default lexical filter is active.
 - **pdfplumber** is legacy/debug only. Never used in the production canonical path.
 - **Bulk re-ingest** of existing pdfplumber-parsed ChromaDB entries is a separate cleanup
