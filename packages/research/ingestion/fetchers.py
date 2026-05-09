@@ -161,6 +161,7 @@ class LiveAcademicFetcher:
         _marker_timeout_seconds: float = 300.0,
         _marker_use_process: bool = _MARKER_DEFAULT_USE_PROCESS,
         _preloaded_model_dict: Optional[dict] = None,
+        _ipc_worker=None,
     ) -> None:
         self._timeout = timeout
         self._http_fn = _http_fn if _http_fn is not None else _default_urlopen
@@ -174,6 +175,10 @@ class LiveAcademicFetcher:
         # Only used in thread path (_marker_use_process=False). Subprocess path
         # cannot share model objects across process boundaries.
         self._preloaded_model_dict = _preloaded_model_dict
+        # Warm IPC worker (Linux/Docker): if set, PDF parse is delegated to this
+        # long-lived MarkerIPCWorker instead of spawning a fresh subprocess.
+        # Does NOT touch _MARKER_DISABLED. Does NOT fall back to pdfplumber.
+        self._ipc_worker = _ipc_worker
 
         # RIS_PDF_PARSER env var overrides constructor default.
         # Default is "marker" (production default with GPU).
@@ -266,6 +271,12 @@ class LiveAcademicFetcher:
         if self._pdf_extractor_cls is not None:
             return self._compat_extract(tmp_path)
 
+        # IPC warm-worker path (Linux/Docker, injected by queue consumer).
+        # Bypasses _MARKER_DISABLED and semaphore — worker manages its own concurrency.
+        # Does NOT fall back to pdfplumber on any failure path.
+        if self._ipc_worker is not None:
+            return self._marker_ipc_worker_extract(tmp_path)
+
         if self._pdf_parser == "pdfplumber":
             # Debug/override path only — not production-equivalent.
             return self._pdfplumber_extract(tmp_path, fallback_reason=None)
@@ -276,6 +287,61 @@ class LiveAcademicFetcher:
 
         # "auto": try Marker, fall back silently to pdfplumber on ImportError or failure
         return self._try_marker_or_fallback(tmp_path)
+
+    def _marker_ipc_worker_extract(self, tmp_path: str) -> "tuple[str, dict]":
+        """Delegate PDF extraction to the injected MarkerIPCWorker.
+
+        Does NOT set _MARKER_DISABLED.
+        Does NOT fall back to pdfplumber.
+        Returns structured (body_text, meta_dict) matching _build_marker_result contract.
+
+        On timeout: MarkerIPCWorker.parse() terminates the worker subprocess and returns
+        an error dict with "marker_timeout" in failure_reason. This method then calls
+        restart() so subsequent papers in the same queue session can proceed with a fresh
+        cold load rather than failing immediately with "worker_not_running".  The current
+        paper still fails (marker_failed/marker_timeout) — the restart only benefits the
+        next paper.
+        """
+        result = self._ipc_worker.parse(tmp_path, timeout=self._marker_timeout_seconds)
+        parse_s = float(result.get("parse_seconds", 0.0))
+
+        if result.get("status") == "error":
+            failure_reason = (result.get("failure_reason") or "ipc_worker_error")[:200]
+
+            # After a timeout the worker subprocess is already dead (terminated by parse()).
+            # Restart it so subsequent papers in this session are not immediately rejected
+            # with worker_not_running.  The current paper still fails; restart only helps
+            # papers 2+ in the same process_next_ipc() call.
+            if "marker_timeout" in failure_reason:
+                try:
+                    self._ipc_worker.restart()
+                    _logger.info(
+                        "IPC worker restarted after timeout; next paper will cold-load"
+                    )
+                except Exception as restart_exc:
+                    _logger.warning(
+                        "IPC worker restart failed after timeout: %s; "
+                        "subsequent papers in this session will fail with worker_not_running",
+                        restart_exc,
+                    )
+
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": failure_reason,
+                "parse_seconds": parse_s,
+            })
+
+        body_text = result.get("body", "")
+        if len(body_text) < 200:
+            return ("", {
+                "body_source": "marker_failed",
+                "failure_reason": f"marker output too short ({len(body_text)} chars)",
+                "parse_seconds": parse_s,
+            })
+
+        meta = dict(result.get("meta", {}))
+        meta["parse_seconds"] = parse_s
+        return self._build_marker_result(body_text, meta)
 
     def _compat_extract(self, tmp_path: str) -> "tuple[str, dict]":
         """Layer-0 backward-compat path using injected _pdf_extractor_cls."""
@@ -602,6 +668,77 @@ class LiveAcademicFetcher:
         if doc_meta.get("parse_seconds") is not None:
             meta["parse_seconds"] = doc_meta["parse_seconds"]
         return (body_text, meta)
+
+    def fetch_pdf_direct(self, url_or_path: str, title: str = "") -> dict:
+        """Download/read a PDF and parse it, skipping the arXiv metadata API entirely.
+
+        Useful for validation queue items where the arXiv Atom API is unavailable
+        or rate-limited. Accepts either an HTTP/HTTPS URL or a local file path.
+
+        Does NOT call export.arxiv.org/api/query.
+        Does NOT fetch title/abstract/authors/published_date from any API.
+
+        Parameters
+        ----------
+        url_or_path:
+            Direct PDF URL (http/https) or local filesystem path.
+        title:
+            Optional title hint stored in the result dict; not resolved from any API.
+
+        Returns
+        -------
+        dict
+            Keys: url, title, body_source, body_length, parse_seconds,
+            failure_reason. body_text included for queue consumer.
+        """
+        import os as _os
+        import tempfile
+
+        is_url = url_or_path.startswith("http://") or url_or_path.startswith("https://")
+        tmp_path = None
+
+        try:
+            if is_url:
+                pdf_bytes = self._pdf_http_fn(url_or_path, self._timeout, {})
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                    f.write(pdf_bytes)
+                    tmp_path = f.name
+                body_text, body_meta = self._parse_pdf(tmp_path)
+            else:
+                # Local path: parse directly, no download or temp file needed.
+                body_text, body_meta = self._parse_pdf(url_or_path)
+
+        except Exception as exc:
+            body_text = ""
+            body_meta = {
+                "body_source": "abstract_fallback",
+                "fallback_reason": str(exc)[:200],
+            }
+
+        finally:
+            if tmp_path is not None:
+                try:
+                    _os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        result: dict = {"url": url_or_path, "title": title, "body_text": body_text}
+        result.update(body_meta)
+
+        body_source = body_meta.get("body_source", "unknown")
+        if body_meta.get("body_length"):
+            _logger.info(
+                "fetch_pdf_direct: body_source=%s body_length=%d",
+                body_source,
+                body_meta.get("body_length", 0),
+            )
+        else:
+            _logger.info(
+                "fetch_pdf_direct: body_source=%s reason=%s",
+                body_source,
+                body_meta.get("failure_reason") or body_meta.get("fallback_reason", "unknown"),
+            )
+        return result
 
     def fetch(self, url: str) -> dict:
         """Fetch arXiv paper metadata from *url*.

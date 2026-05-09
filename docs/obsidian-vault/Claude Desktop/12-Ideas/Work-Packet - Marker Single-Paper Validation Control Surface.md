@@ -11,7 +11,7 @@ parent-decision: "[[Decision - Academic Pipeline Hosting]]"
 prerequisites:
   - "[[Work-Packet - Marker Structural Parser Integration]] — code complete; this packet provides the validation path"
 unblocks:
-  - "[[Work-Packet - Marker Structural Parser Integration]] (production rollout resume — **still blocked on ≤10s/paper gate**)"
+  - "[[Work-Packet - Marker Structural Parser Integration]] (production rollout resume — ~~blocked on ≤10s/paper gate~~ **gate rejected/superseded 2026-05-08; revised functional gate PASS — see Feature 3**)"
 ---
 
 # Work Packet — Marker Single-Paper Validation Control Surface
@@ -33,6 +33,8 @@ unblocks:
 > ```
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
+>
+> **Gate update (2026-05-08):** ≤10s/paper production gate rejected as unrealistic for RTX 2070 Super (Director decision). Revised functional gate: ≥3 full PDFs parsed in one Docker/GPU warm session; papers 2+ delta ≤5s (cold-load overhead eliminated). Measured timings: 45.55s, 69.73s, 48.31s. L1 is now blocked on Feature 3 (Marker Docker IPC Warm-Worker v1) closeout, not the old ≤10s/paper gate.
 
 ## Purpose
 
@@ -146,7 +148,7 @@ service rather than a one-shot command.
 | 8. Dev log written | **PASS** | `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md` |
 
 **Control surface verdict: VALIDATED** — the tooling works.
-**L1 production verdict: BLOCKED** — `parse_seconds=85.95s` >> `≤10s/paper` production gate.
+**L1 production verdict (2026-05-05, as-measured): BLOCKED** — `parse_seconds=85.95s` >> original `≤10s/paper` gate *(gate rejected/superseded 2026-05-08; revised functional gate accepted — see Feature 3)*.
 
 ---
 

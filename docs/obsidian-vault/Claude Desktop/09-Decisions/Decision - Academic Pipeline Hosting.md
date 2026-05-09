@@ -12,11 +12,11 @@ related-work-packets:
 
 ## Status
 
-**ACCEPTED — 2026-05-02. All open questions answered. Docker GPU passthrough verified. L1 Marker production rollout is unblocked.**
+**ACCEPTED — 2026-05-02. All open questions answered. Docker GPU passthrough verified. Hosting blocker resolved. Marker Docker IPC warm-worker v1 closed 2026-05-08 under revised functional gate. L1 Marker production/readiness can proceed to the next explicit rollout/readiness workpacket or Director decision.**
 
 ## Context
 
-The Marker production rollout (Layer 1 of the [[11-Scientific-RAG-Target-Architecture|four-layer scientific RAG target]]) requires GPU hardware. Marker on CPU times out at 300 seconds per paper; on a modest GPU (NVIDIA 2070 Super or better) it runs in 5-10 seconds. Production cannot run on CPU.
+The Marker production rollout (Layer 1 of the [[11-Scientific-RAG-Target-Architecture|four-layer scientific RAG target]]) requires GPU hardware. Marker on CPU times out at 300 seconds per paper; on a modest GPU (NVIDIA 2070 Super or better) it was surveyed at 5-10 seconds (historical architecture survey estimate — **rejected as unrealistic for full academic PDFs on RTX 2070 Super, Director 2026-05-08; revised gate: ≥3 papers in one IPC warm-worker session, papers 2+ delta ≤5s; measured timings: 45.55s, 69.73s, 48.31s**). Production cannot run on CPU.
 
 This is a hosting question that the prior architecture deferred. With L1 production rollout activated, it must be answered.
 
@@ -99,7 +99,7 @@ If `docker run --gpus all` stops working on the dev machine (driver update, Dock
 - [ ] `pyproject.toml` updated: Marker deps moved from `[ris-marker]` into `[ris]` extra
 - [ ] `Dockerfile` updated to install `[ris]` extra (picks up Marker deps)
 - [ ] `tests/test_ris_marker_extractor.py` written (≥4 tests per acceptance gate 8)
-- [ ] GPU performance baseline run: ≤10 s/paper on the production host
+- [~] GPU performance baseline run: ≤10 s/paper on the production host — **SUPERSEDED 2026-05-08.** Original ≤10s/paper timing gate rejected as unrealistic for full academic PDFs on RTX 2070 Super. Revised gate: ≥3 full academic PDFs complete in one Docker/GPU IPC warm-worker session; papers 2+ delta (total_seconds − parse_seconds) ≤5s; body_source=marker; ipc_warm_worker_used=true; no pdfplumber fallback; clean shutdown/no orphans. Measured timings: paper 1 = 45.55s, paper 2 = 69.73s, paper 3 = 48.31s. Marker Docker IPC warm-worker v1 closed 2026-05-08. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
 
 ---
 

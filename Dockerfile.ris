@@ -71,6 +71,7 @@ RUN echo "# PolyTool" > README.md \
     && mkdir -p packages/polymarket/simtrader/sweeps \
     && mkdir -p packages/polymarket/crypto_pairs \
     && mkdir -p packages/research/hypotheses \
+    && mkdir -p packages/research/relevance_filter \
     && mkdir -p packages/research/scheduling \
     && mkdir -p tools/cli \
     && mkdir -p tools/guard \

@@ -144,17 +144,18 @@ Dry-run mode: score and print decisions; do not write to queue.
 
 ## Deferred: Marker Docker/Linux IPC Warm-Worker (Option A)
 
-> [!WARNING] Do Not Forget
-> The Marker Docker/Linux IPC warm-worker (Queue v1, Option A) was explicitly deferred
-> 2026-05-05 when queue v0 shipped. It is **not canceled** — it is blocked pending
-> operator decision on the next packet.
+> [!SUCCESS] Marker Docker IPC Warm-Worker v1 — Feature 3 Closed 2026-05-08
+> The Marker Docker/Linux IPC warm-worker (Queue v1, Option A) was deferred 2026-05-05
+> when queue v0 shipped. It was subsequently activated as Feature 3 on 2026-05-07 and
+> **closed 2026-05-08** under the revised functional gate.
 >
-> **Must be revisited after this L3/SVM development stream completes, or before L2
-> production launch (whichever comes first).** L1 Marker production rollout remains
-> blocked until the IPC warm-worker validates ≥3 papers at ≤10s/paper (papers 2+).
+> **Original ≤10s/paper timing gate rejected as unrealistic (Director 2026-05-08).** Revised
+> gate: ≥3 full PDFs in one warm session; papers 2+ delta (total_seconds − parse_seconds) ≤5s;
+> `body_source=marker`; `ipc_warm_worker_used=true`; no pdfplumber fallback; clean shutdown.
+> Measured timings preserved: paper 1 delta=26.76s (cold-load), paper 2 delta=0.13s, paper 3 delta=0.22s.
 >
-> Resume trigger: operator chooses Docker IPC warm-worker packet; validates ≥3 papers
-> warm (≤10s/paper for papers 2+). See Paused/Deferred table in `CURRENT_DEVELOPMENT.md`.
+> **L1 warm-worker blocker resolved. Next L1 rollout/readiness step requires a separate workpacket/Director decision.**
+> See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
 
 ---
 

@@ -1779,8 +1779,8 @@ approval before autonomous rejection is enabled.
 **Deferred:**
 
 - SVM enforce — requires future Director approval.
-- L2 PaperQA2 activation — gated on L1 Marker Docker IPC warm-worker v1.
-- Marker Docker IPC warm-worker v1 — deferred from Queue v0 (2026-05-05); NOT canceled.
+- L2 PaperQA2 activation — gated on L1 Marker production rollout completion.
+- Marker Docker IPC warm-worker v1 — **COMPLETE (2026-05-08)**. All revised functional gates PASS. L1 Marker Production Rollout UNBLOCKED — resume at next explicit Director workpacket. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
 
 **New modules:**
 `packages/research/relevance_filter/svm_scorer.py`,
@@ -1799,3 +1799,57 @@ approval before autonomous rejection is enabled.
 
 See `docs/features/FEATURE-ris-svm-filter-v1.md` and
 `docs/dev_logs/2026-05-07_l3-v1-svm-feature-closeout.md`.
+
+## Marker Docker IPC Warm-Worker v1 — Complete (2026-05-08)
+
+Persistent IPC warm-worker subprocess for the Marker parse queue on Linux/Docker.
+Marker models load once at container startup and stay in GPU VRAM across all queued papers.
+
+**What shipped:**
+
+- `IpcMarkerWorker` (`packages/research/ingestion/marker_ipc_worker.py`) — persistent
+  subprocess, Unix domain socket at `/tmp/marker_worker.sock`, JSON IPC protocol,
+  `daemon=False` fix for multiprocessing restriction on Linux.
+- `process_next_ipc()` in `MarkerParseQueue` with `_extra_result_fields` parameter so
+  `ipc_warm_worker_used` is persisted in `results.jsonl` before `_append_result()` writes.
+- `fetch_pdf_direct()` in `ArxivFetcher` for direct-PDF queue items (`--pdf-url`).
+- `research-marker-queue warm-process` CLI — starts warm-worker, processes queued papers;
+  `--max-items N`, `--marker-timeout SECONDS`.
+- `research-marker-queue enqueue --pdf-url URL` — enqueue by direct PDF URL.
+
+**Revised functional gate (Director-approved 2026-05-08):**
+
+Original ≤10s/paper timing gate for papers 2+ is **rejected as unrealistic** for full
+academic PDFs on the RTX 2070 Super and permanently superseded. Marker's five-stage
+multi-model pipeline requires ~45–70s warm inference per paper — a hardware constant, not
+a regression. Revised gate: ≥3 full PDFs in one warm session; papers 2+ delta ≤5s
+(cold-load overhead eliminated).
+
+**Live validation evidence (2026-05-08, RTX 2070 Super, CUDA 13.2):**
+
+| Paper | parse_seconds | total_seconds | delta | body_source | ipc_warm_worker_used |
+|-------|--------------|--------------|-------|-------------|----------------------|
+| arxiv:2604.24366 (paper 1) | 45.55s | 72.31s | 26.76s (cold-load) | marker | true |
+| arxiv:2109.07581 (paper 2) | 69.73s | 69.86s | **0.13s (warm)** | marker | true |
+| arxiv:1910.08858 (paper 3) | 48.31s | 48.53s | **0.22s (warm)** | marker | true |
+
+All revised functional gates: PASS. done=3, failed=0. No pdfplumber fallback. No daemon
+error. Clean shutdown.
+
+**L1 Marker Production Rollout:** UNBLOCKED as of 2026-05-08. Resume at next explicit
+Director workpacket. The next L1 packet should cover production scheduling integration,
+queue drain loop, retry policy, and Grafana/health monitoring integration.
+
+**What remains blocked/stubbed:**
+
+- L2 PaperQA2 RAG Control Flow — stub; gated on L1 production rollout completion.
+- L4 Multi-source Academic Harvesters — stub; gated on L1 + L3.
+- Automatic warm-worker startup on container boot — deferred; manual trigger only in v1.
+- IPC crash recovery / reconnect — deferred to post-v1 hardening pass.
+- Bulk re-ingest of pdfplumber-parsed corpus — separate cleanup task.
+
+**Tests:** 4 new `TestIPCResultPersistence` tests; combined with IPC worker tests: 158
+passed, 1 skipped (Linux-only platform skip correct on Windows).
+
+See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` and
+`docs/dev_logs/2026-05-08_marker-docker-ipc-warm-worker-v1-closeout.md`.

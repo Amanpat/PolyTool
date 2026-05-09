@@ -2,8 +2,8 @@
 tags: [work-packet, ris, ingestion, academic, parser]
 date: 2026-04-29
 status: blocked
-blocked-reason: "Operator chose Option A 2026-05-05: async parse queue. L1 production rollout cannot ship as synchronous default (parse_seconds=85.95s >> ≤10s/paper gate; cold-start dominates). Blocked pending [[Work-Packet - Marker Canonical Academic Parse Queue]] shipping. pdfplumber is legacy/debug only. Final embeddings must be Marker-only."
-updated: 2026-05-05
+blocked-reason: "Feature 3 closed 2026-05-08: Marker Docker IPC Warm-Worker v1 closed under revised functional gate. L1 warm-worker blocker resolved; next L1 rollout/readiness step requires separate workpacket/Director decision. HISTORICAL (2026-05-05, gate rejected 2026-05-08): old ≤10s/paper timing gate was rejected as unrealistic; async parse queue has shipped. pdfplumber is legacy/debug only. Final embeddings must be Marker-only."
+updated: 2026-05-08
 priority: high
 phase: 2
 target-layer: 1
@@ -20,7 +20,7 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 
 # Work Packet — Marker Structural Parser Integration (Production Rollout)
 
-> [!DANGER] Status: BLOCKED — Awaiting Async Queue Implementation (updated 2026-05-05)
+> [!INFO] Status: Feature 3 Closed — L1 Warm-Worker Blocker Resolved (2026-05-08; queue shipped)
 > The control surface (`run-academic-url`) was validated on 2026-05-05.
 > Marker parses successfully — but is too slow for synchronous production default.
 > **Operator decision recorded 2026-05-05: Option A — async parse queue.**
@@ -28,11 +28,11 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 > **Controlled parse result (2026-05-05):**
 > - Paper: `2604.24366` — The Anatomy of a Decentralized Prediction Market (15 pages, prose-heavy)
 > - `body_source=marker` ✅ | `body_length=56923` ✅ | `exit_code=0` ✅
-> - `parse_seconds=85.95s` ❌ — **fails ≤10s/paper production gate by ~8.6×**
+> - `parse_seconds=85.95s` ❌ — ~~**fails ≤10s/paper production gate by ~8.6×**~~ **(historical — ≤10s/paper gate rejected/superseded 2026-05-08; see revised gate below)**
 > - `total_seconds=89.41s` (includes arXiv API + PDF download)
 >
-> **Root cause:** RTX 2070 Super cold-load time dominates per-paper budget. The ~5–10s/paper
-> estimate in the architecture survey was from a warm-model benchmark not replicated here.
+> **Root cause (historical — superseded 2026-05-08):** RTX 2070 Super cold-load time dominates per-paper budget. The ~~`~5–10s/paper`
+> estimate in the architecture survey was from a warm-model benchmark not replicated here~~ — survey estimate rejected as unrealistic; measured warm-worker timings: 45.55s, 69.73s, 48.31s.
 > Cold-start per `docker compose run --rm` invocation = model reload from disk on every paper.
 > Warm-worker approach (models loaded once, queue processed sequentially) solves this.
 >
@@ -40,10 +40,10 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 > - pdfplumber is **legacy/debug only** (`RIS_PDF_PARSER=pdfplumber` debug override only)
 > - Final academic embeddings must be **Marker-only** (`body_source=marker`)
 > - New papers enqueued immediately; a warm GPU worker processes the queue
-> - Models load once at worker start; papers 2+ expected ≤10s on warm RTX 2070 Super VRAM
+> - Models load once at worker start; papers 2+ cold-load delta expected ≤5s (revised gate 2026-05-08; original "≤10s/paper" per-paper target **rejected as unrealistic** — measured warm-worker timings: 45.55s, 69.73s, 48.31s; papers 2–3 deltas: 0.13s, 0.22s)
 > - New packet created: [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: ready)
 >
-> **This packet resumes when [[Work-Packet - Marker Canonical Academic Parse Queue]] ships.**
+> ~~**This packet resumes when [[Work-Packet - Marker Canonical Academic Parse Queue]] ships.**~~ **Queue shipped. Feature 3 closed 2026-05-08. L1 warm-worker blocker resolved; next L1 rollout/readiness step requires separate workpacket/Director decision.**
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 > **Decision log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`
@@ -53,7 +53,7 @@ supersedes-status: "Previous status (implemented-experimental-scaffold) is super
 >
 > **Why the change:** consistent embedding quality requires consistent parser output. Two parsers in production produce two flavors of chunks (Marker preserves LaTeX equations and structured tables; pdfplumber produces flat text), and the embedder treats them differently. Queries about "γ in Avellaneda-Stoikov" might match Marker-parsed papers (LaTeX `\gamma` survives) and miss pdfplumber-parsed papers (`γ` becomes Unicode soup). Inconsistent corpus = inconsistent retrieval = no way to reason about why queries succeed or fail.
 >
-> The operator has confirmed GPU availability (NVIDIA 2070 Super on dev machine). Marker on this hardware is ~5-10s/paper per the survey's evidence — fast enough for production. The CPU timeout problem (300s) the previous scaffold hit goes away with GPU.
+> The operator has confirmed GPU availability (NVIDIA 2070 Super on dev machine). ~~Marker on this hardware is ~5-10s/paper per the survey's evidence — fast enough for production.~~ **Historical note, superseded 2026-05-08:** architecture survey estimate of ~5-10s/paper rejected as unrealistic for full academic PDFs on RTX 2070 Super. Measured warm IPC worker timings: 45.55s, 69.73s, 48.31s. Revised gate is functional warm-worker throughput (≥3 papers in one IPC session, papers 2+ delta ≤5s), not per-paper timing. The CPU timeout problem (300s) the previous scaffold hit goes away with the GPU IPC warm worker.
 
 ## Layer
 
@@ -93,7 +93,7 @@ The architect should read these before writing the implementation prompt:
 ## Acceptance gates
 
 1. **Marker is the default and only parser.** `LiveAcademicFetcher.fetch()` calls Marker for every PDF download. `RIS_PDF_PARSER` env var still exists for testing/debugging but defaults to `marker`. pdfplumber is not called in the production path.
-2. **GPU performance baseline.** On the production host (per the hosting decision), Marker parses a typical arXiv paper in ≤10 seconds. Benchmark via `polytool research-parser-benchmark` against a 10-paper corpus drawn from existing L0 ingests.
+2. **GPU performance baseline.** ~~On the production host (per the hosting decision), Marker parses a typical arXiv paper in ≤10 seconds.~~ **Superseded (Director 2026-05-08):** original ≤10s/paper timing gate rejected as unrealistic for full academic PDFs on RTX 2070 Super. Revised gate: ≥3 papers completed in one warm Docker IPC session; papers 2+ delta (total_seconds − parse_seconds) ≤5s; `body_source=marker`; `ipc_warm_worker_used=true`; no pdfplumber fallback. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` (closed 2026-05-08).
 3. **Structured output preserved end to end.** For 10 test papers, the stored `body_text` contains: at least one LaTeX equation marker (`$$` or `$`), at least one Markdown header (`#`), at least one Markdown table marker (`|`). Confirm via direct ChromaDB inspection.
 4. **Failure surfacing.** When Marker fails on a corrupted or image-only PDF (test fixture), the paper is rejected with `body_source=marker_failed`, `failure_reason` populated, and the acquisition review JSONL records the rejection. No silent fallback to abstract or pdfplumber.
 5. **Cache compatibility.** Marker JSON metadata is stored in the existing raw-source cache JSON file alongside Markdown body. Re-ingestion of cached papers reads from cache without re-running Marker.
@@ -123,7 +123,7 @@ The architect should read these before writing the implementation prompt:
 3. **Model weight handling.** Volume-mounted from host cache. Resolved by hosting decision (Q5→volume-mount).
 4. **Failure-mode policy for Marker rejections.** When Marker fails, the paper is rejected. Should the rejection be recoverable (e.g., a future packet adds OCR for image-only papers) or final? Recommend: recoverable, with the rejected source_id remaining in cache so a future re-ingest can re-attempt.
 5. **Rollout strategy.** Hard cutover recommended for new ingests, cleanup as a parallel task. However this question is now moot until the control surface packet ships — rollout cannot begin until single-paper controlled validation succeeds.
-6. **NEW (2026-05-05): Math-heavy paper timeout.** Cold model load (~136-270s) + math-dense box spikes (100-300s/box) make one-shot per-paper timeouts unreliable for ML/quant papers. Does acceptance gate 2 ("≤10s warm") assume warm scheduler mode only? Warm scheduler mode requires a process-boundary cancel to be safe. The control surface packet must resolve this.
+6. **NEW (2026-05-05) — RESOLVED 2026-05-08:** Math-heavy paper timeout. Cold model load (~136-270s) + math-dense box spikes (100-300s/box) make one-shot per-paper timeouts unreliable for ML/quant papers. ~~Does acceptance gate 2 ("≤10s warm") assume warm scheduler mode only?~~ **Resolved:** acceptance gate 2 revised (Director 2026-05-08) — original ≤10s/paper per-paper target rejected as unrealistic; revised gate is functional warm-worker throughput (≥3 papers in one Docker IPC session, papers 2+ delta ≤5s, body_source=marker, ipc_warm_worker_used=true). See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` (closed 2026-05-08).
 
 ## Cross-references
 

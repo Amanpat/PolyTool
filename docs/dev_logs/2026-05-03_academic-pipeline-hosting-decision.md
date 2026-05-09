@@ -11,7 +11,10 @@
 
 The [[Decision - Academic Pipeline Hosting]] blocking L1 Marker production rollout has been
 answered and accepted. All five open questions are resolved. Docker GPU passthrough was
-verified by running `nvidia-smi` inside a CUDA container with `--gpus all`. L1 is unblocked.
+verified by running `nvidia-smi` inside a CUDA container with `--gpus all`. Hosting blocker
+resolved. *(The "L1 is unblocked" claim below was correct at this decision point. It is now
+stale — Docker IPC warm-worker live validation failed 2026-05-07; L1 remains blocked pending
+>=3 warm papers at <=10s/paper (historical gate — **≤10s/paper rejected as unrealistic 2026-05-08; revised functional gate accepted — see Feature 3**). See `docs/dev_logs/2026-05-07_marker-docker-ipc-warm-worker-live-validation.md`.)*
 
 ---
 
@@ -74,9 +77,10 @@ through Marker. L1 does not include that cleanup.
 
 ---
 
-## Is L1 unblocked?
+## Is L1 unblocked? *(stale — see note below)*
 
-**YES.** The only gate was the hosting decision. That gate is now cleared:
+**YES — as of this decision (2026-05-02), the hosting gate was cleared.** The only hosting
+gate was this decision. That gate is now cleared:
 
 - GPU hardware confirmed ✓
 - Docker GPU passthrough verified ✓
@@ -84,6 +88,12 @@ through Marker. L1 does not include that cleanup.
 - Scheduler split documented ✓
 
 [[Work-Packet - Marker Structural Parser Integration]] may proceed to implementation.
+
+> **STALE (2026-05-07):** Docker IPC warm-worker live validation subsequently failed — 0 papers
+> completed in any single run. L1 remains blocked until >=3 warm papers parse at <=10s/paper
+> (historical gate — **≤10s/paper rejected as unrealistic 2026-05-08; revised functional gate accepted — see Feature 3**).
+> The hosting decision itself remains valid and accepted. See
+> `docs/dev_logs/2026-05-07_marker-docker-ipc-warm-worker-live-validation.md`.
 
 ---
 
@@ -101,7 +111,7 @@ The following are implementation-time prerequisites, not blockers on starting th
 4. **First-run weight download** — on first container start, Marker will download ~1–3 GB of
    model weights into the host-mounted cache path. This is a one-time operator setup step.
 5. **GPU performance baseline** — run `polytool research-parser-benchmark` against a 10-paper
-   corpus on the production host to confirm ≤10 s/paper (acceptance gate 2).
+   corpus on the production host to confirm ≤10 s/paper (acceptance gate 2). *(Historical: ≤10s/paper gate rejected as unrealistic 2026-05-08; revised functional gate accepted — see Feature 3.)*
 
 ---
 

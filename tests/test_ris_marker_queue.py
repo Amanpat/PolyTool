@@ -854,3 +854,727 @@ class TestAcademicPipelineMarkerGate:
         result = pipeline.ingest_external(raw, source_family="blog")
         # Blog passes the gate (no academic_marker_gate check)
         assert "academic_marker_gate" not in (result.reject_reason or "")
+
+
+# ---------------------------------------------------------------------------
+# IPC warm-worker: LiveAcademicFetcher._marker_ipc_worker_extract
+# ---------------------------------------------------------------------------
+
+
+class _MockIPCWorker:
+    """Minimal MarkerIPCWorker stand-in for offline tests."""
+
+    def __init__(self, status: str = "ok", body: str = "x" * 6000,
+                 failure_reason: str = "ipc_error") -> None:
+        self._status = status
+        self._body = body
+        self._failure_reason = failure_reason
+        self.parse_call_count = 0
+
+    def parse(self, pdf_path: str, timeout: float = 900.0) -> dict:
+        self.parse_call_count += 1
+        if self._status == "error":
+            return {
+                "status": "error",
+                "body": "",
+                "meta": {},
+                "parse_seconds": 0.5,
+                "failure_reason": self._failure_reason,
+            }
+        return {
+            "status": "ok",
+            "body": self._body,
+            "meta": {"body_source": "marker", "page_count": 10, "parse_seconds": 1.5},
+            "parse_seconds": 1.5,
+            "failure_reason": None,
+        }
+
+    def start(self) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def is_alive(self) -> bool:
+        return True
+
+
+class TestIPCFetcherExtract:
+    """LiveAcademicFetcher with _ipc_worker injects through _marker_ipc_worker_extract."""
+
+    def _make_fetcher(self, worker):
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+        return LiveAcademicFetcher(
+            _ipc_worker=worker,
+            _marker_timeout_seconds=5.0,
+        )
+
+    def test_ok_result_returns_marker_body_source(self) -> None:
+        worker = _MockIPCWorker(status="ok", body="# Title\n" + "word " * 2000)
+        fetcher = self._make_fetcher(worker)
+        body, meta = fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert meta["body_source"] == "marker"
+        assert len(body) > 200
+        assert worker.parse_call_count == 1
+
+    def test_error_result_returns_marker_failed(self) -> None:
+        worker = _MockIPCWorker(status="error", failure_reason="gpu_oom")
+        fetcher = self._make_fetcher(worker)
+        body, meta = fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert body == ""
+        assert meta["body_source"] == "marker_failed"
+        assert "gpu_oom" in meta["failure_reason"]
+
+    def test_error_does_not_set_marker_disabled(self) -> None:
+        from packages.research.ingestion.fetchers import _MARKER_DISABLED
+        _MARKER_DISABLED.clear()
+        worker = _MockIPCWorker(status="error", failure_reason="ipc_timeout")
+        fetcher = self._make_fetcher(worker)
+        fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert not _MARKER_DISABLED.is_set(), \
+            "_MARKER_DISABLED must not be set by the IPC worker path"
+
+    def test_no_pdfplumber_fallback_on_error(self) -> None:
+        worker = _MockIPCWorker(status="error")
+        fetcher = self._make_fetcher(worker)
+        body, meta = fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert meta.get("body_source") not in ("pdfplumber_fallback", "pdfplumber", "pdf")
+
+    def test_short_body_returns_marker_failed(self) -> None:
+        worker = _MockIPCWorker(status="ok", body="short")
+        fetcher = self._make_fetcher(worker)
+        body, meta = fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert body == ""
+        assert meta["body_source"] == "marker_failed"
+        assert "too short" in meta["failure_reason"]
+
+    def test_parse_seconds_propagated(self) -> None:
+        worker = _MockIPCWorker(status="ok", body="x" * 6000)
+        fetcher = self._make_fetcher(worker)
+        _, meta = fetcher._marker_ipc_worker_extract("/fake/paper.pdf")
+        assert meta.get("parse_seconds") == 1.5
+
+
+# ---------------------------------------------------------------------------
+# IPC warm-worker: process_next_ipc queue integration
+# ---------------------------------------------------------------------------
+
+
+class _IPCTrackingFetcher:
+    """Fetcher that delegates parse to a shared mock IPC worker, tracking calls."""
+
+    def __init__(self, worker: _MockIPCWorker) -> None:
+        self._worker = worker
+
+    def fetch(self, url: str) -> dict:
+        result = self._worker.parse("/fake/paper.pdf")
+        if result["status"] == "error":
+            return {
+                "title": "Test Paper",
+                "body_source": "marker_failed",
+                "body_length": 0,
+                "parse_seconds": result.get("parse_seconds", 0.0),
+                "failure_reason": result.get("failure_reason", "ipc_error"),
+            }
+        return {
+            "title": "Test Paper",
+            "body_source": "marker",
+            "body_length": len(result["body"]),
+            "parse_seconds": result.get("parse_seconds", 0.0),
+            "failure_reason": None,
+        }
+
+
+class TestProcessNextIPC:
+
+    def test_multiple_items_share_one_worker_instance(self, tmp_path: Path) -> None:
+        """process_next_ipc passes the same worker to each paper in the batch."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        worker = _MockIPCWorker()
+        fetcher = _IPCTrackingFetcher(worker)
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.enqueue("2401.00001")
+
+        results = q.process_next_ipc(max_items=2, _fetcher=fetcher)
+
+        assert len(results) == 2
+        # Both papers routed through the same worker — parse() called twice
+        assert worker.parse_call_count == 2
+        assert all(r["marker_ready"] for r in results)
+
+    def test_results_contain_ipc_warm_worker_used(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        results = q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(_marker_raw()))
+        assert "ipc_warm_worker_used" in results[0]
+
+    def test_ipc_failure_marks_item_retryable(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        results = q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(_failed_raw()))
+        r = results[0]
+        assert r["rejected"] is True
+        assert r["queue_status"] == "pending"  # first failure → retryable
+
+    def test_ipc_failure_no_pdfplumber_fallback(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        raw = {
+            "title": "T",
+            "body_source": "marker_failed",
+            "body_length": 0,
+            "parse_seconds": 0.0,
+            "failure_reason": "ipc_timeout",
+        }
+        results = q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(raw))
+        r = results[0]
+        assert r["body_source"] not in ("pdfplumber_fallback", "pdfplumber")
+
+    def test_ipc_failure_terminal_after_max_attempts(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MAX_ATTEMPTS
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        fetcher = _FakeFetcher(_failed_raw())
+        for _ in range(MAX_ATTEMPTS):
+            q.process_next_ipc(max_items=1, _fetcher=fetcher)
+        records = q.list_queue()
+        assert records[0]["status"] == "failed"
+
+    def test_empty_queue_returns_empty(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        results = q.process_next_ipc(max_items=5, _fetcher=_FakeFetcher(_marker_raw()))
+        assert results == []
+
+    def test_windows_thread_path_unchanged(self, tmp_path: Path) -> None:
+        """process_next_ipc with _fetcher injection behaves identically to process_next."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        # _fetcher injection bypasses platform check — same semantics as process_next
+        results = q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(_marker_raw()))
+        assert results[0]["marker_ready"] is True
+        assert results[0]["queue_status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# CLI: warm-process subcommand
+# ---------------------------------------------------------------------------
+
+
+class TestCLIWarmProcess:
+
+    def test_warm_process_in_top_level_help(self) -> None:
+        code, out = _run_cli(["--help"])
+        assert code == 0
+        assert "warm-process" in out
+
+    def test_warm_process_help_exits_zero(self) -> None:
+        code, out = _run_cli(["warm-process", "--help"])
+        assert code == 0
+        assert "--max-items" in out
+        assert "--marker-timeout" in out
+
+    def test_warm_process_empty_queue(self, tmp_path: Path) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "warm-process"])
+        assert code == 0
+        assert "No pending" in out or "no pending" in out.lower()
+
+    def test_warm_process_empty_queue_json(self, tmp_path: Path) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "warm-process", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert data["processed"] == []
+        assert "ipc_warm_worker_used" in data
+
+
+# ---------------------------------------------------------------------------
+# fetch_pdf_direct: LiveAcademicFetcher bypasses arXiv metadata API
+# ---------------------------------------------------------------------------
+
+
+class TestFetchPdfDirect:
+    """LiveAcademicFetcher.fetch_pdf_direct skips the arXiv Atom API entirely."""
+
+    def _make_fetcher(self, pdf_http_fn, metadata_http_fn=None, ipc_worker=None):
+        from packages.research.ingestion.fetchers import LiveAcademicFetcher
+        # metadata_http_fn raises if called — proves no Atom API contact
+        if metadata_http_fn is None:
+            def metadata_http_fn(url, timeout, headers):
+                raise AssertionError(f"arXiv metadata API must NOT be called: {url}")
+        return LiveAcademicFetcher(
+            _http_fn=metadata_http_fn,
+            _pdf_http_fn=pdf_http_fn,
+            _ipc_worker=ipc_worker,
+            _marker_timeout_seconds=5.0,
+        )
+
+    def _ok_ipc_worker(self, body_len: int = 6000):
+        return _MockIPCWorker(status="ok", body="x" * body_len)
+
+    def _fake_pdf_bytes(self) -> bytes:
+        # Minimal bytes — the mock IPC worker ignores actual content
+        return b"%PDF-1.4 fake" + b"0" * 100
+
+    def test_url_path_does_not_call_arxiv_metadata_api(self) -> None:
+        """fetch_pdf_direct with an HTTP URL: _http_fn (metadata) is never called."""
+        metadata_called: list[str] = []
+
+        def _fail_on_metadata(url, timeout, headers):
+            metadata_called.append(url)
+            raise AssertionError(f"metadata API called: {url}")
+
+        def _ok_pdf(url, timeout, headers):
+            return self._fake_pdf_bytes()
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_ok_pdf,
+            metadata_http_fn=_fail_on_metadata,
+            ipc_worker=self._ok_ipc_worker(),
+        )
+        result = fetcher.fetch_pdf_direct(
+            "https://arxiv.org/pdf/1910.08858.pdf", title="Test Paper"
+        )
+        assert not metadata_called, "arXiv Atom API must not be called"
+        assert result["body_source"] == "marker"
+
+    def test_url_path_returns_marker_body_source(self) -> None:
+        def _ok_pdf(url, timeout, headers):
+            return self._fake_pdf_bytes()
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_ok_pdf,
+            ipc_worker=self._ok_ipc_worker(body_len=6000),
+        )
+        result = fetcher.fetch_pdf_direct("https://arxiv.org/pdf/1910.08858.pdf")
+        assert result["body_source"] == "marker"
+        assert result["body_length"] > 0
+        assert result.get("parse_seconds") is not None
+
+    def test_url_path_preserves_title_hint(self) -> None:
+        def _ok_pdf(url, timeout, headers):
+            return self._fake_pdf_bytes()
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_ok_pdf,
+            ipc_worker=self._ok_ipc_worker(),
+        )
+        result = fetcher.fetch_pdf_direct(
+            "https://arxiv.org/pdf/1910.08858.pdf", title="My Hint"
+        )
+        assert result["title"] == "My Hint"
+
+    def test_url_path_pdf_download_failure_returns_abstract_fallback(self) -> None:
+        def _fail_pdf(url, timeout, headers):
+            raise OSError("connection refused")
+
+        fetcher = self._make_fetcher(pdf_http_fn=_fail_pdf)
+        result = fetcher.fetch_pdf_direct("https://arxiv.org/pdf/1910.08858.pdf")
+        assert result["body_source"] == "abstract_fallback"
+        assert "connection refused" in result.get("fallback_reason", "")
+
+    def test_local_path_no_http_at_all(self, tmp_path: Path) -> None:
+        """fetch_pdf_direct with a local path: no HTTP call of any kind."""
+        http_called: list[str] = []
+
+        def _fail_any_http(url, timeout, headers):
+            http_called.append(url)
+            raise AssertionError(f"HTTP must not be called for local path: {url}")
+
+        fake_pdf = tmp_path / "paper.pdf"
+        fake_pdf.write_bytes(b"%PDF-1.4 local" + b"1" * 50)
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_fail_any_http,
+            metadata_http_fn=_fail_any_http,
+            ipc_worker=self._ok_ipc_worker(),
+        )
+        result = fetcher.fetch_pdf_direct(str(fake_pdf), title="Local Paper")
+        assert not http_called, "No HTTP for local path"
+        assert result["body_source"] == "marker"
+        assert result["title"] == "Local Paper"
+
+    def test_result_dict_has_expected_keys(self) -> None:
+        def _ok_pdf(url, timeout, headers):
+            return self._fake_pdf_bytes()
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_ok_pdf,
+            ipc_worker=self._ok_ipc_worker(),
+        )
+        result = fetcher.fetch_pdf_direct("https://arxiv.org/pdf/1910.08858.pdf", title="T")
+        for key in ("url", "title", "body_source", "body_length", "parse_seconds"):
+            assert key in result, f"Missing key: {key}"
+
+    def test_ipc_error_returns_marker_failed_not_pdfplumber(self) -> None:
+        """IPC worker error → marker_failed, never pdfplumber."""
+        def _ok_pdf(url, timeout, headers):
+            return self._fake_pdf_bytes()
+
+        fetcher = self._make_fetcher(
+            pdf_http_fn=_ok_pdf,
+            ipc_worker=_MockIPCWorker(status="error", failure_reason="gpu_oom"),
+        )
+        result = fetcher.fetch_pdf_direct("https://arxiv.org/pdf/1910.08858.pdf")
+        assert result["body_source"] == "marker_failed"
+        assert result["body_source"] not in ("pdfplumber_fallback", "pdfplumber", "pdf")
+
+
+# ---------------------------------------------------------------------------
+# enqueue: pdf_url field stored in queue record
+# ---------------------------------------------------------------------------
+
+
+class TestEnqueuePdfUrl:
+
+    def test_enqueue_with_pdf_url_stores_field(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue(
+            "https://arxiv.org/abs/1910.08858",
+            pdf_url="https://arxiv.org/pdf/1910.08858.pdf",
+        )
+        records = q.list_queue()
+        assert records[0].get("pdf_url") == "https://arxiv.org/pdf/1910.08858.pdf"
+
+    def test_enqueue_without_pdf_url_omits_field(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        records = q.list_queue()
+        assert "pdf_url" not in records[0]
+
+    def test_enqueue_pdf_url_preserves_arxiv_candidate_id(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue(
+            "1910.08858",
+            pdf_url="https://arxiv.org/pdf/1910.08858.pdf",
+        )
+        records = q.list_queue()
+        assert records[0]["candidate_id"] == "arxiv:1910.08858"
+        assert records[0]["pdf_url"] == "https://arxiv.org/pdf/1910.08858.pdf"
+
+    def test_enqueue_local_pdf_path_stored(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        local = "/app/artifacts/research/pdfs/paper.pdf"
+        q.enqueue("1910.08858", pdf_url=local)
+        records = q.list_queue()
+        assert records[0]["pdf_url"] == local
+
+
+# ---------------------------------------------------------------------------
+# _process_item dispatch: pdf_url routes to fetch_pdf_direct
+# ---------------------------------------------------------------------------
+
+
+class _FakeFetcherWithDirect(_FakeFetcher):
+    """Fetcher that has both fetch() and fetch_pdf_direct(); tracks which was used."""
+
+    def __init__(self, raw_source: dict, direct_raw: "dict | None" = None) -> None:
+        super().__init__(raw_source)
+        self._direct_raw = direct_raw if direct_raw is not None else raw_source
+        self.fetch_called = 0
+        self.fetch_pdf_direct_called = 0
+        self.last_direct_url: str = ""
+
+    def fetch(self, url: str) -> dict:  # type: ignore[override]
+        self.fetch_called += 1
+        return dict(self._raw)
+
+    def fetch_pdf_direct(self, url_or_path: str, title: str = "") -> dict:
+        self.fetch_pdf_direct_called += 1
+        self.last_direct_url = url_or_path
+        result = dict(self._direct_raw)
+        if title and not result.get("title"):
+            result["title"] = title
+        return result
+
+
+class TestProcessNextDirectPdf:
+
+    def test_pdf_url_item_uses_fetch_pdf_direct(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue(
+            "1910.08858",
+            pdf_url="https://arxiv.org/pdf/1910.08858.pdf",
+        )
+        fetcher = _FakeFetcherWithDirect(_marker_raw())
+        results = q.process_next(max_items=1, _fetcher=fetcher)
+
+        assert fetcher.fetch_pdf_direct_called == 1, "fetch_pdf_direct must be called"
+        assert fetcher.fetch_called == 0, "fetch() must NOT be called"
+        assert fetcher.last_direct_url == "https://arxiv.org/pdf/1910.08858.pdf"
+        assert results[0]["body_source"] == "marker"
+        assert results[0]["marker_ready"] is True
+        assert results[0]["queue_status"] == "done"
+
+    def test_no_pdf_url_uses_fetch(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")  # no pdf_url
+        fetcher = _FakeFetcherWithDirect(_marker_raw())
+        results = q.process_next(max_items=1, _fetcher=fetcher)
+
+        assert fetcher.fetch_called == 1, "fetch() must be called for normal arXiv items"
+        assert fetcher.fetch_pdf_direct_called == 0
+        assert results[0]["marker_ready"] is True
+
+    def test_pdf_url_with_fetcher_missing_method_falls_back_to_fetch(
+        self, tmp_path: Path
+    ) -> None:
+        """Fetcher without fetch_pdf_direct falls back to fetch() gracefully."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1910.08858", pdf_url="https://arxiv.org/pdf/1910.08858.pdf")
+        # _FakeFetcher has only fetch(), not fetch_pdf_direct
+        fetcher = _FakeFetcher(_marker_raw())
+        results = q.process_next(max_items=1, _fetcher=fetcher)
+        assert results[0]["marker_ready"] is True  # still succeeds via fetch()
+
+    def test_pdf_url_marker_failure_propagates(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1910.08858", pdf_url="https://arxiv.org/pdf/1910.08858.pdf")
+        fetcher = _FakeFetcherWithDirect(
+            _marker_raw(),
+            direct_raw=_failed_raw("marker_timeout: 900s"),
+        )
+        results = q.process_next(max_items=1, _fetcher=fetcher)
+        assert fetcher.fetch_pdf_direct_called == 1
+        assert results[0]["rejected"] is True
+        assert results[0]["marker_ready"] is False
+        assert "marker_timeout" in results[0]["failure_reason"]
+
+    def test_process_next_ipc_sets_ipc_flag_for_pdf_url_item(self, tmp_path: Path) -> None:
+        """process_next_ipc sets ipc_warm_worker_used=True even for pdf_url items."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1910.08858", pdf_url="https://arxiv.org/pdf/1910.08858.pdf")
+        fetcher = _FakeFetcherWithDirect(_marker_raw())
+        mock_worker = _MockIPCWorker()
+        results = q.process_next_ipc(
+            max_items=1, _ipc_worker=mock_worker, _fetcher=fetcher
+        )
+        assert results[0]["ipc_warm_worker_used"] is True
+        assert fetcher.fetch_pdf_direct_called == 1
+        assert results[0]["marker_ready"] is True
+
+    def test_two_items_mixed_pdf_url_and_arxiv(self, tmp_path: Path) -> None:
+        """pdf_url item uses fetch_pdf_direct; regular arxiv item uses fetch()."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1910.08858", pdf_url="https://arxiv.org/pdf/1910.08858.pdf")
+        q.enqueue("2604.24366")  # no pdf_url
+
+        fetcher = _FakeFetcherWithDirect(_marker_raw())
+        results = q.process_next(max_items=2, _fetcher=fetcher)
+
+        assert len(results) == 2
+        assert fetcher.fetch_pdf_direct_called == 1
+        assert fetcher.fetch_called == 1
+        assert all(r["marker_ready"] for r in results)
+
+
+# ---------------------------------------------------------------------------
+# CLI: --pdf-url flag on enqueue
+# ---------------------------------------------------------------------------
+
+
+class TestCLIPdfUrl:
+
+    def test_enqueue_help_shows_pdf_url(self) -> None:
+        code, out = _run_cli(["enqueue", "--help"])
+        assert code == 0
+        assert "--pdf-url" in out
+
+    def test_enqueue_with_pdf_url_stores_in_queue(self, tmp_path: Path) -> None:
+        code, _ = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "enqueue",
+            "--url", "1910.08858",
+            "--pdf-url", "https://arxiv.org/pdf/1910.08858.pdf",
+        ])
+        assert code == 0
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        records = q.list_queue()
+        assert records[0]["pdf_url"] == "https://arxiv.org/pdf/1910.08858.pdf"
+
+    def test_enqueue_without_pdf_url_unchanged(self, tmp_path: Path) -> None:
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "enqueue", "--url", "2604.24366",
+        ])
+        assert code == 0
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        records = q.list_queue()
+        assert "pdf_url" not in records[0]
+
+    def test_enqueue_pdf_url_json_output_shows_added(self, tmp_path: Path) -> None:
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "enqueue",
+            "--url", "1910.08858",
+            "--pdf-url", "https://arxiv.org/pdf/1910.08858.pdf",
+            "--json",
+        ])
+        assert code == 0
+        data = json.loads(out)
+        assert data["action"] == "added"
+        assert data["candidate_id"] == "arxiv:1910.08858"
+
+
+# ---------------------------------------------------------------------------
+# Daemon-safety: multi-paper IPC warm session
+#
+# Root cause of live-validation failure: MarkerIPCWorker.start() created the
+# worker subprocess with daemon=True.  Daemon processes cannot spawn child
+# processes; Marker's ONNX/torch pipeline does so during extraction.  Paper 1
+# succeeded (cold-load path did not trigger child spawning), paper 2 failed
+# immediately with "daemonic processes are not allowed to have children"
+# (parse_seconds=0.0, total_seconds=0.24s).
+#
+# Fix: daemon=False in start() / restart().  These tests verify queue-level
+# behaviour is correct for the multi-paper warm session.
+# ---------------------------------------------------------------------------
+
+
+class TestProcessNextIPCDaemonSafety:
+
+    def test_two_paper_session_both_done(self, tmp_path: Path) -> None:
+        """Two papers in one warm-process call must both complete successfully.
+
+        This reproduces the live failure scenario: paper 1 done, paper 2 must
+        not fail with the daemonic error.
+        """
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.enqueue("2109.07581")
+
+        call_count = [0]
+
+        class _CountingFetcher:
+            def fetch(self, url: str) -> dict:
+                call_count[0] += 1
+                return _marker_raw()
+
+        results = q.process_next_ipc(max_items=2, _fetcher=_CountingFetcher())
+
+        assert len(results) == 2
+        assert call_count[0] == 2
+        assert all(r["marker_ready"] for r in results), (
+            "Both papers must be marker_ready. If paper 2 has "
+            "'daemonic processes are not allowed to have children' in failure_reason, "
+            "the daemon=False fix was not applied."
+        )
+        counts = q.get_counts()
+        assert counts["done"] == 2
+        assert counts["pending"] == 0
+
+    def test_daemonic_error_from_marker_internals_is_retryable(self, tmp_path: Path) -> None:
+        """If Marker internals raise the daemonic error, item stays retryable (not terminal)."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2109.07581")
+
+        raw = {
+            "title": "Test",
+            "body_source": "marker_failed",
+            "body_length": 0,
+            "parse_seconds": 0.0,
+            "failure_reason": "daemonic processes are not allowed to have children",
+        }
+        results = q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(raw))
+        r = results[0]
+
+        assert r["rejected"] is True
+        assert "daemonic" in r["failure_reason"]
+        assert r["queue_status"] == "pending"  # first attempt: retryable, not terminal
+        assert r["marker_ready"] is False
+
+    def test_direct_pdf_path_two_papers_both_done(self, tmp_path: Path) -> None:
+        """fetch_pdf_direct path: two pdf_url items in one warm session both complete."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366", pdf_url="https://arxiv.org/pdf/2604.24366.pdf")
+        q.enqueue("2109.07581", pdf_url="https://arxiv.org/pdf/2109.07581.pdf")
+
+        fetcher = _FakeFetcherWithDirect(_marker_raw())
+        results = q.process_next_ipc(max_items=2, _fetcher=fetcher)
+
+        assert len(results) == 2
+        assert fetcher.fetch_pdf_direct_called == 2, (
+            "fetch_pdf_direct must be used for both pdf_url items"
+        )
+        assert fetcher.fetch_called == 0
+        assert all(r["marker_ready"] for r in results)
+
+
+# ---------------------------------------------------------------------------
+# IPC result persistence: ipc_warm_worker_used must land in results.jsonl
+#
+# Root cause of Codex FAIL artifact caveat (2026-05-08): process_next_ipc()
+# tagged ipc_warm_worker_used onto in-memory dicts AFTER _append_result() had
+# already written to disk.  Fix: pass _extra_result_fields into process_next()
+# so the flag is included in result_record before _append_result() is called.
+# ---------------------------------------------------------------------------
+
+
+class TestIPCResultPersistence:
+    """ipc_warm_worker_used is persisted into results.jsonl, not just in-memory."""
+
+    def test_ipc_flag_true_persisted_when_worker_provided(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        worker = _MockIPCWorker()
+        q.process_next_ipc(max_items=1, _ipc_worker=worker, _fetcher=_FakeFetcher(_marker_raw()))
+
+        with open(q._results_path, encoding="utf-8") as f:
+            rec = json.loads(f.readline().strip())
+        assert rec["ipc_warm_worker_used"] is True
+
+    def test_ipc_flag_false_persisted_when_no_worker(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        # _fetcher only, no _ipc_worker → ipc_flag=False
+        q.process_next_ipc(max_items=1, _fetcher=_FakeFetcher(_marker_raw()))
+
+        with open(q._results_path, encoding="utf-8") as f:
+            rec = json.loads(f.readline().strip())
+        assert rec["ipc_warm_worker_used"] is False
+
+    def test_process_next_does_not_persist_ipc_flag(self, tmp_path: Path) -> None:
+        """Non-IPC process_next path does not inject ipc_warm_worker_used into results.jsonl."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_marker_raw()))
+
+        with open(q._results_path, encoding="utf-8") as f:
+            rec = json.loads(f.readline().strip())
+        assert "ipc_warm_worker_used" not in rec
+
+    def test_multiple_ipc_items_all_have_flag_persisted(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.enqueue("2401.00001")
+        worker = _MockIPCWorker()
+        q.process_next_ipc(max_items=2, _ipc_worker=worker, _fetcher=_FakeFetcher(_marker_raw()))
+
+        with open(q._results_path, encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+        assert len(lines) == 2
+        for line in lines:
+            assert json.loads(line)["ipc_warm_worker_used"] is True

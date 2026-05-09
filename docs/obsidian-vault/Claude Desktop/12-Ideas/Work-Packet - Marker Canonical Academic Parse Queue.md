@@ -12,7 +12,7 @@ prerequisites:
   - "Operator decision on Marker production strategy — RESOLVED 2026-05-05: Option A (async parse queue)"
 supersedes: "Option A in [[Work-Packet - Marker Structural Parser Integration]]'s DANGER callout"
 unblocks:
-  - "[[Work-Packet - Marker Structural Parser Integration]] — L1 STILL BLOCKED: v0 queue shipped; Docker IPC warm-worker (v1) required for throughput validation"
+  - "[[Work-Packet - Marker Structural Parser Integration]] — L1 warm-worker blocker resolved 2026-05-08; next L1 rollout/readiness step requires separate workpacket/Director decision"
   - "[[Work-Packet - PaperQA2 RAG Control Flow]] — L2 gated on Marker-parsed corpus (v0 queue satisfies code-side gate; live corpus needs warm-worker)"
 ---
 
@@ -31,8 +31,8 @@ unblocks:
 > - A warm GPU worker loads models once and processes the queue — no cold-load per paper
 > - RAG-ready status requires `body_source=marker`; pdfplumber-parsed papers are not RAG-eligible
 
-> [!INFO] Implementation Status: v0 Shipped — Docker IPC Warm-Worker Deferred to v1 (2026-05-05)
-> Codex re-review PASS. Queue v0 is complete. L1 Marker production rollout remains blocked on v1.
+> [!SUCCESS] Implementation Status: v0 Shipped — Docker IPC Warm-Worker v1 Closed 2026-05-08
+> Codex re-review PASS. Queue v0 is complete. IPC warm-worker v1 closed 2026-05-08 under revised functional gate. L1 warm-worker blocker resolved; next L1 production/readiness step requires separate workpacket/Director decision.
 >
 > **v0 Shipped (offline-only; no Docker validation required):**
 > - File-backed parse queue (`queue.jsonl` + `results.jsonl`), surviving worker restarts
@@ -44,11 +44,12 @@ unblocks:
 > - `create_warm_thread_worker()` on `LiveAcademicFetcher` for Windows warm-batch sessions
 > - 43 offline tests; Codex re-review PASS
 >
-> **v1 Deferred (Docker IPC warm-worker):**
+> **v1 Recently Completed Feature 3 (Docker IPC warm-worker — closed 2026-05-08):**
 > - Persistent subprocess on Linux/Docker with IPC (sockets/pipes) — keeps models loaded across papers
-> - Multi-paper warm throughput validation: ≥3 papers, `parse_seconds ≤10s` for papers 2+
-> - L1 Marker production throughput claim cannot be made until this ships
-> - Acceptance gates 2 and 3 from this packet are NOT yet met
+> - Multi-paper warm throughput validation: ≥3 papers; papers 2+ delta (total_seconds − parse_seconds) ≤5s; `ipc_warm_worker_used=true`
+> - Original `parse_seconds ≤10s` timing gate **rejected as unrealistic (Director 2026-05-08)**; revised functional gate PASS — see `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`
+> - L1 warm-worker blocker resolved; next L1 rollout/readiness step requires separate workpacket/Director decision
+> - Acceptance gates 2 and 3 from this packet are governed by the revised gate (see Feature 3 closeout)
 >
 > **Close-out log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-v0-closeout.md`
 
@@ -57,7 +58,7 @@ unblocks:
 Deliver a persistent async parse queue so that:
 
 1. Paper discovery is decoupled from Marker parse time (enqueue immediately, parse later)
-2. A long-running GPU worker processes the queue with warm models (≤10s/paper post-load on RTX 2070 Super)
+2. A long-running GPU worker processes the queue with warm models (original ≤10s/paper timing target; **revised gate 2026-05-08:** papers 2+ delta ≤5s, cold-load overhead eliminated — see Feature 3)
 3. Only Marker-parsed papers (`body_source=marker`) reach the academic RAG embedding step
 4. pdfplumber is not used in the canonical academic corpus production path
 5. The queue survives worker restarts and tracks per-paper parse state
@@ -98,7 +99,7 @@ Papers in `discovered`, `marker_queued`, or `marker_failed_*` states are not ind
 
 2. **Worker processes ≥3 papers in one warm session.** A single long-running `MarkerWorker` inside the `ris-scheduler-gpu` container loads models once, then consumes the queue sequentially. ≥3 papers complete in one session.
 
-3. **No per-paper cold-load after first paper.** Papers 2–N in the same worker session show `parse_seconds` consistent with warm-model throughput: ≤10s/paper for a typical 10–20 page prose paper on RTX 2070 Super. (Paper 1 may exceed this due to model load; that is expected and acceptable.)
+3. **No per-paper cold-load after first paper.** Papers 2–N in the same worker session show `parse_seconds` consistent with warm-model throughput. ~~≤10s/paper for a typical 10–20 page prose paper on RTX 2070 Super~~ — **timing gate rejected as unrealistic (Director 2026-05-08).** Revised gate: papers 2+ delta (total_seconds − parse_seconds) ≤5s (cold-load overhead eliminated); per-paper inference ~45–70s is a hardware constant on RTX 2070 Super. Paper 1 cold-load overhead (delta ~27s) is expected and acceptable. Evidence: paper 2 delta=0.13s, paper 3 delta=0.22s. See Feature 3 closeout for full timing record.
 
 4. **Output includes canonical fields.** For each processed paper the queue record contains:
    `body_source` (`"marker"` or `"marker_failed_*"`), `body_length`, `parse_seconds`, `failure_reason` (null on success), and `has_structured_metadata` flag.
@@ -177,7 +178,7 @@ research-acquire --url <id>  OR  scheduler academic_ingest job
 
 ## Reference Materials
 
-1. `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md` — performance evidence; warm-model assumption validated (paper 1 = 85.95s cold; papers 2+ expected ≤10s warm)
+1. `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md` — performance evidence; warm-model assumption validated (paper 1 = 85.95s cold; ~~papers 2+ expected ≤10s warm~~ — **timing gate rejected as unrealistic 2026-05-08; measured warm times: 69.73s paper 2, 48.31s paper 3 — see Feature 3**)
 2. `docs/dev_logs/2026-05-05_marker-production-rollout-reconciliation.md` — why synchronous default failed; Option A rationale
 3. `docs/features/ris-marker-structural-parser-scaffold.md` — existing `MarkerPDFExtractor`, `_MARKER_DISABLED` guard, concurrency design, process-boundary cancel
 4. `packages/research/ingestion/extractors.py` — current `MarkerPDFExtractor` with process-boundary cancel

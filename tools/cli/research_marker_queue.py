@@ -36,7 +36,12 @@ def _cmd_enqueue(args: argparse.Namespace) -> int:
     q = MarkerParseQueue(queue_dir=queue_dir)
 
     try:
-        outcome = q.enqueue(args.url, title=args.title or "", force=args.force)
+        outcome = q.enqueue(
+            args.url,
+            title=args.title or "",
+            force=args.force,
+            pdf_url=getattr(args, "pdf_url", "") or "",
+        )
     except ValueError as exc:
         if args.json:
             print(json.dumps({"error": str(exc), "exit_code": 1}))
@@ -153,6 +158,86 @@ def _cmd_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_warm_process(args: argparse.Namespace) -> int:
+    import sys as _sys
+    from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+    queue_dir = Path(args.queue_dir) if args.queue_dir else None
+    q = MarkerParseQueue(queue_dir=queue_dir)
+
+    counts_before = q.get_counts()
+    pending = counts_before.get("pending", 0)
+    if pending == 0:
+        if args.json:
+            print(json.dumps({
+                "processed": [],
+                "exit_code": 0,
+                "message": "no pending items",
+                "ipc_warm_worker_used": False,
+            }))
+        else:
+            print("No pending items in queue.")
+        return 0
+
+    max_items: int = args.max_items
+    marker_timeout: float = args.marker_timeout
+    platform_note = (
+        "Linux/Docker IPC warm-worker" if _sys.platform != "win32"
+        else "Windows warm thread"
+    )
+
+    if not args.json:
+        to_process = min(max_items, pending)
+        print(
+            f"Processing up to {to_process} item(s) via {platform_note} "
+            f"(marker_timeout={marker_timeout}s, MAX_ATTEMPTS=3)"
+        )
+        print(
+            "NOTE: L1 production remains gated until live Docker/GPU validation passes."
+        )
+
+    results = q.process_next_ipc(max_items=max_items, marker_timeout=marker_timeout)
+
+    if args.json:
+        any_ipc = any(r.get("ipc_warm_worker_used") for r in results)
+        print(json.dumps({
+            "processed": results,
+            "exit_code": 0,
+            "ipc_warm_worker_used": any_ipc,
+        }, indent=2))
+        return 0
+
+    for r in results:
+        status_tag = "PASS" if r.get("marker_ready") else "FAIL"
+        cid = r.get("candidate_id", "?")
+        bs = r.get("body_source", "?")
+        bl = r.get("body_length", 0)
+        ps = r.get("parse_seconds", 0.0)
+        qs = r.get("queue_status", "?")
+        ipc = r.get("ipc_warm_worker_used", False)
+        print(f"[{status_tag}] {cid}")
+        print(f"       body_source:          {bs}")
+        if bl:
+            print(f"       body_length:          {bl:,} chars")
+        if ps:
+            print(f"       parse_seconds:        {ps:.1f}s")
+        if r.get("failure_reason"):
+            print(f"       failure:              {r['failure_reason']}")
+        print(f"       queue_status:         {qs}  marker_ready={r.get('marker_ready')}")
+        print(f"       ipc_warm_worker_used: {ipc}")
+
+    done_count = sum(1 for r in results if r.get("queue_status") == "done")
+    fail_count = len(results) - done_count
+    print()
+    print(
+        f"Processed {len(results)} item(s): {done_count} done, {fail_count} failed/retried."
+    )
+    print(
+        "NOTE: L1 production remains gated until live Docker/GPU validation passes."
+    )
+    return 0
+
+
 def _cmd_counts(args: argparse.Namespace) -> int:
     from packages.research.ingestion.marker_queue import MarkerParseQueue
 
@@ -216,6 +301,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional title hint (fetcher resolves from API if omitted)",
     )
     p_enqueue.add_argument(
+        "--pdf-url",
+        default="",
+        metavar="PDF_URL_OR_PATH",
+        dest="pdf_url",
+        help=(
+            "Direct PDF URL or local file path. When set, warm-process skips the "
+            "arXiv metadata API (no export.arxiv.org query) and fetches/reads the PDF "
+            "directly. Useful when the Atom API is rate-limited. --url still determines "
+            "candidate_id."
+        ),
+    )
+    p_enqueue.add_argument(
         "--force",
         action="store_true",
         default=False,
@@ -277,6 +374,38 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output results as JSON",
     )
 
+    # warm-process
+    p_warm = subparsers.add_parser(
+        "warm-process",
+        help=(
+            "Process next N pending items using MarkerIPCWorker (warm IPC, Linux/Docker). "
+            "On Windows, falls back to warm thread worker. "
+            "NOTE: L1 production gated — live Docker/GPU validation required."
+        ),
+    )
+    p_warm.add_argument(
+        "--max-items",
+        type=int,
+        default=1,
+        dest="max_items",
+        metavar="N",
+        help="Maximum number of pending items to process (default: 1)",
+    )
+    p_warm.add_argument(
+        "--marker-timeout",
+        type=float,
+        default=900.0,
+        dest="marker_timeout",
+        metavar="SECONDS",
+        help="Marker extraction timeout in seconds (default: 900)",
+    )
+    p_warm.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output results as JSON",
+    )
+
     # counts
     p_counts = subparsers.add_parser(
         "counts",
@@ -315,6 +444,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_list(args)
     elif args.subcommand == "process":
         return _cmd_process(args)
+    elif args.subcommand == "warm-process":
+        return _cmd_warm_process(args)
     elif args.subcommand == "counts":
         return _cmd_counts(args)
     else:

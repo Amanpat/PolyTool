@@ -1,17 +1,17 @@
 # Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: CODE COMPLETE — L1 PRODUCTION BLOCKED (awaiting async queue implementation, 2026-05-05)**
+**Status: CODE COMPLETE — Marker Docker IPC warm-worker v1 closed 2026-05-08 under revised functional gate; L1 Marker production/readiness can proceed to its next explicit rollout step.**
 
 > **Operator decision recorded 2026-05-05: Option A — async parse queue.**
 > Controlled parse validated: `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`.
-> `parse_seconds=85.95s` fails the ≤10s/paper production gate by ~8.6× (cold-start model load ~80s dominates).
+> `parse_seconds=85.95s` — cold-start model load (~80s) dominates per-paper parse time. Original aspirational ≤10s/paper timing gate **rejected as unrealistic for full academic PDFs on RTX 2070 Super (Director 2026-05-08)**; see `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` (closed 2026-05-08).
 >
 > **pdfplumber is legacy/debug only.** `RIS_PDF_PARSER=pdfplumber` is a debug override, not a production path.
 > **Final academic embeddings must be Marker-only.** `body_source=marker` is the RAG-readiness gate.
 > A warm GPU worker (models loaded once, queue processed sequentially) is the production path.
 >
-> **Next packet:** [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: ready).
-> L1 production rollout resumes when the async queue ships and warm worker validates ≥3 papers at ≤10s/paper.
+> **Next packet:** [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: v0 shipped 2026-05-05). Docker IPC warm-worker v1 **closed 2026-05-08** under revised functional gate (≥3 full PDFs/session, papers 2+ delta ≤5s — original ≤10s/paper gate rejected as unrealistic).
+> L1 Marker production/readiness can proceed to its next explicit rollout step. Full academic/RIS pipeline is not complete; L2/L4 remain stubs. See `CURRENT_DEVELOPMENT.md` and `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 > **Decision log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`
@@ -86,8 +86,9 @@ python -m pip install -e ".[ris]"
 
 `[ris]` now includes `marker-pdf>=1.0` (surya-ocr, PyTorch). First run
 downloads model weights into `~/.cache/datalab/` (~1–3 GB). GPU required
-for production throughput (~5–10 s/paper on RTX 2070 Super; 300 s timeout
-on CPU).
+for production throughput (historical survey estimate: ~5–10 s/paper on RTX 2070 Super —
+**rejected as unrealistic for full academic PDFs, Director 2026-05-08**; measured warm-worker
+timings: 45.55s, 69.73s, 48.31s; 300 s timeout on CPU for cold single-paper invocation).
 
 For Docker GPU service use `Dockerfile.ris` which installs CUDA torch (cu124)
 before `[ris]` to ensure the GPU build is used.

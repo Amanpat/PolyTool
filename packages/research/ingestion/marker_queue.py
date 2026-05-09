@@ -113,7 +113,7 @@ class MarkerParseQueue:
     # ------------------------------------------------------------------
 
     def enqueue(
-        self, url_or_id: str, title: str = "", force: bool = False
+        self, url_or_id: str, title: str = "", force: bool = False, pdf_url: str = ""
     ) -> dict:
         """Enqueue one arXiv paper for Marker parsing.
 
@@ -125,6 +125,10 @@ class MarkerParseQueue:
             Optional title hint. Fetcher will resolve from API if empty.
         force:
             Re-enqueue even if candidate already exists (resets to pending/0 attempts).
+        pdf_url:
+            Optional direct PDF URL or local path. When set, warm-process skips the
+            arXiv metadata API and downloads/reads the PDF directly. Useful when the
+            arXiv Atom API is rate-limited. Does not affect candidate_id derivation.
 
         Returns
         -------
@@ -172,6 +176,8 @@ class MarkerParseQueue:
             "created_at": now,
             "updated_at": now,
         }
+        if pdf_url:
+            record["pdf_url"] = pdf_url
         records.append(record)
         self._write_queue(records)
         return {"candidate_id": cid, "status": "pending", "action": "added"}
@@ -210,6 +216,7 @@ class MarkerParseQueue:
         max_items: int = 1,
         marker_timeout: float = 900.0,
         _fetcher=None,
+        _extra_result_fields: Optional[dict] = None,
     ) -> list[dict]:
         """Process up to *max_items* pending items using LiveAcademicFetcher.
 
@@ -313,6 +320,7 @@ class MarkerParseQueue:
                 "processed_at": now2,
                 "attempt": attempts,
                 "queue_status": final_status,
+                **(_extra_result_fields if _extra_result_fields else {}),
             }
             self._append_result(result_record)
             processed.append(result_record)
@@ -327,6 +335,101 @@ class MarkerParseQueue:
             )
 
         return processed
+
+    def process_next_ipc(
+        self,
+        max_items: int = 1,
+        marker_timeout: float = 900.0,
+        _ipc_worker=None,
+        _fetcher=None,
+    ) -> list[dict]:
+        """Process pending items using MarkerIPCWorker (warm IPC, Linux/Docker).
+
+        One MarkerIPCWorker is created for the entire batch — models cold-loaded
+        once and kept warm across all papers in the session.
+
+        On Windows (thread mode) falls back to create_warm_thread_worker().
+
+        NOTE: L1 production is NOT unblocked. Live validation required before
+        production deployment of this path.
+
+        Parameters
+        ----------
+        max_items:
+            Maximum number of pending queue items to process.
+        marker_timeout:
+            Marker extraction timeout in seconds.
+        _ipc_worker:
+            Injectable MarkerIPCWorker for tests (bypasses real subprocess spawn).
+            None = create MarkerIPCWorker on Linux/Docker.
+        _fetcher:
+            Injectable fetcher (for tests). When provided, bypasses worker lifecycle
+            management entirely and delegates directly to process_next().
+
+        Returns
+        -------
+        list of result dicts, each containing ``ipc_warm_worker_used`` bool.
+        """
+        if _fetcher is not None:
+            ipc_flag = _ipc_worker is not None
+            return self.process_next(
+                max_items=max_items,
+                marker_timeout=marker_timeout,
+                _fetcher=_fetcher,
+                _extra_result_fields={"ipc_warm_worker_used": ipc_flag},
+            )
+
+        from packages.research.ingestion.fetchers import (
+            LiveAcademicFetcher,
+            _MARKER_DEFAULT_USE_PROCESS,
+        )
+
+        owns_worker = False
+        worker = _ipc_worker
+
+        try:
+            if worker is None and _MARKER_DEFAULT_USE_PROCESS:
+                from packages.research.ingestion.marker_ipc_worker import MarkerIPCWorker
+                worker = MarkerIPCWorker()
+                worker.start()
+                owns_worker = True
+                _logger.info("marker_queue: IPC warm worker started for batch of %d", max_items)
+
+            if worker is not None:
+                fetcher: object = LiveAcademicFetcher(
+                    _marker_timeout_seconds=marker_timeout,
+                    _ipc_worker=worker,
+                )
+                ipc_used = True
+            else:
+                # Windows: warm thread worker
+                try:
+                    fetcher = LiveAcademicFetcher.create_warm_thread_worker(
+                        _marker_timeout_seconds=marker_timeout
+                    )
+                    _logger.info("marker_queue: warm thread worker created (Windows path)")
+                except Exception as exc:
+                    _logger.warning(
+                        "marker_queue: warm pre-load failed (%s); cold fetcher used", exc
+                    )
+                    fetcher = LiveAcademicFetcher(_marker_timeout_seconds=marker_timeout)
+                ipc_used = False
+
+            results = self.process_next(
+                max_items=max_items,
+                marker_timeout=marker_timeout,
+                _fetcher=fetcher,
+                _extra_result_fields={"ipc_warm_worker_used": ipc_used},
+            )
+            return results
+
+        finally:
+            if owns_worker and worker is not None:
+                try:
+                    worker.shutdown()
+                    _logger.info("marker_queue: IPC warm worker shut down")
+                except Exception as exc:
+                    _logger.warning("marker_queue: IPC worker shutdown error: %s", exc)
 
     def _process_item(self, item: dict, fetcher) -> dict:
         """Fetch and parse one queue item. Returns a result dict."""
@@ -351,7 +454,11 @@ class MarkerParseQueue:
         }
 
         try:
-            raw = fetcher.fetch(source_url)
+            pdf_url = item.get("pdf_url", "")
+            if pdf_url and hasattr(fetcher, "fetch_pdf_direct"):
+                raw = fetcher.fetch_pdf_direct(pdf_url, title=item.get("title", ""))
+            else:
+                raw = fetcher.fetch(source_url)
             result["title"] = raw.get("title", "") or result["title"]
             result["body_source"] = raw.get("body_source", "unknown")
             result["body_length"] = int(raw.get("body_length", 0) or 0)
