@@ -35,6 +35,30 @@ This file tracks what is actively being built in PolyTool. It is the Director-le
 
 ## Active Features (max 3)
 
+### Feature 3: RIS L1 Marker Production Readiness Rollout
+
+- **Track:** Research Intelligence System — Layer 1
+- **Status:** COMPLETE 2026-05-09
+- **Started:** 2026-05-09
+- **Last updated:** 2026-05-09
+- **Owner:** Aman
+- **Definition of done:**
+  - [x] Feature 3 activated in CURRENT_DEVELOPMENT.md — COMPLETE 2026-05-09
+  - [x] Dependency matrix produced (completed/active/gated) — COMPLETE 2026-05-09
+  - [x] L1 DoD: one documented operator path (enqueue → warm-process → inspect) — COMPLETE 2026-05-09
+  - [x] L1 DoD: Marker-only accepted docs (`body_source=marker`) — already enforced by IngestPipeline gate
+  - [x] L1 DoD: no pdfplumber production fallback — already enforced; marker_failed → rejection
+  - [x] L1 DoD: queue states understandable and recoverable — state machine + recovery documented in runbook
+  - [x] L1 DoD: bad/short parses rejected or retryable — MIN_MARKER_BODY_LENGTH=5000; MAX_ATTEMPTS=3
+  - [x] L1 DoD: output location and inspection commands documented — `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` created
+  - [x] L1 DoD: smoke test proves path (existing evidence: 3 papers, body_source=marker, ipc_warm_worker_used=true) — no fresh Docker parse needed
+  - [x] Stale "L1 production gated" CLI text removed from research_marker_queue.py — COMPLETE 2026-05-09
+  - [x] 158 tests pass (0 regressions) — VERIFIED 2026-05-09
+  - [x] `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` created
+  - [x] `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` created
+  - [x] CURRENT_STATE.md and Current-Focus updated
+  - [x] Dev log written: `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`
+
 ### Feature 1: Track 2 Paper Soak — 24h Run
 
 - **Track:** 1A (crypto pair bot)
@@ -89,6 +113,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 
 | Feature                                                       | Completed  | Track    | Completion doc                                                     |
 | ------------------------------------------------------------- | ---------- | -------- | ------------------------------------------------------------------ |
+| RIS L1 Marker Production Readiness Rollout                   | 2026-05-09 | RIS      | `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` — repeatable operator path (enqueue→warm-process→inspect); runbook at `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`; stale "L1 gated" CLI text removed; 158 tests pass; L1 DoD all criteria met. L2/L4 now unblocked. Dev log: `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`. |
 | Marker Docker IPC Warm-Worker v1                             | 2026-05-08 | RIS      | `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` — IPC warm-worker subprocess; daemon=False fix; `ipc_warm_worker_used` persisted. **Revised gate (Director 2026-05-08): ≥3 full PDFs/session; papers 2+ delta ≤5s; `body_source=marker`; `ipc_warm_worker_used=true`; no pdfplumber fallback; no daemon error; clean shutdown.** Measured: 45.55s/69.73s/48.31s; papers 2–3 delta=0.13s/0.22s. Original ≤10s/paper gate rejected as unrealistic. L1 Marker production rollout UNBLOCKED. L2/L4 remain stubs. Dev log: `docs/dev_logs/2026-05-08_marker-docker-ipc-warm-worker-v1-closeout.md`. |
 | RIS L3 v1 SVM Topic Filter                                   | 2026-05-07 | RIS      | `docs/features/FEATURE-ris-svm-filter-v1.md` — default-off integrated; dry-run + hold-review ready; enforce deferred. **Director decision 2026-05-07: `BAAI/bge-large-en-v1.5` approved as production model; enforce deferred pending future approval.** 156 labels (74/82), train=117, test=39, macro-F1=1.000, confusion=[[19,0],[0,20]]. `research-prefetch-svm-train` CLI; SVM flags on both acquisition CLIs; enforce blocked at rc=1. 123 targeted SVM tests pass. Dev log: `docs/dev_logs/2026-05-07_l3-v1-svm-feature-closeout.md`. |
 | RIS L3.2 Prefetch Label Discovery Mode                       | 2026-05-05 | RIS      | `research-prefetch-discover` CLI: arXiv metadata search → `RelevanceScorer` → `ReviewQueueStore` enqueue; no PDF/Marker/index; `--force` idempotency override; 36 tests. SVM trigger reached: **30 allow / 31 reject / 1 pending unlabeled**. Dev log: `docs/dev_logs/2026-05-05_l3-2-prefetch-label-discovery-closeout.md`. Next: L3 v1 SVM Topic Filter Readiness + Training. |
@@ -113,7 +138,7 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 | Feature                                                | Paused         | Reason                                                                            | Resume trigger                                                |
 | ------------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | RIS Marker Queue — Docker IPC Warm-Worker (v1)         | COMPLETE 2026-05-08 | Closed under revised functional gate (Director 2026-05-08). Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. L1 Marker Production Rollout unblocked. | N/A — closed |
-| RIS L1 Marker Production Rollout — Validation          | 2026-05-05     | Operator chose Option A 2026-05-05: async parse queue. Queue v0 complete; warm-worker v1 complete (Feature 3 closed 2026-05-08). pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. | ✅ Resume trigger met 2026-05-08 — L1 can proceed at next explicit Director workpacket |
+| RIS L1 Marker Production Rollout — Validation          | COMPLETE 2026-05-09 | L1 DoD met: runbook, operator path, Marker-only gate, no pdfplumber fallback, bad-parse rejection, inspection commands. Feature doc: `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`. Runbook: `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`. L2 PaperQA2 and L4 harvesters now unblocked. | N/A — complete |
 | Crypto Gold Tape Resumption                            | 2026-04-21     | Director paused pending Gate 2 decision                                           | Gate 2 Option 1 or 4 chosen                                   |
 | Wallet Discovery Loop B (Alchemy watched-wallet)       | 2026-04-15     | Feasibility probe complete; implementation not started                            | Alchemy key + Track 2 soak result known                       |
 | Wallet Discovery Loop D (managed CLOB + anomaly)       | 2026-04-15     | Feasibility probe complete; ClobStreamClient blockers open                        | ClobStreamClient PING keepalive + dynamic subscription landed |
@@ -144,3 +169,4 @@ Estimated 2 hours of Claude Code time. Can be done in one session. Not an Active
 - **RIS L3 v1 SVM Topic Filter — expanded 156-label retrain/eval COMPLETE (2026-05-06). PROCEED to Director approval review.** Default-off integration shipped (2026-05-06). Expanded corpus retrain/eval complete: 156 labels (74 allow / 82 reject, 3 pending), train=117, test=39, accuracy=1.000, macro-F1=1.000, confusion_matrix=[[19,0],[0,20]]. Test set nearly 2.5× larger than prior run (16→39); no degradation. Artifacts in `artifacts/research/svm_filter_models/expanded_156/`. 123 targeted SVM tests pass. Label gate (>=150) now met. **Enforce is hard-blocked at rc=1** pending Director approval. Remaining blockers before any enforcement: (1) Director approval, (2) model selection decision (SPECTER2 options or declare `BAAI/bge-large-en-v1.5` as production — `peft` is NOT in `pyproject.toml` ris-svm and NOT needed for the bge-large path). Remaining DoD items: feature doc, CURRENT_STATE.md update, closeout dev log. **Active count is 3 (Features 1, 2, 3) — max-3 reached.**
 - **RIS L3 v1 SVM Topic Filter is COMPLETE (2026-05-07).** Default-off integrated; dry-run + hold-review ready; enforce deferred. Director decision: `BAAI/bge-large-en-v1.5` approved as production model. Feature doc at `docs/features/FEATURE-ris-svm-filter-v1.md`. SVM enforce remains hard-blocked at rc=1 pending future Director approval. SPECTER2 path remains unresolved; BGE-large is the declared production model. **Marker Docker IPC warm-worker v1 is COMPLETE (2026-05-08) — active count is now 2 (Features 1, 2).** Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. L1 Marker Production Rollout unblocked.
 - **Marker Docker/Linux IPC Warm-Worker (v1) is COMPLETE (2026-05-08).** All revised functional gates PASS: 3 papers, papers 2+ delta ≤5s (0.13s, 0.22s), `body_source=marker`, `ipc_warm_worker_used=true`, no pdfplumber fallback, no daemon error, clean shutdown. Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. L1 Marker Production Rollout is UNBLOCKED — resume at next explicit Director workpacket. Do NOT start L2 or L4. Active count: 2 (Features 1, 2).
+- **RIS L1 Marker Production Readiness Rollout is COMPLETE (2026-05-09).** L1 DoD fully met: repeatable operator path (enqueue→warm-process→inspect), Marker-only gate enforced, no pdfplumber fallback, queue state machine and recovery documented, bad/short parse rejection, output inspection commands. Feature doc: `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`. Runbook: `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`. Stale "L1 gated" CLI text removed. 158 tests pass. **L2 PaperQA2 RAG Control Flow and L4 Multi-source Harvesters are now unblocked.** Active count: 2 (Features 1, 2). Dev log: `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`.

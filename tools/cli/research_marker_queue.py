@@ -192,9 +192,6 @@ def _cmd_warm_process(args: argparse.Namespace) -> int:
             f"Processing up to {to_process} item(s) via {platform_note} "
             f"(marker_timeout={marker_timeout}s, MAX_ATTEMPTS=3)"
         )
-        print(
-            "NOTE: L1 production remains gated until live Docker/GPU validation passes."
-        )
 
     results = q.process_next_ipc(max_items=max_items, marker_timeout=marker_timeout)
 
@@ -231,9 +228,6 @@ def _cmd_warm_process(args: argparse.Namespace) -> int:
     print()
     print(
         f"Processed {len(results)} item(s): {done_count} done, {fail_count} failed/retried."
-    )
-    print(
-        "NOTE: L1 production remains gated until live Docker/GPU validation passes."
     )
     return 0
 
@@ -380,7 +374,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Process next N pending items using MarkerIPCWorker (warm IPC, Linux/Docker). "
             "On Windows, falls back to warm thread worker. "
-            "NOTE: L1 production gated — live Docker/GPU validation required."
+            "L1 production path — IPC warm-worker validated 2026-05-08 (Feature 3 closed)."
         ),
     )
     p_warm.add_argument(

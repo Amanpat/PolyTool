@@ -1779,8 +1779,9 @@ approval before autonomous rejection is enabled.
 **Deferred:**
 
 - SVM enforce — requires future Director approval.
-- L2 PaperQA2 activation — gated on L1 Marker production rollout completion.
-- Marker Docker IPC warm-worker v1 — **COMPLETE (2026-05-08)**. All revised functional gates PASS. L1 Marker Production Rollout UNBLOCKED — resume at next explicit Director workpacket. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
+- L2 PaperQA2 activation — **NOW UNBLOCKED** (L1 production readiness rollout COMPLETE 2026-05-09). See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`.
+- Marker Docker IPC warm-worker v1 — **COMPLETE (2026-05-08)**. All revised functional gates PASS. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
+- L1 Marker Production Readiness Rollout — **COMPLETE (2026-05-09)**. Runbook, operator path, DoD all met. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`.
 
 **New modules:**
 `packages/research/relevance_filter/svm_scorer.py`,
@@ -1836,17 +1837,56 @@ a regression. Revised gate: ≥3 full PDFs in one warm session; papers 2+ delta 
 All revised functional gates: PASS. done=3, failed=0. No pdfplumber fallback. No daemon
 error. Clean shutdown.
 
-**L1 Marker Production Rollout:** UNBLOCKED as of 2026-05-08. Resume at next explicit
-Director workpacket. The next L1 packet should cover production scheduling integration,
-queue drain loop, retry policy, and Grafana/health monitoring integration.
+**L1 Marker Production Rollout:** COMPLETE as of 2026-05-09. Operator path documented and
+verified. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` and
+`docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`.
 
 **What remains blocked/stubbed:**
 
-- L2 PaperQA2 RAG Control Flow — stub; gated on L1 production rollout completion.
-- L4 Multi-source Academic Harvesters — stub; gated on L1 + L3.
+- L2 PaperQA2 RAG Control Flow — stub; NOW UNBLOCKED by L1 completion.
+- L4 Multi-source Academic Harvesters — stub; NOW UNBLOCKED (gated on L1 + L3; both complete).
 - Automatic warm-worker startup on container boot — deferred; manual trigger only in v1.
 - IPC crash recovery / reconnect — deferred to post-v1 hardening pass.
 - Bulk re-ingest of pdfplumber-parsed corpus — separate cleanup task.
+
+## RIS L1 Marker Production Readiness Rollout — Complete (2026-05-09)
+
+The L1 readiness milestone: repeatable, documented, tested operator path from arXiv ID
+through Marker parse through RAG-ready output.
+
+**L1 DoD — all criteria met:**
+
+| Criterion | Status |
+|-----------|--------|
+| One documented operator path (enqueue→warm-process→inspect) | ✅ `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` |
+| Marker-only accepted docs (`body_source=marker`) | ✅ `IngestPipeline` academic gate |
+| No pdfplumber production fallback | ✅ marker_failed → rejection, no downgrade |
+| Queue states understandable and recoverable | ✅ state machine + recovery in runbook |
+| Bad/short parses rejected or retryable | ✅ MIN_MARKER_BODY_LENGTH=5000; MAX_ATTEMPTS=3 |
+| Output location and inspection commands documented | ✅ artifacts/research/marker_parse_queue/ |
+| Smoke evidence without fresh Docker parse | ✅ Feature 3 validation (3 papers, IPC warm, body_source=marker) |
+| Stale "L1 gated" CLI text removed | ✅ research_marker_queue.py updated |
+| Tests pass | ✅ 158 passed, 1 skipped |
+
+**CLI surface (canonical path):**
+
+```bash
+python -m polytool research-marker-queue enqueue --url ARXIV_ID
+python -m polytool research-marker-queue counts
+python -m polytool research-marker-queue list [--status pending|done|failed]
+# Inside Docker/GPU container:
+python -m polytool research-marker-queue warm-process --max-items N
+```
+
+**Output artifacts (gitignored):**
+- `artifacts/research/marker_parse_queue/queue.jsonl` — queue state
+- `artifacts/research/marker_parse_queue/results.jsonl` — append-only results log
+
+**RAG-readiness gate:** `body_source == "marker" AND body_length >= 5000`
+
+**Feature doc:** `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`
+**Runbook:** `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`
+**Dev log:** `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`
 
 **Tests:** 4 new `TestIPCResultPersistence` tests; combined with IPC worker tests: 158
 passed, 1 skipped (Linux-only platform skip correct on Windows).

@@ -1,7 +1,7 @@
 ---
 tags: [meta, focus]
 created: 2026-04-22
-updated: 2026-05-08 (Marker Docker IPC warm-worker v1 — Feature 3 closeout complete)
+updated: 2026-05-09 (RIS L1 Marker Production Readiness Rollout — Feature 3 complete)
 ---
 # Current Focus
 
@@ -11,7 +11,7 @@ Living document — updated each session when priorities shift. Read this first 
 
 ## Active Priorities
 
-1. **RIS Scientific RAG roadmap** — primary active workstream. **L3 v1 SVM CLOSED 2026-05-07 — default-off integrated, dry-run + hold-review ready, enforce deferred.** Director decision: `BAAI/bge-large-en-v1.5` approved as production model; enforce explicitly deferred pending future Director approval. Feature doc: `docs/features/FEATURE-ris-svm-filter-v1.md`. **Marker Docker IPC warm-worker v1 CLOSED 2026-05-08 — all revised functional gates PASS (3 papers, papers 2+ delta ≤5s, `body_source=marker`, `ipc_warm_worker_used=true`, no pdfplumber fallback, clean shutdown).** Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. Active count: 2 (Features 1, 2). **L1 Marker production rollout UNBLOCKED** — resume at next explicit Director workpacket. pdfplumber is legacy/debug only. L2 and L4 remain stubs. Do NOT start L2 until L1 production rollout completes.
+1. **RIS Scientific RAG roadmap** — primary active workstream. **L3 v1 SVM CLOSED 2026-05-07.** Default-off integrated; dry-run + hold-review ready; enforce deferred. `BAAI/bge-large-en-v1.5` approved as production model. Feature doc: `docs/features/FEATURE-ris-svm-filter-v1.md`. **Marker Docker IPC warm-worker v1 CLOSED 2026-05-08.** Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. **RIS L1 Marker Production Readiness Rollout CLOSED 2026-05-09.** Repeatable operator path (enqueue→warm-process→inspect); runbook at `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`; all L1 DoD criteria met; 158 tests pass. Feature doc: `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`. **Active count: 2 (Features 1, 2). L2 PaperQA2 and L4 Multi-source Harvesters are now unblocked.** pdfplumber is legacy/debug only.
 2. **Gate 2 unblock** — Silver tapes produce zero fills for politics/sports. Crypto bucket positive (7/10) but blocked on new markets. WAIT_FOR_CRYPTO policy active. Escalation deadline for benchmark_v2 was 2026-04-12 — needs decision on next steps.
 3. **Track 1A Crypto Pair Bot** — BLOCKED on no active BTC/ETH/SOL 5m/15m markets on Polymarket. Check periodically with `crypto-pair-watch --one-shot`.
 
@@ -26,7 +26,7 @@ Living document — updated each session when priorities shift. Read this first 
 | Layer | Packet | Status |
 |---|---|---|
 | L0 | [[Work-Packet - Academic Pipeline PDF Download Fix]] | ✅ Shipped 2026-04-27. pdfplumber wired in. Real arXiv ingests confirmed. |
-| L1 | [[Work-Packet - Marker Structural Parser Integration]] | **UNBLOCKED 2026-05-08** — Docker IPC warm-worker v1 COMPLETE (Feature 3 closed). Queue v0 + warm-worker v1 shipped. pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. **Next: L1 production rollout at next explicit Director workpacket.** |
+| L1 | [[Work-Packet - Marker Structural Parser Integration]] | **COMPLETE 2026-05-09** — L1 production readiness rollout done. Queue v0 + warm-worker v1 + runbook shipped. pdfplumber is legacy/debug only. RAG-ready requires `body_source=marker`. Feature doc: `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`. Runbook: `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`. **L2 and L4 are now unblocked.** |
 | L2 | [[Work-Packet - PaperQA2 RAG Control Flow]] | Stub. Activation gated on L5 baseline + L1 production. |
 | L3 | [[Work-Packet - Pre-fetch SVM Topic Filter]] | ✅ L3/L3.1/L3.2 shipped 2026-05-02/05. ✅ **[[Work-Packet - L3 v1 SVM Topic Filter Training]] — CLOSED 2026-05-07.** Default-off integrated; dry-run + hold-review ready; enforce deferred. Director: BGE-large approved; enforce requires future approval. Feature doc: `FEATURE-ris-svm-filter-v1.md`. 156 labels (74/82), macro-F1=1.000. |
 | L4 | [[Work-Packet - Multi-source Academic Harvesters]] | Stub. Activation gated on L1 + L3. Updated 2026-04-29 to add backfill-vs-monitoring distinction. |
@@ -39,6 +39,7 @@ Reference materials:
 
 ## Recent Session Context
 
+- **2026-05-09 (RIS L1 Marker Production Readiness Rollout — COMPLETE)**: Feature 3 (L1 rollout) activated and closed in same session. L1 DoD verified: (1) stale "L1 production gated" CLI text removed from `research_marker_queue.py` (warm-process handler and subparser description); (2) `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` created — full operator path (enqueue→warm-process→inspect), queue states, recovery, performance expectations, output locations, platform behavior; (3) `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` created — dependency matrix, DoD table, performance evidence, scope notes; (4) 158 tests pass (no regressions); (5) INDEX.md, CURRENT_DEVELOPMENT.md (Feature 3 entry + Recently Completed + Paused + Architect Notes), CURRENT_STATE.md, Current-Focus.md all updated. **Active count: 2 (Features 1, 2). L2 PaperQA2 RAG Control Flow and L4 Multi-source Harvesters are now unblocked.** Dev log: `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`.
 - **2026-05-08 (Fix: Marker closeout stale status references)**: Docs-only. Addressed two Codex FAIL blockers from `docs/dev_logs/2026-05-08_codex-verify-marker-docker-ipc-warm-worker-v1-closeout.md`. (1) Work Packet line 113: "Feature 3 is NOT yet closed" replaced with "Feature 3 is CLOSED (2026-05-08)". (2) Current-Focus.md line 20: stale "L1 remains blocked by Marker Docker IPC warm-worker (v1) Feature 3 closeout verification — see Active Feature 3 in CURRENT_DEVELOPMENT.md" removed; replaced with COMPLETE/UNBLOCKED language. (3) Work Packet line 78 (optional cleanup): L2 gate wording tightened from "until closeout verification completes" to "until L1 production rollout completes". No code, tests, Docker, artifacts, queues, SVM, or trading files touched. Completion protocol was already passed. Codex closeout verification may rerun. Dev log: `docs/dev_logs/2026-05-08_fix-marker-closeout-stale-status-references.md`.
 - **2026-05-08 (Marker Docker IPC warm-worker v1 — Feature 3 closeout)**: Docs-only completion protocol. Feature doc created: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. Files changed: `docs/INDEX.md` (feature row + closeout dev log row), `docs/CURRENT_DEVELOPMENT.md` (Feature 3 moved to Recently Completed; active count 3→2; Paused rows + Architect Notes updated), `docs/CURRENT_STATE.md` (warm-worker COMPLETE section added; SVM Deferred block updated), `Current-Focus.md` (this file), Work Packet (status: closed; all DoD [x]), closeout dev log: `docs/dev_logs/2026-05-08_marker-docker-ipc-warm-worker-v1-closeout.md`. Validation evidence: 3 papers, `body_source=marker`, `ipc_warm_worker_used=true`, papers 2+ delta=0.13s/0.22s, no pdfplumber fallback, no daemon error, clean shutdown. Revised gate (Director 2026-05-08): ≥3 full PDFs/session; papers 2+ delta ≤5s. Old ≤10s/paper gate rejected/superseded. **L1 Marker production rollout UNBLOCKED.** L2/L4 remain stubs.
 - **2026-05-08 (Marker IPC revised gate doc consistency)**: Docs-only consistency fix per Codex FAIL verdict. CURRENT_DEVELOPMENT.md updated: Marker Docker IPC warm-worker v1 added as Active Feature 3 (pending closeout verification); warm-worker Paused/Deferred row marked ACTIVATED; L1 validation row resume trigger updated; Architect Notes corrected (DEFERRED → ACTIVE Feature 3). Active ≤10s/paper gate language removed from CURRENT_DEVELOPMENT.md, Current-Focus.md (this file), INDEX.md, and Work Packet. Revised gate documented consistently everywhere: ≥3 full PDFs in one warm session; papers 2+ delta ≤5s (measured: 0.13s, 0.22s); `body_source=marker`; `ipc_warm_worker_used=true`; no pdfplumber fallback; no daemon error; clean shutdown. Actual timings preserved and not hidden: 45.55s, 69.73s, 48.31s. Feature 3 NOT marked complete — closeout verification still pending. No code/tests/artifacts touched. Dev log: `docs/dev_logs/2026-05-08_fix-marker-ipc-revised-gate-doc-consistency.md`.
@@ -73,6 +74,7 @@ Reference materials:
 | ~~L1 Marker validation control surface~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-05** — `run-academic-url` control surface shipped and validated; Marker parses successfully |
 | ~~L1 Marker performance gate~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-05** — Operator chose Option A (async parse queue). |
 | ~~Docker IPC warm-worker closeout (v1)~~ | ~~L1 Marker production rollout~~ | **RESOLVED 2026-05-08** — Warm-worker v1 COMPLETE (Feature 3 closed). All revised functional gates PASS. Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`. L1 unblocked. |
+| ~~L1 Marker Production Readiness Rollout~~ | ~~L2/L4 gating~~ | **RESOLVED 2026-05-09** — L1 DoD met. Runbook + feature doc created. 158 tests pass. L2/L4 now unblocked. Feature doc: `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`. |
 | L5 corpus accumulation | L5 ship date | ✅ Resolved — baseline locked 2026-05-02 with 23-paper corpus |
 | No active crypto 5m/15m markets | Track 1A | Monitoring |
 | Gate 2 failed (7/50 = 14%) | Track 1B live deployment | Needs decision on benchmark_v2 |
@@ -80,7 +82,7 @@ Reference materials:
 
 ---
 
-*Last updated by Claude Code — 2026-05-08 (Fix: stale closeout-pending references removed; Feature 3 CLOSED confirmed)*
+*Last updated by Claude Code — 2026-05-09 (RIS L1 Marker Production Readiness Rollout CLOSED; L2/L4 unblocked)*
 
 ---
 
