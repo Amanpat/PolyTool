@@ -1779,7 +1779,7 @@ approval before autonomous rejection is enabled.
 **Deferred:**
 
 - SVM enforce — requires future Director approval.
-- L2 PaperQA2 activation — **NOW UNBLOCKED** (L1 production readiness rollout COMPLETE 2026-05-09). See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`.
+- L2 PaperQA2 activation — **COMPLETE (2026-05-09)**. `research-query` is shipped with a Marker-ready query-time guard. See `docs/features/FEATURE-ris-l2-academic-query.md`.
 - Marker Docker IPC warm-worker v1 — **COMPLETE (2026-05-08)**. All revised functional gates PASS. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
 - L1 Marker Production Readiness Rollout — **COMPLETE (2026-05-09)**. Runbook, operator path, DoD all met. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`.
 
@@ -1843,8 +1843,8 @@ verified. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.
 
 **What remains blocked/stubbed:**
 
-- L2 PaperQA2 RAG Control Flow — stub; NOW UNBLOCKED by L1 completion.
-- L4 Multi-source Academic Harvesters — stub; NOW UNBLOCKED (gated on L1 + L3; both complete).
+- L2 PaperQA2 RAG Control Flow — COMPLETE 2026-05-09; `research-query` ships multi-angle KS query with Marker-ready query-time guard.
+- L4 Multi-source Academic Harvesters — **COMPLETE 2026-05-09**; 4 harvesters (arXiv, Semantic Scholar, Crossref, OpenReview); `research-harvest` CLI; dedup; SSRN/NBER deferred. Feature doc: `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md`.
 - Automatic warm-worker startup on container boot — deferred; manual trigger only in v1.
 - IPC crash recovery / reconnect — deferred to post-v1 hardening pass.
 - Bulk re-ingest of pdfplumber-parsed corpus — separate cleanup task.
@@ -1893,3 +1893,33 @@ passed, 1 skipped (Linux-only platform skip correct on Windows).
 
 See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` and
 `docs/dev_logs/2026-05-08_marker-docker-ipc-warm-worker-v1-closeout.md`.
+
+## RIS L2 Academic Query — Complete (2026-05-09)
+
+`research-query` provides the first operator-ready academic query path over the
+Marker-only KnowledgeStore corpus. It implements PaperQA2-inspired multi-angle
+query planning, paper-level grouping by source document, and citation metadata
+for title, arxiv_id, source_url, snippet, body_source, and claim_count.
+
+Safety guard: new academic rows are gated by `IngestPipeline.ingest_external()`,
+and the query path also re-checks source metadata so legacy or bad academic rows
+with `body_source=pdfplumber`, missing metadata, or `body_length < 5000` cannot
+be cited.
+
+**CLI surface:**
+
+```bash
+python -m polytool research-query --question "market microstructure"
+python -m polytool research-query --question "sports betting inefficiencies" --k 10 --step-back
+python -m polytool research-query --question "avellaneda stoikov spread model" --max-angles 1
+```
+
+**Still deferred:** ChromaDB academic retrieval, page-level citations, LLM synthesis,
+and L4 multi-source academic harvesters. L4 remains a separate Director workpacket
+because it requires five fetchers, session/rate-limit handling, new dependencies, and
+network integration tests.
+
+**Feature doc:** `docs/features/FEATURE-ris-l2-academic-query.md`
+**Dev logs:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-completion-sprint.md`,
+`docs/dev_logs/2026-05-09_codex-audit-fix-ris-academic-pipeline-completion-sprint.md`
+**Tests:** `tests/test_research_query.py` — 36 passed.

@@ -1,7 +1,8 @@
 ---
-tags: [work-packet, ris, ingestion, multi-source, stub]
+tags: [work-packet, ris, ingestion, multi-source, complete]
 date: 2026-04-29
-status: stub
+status: complete
+completed: 2026-05-09
 priority: low
 phase: 2
 target-layer: 4
@@ -11,12 +12,24 @@ prerequisites:
   - "[[Work-Packet - Academic Pipeline PDF Download Fix]] (Layer 0 — shipped)"
   - "[[Work-Packet - Marker Structural Parser Integration]] (Layer 1 — production rollout)"
   - "[[Work-Packet - Pre-fetch SVM Topic Filter]] (Layer 3 — to manage volume from new sources)"
+feature_doc: "docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md"
+dev_log: "docs/dev_logs/2026-05-09_ris-l4-multisource-academic-harvesters.md"
 ---
 
-# Work Packet (stub) — Multi-source Academic Harvesters
+# Work Packet — Multi-source Academic Harvesters
 
-> [!INFO] Stub status
-> Placeholder so cross-links resolve. Activate after Layer 3 (pre-fetch filter) is operational. Without filtering, multi-source ingestion floods the eval gate. Layer 1 must also be operational so all parsed content uses Marker consistently — adding new sources before Marker is the production parser would compound the inconsistent-corpus problem.
+> [!SUCCESS] Complete (2026-05-09)
+> L4 shipped: 4 harvesters (arXiv, Semantic Scholar, Crossref, OpenReview),
+> `AcademicCandidate` dataclass, `dedup_candidates()`, `research-harvest` CLI,
+> `SOURCE_CAPABILITY_MATRIX`. SSRN and NBER explicitly deferred (session/cookie
+> brittleness / outdated scrapers). 59 tests pass. Feature doc and runbook updated.
+> See `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md`.
+
+> [!INFO] Former stub status (resolved)
+> This packet was a placeholder so cross-links could resolve. L1 and L3 prerequisites were met, but
+> the packet remained unactivated and incomplete. It required a separate Director
+> workpacket because it adds five fetchers, source-specific rate/session handling,
+> new dependencies, and network integration tests.
 
 ## Layer
 

@@ -7,6 +7,54 @@
 
 ---
 
+## Top-Down Pipeline Flow (Discover → Filter → Parse → Query)
+
+The full academic pipeline has four layers. Each layer produces output for the next.
+No paper becomes RAG-ready until it completes L1 Marker parse.
+
+```
+L4 Harvest (research-harvest)
+  └─ AcademicCandidate records (metadata only — no PDF, no Marker)
+       ↓
+L3 Relevance Filter (scored inline by research-harvest)
+  └─ allow/review → ReviewQueueStore
+  └─ reject → dropped
+       ↓
+Operator label (research-prefetch-review list / label)
+  └─ allow → enqueue to Marker queue
+       ↓
+L1 Marker Parse (research-marker-queue enqueue + warm-process)
+  └─ body_source=marker, body_length>=5000 → RAG-ready
+  └─ marker_failed / short → rejected (retryable)
+       ↓
+L2 Query (research-query --question "...")
+  └─ multi-angle KS query over Marker-ready academic corpus
+```
+
+### Quick start (full pipeline)
+
+```bash
+# Step 1 — Discover candidates (L4, no PDF, no Marker)
+python -m polytool research-harvest \
+  --search "prediction markets microstructure" \
+  --source all --max-results 10
+
+# Step 2 — Review and label candidates
+python -m polytool research-prefetch-review list
+python -m polytool research-prefetch-review label --id CANDIDATE_ID --label allow
+
+# Step 3 — Enqueue allowed papers to Marker queue (L1)
+python -m polytool research-marker-queue enqueue --url ARXIV_ID
+
+# Step 4 — Parse (inside Docker/GPU container)
+python -m polytool research-marker-queue warm-process --max-items 5
+
+# Step 5 — Query the Marker-ready corpus (L2)
+python -m polytool research-query --question "optimal spread in prediction markets"
+```
+
+---
+
 ## Overview
 
 The Marker parse queue is the canonical production path for ingesting academic PDFs into
@@ -251,9 +299,10 @@ python -m polytool research-query \
 
 1. Multi-angle query planning (up to `--max-angles` template variants)
 2. KnowledgeStore queried with `source_family="academic"` for each angle
-3. Claims deduplicated by ID; grouped by source paper
-4. Papers ranked by highest claim score
-5. Citations returned with: title, arxiv_id, source_url, snippet, body_source
+3. Source metadata is re-checked: `body_source=marker` and `body_length >= 5000`
+4. Claims deduplicated by ID; grouped by source paper
+5. Papers ranked by highest claim score
+6. Citations returned with: title, arxiv_id, source_url, snippet, body_source
 
 **Prerequisite:** Papers must be ingested into the KnowledgeStore first.
 Use `research-marker-queue` (Steps 1–4 above) then run:
@@ -271,7 +320,8 @@ Feature doc: `docs/features/FEATURE-ris-l2-academic-query.md`
 ## Scope Notes
 
 - **L2 PaperQA2** — COMPLETE 2026-05-09. `research-query` CLI ships multi-angle
-  KS query with paper-level citations. See feature doc above.
+  KS query with paper-level citations and a query-time Marker-ready guard. See
+  feature doc above.
 - **L4 Multi-source harvesters** — Stub. Gated on explicit Director workpacket.
   Requires 5 new fetcher classes, session handling, new deps. Not in current sprint.
 - **SVM enforce** remains hard-blocked at rc=1. Default lexical filter is active.
