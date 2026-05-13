@@ -7,14 +7,15 @@ Algorithm (adapted from PaperQA2):
 1. Plan multi-angle queries from the question (deterministic or LLM-expanded)
 2. Query KnowledgeStore with source_family="academic" for each planned query
 3. Merge results by claim_id, keeping best effective_score per claim
-4. Group claims by source_document (paper-level aggregation)
-5. For each paper, attach citation metadata (title, arxiv_id, source_url, body_source)
-6. Return AcademicQueryResult with ranked citations
-7. Graceful fallback: had_fallback=True + actionable warning when KS empty
+4. Filter papers to Marker/RAG-ready metadata (body_source=marker, length >= 5000)
+5. Group claims by source_document (paper-level aggregation)
+6. For each paper, attach citation metadata (title, arxiv_id, source_url, body_source)
+7. Return AcademicQueryResult with ranked citations
+8. Graceful fallback: had_fallback=True + actionable warning when KS empty
 
 Scope guards (from Work-Packet - PaperQA2 RAG Control Flow.md):
-- Only queries KnowledgeStore with source_family="academic"
-  (Marker-gate enforced at ingest time by IngestPipeline.ingest_external)
+- Only queries KnowledgeStore with source_family="academic" and defensively
+  re-checks Marker-ready metadata at query time for legacy/bad KS rows
 - Does NOT query ChromaDB vector index in this version
   (body_source not stored in Chroma metadata; future L2.1 can add that path)
 - Does NOT change the corpus ingestion path
@@ -33,6 +34,8 @@ from packages.polymarket.rag.knowledge_store import KnowledgeStore
 from packages.research.ingestion.retriever import query_knowledge_store_for_rrf
 from packages.research.synthesis.query_planner import plan_queries
 
+_MIN_MARKER_BODY_LENGTH = 5000
+
 if TYPE_CHECKING:
     pass
 
@@ -46,8 +49,8 @@ if TYPE_CHECKING:
 class AcademicCitation:
     """A single citation from the academic corpus.
 
-    Maps to a source_document (paper) in the KnowledgeStore. Confirmed
-    Marker-quality: all academic docs pass IngestPipeline's body_source=marker gate.
+    Maps to a source_document (paper) in the KnowledgeStore. Query results are
+    defensively filtered to Marker/RAG-ready source documents.
     """
     title: str
     arxiv_id: Optional[str]
@@ -101,13 +104,106 @@ def _extract_body_source(metadata_json: Optional[str]) -> str:
         return "unknown"
 
 
+def _extract_body_length(metadata_json: Optional[str]) -> int:
+    """Return body_length from metadata_json, defaulting to 0."""
+    if not metadata_json:
+        return 0
+    try:
+        meta = json.loads(metadata_json)
+        return int(meta.get("body_length") or 0)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return 0
+
+
+def _is_marker_ready_metadata(metadata_json: Optional[str]) -> bool:
+    """Return whether metadata proves the paper is Marker/RAG-ready."""
+    return (
+        _extract_body_source(metadata_json) == "marker"
+        and _extract_body_length(metadata_json) >= _MIN_MARKER_BODY_LENGTH
+    )
+
+
+def _has_academic_documents(ks: KnowledgeStore) -> bool:
+    """Return True if the KS contains at least one academic source document.
+
+    Used to distinguish Case A (empty corpus) from Case B (docs exist but
+    query had no matching claims). Accesses ks._conn directly since
+    KnowledgeStore exposes no public count-by-family API.
+    """
+    try:
+        row = ks._conn.execute(
+            "SELECT 1 FROM source_documents WHERE source_family = 'academic' LIMIT 1"
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+_QUESTION_PREAMBLES: tuple[str, ...] = (
+    "what is ",
+    "what are ",
+    "what does ",
+    "what do ",
+    "how does ",
+    "how do ",
+    "how is ",
+    "how are ",
+    "why does ",
+    "why do ",
+    "why is ",
+    "why are ",
+    "explain ",
+    "define ",
+    "describe ",
+    "tell me about ",
+    "can you explain ",
+    "what's ",
+    "whats ",
+)
+
+
+def _normalize_question(question: str) -> str:
+    """Strip common leading question phrases to produce a core keyword phrase.
+
+    Used for retrieval only — the original question is always preserved in
+    output and as the primary query angle. Stripping is applied once: the
+    first matching prefix wins, and trailing punctuation is cleaned.
+
+    Returns the original question if no preamble is stripped or the result
+    would be empty after stripping.
+    """
+    q = question.strip()
+    q_lower = q.lower()
+    for prefix in _QUESTION_PREAMBLES:
+        if q_lower.startswith(prefix):
+            core = q[len(prefix):].strip().rstrip("?.,!")
+            if core:
+                return core
+            break
+    return q
+
+
 def _build_sub_queries(question: str, max_angles: int, include_step_back: bool) -> list[tuple[str, str]]:
     """Build (query_text, label) pairs for multi-angle retrieval.
+
+    Inserts a normalized (preamble-stripped) core phrase as an extra angle
+    when the question starts with a common question prefix and normalization
+    produces a meaningfully shorter result. This ensures natural-language
+    questions like "what are prediction markets" also hit claims that contain
+    "prediction markets" as a substring.
 
     Uses plan_queries() for deterministic angle generation. Deduplicates
     against the primary question to avoid redundant KS calls.
     """
     sub_queries: list[tuple[str, str]] = [(question, "primary")]
+    seen: set[str] = {question}
+
+    # Insert normalized core before plan_queries angles so it gets highest
+    # retrieval priority after the primary question itself.
+    core = _normalize_question(question)
+    if core != question and core not in seen:
+        sub_queries.append((core, "normalized"))
+        seen.add(core)
 
     if max_angles <= 1:
         return sub_queries
@@ -119,7 +215,6 @@ def _build_sub_queries(question: str, max_angles: int, include_step_back: bool) 
         max_queries=max_angles,
     )
 
-    seen: set[str] = {question}
     for i, q in enumerate(qplan.queries[:max_angles]):
         if q and q not in seen:
             sub_queries.append((q, f"angle_{i}"))
@@ -176,8 +271,9 @@ def query_academic_corpus(
     """Query the academic corpus (KnowledgeStore, source_family='academic').
 
     Uses multi-angle query planning (PaperQA2-inspired paper-level search).
-    Only returns results from Marker-quality ingests — enforced at ingest time
-    by IngestPipeline.ingest_external's academic gate.
+    Only returns results from Marker-quality ingests. The ingest gate enforces
+    this for new rows, and this query path re-checks source metadata so legacy
+    pdfplumber or short-body academic rows cannot be cited.
 
     Graceful fallback: returns had_fallback=True when the KS has no academic
     documents, with an actionable warning.
@@ -214,6 +310,7 @@ def query_academic_corpus(
 
     # Step 3: Query KS for each angle, merge by claim_id
     all_raw: list[dict] = []
+    _academic_docs_exist: bool = False  # probed only when all_raw is empty
     try:
         for query_text, _label in sub_queries:
             try:
@@ -221,11 +318,16 @@ def query_academic_corpus(
                     ks,
                     text_query=query_text,
                     source_family="academic",
-                    top_k=k * 4,
+                    top_k=max(k * 50, 250),
                 )
             except Exception:
                 results = []
             all_raw.extend(results)
+
+        # Probe corpus existence only when needed — distinguishes empty corpus
+        # (Case A) from populated corpus with no matching claims (Case B).
+        if not all_raw:
+            _academic_docs_exist = _has_academic_documents(ks)
     finally:
         if _owns_ks:
             ks.close()
@@ -235,16 +337,25 @@ def query_academic_corpus(
 
     # Step 4: Check fallback condition
     if not merged:
+        if _academic_docs_exist:
+            _warning = (
+                "Academic documents exist in the KnowledgeStore, but no relevant "
+                "claims matched this question. Try a more specific question or "
+                "add more related papers: "
+                "python -m polytool research-marker-queue enqueue --url ARXIV_ID"
+            )
+        else:
+            _warning = (
+                "No academic documents found in the KnowledgeStore. "
+                "To add papers: python -m polytool research-marker-queue enqueue --url ARXIV_ID"
+            )
         return AcademicQueryResult(
             question=question,
             citations=[],
             marker_only_count=0,
             total_claims_found=0,
             had_fallback=True,
-            warning=(
-                "No academic documents found in the KnowledgeStore. "
-                "To add papers: python -m polytool research-marker-queue enqueue --url ARXIV_ID"
-            ),
+            warning=_warning,
             query_angles=query_angles,
         )
 
@@ -269,20 +380,25 @@ def query_academic_corpus(
     marker_only_count = 0
 
     try:
-        for doc_id, best_score, claims in paper_scores[:k]:
+        for doc_id, best_score, claims in paper_scores:
             title = "(unknown)"
             source_url: Optional[str] = None
             arxiv_id: Optional[str] = None
             body_source = "unknown"
 
-            if doc_id:
-                src_doc = ks2.get_source_document(doc_id)
-                if src_doc:
-                    title = src_doc.get("title") or "(unknown)"
-                    source_url = src_doc.get("source_url")
-                    metadata_json = src_doc.get("metadata_json")
-                    arxiv_id = _extract_arxiv_id(metadata_json)
-                    body_source = _extract_body_source(metadata_json)
+            if not doc_id:
+                continue
+            src_doc = ks2.get_source_document(doc_id)
+            if not src_doc:
+                continue
+
+            title = src_doc.get("title") or "(unknown)"
+            source_url = src_doc.get("source_url")
+            metadata_json = src_doc.get("metadata_json")
+            if not _is_marker_ready_metadata(metadata_json):
+                continue
+            arxiv_id = _extract_arxiv_id(metadata_json)
+            body_source = _extract_body_source(metadata_json)
 
             if body_source == "marker":
                 marker_only_count += 1
@@ -300,9 +416,26 @@ def query_academic_corpus(
                 body_source=body_source,
                 claim_count=len(claims),
             ))
+            if len(citations) >= k:
+                break
     finally:
         if _owns_ks2:
             ks2.close()
+
+    if not citations:
+        return AcademicQueryResult(
+            question=question,
+            citations=[],
+            marker_only_count=0,
+            total_claims_found=total_claims_found,
+            had_fallback=True,
+            warning=(
+                "Academic claim hits were found, but none came from Marker-ready "
+                "papers (body_source=marker and body_length >= 5000). Reprocess "
+                "papers through research-marker-queue before querying."
+            ),
+            query_angles=query_angles,
+        )
 
     return AcademicQueryResult(
         question=question,

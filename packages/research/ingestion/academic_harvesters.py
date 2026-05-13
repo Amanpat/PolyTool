@@ -17,8 +17,8 @@ All harvesters:
 
 HARVESTER_REGISTRY maps name -> class.  get_harvester(name) returns instances.
 
-Deduplication: dedup_candidates() merges by canonical_ids with priority:
-  arxiv_id > doi > s2_paper_id > openreview_id > source_url_hash
+Deduplication: dedup_candidates() matches on any canonical ID, with URL fallback:
+  arxiv_id, doi, s2_paper_id, openreview_id, source_url
 
 Candidates feed into CandidateInput / RelevanceScorer / ReviewQueueStore
 without modification.  No paper becomes RAG-ready until it passes through
@@ -129,33 +129,51 @@ class AcademicCandidate:
 # Deduplication helpers
 # ---------------------------------------------------------------------------
 
-# Priority order for canonical_id matching
 _DEDUP_KEYS = ("arxiv_id", "doi", "s2_paper_id", "openreview_id")
 
 
-def _dedup_key(candidate: AcademicCandidate) -> Optional[str]:
-    """Return the highest-priority dedup key for *candidate*, or None."""
+def _normalise_dedup_value(key: str, value: object) -> Optional[str]:
+    """Return a stable comparable canonical-ID value, or None."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if key == "doi":
+        text = text.removeprefix("https://doi.org/")
+        text = text.removeprefix("http://doi.org/")
+        text = text.removeprefix("doi:")
+        return text.lower()
+    return text
+
+
+def _dedup_keys(candidate: AcademicCandidate) -> list[str]:
+    """Return every canonical-ID dedup key for *candidate*."""
+    keys: list[str] = []
     for key in _DEDUP_KEYS:
-        val = candidate.canonical_ids.get(key)
+        val = _normalise_dedup_value(key, candidate.canonical_ids.get(key))
         if val:
-            return f"{key}:{val}"
-    return None
+            keys.append(f"{key}:{val}")
+    if not keys:
+        keys.append(f"url:{candidate.source_url.strip().lower()}")
+    return keys
 
 
 def dedup_candidates(candidates: list[AcademicCandidate]) -> list[AcademicCandidate]:
     """Remove duplicate candidates across sources.
 
-    Deduplication priority: arxiv_id > doi > s2_paper_id > openreview_id > source_url.
-    The first occurrence of each paper is kept; later duplicates (from other sources)
-    are dropped.  Input order is preserved for non-duplicates.
+    Any shared canonical ID is treated as a duplicate.  The first occurrence of
+    each paper is kept; later duplicates are dropped, but their IDs are still
+    remembered so transitive aliases are caught.  Input order is preserved for
+    non-duplicates.
     """
     seen: set[str] = set()
     result: list[AcademicCandidate] = []
     for c in candidates:
-        key = _dedup_key(c) or f"url:{c.source_url}"
-        if key not in seen:
-            seen.add(key)
-            result.append(c)
+        keys = _dedup_keys(c)
+        if seen.intersection(keys):
+            seen.update(keys)
+            continue
+        seen.update(keys)
+        result.append(c)
     return result
 
 

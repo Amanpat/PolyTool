@@ -10,18 +10,34 @@ import re
 
 from packages.research.evaluation.types import EvalDocument, HardStopResult
 
-# Pattern to detect repeated URLs (4+ occurrences of the same URL)
 _URL_PATTERN = re.compile(r"https?://\S+")
+
+# Minimum body length (chars) for the academic Marker lenient URL gate.
+# Must match MIN_MARKER_BODY_LENGTH in marker_queue.py.
+_ACADEMIC_MARKER_MIN_BODY = 5000
+
+# Thresholds for the academic Marker lenient URL gate:
+#   count  >= _ACADEMIC_URL_MAX_COUNT  → spam regardless of density
+#   density > _ACADEMIC_URL_MAX_DENSITY → body is dominated by the repeated URL
+_ACADEMIC_URL_MAX_COUNT = 20
+_ACADEMIC_URL_MAX_DENSITY = 0.10  # 10 % of body chars
 
 
 def check_hard_stops(doc: EvalDocument) -> HardStopResult:
     """Run pre-screening hard-stop checks on a document.
 
     Checks are applied in order:
-    1. empty_body     — body is None, empty, or whitespace-only
-    2. too_short      — body shorter than 50 chars
+    1. empty_body       — body is None, empty, or whitespace-only
+    2. too_short        — body shorter than 50 chars
     3. encoding_garbage — >80% non-ASCII characters
-    4. spam_malformed — all-caps ratio >60% or repeated URLs (4+ occurrences)
+    4. spam_malformed   — all-caps ratio >60% or repeated URLs
+
+    URL repetition threshold (check 4b) depends on the source context:
+    - Academic Marker-ready bodies (metadata body_source="marker", body >= 5000 chars):
+      allowed unless count >= 20 or repeated-URL density > 10% of body.
+      Academic papers legitimately repeat repository/dataset URLs in references,
+      captions, and footnotes; a flat 4x limit is too aggressive for long PDFs.
+    - All other documents: any URL repeated 4+ times is rejected.
 
     Returns HardStopResult(passed=True) if all checks pass.
     Returns HardStopResult(passed=False, ...) on the first failing check.
@@ -70,17 +86,40 @@ def check_hard_stops(doc: EvalDocument) -> HardStopResult:
                 stop_type="spam_malformed",
             )
 
-    # 4b: Same URL repeated 4+ times
+    # 4b: Repeated URL check
+    # Academic papers parsed by Marker (body_source="marker", body >= 5000 chars)
+    # receive a lenient density-based threshold rather than the flat 4x limit,
+    # because reference lists and footnotes legitimately repeat URLs many times.
     urls = _URL_PATTERN.findall(stripped)
     if urls:
         from collections import Counter
         url_counts = Counter(urls)
         most_common_url, count = url_counts.most_common(1)[0]
-        if count >= 4:
-            return HardStopResult(
-                passed=False,
-                reason=f"Document body contains repeated URL ({count}x): {most_common_url[:60]}",
-                stop_type="spam_malformed",
-            )
+
+        body_source = doc.metadata.get("body_source", "") if doc.metadata else ""
+        is_academic_marker = (
+            body_source == "marker" and len(stripped) >= _ACADEMIC_MARKER_MIN_BODY
+        )
+
+        if is_academic_marker:
+            url_density = (count * len(most_common_url)) / len(stripped)
+            if count >= _ACADEMIC_URL_MAX_COUNT or url_density > _ACADEMIC_URL_MAX_DENSITY:
+                return HardStopResult(
+                    passed=False,
+                    reason=(
+                        f"Document body contains repeated URL ({count}x, "
+                        f"density={url_density:.1%}): {most_common_url[:60]}"
+                        f" (academic Marker limit: <{_ACADEMIC_URL_MAX_COUNT}x "
+                        f"and density<{_ACADEMIC_URL_MAX_DENSITY:.0%})"
+                    ),
+                    stop_type="spam_malformed",
+                )
+        else:
+            if count >= 4:
+                return HardStopResult(
+                    passed=False,
+                    reason=f"Document body contains repeated URL ({count}x): {most_common_url[:60]}",
+                    stop_type="spam_malformed",
+                )
 
     return HardStopResult(passed=True)

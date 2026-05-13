@@ -145,8 +145,8 @@ benchmark, or any non-RIS component.
 ## Safety and Scope Limits
 
 - pdfplumber is legacy/debug only. No pdfplumber path exists in any production parse code.
-- L2 PaperQA2 RAG Control Flow remains stub. L4 Multi-source Academic Harvesters remain
-  stub. Neither is activated by this feature.
+- L2 PaperQA2 RAG Control Flow and L4 Multi-source Academic Harvesters were
+  completed later on 2026-05-09.
 - No automatic warm-worker startup on container boot. v1 scope: manual trigger only
   (`research-marker-queue warm-process`). Auto-start deferred to a future hardening pass.
 - No bulk re-ingest of existing pdfplumber-parsed ChromaDB entries. Separate cleanup task.
@@ -171,12 +171,12 @@ Combined: 158 passed, 1 skipped (Linux-only platform skip correct on Windows).
 
 | Item | Status | Resume trigger |
 |------|--------|----------------|
-| L1 Marker Production Rollout — scheduling + full queue pipeline | Paused | Now unblocked by Feature 3 closeout; resume at next explicit Director workpacket |
+| L1 Marker Production Rollout — scheduling + full queue pipeline | Complete 2026-05-09 | See `FEATURE-ris-l1-marker-production-readiness-rollout.md` |
 | Automatic warm-worker startup on `ris-scheduler-gpu` boot | Deferred | Post-v1 hardening pass, once a full queue session is stable |
 | IPC channel crash recovery / reconnect | Deferred | Post-v1 hardening pass |
 | Bulk re-ingest of pdfplumber-parsed corpus | Deferred | After warm-worker is stable processing a full queue |
-| L2 PaperQA2 RAG Control Flow | Stub — explicitly blocked | Gated on L1 production rollout completion |
-| L4 Multi-source Academic Harvesters | Stub — explicitly blocked | Gated on L1 + L3 |
+| L2 PaperQA2 RAG Control Flow | Complete 2026-05-09 | See `FEATURE-ris-l2-academic-query.md` |
+| L4 Multi-source Academic Harvesters | Complete 2026-05-09 | See `FEATURE-ris-l4-multisource-academic-harvesters.md` |
 
 ---
 

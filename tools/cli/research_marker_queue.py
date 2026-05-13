@@ -232,6 +232,73 @@ def _cmd_warm_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_index_done(args: argparse.Namespace) -> int:
+    """Index all marker-ready done queue items into the KnowledgeStore."""
+    from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+    queue_dir = Path(args.queue_dir) if args.queue_dir else None
+    q = MarkerParseQueue(queue_dir=queue_dir)
+    ks_path = Path(args.ks_path) if getattr(args, "ks_path", None) else None
+    extract_claims = not getattr(args, "no_extract_claims", False)
+
+    if not args.json:
+        force_note = " (force=True: re-indexing all)" if args.force else ""
+        extract_note = "" if extract_claims else " (--no-extract-claims: skipping extraction)"
+        print(f"Indexing marker-ready done items into KnowledgeStore{force_note}{extract_note}...")
+
+    try:
+        summary = q.index_done_items(
+            ks_path=ks_path, force=args.force, extract_claims=extract_claims
+        )
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc), "exit_code": 1}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+
+    indexed = summary.get("indexed", [])
+    skipped_dup = summary.get("skipped_already_indexed", [])
+    skipped_no_body = summary.get("skipped_no_body", [])
+    failed = summary.get("failed", [])
+    total_claims = summary.get("total_claims_extracted", 0)
+
+    if indexed:
+        print(f"\nIndexed {len(indexed)} paper(s):")
+        for item in indexed:
+            claims_note = f"  claims={item.get('claims_extracted', 0)}" if extract_claims else ""
+            print(
+                f"  [OK] {item['candidate_id']}  doc_id={item['doc_id']}"
+                f"  chunks={item['chunk_count']}{claims_note}"
+            )
+    if skipped_dup:
+        print(f"\nSkipped {len(skipped_dup)} already-indexed paper(s):")
+        for cid in skipped_dup:
+            print(f"  [skip] {cid}")
+    if skipped_no_body:
+        print(f"\nSkipped {len(skipped_no_body)} paper(s) — body file missing:")
+        for cid in skipped_no_body:
+            print(f"  [no-body] {cid}  (re-enqueue with --force to re-process)")
+    if failed:
+        print(f"\nFailed {len(failed)} paper(s):")
+        for item in failed:
+            print(f"  [FAIL] {item.get('candidate_id', '?')}  {item.get('error', '')}")
+
+    total = len(indexed) + len(skipped_dup) + len(skipped_no_body) + len(failed)
+    claims_summary = f", {total_claims} claim(s) extracted" if extract_claims else ""
+    print(
+        f"\nTotal: {total} done item(s) examined — "
+        f"{len(indexed)} indexed, {len(skipped_dup)} already-indexed, "
+        f"{len(skipped_no_body)} no-body, {len(failed)} failed{claims_summary}."
+    )
+    # rc=1 only when there are hard failures; empty/skipped results are valid outcomes
+    return 1 if failed else 0
+
+
 def _cmd_counts(args: argparse.Namespace) -> int:
     from packages.research.ingestion.marker_queue import MarkerParseQueue
 
@@ -265,8 +332,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Enqueue arXiv papers, process them with Marker, "
             "and track which papers are RAG-ready (marker_ready=true). "
             "On Windows, Marker models are pre-loaded once per batch (warm). "
-            "On Linux/Docker, models reload per paper (subprocess mode; "
-            "warm IPC worker is v1)."
+            "On Linux/Docker, use warm-process for the validated IPC warm-worker path."
         ),
     )
     parser.add_argument(
@@ -400,6 +466,45 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output results as JSON",
     )
 
+    # index-done
+    p_index = subparsers.add_parser(
+        "index-done",
+        help=(
+            "Index all marker-ready done items into the KnowledgeStore. "
+            "Reads body from bodies/{candidate_id}.body.txt (written by warm-process). "
+            "Idempotent: skips already-indexed items unless --force."
+        ),
+    )
+    p_index.add_argument(
+        "--ks-path",
+        default=None,
+        dest="ks_path",
+        metavar="PATH",
+        help="Override KnowledgeStore SQLite path (default: project default)",
+    )
+    p_index.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Re-index even items already recorded in indexed.jsonl",
+    )
+    p_index.add_argument(
+        "--no-extract-claims",
+        action="store_true",
+        default=False,
+        dest="no_extract_claims",
+        help=(
+            "Skip automatic claim extraction after indexing. "
+            "Default: extract claims from each indexed paper via body_file sidecar."
+        ),
+    )
+    p_index.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output summary as JSON",
+    )
+
     # counts
     p_counts = subparsers.add_parser(
         "counts",
@@ -440,6 +545,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_process(args)
     elif args.subcommand == "warm-process":
         return _cmd_warm_process(args)
+    elif args.subcommand == "index-done":
+        return _cmd_index_done(args)
     elif args.subcommand == "counts":
         return _cmd_counts(args)
     else:

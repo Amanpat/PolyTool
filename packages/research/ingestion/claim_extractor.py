@@ -329,25 +329,42 @@ def _get_document_body(store: "KnowledgeStore", doc: dict) -> str | None:
     """Retrieve the body text for a source document.
 
     Strategy:
-    1. Check metadata_json for a 'body' key (some tests may inject this).
+    1. Check metadata_json for a 'body' key (inline body, e.g. injected by tests).
+    1.5. Check metadata_json for a 'body_file' key (file:// pointer to Marker body
+         sidecar written by index_done_items during queue processing).
     2. Try to read from source_url if it's a file:// path.
     3. Return None if neither works.
     """
-    # Strategy 1: body in metadata_json
-    metadata_json = doc.get("metadata_json")
-    if metadata_json:
+    # Parse metadata once for strategies 1 and 1.5
+    meta: dict = {}
+    raw_meta = doc.get("metadata_json")
+    if raw_meta:
         try:
-            meta = json.loads(metadata_json)
-            if "body" in meta and meta["body"]:
-                return str(meta["body"])
+            meta = json.loads(raw_meta)
         except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Strategy 1: inline body in metadata_json
+    if meta.get("body"):
+        return str(meta["body"])
+
+    # Strategy 1.5: body_file pointer in metadata_json (Marker academic sidecar)
+    body_file_val = meta.get("body_file", "")
+    if body_file_val:
+        fp_str = body_file_val
+        if fp_str.startswith("file://"):
+            fp_str = fp_str[len("file://"):]
+        try:
+            fp = Path(fp_str)
+            if fp.exists():
+                return fp.read_text(encoding="utf-8")
+        except (OSError, ValueError):
             pass
 
     # Strategy 2: file:// source_url
     source_url = doc.get("source_url", "")
     if source_url and source_url.startswith("file://"):
         file_path_str = source_url[len("file://"):]
-        # Handle both posix and windows paths
         try:
             file_path = Path(file_path_str)
             if file_path.exists():

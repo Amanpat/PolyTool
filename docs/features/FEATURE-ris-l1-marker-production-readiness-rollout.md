@@ -49,9 +49,9 @@ it confirms and documents that the infrastructure shipped across prior work pack
 | L1: Marker Canonical Academic Parse Queue v0 | ✅ SHIPPED 2026-05-05 | File-backed queue, CLI, is_marker_ready(), Marker-only gate, 43 tests |
 | L1: Marker Docker IPC Warm-Worker v1 | ✅ CLOSED 2026-05-08 (Feature 3) | Revised functional gate PASS; timings 45.55s/69.73s/48.31s; delta 0.13s/0.22s |
 | **L1: Marker Production Readiness Rollout** | **✅ COMPLETE 2026-05-09** | **This feature** |
-| L2: PaperQA2 RAG Control Flow | Stub | Gated on L1 completion (NOW UNBLOCKED) |
+| L2: PaperQA2 RAG Control Flow | ✅ COMPLETE 2026-05-09 | `research-query` CLI; Marker-ready query-time guard; feature doc `FEATURE-ris-l2-academic-query.md` |
 | L3: Pre-fetch SVM Topic Filter | ✅ CLOSED 2026-05-07 | Default-off; dry-run/hold-review ready; enforce deferred |
-| L4: Multi-source Academic Harvesters | Stub | Gated on L1 + L3 |
+| L4: Multi-source Academic Harvesters | COMPLETE 2026-05-09 | 4 metadata-only harvesters; SSRN/NBER deferred |
 | L5: Scientific RAG Evaluation Benchmark | ✅ SHIPPED 2026-05-02 | Baseline locked: corpus=23, P@5=1.0 |
 
 ---
@@ -125,8 +125,8 @@ Gate: ≥3 full PDFs, papers 2+ delta ≤5s, body_source=marker all, ipc_warm_wo
 
 | Item | Status |
 |------|--------|
-| L2 PaperQA2 RAG Control Flow | Stub — now unblocked by L1 completion |
-| L4 Multi-source academic harvesters | Stub — gated on L1 + L3 |
+| L2 PaperQA2 RAG Control Flow | Complete 2026-05-09 — `research-query` CLI with Marker-ready query-time guard |
+| L4 Multi-source academic harvesters | COMPLETE 2026-05-09 — `research-harvest`; 4 metadata-only harvesters |
 | Bulk re-ingest of existing pdfplumber-parsed corpus | Separate cleanup task |
 | Automatic warm-worker startup on container boot | Deferred — post-v1 hardening |
 | IPC crash recovery / reconnect | Deferred — post-v1 hardening |

@@ -1912,14 +1912,63 @@ be cited.
 python -m polytool research-query --question "market microstructure"
 python -m polytool research-query --question "sports betting inefficiencies" --k 10 --step-back
 python -m polytool research-query --question "avellaneda stoikov spread model" --max-angles 1
+# Natural-language questions work — preamble stripped for retrieval only:
+python -m polytool research-query --question "what are prediction markets"
+python -m polytool research-query --question "explain sports betting markets"
 ```
 
-**Still deferred:** ChromaDB academic retrieval, page-level citations, LLM synthesis,
-and L4 multi-source academic harvesters. L4 remains a separate Director workpacket
-because it requires five fetchers, session/rate-limit handling, new dependencies, and
-network integration tests.
+**Query normalization (2026-05-09 fix):** `_normalize_question()` and `_build_sub_queries()`
+strip common question preambles ("what are", "explain", "how does") for retrieval only.
+`"what are prediction markets"` now retrieves the same results as `"prediction markets"`.
+The original question string is preserved in the JSON output. Retrieval remains conservative
+substring/phrase matching — not semantic or vector retrieval.
+
+**No-result cases:** Two distinct cases both return `had_fallback=true`:
+1. **Empty corpus** — KnowledgeStore has no academic source documents. Run `index-done` first.
+2. **Corpus exists, no matching claims** — academic docs are indexed but no claim text
+   matches the query (including normalized form). Expand corpus or try a different topic phrase.
+
+**Still deferred:** ChromaDB academic retrieval, page-level citations, and LLM synthesis.
+L4 multi-source academic harvesters were completed later on 2026-05-09 with four
+metadata-only sources (arXiv, Semantic Scholar, Crossref, OpenReview). SSRN and NBER
+remain explicitly deferred because they require brittle session/cookie or HTML scraping
+paths.
 
 **Feature doc:** `docs/features/FEATURE-ris-l2-academic-query.md`
 **Dev logs:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-completion-sprint.md`,
-`docs/dev_logs/2026-05-09_codex-audit-fix-ris-academic-pipeline-completion-sprint.md`
-**Tests:** `tests/test_research_query.py` — 36 passed.
+`docs/dev_logs/2026-05-09_codex-audit-fix-ris-academic-pipeline-completion-sprint.md`,
+`docs/dev_logs/2026-05-09_ris-academic-query-natural-language-normalization-docs-sync.md`
+**Tests:** `tests/test_research_query.py` — 54 passed (36 original + 18 normalization tests).
+
+## RIS Academic Pipeline — Operator-Tested v1 (2026-05-09)
+
+The full academic pipeline (enqueue → warm-process → index-done → research-query) was
+operator-tested end-to-end on 2026-05-09 using an isolated 3-paper queue
+(`artifacts/research/operator_test_queue_3paper`).
+
+**Validation type:** Windows/local warm-thread path (`ipc_warm_worker_used=false`).
+This is a functional validation. Docker/GPU IPC batch performance validation is a separate
+optional follow-up and is **not** a functional blocker.
+
+**Queue result:** 3 done, 0 failed.
+
+| Paper | body_source | body_length (chars) | chunks | claims |
+|-------|------------|---------------------|--------|--------|
+| arxiv:2604.24366 | marker | 56,856 | 25 | 125 |
+| arxiv:2109.07581 | marker | 51,370 | 23 | 115 |
+| arxiv:1910.08858 | marker | 60,814 | 31 | 133 |
+
+**Totals:** 79 chunks, 373 claims. All 3 papers: `body_source=marker`, `body_length >= 5000`.
+
+**Query results:**
+- `research-query "prediction markets"` → `had_fallback=false`, Marker citation returned.
+- `research-query "sports betting markets" --k 10 --step-back` → `had_fallback=false`, 2 Marker citations returned.
+
+**Caveats:**
+- `ipc_warm_worker_used=false` — Windows warm-thread path only. Docker/GPU IPC warm-worker was
+  validated separately on 2026-05-08 (3 papers, 45.55s/69.73s/48.31s, `ipc_warm_worker_used=true`).
+  Docker/GPU IPC 3-paper batch re-run is an optional performance/infra follow-up.
+- SSRN/NBER sources deferred. Only arXiv papers used.
+- ChromaDB academic retrieval (L2.1) deferred.
+
+**Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`

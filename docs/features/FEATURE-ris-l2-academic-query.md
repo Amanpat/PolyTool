@@ -17,9 +17,10 @@ layer: L2
 
 L2 of the RIS academic pipeline: a `research-query` CLI that queries the
 KnowledgeStore academic corpus using multi-angle query planning (adapted from
-PaperQA2's paper-level search pattern). Only Marker-parsed papers appear in
-results — enforced at ingest time by `IngestPipeline.ingest_external`'s
-academic gate (`body_source=marker AND body_length >= 5000`).
+PaperQA2's paper-level search pattern). Only Marker/RAG-ready papers appear in
+results: the ingest gate enforces `body_source=marker AND body_length >= 5000`
+for new rows, and `research-query` re-checks that metadata before returning
+citations so legacy pdfplumber rows cannot leak into operator answers.
 
 ---
 
@@ -29,7 +30,7 @@ academic gate (`body_source=marker AND body_length >= 5000`).
 |------|---------|
 | `packages/research/synthesis/academic_query.py` | Core L2 library: multi-angle KS query, paper-level grouping, citation extraction |
 | `tools/cli/research_query.py` | `research-query` CLI entrypoint |
-| `tests/test_research_query.py` | 34 tests covering all control flow branches |
+| `tests/test_research_query.py` | 36 tests covering all control flow branches |
 
 ## Modified Files
 
@@ -46,9 +47,10 @@ academic gate (`body_source=marker AND body_length >= 5000`).
 1. **Multi-angle query planning** — `plan_queries()` generates up to N template-based angles from the question (deterministic; LLM optional).
 2. **KS query per angle** — `query_knowledge_store_for_rrf()` with `source_family="academic"` on each angle; case-insensitive substring match.
 3. **Claim-level deduplication** — `_merge_claims()` keeps best `effective_score` per claim_id across all angles.
-4. **Paper-level grouping** — `_group_by_paper()` groups by `doc_id`; papers ranked by max claim score.
-5. **Citation enrichment** — `get_source_document()` fetches title, source_url, arxiv_id, body_source per paper.
-6. **Graceful fallback** — if no academic docs in KS, returns `had_fallback=True` with actionable warning.
+4. **Marker-ready filter** — source document metadata must prove `body_source=marker` and `body_length >= 5000`.
+5. **Paper-level grouping** — `_group_by_paper()` groups by `doc_id`; papers ranked by max claim score.
+6. **Citation enrichment** — `get_source_document()` fetches title, source_url, arxiv_id, body_source per paper.
+7. **Graceful fallback** — if no Marker-ready academic docs remain, returns `had_fallback=True` with actionable warning.
 
 ---
 
@@ -80,24 +82,61 @@ python -m polytool research-query \
 | `citations[].paper_score` | Effective score of best claim |
 | `citations[].body_source` | Parser used (`"marker"` = canonical quality) |
 | `citations[].claim_count` | Claims from this paper matched by any query angle |
-| `marker_only_count` | Papers with `body_source=marker` in the result set |
+| `marker_only_count` | Papers with `body_source=marker` in the result set; should equal returned citations |
 | `had_fallback` | `true` when KS has no academic docs |
 | `query_angles` | All query strings executed |
 
 ---
+
+## Query Normalization (2026-05-09 fix)
+
+`_normalize_question()` and `_build_sub_queries()` strip common question preambles
+before retrieval so that natural-language questions work without requiring exact
+substring matches in claim text.
+
+**Preamble examples stripped:** "what are", "what is", "explain", "how does",
+"describe", "tell me about", "give me an overview of".
+
+**Behavior table:**
+
+| Question input | Retrieval also searches |
+|----------------|------------------------|
+| `"prediction markets"` | `"prediction markets"` (no change — already a phrase) |
+| `"what are prediction markets"` | `"prediction markets"` (preamble stripped) |
+| `"explain sports betting markets"` | `"sports betting markets"` (preamble stripped) |
+| `"avellaneda stoikov spread model"` | `"avellaneda stoikov model"` (no change) |
+
+The original question string is always preserved in the JSON output `question` field.
+Retrieval is conservative substring/phrase matching — **not** semantic or vector retrieval.
+Unrelated questions (e.g., "what is the weather today") still return no citations if
+no claim text matches.
+
+## No-Result Cases
+
+Two distinct situations both result in no citations returned (`had_fallback=true`):
+
+| Case | Cause | Operator action |
+|------|-------|-----------------|
+| **Empty academic corpus** | KnowledgeStore has no academic source documents | Run `index-done` first to load Marker-ready papers; confirm `warm-process` produced `marker_ready=True` results |
+| **Corpus exists, no matching claims** | Academic docs are indexed but no claim text matches the query (including normalized form) | Expand corpus via `research-harvest` → `warm-process` → `index-done`; or try a different topic phrase |
+
+Both cases emit an actionable warning. The `had_fallback` flag is `true` for both.
+The warning message text distinguishes them at runtime.
 
 ## Scope
 
 ### What L2 Is
 
 - Multi-angle KnowledgeStore query with paper-level aggregation
-- Marker-only result filter (via source_family gate at ingest)
+- Marker-ready result filter (`source_family=academic` plus query-time metadata guard)
 - Structured citation output with arxiv_id, source_url, body_source
-- Graceful fallback when corpus is empty
+- Natural-language query normalization (preamble stripping for retrieval only)
+- Graceful fallback with actionable warning for both empty-corpus and no-match cases
 
 ### What L2 Is Not (scope guards from work packet)
 
 - Does NOT query ChromaDB vector index for academic docs (body_source not in Chroma chunk metadata; future L2.1)
+- Does NOT implement semantic or vector retrieval — retrieval is conservative substring/phrase matching
 - Does NOT change the corpus ingestion path
 - Does NOT implement full Recursive Contextual Summarization (RCS) with per-chunk LLM calls
 - Does NOT implement page-level citations (requires body text in ChromaDB with page markers)
@@ -114,25 +153,18 @@ python -m polytool research-query \
 | L1: Marker Production Readiness Rollout | ✅ COMPLETE 2026-05-09 |
 | **L2: PaperQA2 RAG Control Flow** | **✅ COMPLETE 2026-05-09 (this feature)** |
 | L3: Pre-fetch SVM Topic Filter | ✅ CLOSED 2026-05-07 |
-| L4: Multi-source Academic Harvesters | Stub — NOT in this sprint (see blockers) |
+| L4: Multi-source Academic Harvesters | COMPLETE 2026-05-09 after this L2 sprint; see `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md` |
 | L5: Scientific RAG Evaluation Benchmark | ✅ SHIPPED 2026-05-02 |
 
 ---
 
-## L4 Blockers (explicit non-scope)
+## L4 Status
 
-L4 Multi-source Academic Harvesters requires:
-- 5 new fetcher classes (SemanticScholar, SSRN, NBER, OpenReview, CrossrefUnpaywall)
-- Session/cookie handling for SSRN and NBER
-- New dependency: `openreview-py`
-- Rate-limit + back-off implementations per source
-- Deduplication across sources by DOI/arxiv_id
-- Backfill mode + monitoring mode per fetcher
-- CLI commands per source
-- Network-dependent integration tests
-
-**Assessment: 3–5 days of focused implementation. Too large for this sprint.
-Next packet trigger: Director explicitly opens L4 workpacket.**
+L4 was not part of the original L2 sprint, but it was completed later on
+2026-05-09. It ships four metadata-only harvesters (arXiv, Semantic Scholar,
+Crossref, OpenReview), source registry/selection, deduplication, and the
+`research-harvest` CLI. SSRN and NBER remain explicitly deferred because they
+require brittle session/cookie or HTML scraping paths.
 
 ---
 
@@ -140,10 +172,11 @@ Next packet trigger: Director explicitly opens L4 workpacket.**
 
 | Test class | Tests | Focus |
 |------------|-------|-------|
-| `TestQueryAcademicCorpus` | 13 | Core query control flow, fallback, dedup, ranking |
+| `TestQueryAcademicCorpus` | 15 | Core query control flow, fallback, dedup, ranking, bad-doc rejection |
 | `TestResearchQueryCLI` | 6 | CLI argument validation, JSON output, help |
 | `TestAcademicQueryHelpers` | 15 | Private helpers (extract_arxiv_id, merge_claims, etc.) |
-| **Total** | **34** | All pass |
+| Normalization tests | 18 | `_normalize_question()`, `_build_sub_queries()`, natural-language preamble stripping |
+| **Total** | **54** | All pass |
 
 ---
 

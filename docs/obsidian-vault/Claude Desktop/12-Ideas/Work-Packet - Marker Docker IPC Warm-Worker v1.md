@@ -20,10 +20,16 @@ unblocks:
 > [!INFO] Status: CLOSED — Feature 3 complete (2026-05-08)
 > All revised functional gates PASS. Completion protocol executed 2026-05-08.
 > Feature doc: `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
-> **Live validation 2026-05-08**: daemon=False fix confirmed; 3 papers completed in one warm session; `body_source=marker` all 3; `ipc_warm_worker_used=true` all 3; no daemonic error; clean shutdown (done=3, failed=0). Timings: 45.55s / 69.73s / 48.31s. Papers 2–3 delta: 0.13s / 0.22s.
+> **Live validation 2026-05-08 (Linux/Docker IPC)**: daemon=False fix confirmed; 3 papers completed in one warm session; `body_source=marker` all 3; `ipc_warm_worker_used=true` all 3; no daemonic error; clean shutdown (done=3, failed=0). Timings: 45.55s / 69.73s / 48.31s. Papers 2–3 delta: 0.13s / 0.22s.
 > **Director gate revision 2026-05-08**: Original ≤10s/paper timing gate rejected/superseded as unrealistic for full academic PDFs on RTX 2070 Super. Revised functional gate (see Director Gate Revision section below) — all criteria PASS.
 > **L1 Marker production rollout is UNBLOCKED** — resume at next explicit Director workpacket.
 > **L2 PaperQA2 RAG Control Flow remains STUB** — gated on L1 production rollout completion. Do NOT activate.
+>
+> **End-to-end validation 2026-05-09 (Windows/local warm-thread path)**: Full pipeline
+> (enqueue→warm-process→index-done→research-query) passed with 3 arXiv papers.
+> `ipc_warm_worker_used=false` — this used the thread warm-worker (Windows dev path),
+> not the Linux/Docker IPC worker. Academic pipeline is operator-tested v1.
+> Docker/GPU IPC 3-paper batch re-run remains an optional performance/infra follow-up.
 
 ---
 

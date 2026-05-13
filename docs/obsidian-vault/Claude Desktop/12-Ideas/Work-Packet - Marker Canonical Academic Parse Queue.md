@@ -52,6 +52,13 @@ unblocks:
 > - Acceptance gates 2 and 3 from this packet are governed by the revised gate (see Feature 3 closeout)
 >
 > **Close-out log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-v0-closeout.md`
+>
+> **3-paper functional validation (2026-05-09):** Full pipeline (enqueue→warm-process→
+> index-done→research-query) passed with 3 arXiv papers on Windows/local warm-thread
+> path. Queue: 3 done / 0 failed. 79 chunks, 373 claims. `research-query` returned
+> `had_fallback=false`. Academic pipeline is operator-tested v1. Docker/GPU IPC batch
+> is an optional performance/infra follow-up.
+> Dev log: `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`.
 
 ## Goal
 

@@ -33,7 +33,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -295,7 +294,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Re-enqueue candidates already in the review queue (skip dedup).",
+        help="Re-enqueue candidates already in the review queue.",
     )
     parser.add_argument(
         "--dry-run",
@@ -312,13 +311,6 @@ def main(argv: list[str]) -> int:
         metavar="PATH",
         help=f"Override queue file path. Default: {_DEFAULT_QUEUE_PATH}",
     )
-    parser.add_argument(
-        "--json",
-        dest="output_json",
-        action="store_true",
-        help="Print results as JSON lines to stdout.",
-    )
-
     args = parser.parse_args(argv)
 
     if args.list_sources:

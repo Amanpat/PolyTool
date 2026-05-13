@@ -173,6 +173,7 @@ class AcademicAdapter(SourceAdapter):
             "has_structured_metadata",
             "marker_version",
             "structured_metadata_truncated",
+            "body_file",        # file:// path to Marker body sidecar; enables claim extraction
         ):
             _val = raw_source.get(_key)
             if _val is not None:

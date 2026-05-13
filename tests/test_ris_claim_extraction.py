@@ -352,7 +352,7 @@ class TestExtractClaimsFromDocument:
             assert claim["trust_tier"]
             assert claim["validation_status"] == "UNTESTED"
             assert claim["lifecycle"] == "active"
-            assert claim["actor"] == "heuristic_v1"
+            assert claim["actor"] == "heuristic_v2_nofrontmatter"
 
     def test_confidence_peer_reviewed(self, tmp_path):
         store = _make_store()
@@ -463,7 +463,7 @@ class TestExtractClaimsFromDocument:
 
         claim = store.get_claim(claim_ids[0])
         notes = json.loads(claim["notes"])
-        assert notes["extractor_id"] == "heuristic_v1"
+        assert notes["extractor_id"] == "heuristic_v2_nofrontmatter"
         assert "chunk_id" in notes
         assert notes["document_id"] == doc_id
 
@@ -739,7 +739,7 @@ class TestHeuristicClaimExtractorClass:
         extractor = HeuristicClaimExtractor()
         assert hasattr(extractor, "extract_claims")
         assert hasattr(extractor, "EXTRACTOR_ID")
-        assert extractor.EXTRACTOR_ID == "heuristic_v1"
+        assert extractor.EXTRACTOR_ID == "heuristic_v2_nofrontmatter"
 
     def test_class_extract_wraps_function(self, tmp_path):
         store = _make_store()
@@ -748,3 +748,281 @@ class TestHeuristicClaimExtractorClass:
         extractor = HeuristicClaimExtractor()
         claim_ids = extractor.extract_claims(store, doc_id)
         assert isinstance(claim_ids, list)
+
+
+# ---------------------------------------------------------------------------
+# Strategy 1.5: body_file pointer in metadata_json
+# ---------------------------------------------------------------------------
+
+# Long enough body for the academic gate (>= 5000 chars)
+_LONG_ACADEMIC_BODY = FIXTURE_MARKDOWN * 7
+
+
+class TestAcademicBodyFileStrategy:
+    """Tests for _get_document_body Strategy 1.5: body_file path in metadata_json."""
+
+    def _add_academic_doc(self, store, *, metadata: dict, title: str = "Academic Paper") -> str:
+        import hashlib
+        return store.add_source_document(
+            title=title,
+            source_url="https://arxiv.org/abs/1234.56789",
+            source_family="academic",
+            content_hash=hashlib.sha256(title.encode()).hexdigest(),
+            chunk_count=0,
+            confidence_tier="PEER_REVIEWED",
+            metadata_json=json.dumps(metadata),
+        )
+
+    def test_claims_extracted_via_body_file_pointer(self, tmp_path):
+        """Marker-ready academic doc with body_file pointer produces claims."""
+        body_file = tmp_path / "arxiv:1234.56789.body.txt"
+        body_file.write_text(_LONG_ACADEMIC_BODY, encoding="utf-8")
+
+        store = _make_store()
+        doc_id = self._add_academic_doc(store, metadata={
+            "body_source": "marker",
+            "body_length": len(_LONG_ACADEMIC_BODY),
+            "body_file": f"file://{body_file.as_posix()}",
+            "canonical_ids": {"arxiv_id": "1234.56789"},
+        })
+
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert len(claim_ids) >= 1, "body_file pointer should enable claim extraction"
+
+    def test_missing_body_file_produces_no_claims(self, tmp_path):
+        """body_file pointing to nonexistent path returns empty claim list."""
+        store = _make_store()
+        doc_id = self._add_academic_doc(store, metadata={
+            "body_source": "marker",
+            "body_length": 50000,
+            "body_file": f"file://{(tmp_path / 'nonexistent.body.txt').as_posix()}",
+            "canonical_ids": {"arxiv_id": "0000.00001"},
+        }, title="Missing Body Paper")
+
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert claim_ids == [], "Missing body_file should produce no claims"
+
+    def test_no_body_file_no_inline_body_returns_empty(self):
+        """Academic doc with no body pointer and no inline body returns empty."""
+        store = _make_store()
+        import hashlib
+        doc_id = store.add_source_document(
+            title="No Body Paper",
+            source_url="https://arxiv.org/abs/2222.22222",
+            source_family="academic",
+            content_hash=hashlib.sha256(b"no body").hexdigest(),
+            chunk_count=0,
+            confidence_tier="PEER_REVIEWED",
+            metadata_json=json.dumps({
+                "body_source": "marker",
+                "body_length": 50000,
+                "canonical_ids": {"arxiv_id": "2222.22222"},
+            }),
+        )
+
+        claim_ids = extract_claims_from_document(store, doc_id)
+        assert claim_ids == []
+
+    def test_body_file_idempotent(self, tmp_path):
+        """Re-running extraction with body_file does not duplicate claim IDs."""
+        body_file = tmp_path / "paper.body.txt"
+        body_file.write_text(_LONG_ACADEMIC_BODY, encoding="utf-8")
+
+        store = _make_store()
+        doc_id = self._add_academic_doc(store, metadata={
+            "body_source": "marker",
+            "body_length": len(_LONG_ACADEMIC_BODY),
+            "body_file": f"file://{body_file.as_posix()}",
+            "canonical_ids": {"arxiv_id": "1111.11111"},
+        }, title="Idempotent Body File Test")
+
+        first = extract_claims_from_document(store, doc_id)
+        second = extract_claims_from_document(store, doc_id)
+        assert set(first) == set(second), "Second extraction must return same claim IDs"
+
+    def test_strategy1_inline_body_takes_priority(self, tmp_path):
+        """Inline body (Strategy 1) takes priority over body_file (Strategy 1.5)."""
+        # File with FIXTURE_MARKDOWN content
+        body_file = tmp_path / "file_body.txt"
+        body_file.write_text(FIXTURE_MARKDOWN, encoding="utf-8")
+
+        # Inline body is short but assertive; if Strategy 1 wins, fewer claims extracted
+        inline_body = (
+            "The prediction market efficiency hypothesis states that prices reflect "
+            "all available information with documented 87% accuracy across major venues."
+        )
+
+        store = _make_store()
+        doc_id = self._add_academic_doc(store, metadata={
+            "body": inline_body,           # Strategy 1 — should be used
+            "body_file": f"file://{body_file.as_posix()}",  # Strategy 1.5 — skipped
+        })
+
+        claim_ids = extract_claims_from_document(store, doc_id)
+        # Should produce at least one claim from the inline body
+        assert len(claim_ids) >= 1
+
+
+# ---------------------------------------------------------------------------
+# index_done_items with extract_claims integration
+# ---------------------------------------------------------------------------
+
+def _make_marker_queue_fixture(tmp_path, body_text: str, arxiv_id: str = "9876.54321") -> "Path":
+    """Create a minimal queue dir with a marker-ready result + body sidecar."""
+    queue_dir = tmp_path / f"queue_{arxiv_id.replace('.', '_')}"
+    queue_dir.mkdir()
+    bodies_dir = queue_dir / "bodies"
+    bodies_dir.mkdir()
+
+    candidate_id = f"arxiv:{arxiv_id}"
+
+    (bodies_dir / f"{candidate_id}.body.txt").write_text(body_text, encoding="utf-8")
+    (bodies_dir / f"{candidate_id}.meta.json").write_text(
+        json.dumps({
+            "title": "Test Prediction Market Paper",
+            "abstract": "A study of prediction market microstructure and efficiency.",
+            "authors": ["Jane Doe", "John Smith"],
+            "published_date": "2024-01-01",
+            "body_source": "marker",
+            "body_length": len(body_text),
+            "candidate_id": candidate_id,
+        }),
+        encoding="utf-8",
+    )
+    (queue_dir / "results.jsonl").write_text(
+        json.dumps({
+            "candidate_id": candidate_id,
+            "source_url": f"https://arxiv.org/abs/{arxiv_id}",
+            "arxiv_id": arxiv_id,
+            "title": "Test Prediction Market Paper",
+            "body_source": "marker",
+            "body_length": len(body_text),
+            "marker_ready": True,
+            "queue_status": "done",
+            "rejected": False,
+            "parse_seconds": 45.5,
+            "attempt": 1,
+            "processed_at": "2026-05-09T12:00:00+00:00",
+        }) + "\n",
+        encoding="utf-8",
+    )
+    return queue_dir
+
+
+class TestIndexDoneClaimExtraction:
+    """Integration tests for index_done_items(extract_claims=True)."""
+
+    def test_extract_claims_true_produces_claims(self, tmp_path):
+        """index_done with extract_claims=True produces at least one claim per paper."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        queue_dir = _make_marker_queue_fixture(tmp_path, _LONG_ACADEMIC_BODY)
+        store = _make_store()
+        q = MarkerParseQueue(queue_dir=queue_dir)
+        summary = q.index_done_items(extract_claims=True, _store=store)
+
+        assert len(summary["indexed"]) == 1, f"Expected 1 indexed, got: {summary}"
+        assert summary["indexed"][0]["claims_extracted"] >= 1
+        assert summary["total_claims_extracted"] >= 1
+
+    def test_extract_claims_false_skips_extraction(self, tmp_path):
+        """index_done with extract_claims=False stores doc but extracts no claims."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        queue_dir = _make_marker_queue_fixture(
+            tmp_path, _LONG_ACADEMIC_BODY, arxiv_id="1111.99998"
+        )
+        store = _make_store()
+        q = MarkerParseQueue(queue_dir=queue_dir)
+        summary = q.index_done_items(extract_claims=False, _store=store)
+
+        assert len(summary["indexed"]) == 1
+        assert summary["indexed"][0].get("claims_extracted", 0) == 0
+        assert summary.get("total_claims_extracted", 0) == 0
+
+    def test_pdfplumber_result_not_indexed_no_claims(self, tmp_path):
+        """A result with marker_ready=False (pdfplumber) is never indexed or claimed."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        queue_dir = tmp_path / "pdfplumber_queue"
+        queue_dir.mkdir()
+        bodies_dir = queue_dir / "bodies"
+        bodies_dir.mkdir()
+        candidate_id = "arxiv:3333.44444"
+        (bodies_dir / f"{candidate_id}.body.txt").write_text(
+            _LONG_ACADEMIC_BODY, encoding="utf-8"
+        )
+        (bodies_dir / f"{candidate_id}.meta.json").write_text(
+            json.dumps({"title": "pdfplumber paper", "body_source": "pdfplumber"}),
+            encoding="utf-8",
+        )
+        (queue_dir / "results.jsonl").write_text(
+            json.dumps({
+                "candidate_id": candidate_id,
+                "source_url": "https://arxiv.org/abs/3333.44444",
+                "arxiv_id": "3333.44444",
+                "body_source": "pdfplumber",
+                "body_length": len(_LONG_ACADEMIC_BODY),
+                "marker_ready": False,
+                "queue_status": "done",
+                "rejected": True,
+            }) + "\n",
+            encoding="utf-8",
+        )
+
+        store = _make_store()
+        q = MarkerParseQueue(queue_dir=queue_dir)
+        summary = q.index_done_items(extract_claims=True, _store=store)
+
+        assert len(summary["indexed"]) == 0, "pdfplumber docs must not be indexed"
+        assert summary.get("total_claims_extracted", 0) == 0
+
+    def test_e2e_index_extract_query(self, tmp_path):
+        """E2E: index_done(extract_claims=True) -> research-query returns citation."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        from packages.research.synthesis.academic_query import query_academic_corpus
+
+        queue_dir = _make_marker_queue_fixture(
+            tmp_path, _LONG_ACADEMIC_BODY, arxiv_id="5555.66666"
+        )
+        store = _make_store()
+        q = MarkerParseQueue(queue_dir=queue_dir)
+        summary = q.index_done_items(extract_claims=True, _store=store)
+
+        assert not summary["failed"], f"Indexing failures: {summary['failed']}"
+        assert len(summary["indexed"]) == 1, f"Expected 1 indexed paper, got: {summary}"
+        assert summary["total_claims_extracted"] >= 1, "Expected claims to be extracted"
+
+        # Query uses single-word substring match against claim_text
+        result = query_academic_corpus(
+            "momentum",          # "momentum patterns" appears in FIXTURE_MARKDOWN claims
+            _store=store,
+            max_query_angles=1,  # primary only, no extra angle expansion
+        )
+
+        assert not result.had_fallback, f"Unexpected fallback: {result.warning}"
+        assert len(result.citations) >= 1, "Expected at least one citation"
+        assert result.citations[0].body_source == "marker"
+
+    def test_rerun_index_done_idempotent_claims(self, tmp_path):
+        """Running index_done twice does not duplicate claims."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        queue_dir = _make_marker_queue_fixture(
+            tmp_path, _LONG_ACADEMIC_BODY, arxiv_id="7777.88888"
+        )
+        store = _make_store()
+        q = MarkerParseQueue(queue_dir=queue_dir)
+
+        summary1 = q.index_done_items(extract_claims=True, _store=store)
+        assert len(summary1["indexed"]) == 1
+        claims_first = summary1["total_claims_extracted"]
+
+        # Second run — same store, no --force: should skip already-indexed
+        summary2 = q.index_done_items(extract_claims=True, _store=store)
+        assert len(summary2["indexed"]) == 0, "Already-indexed paper should be skipped"
+        assert len(summary2["skipped_already_indexed"]) == 1
+
+        # Total claims in DB unchanged (no duplicates)
+        all_claims = store.query_claims(apply_freshness=False)
+        assert len(all_claims) == claims_first

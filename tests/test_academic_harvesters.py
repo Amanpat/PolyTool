@@ -509,8 +509,6 @@ class TestDeduplication:
         assert len(result) == 2
 
     def test_dedup_arxiv_beats_doi(self):
-        # If paper has both arxiv_id and doi in different candidates,
-        # the arxiv_id key wins for matching
         c_arxiv = self._make_arxiv("2401.55555")
         c_s2 = AcademicCandidate(
             source_url="https://arxiv.org/abs/2401.55555",
@@ -523,6 +521,37 @@ class TestDeduplication:
         )
         result = dedup_candidates([c_arxiv, c_s2])
         assert len(result) == 1
+
+    def test_dedup_by_shared_doi_when_second_candidate_also_has_arxiv(self):
+        c_crossref = self._make_doi("10.1234/XYZ", "crossref")
+        c_s2 = AcademicCandidate(
+            source_url="https://arxiv.org/abs/2401.55555",
+            title="Same Paper With More IDs",
+            abstract="",
+            authors=[],
+            published_date=None,
+            source_name="semantic_scholar",
+            canonical_ids={"arxiv_id": "2401.55555", "doi": "10.1234/xyz"},
+        )
+        result = dedup_candidates([c_crossref, c_s2])
+        assert len(result) == 1
+        assert result[0] is c_crossref
+
+    def test_dedup_learns_aliases_from_skipped_duplicate(self):
+        c_crossref = self._make_doi("10.1234/alias", "crossref")
+        c_s2 = AcademicCandidate(
+            source_url="https://arxiv.org/abs/2401.55555",
+            title="Same Paper With Alias",
+            abstract="",
+            authors=[],
+            published_date=None,
+            source_name="semantic_scholar",
+            canonical_ids={"arxiv_id": "2401.55555", "doi": "10.1234/alias"},
+        )
+        c_arxiv = self._make_arxiv("2401.55555", "arxiv")
+        result = dedup_candidates([c_crossref, c_s2, c_arxiv])
+        assert len(result) == 1
+        assert result[0] is c_crossref
 
     def test_no_canonical_ids_dedup_by_url(self):
         c1 = self._make_no_ids("https://openreview.net/forum?id=abc")

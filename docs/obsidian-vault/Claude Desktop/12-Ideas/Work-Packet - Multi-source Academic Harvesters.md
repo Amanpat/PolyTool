@@ -18,24 +18,38 @@ dev_log: "docs/dev_logs/2026-05-09_ris-l4-multisource-academic-harvesters.md"
 
 # Work Packet — Multi-source Academic Harvesters
 
-> [!SUCCESS] Complete (2026-05-09)
+> [!SUCCESS] Complete (2026-05-09) — arXiv path operator-tested
 > L4 shipped: 4 harvesters (arXiv, Semantic Scholar, Crossref, OpenReview),
 > `AcademicCandidate` dataclass, `dedup_candidates()`, `research-harvest` CLI,
 > `SOURCE_CAPABILITY_MATRIX`. SSRN and NBER explicitly deferred (session/cookie
-> brittleness / outdated scrapers). 59 tests pass. Feature doc and runbook updated.
+> brittleness / outdated scrapers). 61 tests pass after Codex dedupe-audit fix.
+> Feature doc and runbook updated.
 > See `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md`.
+>
+> **Operator-tested v1 (2026-05-09):** arXiv path validated through the full pipeline
+> (enqueue→warm-process→index-done→research-query) with 3 papers. Crossref/OpenReview
+> candidates may need operator resolution to an arXiv URL before L1 Marker queue
+> can parse them. SSRN/NBER remain deferred.
 
 > [!INFO] Former stub status (resolved)
 > This packet was a placeholder so cross-links could resolve. L1 and L3 prerequisites were met, but
 > the packet remained unactivated and incomplete. It required a separate Director
-> workpacket because it adds five fetchers, source-specific rate/session handling,
-> new dependencies, and network integration tests.
+> workpacket because the original full scope included multiple new sources,
+> source-specific rate/session handling, new dependencies, and network integration tests.
 
 ## Layer
 
 Layer 4 of the [[11-Scientific-RAG-Target-Architecture|four-layer scientific RAG target]].
 
-## What ships
+## What shipped
+
+**Codex audit note (2026-05-09):** accepted L4 scope is the four-adapter,
+metadata-only implementation in `packages/research/ingestion/academic_harvesters.py`:
+`ArxivHarvester`, `SemanticScholarHarvester`, `CrossrefHarvester`, and
+`OpenReviewHarvester`. SSRN and NBER are deferred with explicit rationale, and
+Crossref is a primary metadata source rather than a separate Crossref/Unpaywall
+PDF resolver. The original planning notes below are superseded where they still
+say "five fetchers" or imply SSRN/NBER were shipped.
 
 Five new fetcher implementations alongside `LiveAcademicFetcher` (which stays as the arXiv path). **Each fetcher supports two modes — backfill and monitoring — sharing infrastructure but triggered differently:**
 
@@ -44,7 +58,7 @@ Five new fetcher implementations alongside `LiveAcademicFetcher` (which stays as
 
 Both modes return candidates as metadata only (title, abstract, source URL). Each candidate flows through Layer 3 (pre-filter) → Layer 1 (Marker parser) → existing pipeline. PDF download only happens after the pre-filter says on-topic.
 
-The five fetchers:
+Superseded original five-fetcher target:
 
 1. **`SemanticScholarFetcher`** — primary metadata + PDF-URL aggregator across publishers and preprints. Handles rate limiting and authentication. Both backfill (search by topic across all of history) and monitoring (papers added since last check) modes.
 2. **`SSRNFetcher`** — finance/econ working papers. Session/cookie/redirect handling per the survey's "what we should not do" list. Both modes.
@@ -61,7 +75,7 @@ The existing `LiveAcademicFetcher` (arXiv) gets a backfill mode added in this pa
 - No fetcher parallelizes downloads (respect each source's rate limits)
 - Session/cookie handling is mandatory for SSRN and NBER — no naïve scraping
 - Failure semantics match Layer 0/1: fall back gracefully, never silently store empty docs
-- Deduplication by DOI / arxiv_id / source_id across all five fetchers — same paper appearing on arXiv and SSRN ingests once
+- Deduplication by DOI / arxiv_id / source_id across active sources; same-paper aliases are caught before review enqueue
 - Backfill mode is operator-triggered (CLI command), not scheduled. Monitoring mode is scheduled.
 - Pre-filter decision is made on metadata before any PDF download — do not waste bandwidth on off-topic papers
 
@@ -80,8 +94,15 @@ The architect should read these before refining this stub:
 
 ## Acceptance gates (to be detailed when activated)
 
-1. Each of five fetchers successfully ingests 10+ papers from its source in monitoring mode
-2. Each of five fetchers successfully completes a backfill run with operator-specified topic and date range, returning ≥20 candidates
+**Codex audit status (2026-05-09):** L4 is accepted under the implemented MVP
+gate: at least 3 real tested adapters (4 shipped), normalized candidates, source
+registry/selection, CLI/operator path, review-queue compatibility, cross-source
+dedupe including mixed DOI+arXiv aliases, offline tests, and no L1 Marker bypass.
+The older five-fetcher/live-network acceptance ideas below remain future
+operator validation goals, not requirements for the completed MVP.
+
+1. Future full-scope validation: each deferred/full source successfully ingests 10+ papers from its source in monitoring mode
+2. Future full-scope validation: each deferred/full source successfully completes a backfill run with operator-specified topic and date range, returning >=20 candidates
 3. Cross-source deduplication catches the same paper appearing on multiple sources (e.g., arXiv preprint + SSRN posted version) — verified on a known overlap set
 4. Rate-limit handling: no fetcher gets the operator banned from any source (test with deliberately aggressive request rates and verify back-off)
 5. Layer 3 pre-filter catches a meaningful fraction of off-topic papers (>30%) — confirms harvesters need the filter

@@ -122,6 +122,82 @@ class TestHardStops:
         assert result.stop_type is None
         assert result.reason is None
 
+    # -- Academic Marker lenient URL gate --
+
+    def test_academic_marker_long_body_4x_url_passes(self):
+        """Long Marker-parsed academic body with a URL repeated 4x must pass.
+
+        This is the real-world case: arxiv:2604.24366 (56k chars) repeats a
+        GitHub repo URL 4 times in references/footnotes.  The flat 4x gate was
+        too aggressive; the lenient density-based gate should allow it.
+        """
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        url = "https://github.com/philippdubach/polymarket-microstructure)"
+        # ~56k char body with 4 URL occurrences (same as the operator paper)
+        filler = "This is academic content discussing prediction market microstructure. " * 800
+        body = filler + (" " + url) * 4
+        doc = _make_doc(body=body, metadata={"body_source": "marker"})
+        result = check_hard_stops(doc)
+        assert result.passed is True, f"Expected PASS; got: {result.reason}"
+
+    def test_academic_marker_short_body_4x_url_rejected(self):
+        """Short body (<5000 chars) with marker metadata still uses the standard 4x gate."""
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        url = "https://github.com/spam/repo"
+        # Short body — below the 5000-char academic Marker threshold
+        body = "Some short academic content. " * 10 + (" " + url) * 4
+        doc = _make_doc(body=body, metadata={"body_source": "marker"})
+        result = check_hard_stops(doc)
+        assert result.passed is False
+        assert result.stop_type == "spam_malformed"
+
+    def test_academic_marker_extreme_count_rejected(self):
+        """Even a long Marker body is rejected when a URL appears 20+ times."""
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        url = "https://github.com/user/repo"
+        filler = "This is academic content. " * 2000
+        body = filler + (" " + url) * 20  # exactly at the threshold
+        doc = _make_doc(body=body, metadata={"body_source": "marker"})
+        result = check_hard_stops(doc)
+        assert result.passed is False
+        assert result.stop_type == "spam_malformed"
+        assert "academic Marker limit" in result.reason
+
+    def test_academic_marker_high_density_rejected(self):
+        """Long Marker body dominated by a repeated URL (>10% density) is rejected."""
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        # A 120-char URL repeated 10 times = 1200 chars; body padded to ~9000 chars
+        # density = (10 * 120) / ~9000 ≈ 13% > 10% → reject
+        url = "https://github.com/org/very-long-repository-name-that-keeps-repeating" + "x" * 50
+        filler = "Academic text content for this paper. " * 200  # ~7600 chars
+        body = filler + (" " + url) * 10
+        doc = _make_doc(body=body, metadata={"body_source": "marker"})
+        result = check_hard_stops(doc)
+        assert result.passed is False
+        assert result.stop_type == "spam_malformed"
+        assert "academic Marker limit" in result.reason
+
+    def test_pdfplumber_academic_body_4x_url_rejected(self):
+        """Long pdfplumber body (not Marker) still uses the standard 4x gate."""
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        url = "https://github.com/user/repo"
+        filler = "Academic text parsed by pdfplumber. " * 800
+        body = filler + (" " + url) * 4
+        doc = _make_doc(body=body, metadata={"body_source": "pdfplumber"})
+        result = check_hard_stops(doc)
+        assert result.passed is False
+        assert result.stop_type == "spam_malformed"
+
+    def test_no_metadata_4x_url_rejected(self):
+        """No metadata → standard gate; URL repeated 4x is rejected."""
+        from packages.research.evaluation.hard_stops import check_hard_stops
+        url = "https://example.com/product"
+        body = (url + " ") * 5 + "normal text padding " * 3
+        doc = _make_doc(body=body, metadata={})
+        result = check_hard_stops(doc)
+        assert result.passed is False
+        assert result.stop_type == "spam_malformed"
+
 
 # ---------------------------------------------------------------------------
 # ScoringResult gate property

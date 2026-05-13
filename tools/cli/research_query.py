@@ -1,8 +1,9 @@
 """L2 academic corpus query CLI (research-query).
 
 Queries the KnowledgeStore academic corpus using multi-angle query planning.
-Only returns results from Marker-parsed papers (body_source=marker enforced at
-ingest by IngestPipeline.ingest_external academic gate).
+Only returns results from Marker/RAG-ready papers (body_source=marker and
+body_length >= 5000). The ingest gate enforces this for new rows; the query path
+also re-checks metadata for legacy rows.
 
 Usage:
   python -m polytool research-query --question "market microstructure"
@@ -21,7 +22,7 @@ from typing import Optional
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Query the academic corpus (Marker-parsed papers only). "
+            "Query the academic corpus (Marker/RAG-ready papers only). "
             "Returns ranked paper-level citations from the KnowledgeStore. "
             "L2 of the RIS academic pipeline."
         )

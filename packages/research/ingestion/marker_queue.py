@@ -28,6 +28,7 @@ from typing import Optional
 _logger = logging.getLogger(__name__)
 
 _DEFAULT_QUEUE_DIR = Path("artifacts/research/marker_parse_queue")
+_BODY_STORE_SUBDIR = "bodies"  # subdir of queue_dir for body text + metadata sidecars
 
 MAX_ATTEMPTS = 3
 MIN_MARKER_BODY_LENGTH = 5000  # chars; below this even a "marker" parse is not rag-ready
@@ -432,6 +433,275 @@ class MarkerParseQueue:
                 except Exception as exc:
                     _logger.warning("marker_queue: IPC worker shutdown error: %s", exc)
 
+    def _persist_body_sidecar(self, candidate_id: str, raw: dict) -> None:
+        """Persist Marker body text and fetch metadata for later KS indexing.
+
+        Writes two files to ``queue_dir/bodies/``:
+        - ``{candidate_id}.body.txt``  — raw Marker body (UTF-8)
+        - ``{candidate_id}.meta.json`` — fetch metadata sans body_text (title,
+          abstract, authors, published_date, body_source, body_length, …)
+
+        Called only when ``marker_ready=True``. Idempotent: overwrites on
+        re-process (e.g. after ``--force`` re-enqueue).
+        """
+        body_dir = self.queue_dir / _BODY_STORE_SUBDIR
+        try:
+            body_dir.mkdir(parents=True, exist_ok=True)
+            body_text = raw.get("body_text", "")
+            if body_text:
+                (body_dir / f"{candidate_id}.body.txt").write_text(
+                    body_text, encoding="utf-8"
+                )
+            meta = {k: v for k, v in raw.items() if k != "body_text"}
+            meta["candidate_id"] = candidate_id
+            (body_dir / f"{candidate_id}.meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception as exc:
+            _logger.warning(
+                "marker_queue: failed to persist body sidecar for %s: %s", candidate_id, exc
+            )
+
+    def _read_best_results(self) -> dict[str, dict]:
+        """Return the most-recent result record per candidate_id from results.jsonl.
+
+        The results log is append-only, so the last record for each candidate_id
+        is authoritative.
+        """
+        best: dict[str, dict] = {}
+        if not self._results_path.exists():
+            return best
+        with open(self._results_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cid = rec.get("candidate_id", "")
+                if cid:
+                    best[cid] = rec
+        return best
+
+    def index_done_items(
+        self,
+        ks_path: Optional[Path] = None,
+        force: bool = False,
+        extract_claims: bool = True,
+        _store=None,  # injectable KnowledgeStore for tests
+    ) -> dict:
+        """Index all marker-ready done items into the KnowledgeStore.
+
+        For each queue item with ``queue_status=done`` and ``marker_ready=True``,
+        reads the body from ``bodies/{candidate_id}.body.txt`` and metadata from
+        ``bodies/{candidate_id}.meta.json``, then calls
+        ``IngestPipeline.ingest_external(raw_source, "academic")``.
+
+        A ``body_file`` pointer (file:// URI to the body sidecar) is stored in
+        the source document's ``metadata_json`` so the heuristic claim extractor
+        can read the body without duplicating large text in the DB.
+
+        If ``extract_claims=True`` (default), ``extract_and_link`` is called
+        automatically for each successfully indexed paper. Claim extraction
+        failure is non-fatal — the paper is still recorded as indexed.
+
+        Idempotency
+        -----------
+        Indexed candidate_ids are tracked in ``indexed.jsonl``.  Subsequent
+        calls skip already-indexed items unless ``force=True``.
+
+        Gate
+        ----
+        Only items with ``body_source=marker`` AND ``body_length >= 5000`` are
+        indexed.  pdfplumber, abstract_fallback, marker_failed, and short Marker
+        bodies are rejected by the ``IngestPipeline`` academic gate.
+
+        Parameters
+        ----------
+        ks_path:
+            Path to KnowledgeStore SQLite.  Defaults to DEFAULT_KNOWLEDGE_DB_PATH.
+        force:
+            Re-index even items already in indexed.jsonl.
+        extract_claims:
+            If True (default), run heuristic claim extraction on each newly
+            indexed paper immediately after indexing.  Set False to skip.
+        _store:
+            Injectable KnowledgeStore for unit tests (bypasses ks_path).
+
+        Returns
+        -------
+        dict with keys:
+            indexed                  list of {candidate_id, doc_id, chunk_count, claims_extracted}
+            skipped_already_indexed  list of candidate_ids
+            skipped_no_body          list of candidate_ids (body file missing)
+            failed                   list of {candidate_id, error}
+            total_claims_extracted   int total claims extracted across all indexed papers
+        """
+        from packages.research.ingestion.pipeline import IngestPipeline
+        from packages.polymarket.rag.knowledge_store import (
+            KnowledgeStore,
+            DEFAULT_KNOWLEDGE_DB_PATH,
+        )
+
+        indexed_path = self.queue_dir / "indexed.jsonl"
+
+        # Load already-indexed candidate_ids (skip on force)
+        indexed_ids: set[str] = set()
+        if not force and indexed_path.exists():
+            with open(indexed_path, encoding="utf-8") as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line:
+                        try:
+                            indexed_ids.add(json.loads(_line).get("candidate_id", ""))
+                        except json.JSONDecodeError:
+                            pass
+
+        # Candidate pool: done items with marker_ready=True (most recent result each)
+        best_results = self._read_best_results()
+        marker_ready_done = {
+            cid: rec
+            for cid, rec in best_results.items()
+            if rec.get("marker_ready") and rec.get("queue_status") == "done"
+        }
+
+        if _store is not None:
+            owns_store = False
+            store = _store
+        else:
+            resolved = ks_path or DEFAULT_KNOWLEDGE_DB_PATH
+            store = KnowledgeStore(resolved)
+            owns_store = True
+
+        summary: dict = {
+            "indexed": [],
+            "skipped_already_indexed": [],
+            "skipped_no_body": [],
+            "failed": [],
+            "total_claims_extracted": 0,
+        }
+
+        try:
+            pipeline = IngestPipeline(store)
+            body_dir = self.queue_dir / _BODY_STORE_SUBDIR
+
+            for cid, result_rec in marker_ready_done.items():
+                if cid in indexed_ids and not force:
+                    summary["skipped_already_indexed"].append(cid)
+                    continue
+
+                body_file = body_dir / f"{cid}.body.txt"
+                if not body_file.exists():
+                    _logger.warning(
+                        "marker_queue index-done: body file missing for %s; "
+                        "re-enqueue with --force to re-process",
+                        cid,
+                    )
+                    summary["skipped_no_body"].append(cid)
+                    continue
+
+                body_text = body_file.read_text(encoding="utf-8")
+
+                # Read metadata sidecar if available
+                meta_file = body_dir / f"{cid}.meta.json"
+                sidecar_meta: dict = {}
+                if meta_file.exists():
+                    try:
+                        sidecar_meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        pass
+
+                # Build raw_source dict compatible with AcademicAdapter.
+                # body_file stores a file:// URI to the body sidecar so the heuristic
+                # claim extractor can read the body text without duplicating it in the DB.
+                raw_source: dict = {
+                    "url": result_rec.get("source_url")
+                    or sidecar_meta.get("url", ""),
+                    "title": result_rec.get("title")
+                    or sidecar_meta.get("title", ""),
+                    "abstract": sidecar_meta.get("abstract", ""),
+                    "authors": sidecar_meta.get("authors", []),
+                    "published_date": sidecar_meta.get("published_date"),
+                    "body_text": body_text,
+                    "body_source": result_rec.get("body_source", "marker"),
+                    "body_length": len(body_text),
+                    "canonical_ids": {"arxiv_id": result_rec.get("arxiv_id", "")}
+                    if result_rec.get("arxiv_id")
+                    else sidecar_meta.get("canonical_ids", {}),
+                    "body_file": f"file://{body_file.resolve().as_posix()}",
+                }
+                for _key in ("page_count", "parse_seconds", "has_structured_metadata",
+                             "marker_version"):
+                    _val = result_rec.get(_key) or sidecar_meta.get(_key)
+                    if _val is not None:
+                        raw_source[_key] = _val
+
+                try:
+                    ingest_result = pipeline.ingest_external(raw_source, "academic")
+                except Exception as exc:
+                    summary["failed"].append(
+                        {"candidate_id": cid, "error": str(exc)[:200]}
+                    )
+                    continue
+
+                if ingest_result.rejected:
+                    summary["failed"].append(
+                        {"candidate_id": cid, "error": ingest_result.reject_reason}
+                    )
+                    continue
+
+                # Optional: auto-extract claims via body_file pointer (non-fatal)
+                claims_extracted_count = 0
+                if extract_claims and ingest_result.doc_id:
+                    try:
+                        from packages.research.ingestion.claim_extractor import extract_and_link
+                        ce = extract_and_link(store, ingest_result.doc_id)
+                        claims_extracted_count = ce["claims_extracted"]
+                        _logger.info(
+                            "marker_queue: extracted %d claims from %s (doc_id=%s)",
+                            claims_extracted_count, cid, ingest_result.doc_id,
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            "marker_queue: claim extraction failed for %s: %s", cid, exc
+                        )
+
+                # Record as indexed
+                self._ensure_dir()
+                indexed_rec = {
+                    "candidate_id": cid,
+                    "doc_id": ingest_result.doc_id,
+                    "chunk_count": ingest_result.chunk_count,
+                    "claims_extracted": claims_extracted_count,
+                    "indexed_at": _now_iso(),
+                }
+                with open(indexed_path, "a", encoding="utf-8") as _out:
+                    _out.write(json.dumps(indexed_rec, separators=(",", ":")) + "\n")
+
+                summary["indexed"].append(
+                    {
+                        "candidate_id": cid,
+                        "doc_id": ingest_result.doc_id,
+                        "chunk_count": ingest_result.chunk_count,
+                        "claims_extracted": claims_extracted_count,
+                    }
+                )
+                summary["total_claims_extracted"] += claims_extracted_count
+                _logger.info(
+                    "marker_queue: indexed %s -> doc_id=%s chunks=%d",
+                    cid,
+                    ingest_result.doc_id,
+                    ingest_result.chunk_count,
+                )
+
+        finally:
+            if owns_store:
+                store.close()
+
+        return summary
+
     def _process_item(self, item: dict, fetcher) -> dict:
         """Fetch and parse one queue item. Returns a result dict."""
         import time as _time
@@ -454,6 +724,7 @@ class MarkerParseQueue:
             "marker_ready": False,
         }
 
+        raw: dict = {}
         try:
             pdf_url = item.get("pdf_url", "")
             if pdf_url and hasattr(fetcher, "fetch_pdf_direct"):
@@ -488,5 +759,10 @@ class MarkerParseQueue:
             result["exit_code"] = 1
 
         result["marker_ready"] = is_marker_ready(result["body_source"], result["body_length"])
+
+        # Persist body sidecar for later KS indexing (index-done step)
+        if result["marker_ready"] and raw:
+            self._persist_body_sidecar(cid, raw)
+
         result["total_seconds"] = round(_time.monotonic() - t0, 2)
         return result

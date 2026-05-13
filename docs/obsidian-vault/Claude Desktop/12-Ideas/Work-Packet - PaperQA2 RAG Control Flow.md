@@ -1,7 +1,8 @@
 ---
-tags: [work-packet, ris, retrieval, rag, stub]
+tags: [work-packet, ris, retrieval, rag, complete]
 date: 2026-04-29
-status: stub
+status: complete
+completed: 2026-05-09
 priority: medium
 phase: 2
 target-layer: 2
@@ -13,35 +14,49 @@ prerequisites:
   - "[[Work-Packet - Scientific RAG Evaluation Benchmark]] (Layer 5 — provides baseline metrics to measure improvement against)"
 ---
 
-# Work Packet (stub) — PaperQA2 RAG Control Flow
+# Work Packet — PaperQA2 RAG Control Flow
 
-> [!INFO] Stub status
-> Placeholder so cross-links resolve. Activate after Layer 1 (Marker production) ships AND Layer 5 (Evaluation Benchmark) produces a baseline. The Layer 5 baseline is what tells us whether L2's added complexity actually improves retrieval — without it, L2 becomes guesswork.
+> [!INFO] Completion status
+> Closed as bounded L2 v1 on 2026-05-09. Shipped `research-query`: multi-angle
+> KnowledgeStore query, paper-level grouping, citation metadata, graceful fallback,
+> and a query-time Marker-ready guard (`body_source=marker`, `body_length>=5000`).
+> Full ChromaDB retrieval, RCS/LLM synthesis, and page-level citations are deferred
+> to future L2.x work.
+>
+> **Operator-tested v1 (2026-05-09):** `research-query` validated end-to-end over a
+> 3-paper Marker-indexed corpus (79 chunks, 373 claims). Both test queries returned
+> `had_fallback=false` with `body_source=marker` citations. Windows/local warm-thread
+> path. Docker/GPU IPC batch performance validation is optional follow-up only.
 
 ## Layer
 
 Layer 2 of the [[11-Scientific-RAG-Target-Architecture|four-layer scientific RAG target]].
 
-## What ships
+## What shipped
 
-Adopt PaperQA2's agentic RAG control flow — paper-level search, chunk re-ranking, Recursive Contextual Summarization (RCS), citation traversal — and wire it to our existing ChromaDB + SQLite FTS5 + Gemini Flash stack. Replace PaperQA2's OpenAI/LiteLLM defaults with our provider layer.
+Adopted the PaperQA2-inspired paper-level search pattern without importing
+PaperQA2's vector DB, embedding defaults, or LiteLLM stack.
 
-A new `polytool research-query` command takes a question and returns answers with citations to specific PDF pages, replacing the current naïve `rag-query` for the academic family.
+A new `polytool research-query` command takes a question and returns structured
+paper-level citations from the KnowledgeStore academic corpus. It is additive;
+the existing `rag-query` command is unchanged.
 
-The Marker-structured input from Layer 1 (LaTeX equations, table structure, section headers, page numbers) is consumed natively — citations map to specific PDF pages because Marker preserves page metadata, and section-aware chunking becomes possible because section boundaries are explicit.
+The shipped L2 v1 path is KS-only because ChromaDB chunk metadata does not yet
+store `body_source`. New academic ingestion is gated by Marker readiness, and the
+query path re-checks source metadata so legacy pdfplumber or short-body rows are
+not returned.
 
 ## Scope guards
 
-- Copy the algorithm and citation logic from PaperQA2 (Apache-2.0 — attribute in file header)
+- Copy the paper-level search/control-flow pattern from PaperQA2 (Apache-2.0 — attribute in file header)
 - Do NOT pull in PaperQA2's vector DB, embedding defaults, or LiteLLM dependency
 - Keep the existing `rag-query` command working — `research-query` is additive
-- Embeddings stay SentenceTransformers (Tier 1 free)
-- LLM steps route through existing provider layer (Gemini Flash primary, Ollama fallback)
+- Embeddings/ChromaDB and LLM synthesis are deferred in L2 v1
 - Do NOT change the corpus ingestion path — this packet only changes retrieval
 
-## Reference materials for architect
+## Reference Materials
 
-The architect should read these before refining this stub into a full packet:
+Primary references used to scope L2 v1 and future L2.x work:
 
 1. **`[[11-Scientific-RAG-Pipeline-Survey]]`** — the PaperQA2 entry has the full evaluation including the algorithm description, citation-to-page mapping logic, and what to copy vs. what to avoid (their OpenAI defaults). Primary reference.
 2. **`[[Decision - Scientific RAG Architecture Adoption]]`** — item 2 in "Adopt" specifies the PaperQA2 algorithm, with the explicit warning to NOT adopt their default stack wholesale. Constrains scope.
@@ -49,14 +64,20 @@ The architect should read these before refining this stub into a full packet:
 4. **`[[Work-Packet - Scientific RAG Evaluation Benchmark]]`** (when shipped) — provides the P@5 / answer-quality baseline this packet measures improvement against.
 5. **L1 Marker output schema** — once Layer 1 ships, the architect should inspect what `body_text` actually looks like for a Marker-parsed paper (LaTeX, sections, tables) so retrieval is designed around real input, not assumed input.
 
-## Acceptance gates (to be detailed when activated)
+## Acceptance gates (L2 v1)
 
-1. Citations in output map to specific PDF pages — verify on 10-question test set drawn from the L5 golden set
-2. RCS produces summaries that contain the cited content
-3. Re-ranking measurably improves retrieval precision over raw similarity (per the L5 benchmark — target: P@5 improves by ≥0.10 over the L1+L0 baseline)
-4. End-to-end query latency <30s on dev hardware for typical questions
-5. Falls back gracefully when only L0 (text-only) docs remain in the index from before the L1 cleanup task runs
-6. Citation accuracy ≥90% — citations point to PDF pages that actually contain the cited content
+1. Functional query path exists — `python -m polytool research-query --question "..."`
+2. Retrieval is restricted to Marker/RAG-ready academic docs — query-time guard checks `body_source=marker` and `body_length>=5000`
+3. Bad legacy docs are rejected — pdfplumber, missing metadata, and short Marker rows are not cited
+4. CLI/operator path is documented in `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`
+5. Tests cover happy path, bad docs, fallback, grouping, deduplication, and CLI validation — `tests/test_research_query.py` has 36 passing tests
+
+## Deferred L2.x Work
+
+- ChromaDB academic retrieval once `body_source` is indexed in chunk metadata
+- Full Recursive Contextual Summarization (RCS)
+- Page-level citations
+- LLM answer synthesis through the provider layer
 
 ## Cross-references
 

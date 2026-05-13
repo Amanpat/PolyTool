@@ -25,7 +25,12 @@ Operator label (research-prefetch-review list / label)
        ↓
 L1 Marker Parse (research-marker-queue enqueue + warm-process)
   └─ body_source=marker, body_length>=5000 → RAG-ready
+  └─ body text + metadata persisted to bodies/{candidate_id}.body.txt/.meta.json
   └─ marker_failed / short → rejected (retryable)
+       ↓
+Index (research-marker-queue index-done)
+  └─ reads bodies/ sidecar → IngestPipeline → KnowledgeStore
+  └─ idempotent: tracks indexed.jsonl; skips already-indexed
        ↓
 L2 Query (research-query --question "...")
   └─ multi-angle KS query over Marker-ready academic corpus
@@ -49,9 +54,17 @@ python -m polytool research-marker-queue enqueue --url ARXIV_ID
 # Step 4 — Parse (inside Docker/GPU container)
 python -m polytool research-marker-queue warm-process --max-items 5
 
+# Step 4b — Index completed papers AND extract claims (L2 handoff)
+#           Claims are extracted automatically; no separate step needed.
+python -m polytool research-marker-queue index-done
+
 # Step 5 — Query the Marker-ready corpus (L2)
 python -m polytool research-query --question "optimal spread in prediction markets"
 ```
+
+Current L1 direct enqueue supports arXiv IDs/URLs. L4 candidates discovered from
+Crossref or OpenReview can still be reviewed and labeled, but they need operator
+resolution to an arXiv URL before the current Marker queue can parse them.
 
 ---
 
@@ -174,6 +187,71 @@ Key fields in results.jsonl:
 - `failure_reason`: why the paper was rejected (null on success)
 - `queue_status`: final queue state after processing (`done` | `pending` | `failed`)
 
+### Step 4b — Index completed papers + extract claims (L2 handoff)
+
+After `warm-process` completes, run `index-done` to load Marker-ready papers
+into the KnowledgeStore **and automatically extract claims** so `research-query`
+can return citations immediately.
+
+```bash
+# Index all marker-ready done items AND extract claims (default)
+python -m polytool research-marker-queue index-done
+
+# Index only — skip claim extraction
+python -m polytool research-marker-queue index-done --no-extract-claims
+
+# Re-index even already-indexed papers (e.g. after KS corruption)
+python -m polytool research-marker-queue index-done --force
+
+# Use a non-default queue dir
+python -m polytool research-marker-queue --queue-dir PATH index-done
+
+# JSON output for scripting
+python -m polytool research-marker-queue index-done --json
+```
+
+**How it works:**
+
+1. Reads `results.jsonl` — finds all records with `queue_status=done` AND `marker_ready=True`
+2. For each candidate, reads body text from `bodies/{candidate_id}.body.txt`
+3. Reads fetch metadata from `bodies/{candidate_id}.meta.json` (title, abstract, authors, etc.)
+4. Adds a `body_file` pointer (file:// URI) to the source metadata so the claim extractor
+   can read the body without duplicating large text in the KnowledgeStore DB
+5. Calls `IngestPipeline.ingest_external(raw_source, "academic")` — enforces Marker gate
+6. Runs heuristic claim extraction (`extract_and_link`) for each indexed paper (non-fatal;
+   failure is logged but the paper is still recorded as indexed)
+7. Records indexed candidates in `indexed.jsonl` for idempotency
+
+**Expected output (per paper):**
+```
+Indexed 1 paper(s):
+  [OK] arxiv:2604.24366  doc_id=abc123...  chunks=47  claims=38
+Total: 1 done item(s) examined — 1 indexed, 0 already-indexed, 0 no-body, 0 failed, 38 claim(s) extracted.
+```
+
+**Idempotency:** Running `index-done` twice skips already-indexed papers. Use
+`--force` to re-index (e.g. after rebuilding the KnowledgeStore). Claim
+extraction is idempotent: re-running on the same doc produces the same claim IDs
+(INSERT OR IGNORE semantics in the KnowledgeStore).
+
+**Body file missing (pre-fix queue items):** Papers processed before 2026-05-09
+do not have body sidecar files. `index-done` reports them as `no-body` and
+suggests re-enqueuing with `--force`:
+
+```bash
+python -m polytool research-marker-queue enqueue --url ARXIV_ID --force
+python -m polytool research-marker-queue warm-process --max-items 1
+python -m polytool research-marker-queue index-done
+```
+
+Output locations (gitignored):
+
+| Artifact | Path |
+|----------|------|
+| Body text | `artifacts/research/marker_parse_queue/bodies/{candidate_id}.body.txt` |
+| Fetch metadata | `artifacts/research/marker_parse_queue/bodies/{candidate_id}.meta.json` |
+| Indexed log | `artifacts/research/marker_parse_queue/indexed.jsonl` |
+
 ---
 
 ## Queue States
@@ -281,8 +359,12 @@ Once papers are processed (`queue_status=done, marker_ready=True`), query
 the academic corpus with the `research-query` command:
 
 ```bash
-# Basic query — returns paper-level citations from the KS
+# Keyword query
 python -m polytool research-query --question "market microstructure"
+
+# Natural-language questions also work — preamble stripped for retrieval only
+python -m polytool research-query --question "what are prediction markets"
+python -m polytool research-query --question "explain sports betting markets"
 
 # More citations with step-back context angle
 python -m polytool research-query \
@@ -298,22 +380,70 @@ python -m polytool research-query \
 **How it works:**
 
 1. Multi-angle query planning (up to `--max-angles` template variants)
-2. KnowledgeStore queried with `source_family="academic"` for each angle
-3. Source metadata is re-checked: `body_source=marker` and `body_length >= 5000`
-4. Claims deduplicated by ID; grouped by source paper
-5. Papers ranked by highest claim score
-6. Citations returned with: title, arxiv_id, source_url, snippet, body_source
+2. Question preambles stripped for retrieval ("what are prediction markets" → also searches "prediction markets"); original question preserved in JSON output
+3. KnowledgeStore queried with `source_family="academic"` for each angle
+4. Source metadata is re-checked: `body_source=marker` and `body_length >= 5000`
+5. Claims deduplicated by ID; grouped by source paper
+6. Papers ranked by highest claim score
+7. Citations returned with: title, arxiv_id, source_url, snippet, body_source
 
-**Prerequisite:** Papers must be ingested into the KnowledgeStore first.
-Use `research-marker-queue` (Steps 1–4 above) then run:
+**Retrieval is conservative substring/phrase matching — not semantic or vector retrieval.**
+
+**Prerequisite:** Papers must be indexed into the KnowledgeStore first.
+Use `research-marker-queue` (Steps 1–4 above) then **Step 4b** (`index-done`):
 
 ```bash
-python -m polytool research-ingest --file path/to/paper.json --source-type academic
-# OR the full acquire path:
-python -m polytool research-acquire --url https://arxiv.org/abs/2604.24366
+python -m polytool research-marker-queue index-done
 ```
 
+**No-result cases** — both return `had_fallback=true` with an actionable warning:
+
+| Case | Cause | Action |
+|------|-------|--------|
+| Empty corpus | KnowledgeStore has no academic documents | Run `index-done` first; confirm `warm-process` produced `marker_ready=True` results |
+| Corpus exists, no matches | Academic docs indexed but no claim text matches the query | Expand corpus or try a different topic phrase |
+
 Feature doc: `docs/features/FEATURE-ris-l2-academic-query.md`
+
+---
+
+## Known-Good 3-Paper Validation (2026-05-09)
+
+The full pipeline sequence was operator-validated on 2026-05-09 using an isolated queue
+(`artifacts/research/operator_test_queue_3paper`).
+
+**High-level sequence run:**
+
+```
+research-harvest (or manual enqueue)
+  → research-marker-queue enqueue --url ARXIV_ID
+  → research-marker-queue warm-process --max-items 3
+  → research-marker-queue index-done
+  → research-query --question "..."
+```
+
+**Pass criteria met:**
+
+| Criterion | Result |
+|-----------|--------|
+| Queue: 3 done, 0 failed | ✅ |
+| All papers: `body_source=marker` | ✅ |
+| All papers: `body_length >= 5000` | ✅ (56,856 / 51,370 / 60,814 chars) |
+| Total chunks indexed | 79 |
+| Total claims extracted | 373 |
+| `research-query "prediction markets"` → `had_fallback=false` | ✅ |
+| `research-query "sports betting markets" --step-back` → 2 Marker citations | ✅ |
+
+**Caveats:**
+
+- Run used **Windows/local warm-thread path** (`ipc_warm_worker_used=false`). This is a
+  functional validation, not a Docker/GPU IPC performance run.
+- Docker/GPU IPC 3-paper batch (`ipc_warm_worker_used=true`) was validated separately on
+  2026-05-08 and is an optional performance/infra follow-up.
+- SSRN/NBER sources deferred. Only arXiv papers used.
+- ChromaDB academic retrieval (L2.1) deferred.
+
+**Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
 
 ---
 
@@ -322,8 +452,10 @@ Feature doc: `docs/features/FEATURE-ris-l2-academic-query.md`
 - **L2 PaperQA2** — COMPLETE 2026-05-09. `research-query` CLI ships multi-angle
   KS query with paper-level citations and a query-time Marker-ready guard. See
   feature doc above.
-- **L4 Multi-source harvesters** — Stub. Gated on explicit Director workpacket.
-  Requires 5 new fetcher classes, session handling, new deps. Not in current sprint.
+- **L4 Multi-source harvesters** — COMPLETE 2026-05-09. `research-harvest`
+  ships arXiv, Semantic Scholar, Crossref, and OpenReview metadata discovery,
+  source selection, deduplication, L3 scoring, and review-queue enqueue. SSRN/NBER
+  remain deferred with explicit rationale.
 - **SVM enforce** remains hard-blocked at rc=1. Default lexical filter is active.
 - **pdfplumber** is legacy/debug only. Never used in the production canonical path.
 - **Bulk re-ingest** of existing pdfplumber-parsed ChromaDB entries is a separate cleanup

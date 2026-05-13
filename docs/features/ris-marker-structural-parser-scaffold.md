@@ -1,6 +1,6 @@
 # Feature: RIS Marker Structural Parser — Production Default (Layer 1)
 
-**Status: CODE COMPLETE — Marker Docker IPC warm-worker v1 closed 2026-05-08 under revised functional gate; L1 Marker production/readiness can proceed to its next explicit rollout step.**
+**Status: CODE COMPLETE — Marker Docker IPC warm-worker v1 closed 2026-05-08; L1 production readiness and L2 academic query completed 2026-05-09.**
 
 > **Operator decision recorded 2026-05-05: Option A — async parse queue.**
 > Controlled parse validated: `body_source=marker`, `body_length=56923`, `parse_seconds=85.95s`, `exit_code=0`.
@@ -11,7 +11,7 @@
 > A warm GPU worker (models loaded once, queue processed sequentially) is the production path.
 >
 > **Next packet:** [[Work-Packet - Marker Canonical Academic Parse Queue]] (status: v0 shipped 2026-05-05). Docker IPC warm-worker v1 **closed 2026-05-08** under revised functional gate (≥3 full PDFs/session, papers 2+ delta ≤5s — original ≤10s/paper gate rejected as unrealistic).
-> L1 Marker production/readiness can proceed to its next explicit rollout step. Full academic/RIS pipeline is not complete; L2/L4 remain stubs. See `CURRENT_DEVELOPMENT.md` and `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
+> L1 Marker production/readiness, L2 Academic Query, and L4 Multi-source Academic Harvesters are complete as of 2026-05-09. See `CURRENT_DEVELOPMENT.md`, `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`, `docs/features/FEATURE-ris-l2-academic-query.md`, and `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md`.
 >
 > **Evidence:** `docs/dev_logs/2026-05-05_marker-single-paper-control-surface-validation.md`
 > **Decision log:** `docs/dev_logs/2026-05-05_marker-canonical-parse-queue-packet.md`

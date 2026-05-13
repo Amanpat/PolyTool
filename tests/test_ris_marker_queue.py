@@ -1578,3 +1578,330 @@ class TestIPCResultPersistence:
         assert len(lines) == 2
         for line in lines:
             assert json.loads(line)["ipc_warm_worker_used"] is True
+
+
+# ---------------------------------------------------------------------------
+# Body sidecar persistence: _process_item writes bodies/ on marker_ready=True
+# ---------------------------------------------------------------------------
+
+_LONG_BODY = "Prediction market microstructure research. " * 200  # > 5000 chars
+
+
+def _marker_raw_with_body(body_text: str = _LONG_BODY, parse_seconds: float = 6.0) -> dict:
+    return {
+        "url": "https://arxiv.org/abs/2604.24366",
+        "title": "Test Paper",
+        "abstract": "Paper abstract.",
+        "authors": ["Author A"],
+        "published_date": "2024-01-01",
+        "body_text": body_text,
+        "body_source": "marker",
+        "body_length": len(body_text),
+        "parse_seconds": parse_seconds,
+        "failure_reason": None,
+    }
+
+
+class TestPersistBodySidecar:
+    """_process_item persists body sidecar to bodies/ when marker_ready=True."""
+
+    def test_body_file_written_on_success(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_marker_raw_with_body()))
+
+        body_file = tmp_path / "bodies" / "arxiv:2604.24366.body.txt"
+        assert body_file.exists(), "body.txt must be written for marker_ready items"
+        assert len(body_file.read_text(encoding="utf-8")) > 5000
+
+    def test_meta_file_written_on_success(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_marker_raw_with_body()))
+
+        meta_file = tmp_path / "bodies" / "arxiv:2604.24366.meta.json"
+        assert meta_file.exists(), "meta.json must be written for marker_ready items"
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        assert meta.get("body_source") == "marker"
+        assert "body_text" not in meta, "body_text must NOT be in meta.json (stored separately)"
+
+    def test_no_sidecar_on_marker_failed(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_failed_raw()))
+
+        body_file = tmp_path / "bodies" / "arxiv:2604.24366.body.txt"
+        assert not body_file.exists(), "body.txt must NOT be written for marker_failed items"
+
+    def test_no_sidecar_on_pdfplumber(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_pdfplumber_raw()))
+
+        body_file = tmp_path / "bodies" / "arxiv:2604.24366.body.txt"
+        assert not body_file.exists()
+
+    def test_no_sidecar_on_short_marker_body(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MIN_MARKER_BODY_LENGTH
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        short_raw = _marker_raw_with_body(body_text="x" * (MIN_MARKER_BODY_LENGTH - 1))
+        short_raw["body_length"] = MIN_MARKER_BODY_LENGTH - 1
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(short_raw))
+
+        body_file = tmp_path / "bodies" / "arxiv:2604.24366.body.txt"
+        assert not body_file.exists()
+
+    def test_sidecar_overwritten_on_reprocess(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_marker_raw_with_body()))
+
+        q.enqueue("2604.24366", force=True)
+        new_body = "Updated body content. " * 300
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(_marker_raw_with_body(body_text=new_body)))
+
+        body_file = tmp_path / "bodies" / "arxiv:2604.24366.body.txt"
+        assert "Updated body content" in body_file.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# index_done_items: KnowledgeStore handoff
+# ---------------------------------------------------------------------------
+
+
+def _make_ks_store():
+    from packages.polymarket.rag.knowledge_store import KnowledgeStore
+    return KnowledgeStore(db_path=":memory:")
+
+
+class TestIndexDoneItems:
+    """index_done_items() indexes marker-ready done items into KnowledgeStore."""
+
+    def _run_index(self, tmp_path: Path, store=None) -> dict:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        return q.index_done_items(_store=store or _make_ks_store())
+
+    def _setup_done_queue(self, tmp_path: Path, body_text: str = _LONG_BODY,
+                          arxiv_id: str = "2604.24366") -> None:
+        """Enqueue, process (success), and leave a done item with sidecar."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue(arxiv_id)
+        raw = _marker_raw_with_body(body_text=body_text)
+        raw["url"] = f"https://arxiv.org/abs/{arxiv_id}"
+        q.process_next(max_items=1, _fetcher=_FakeFetcher(raw))
+
+    def test_done_item_indexed_into_ks(self, tmp_path: Path) -> None:
+        self._setup_done_queue(tmp_path)
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        summary = q.index_done_items(_store=store)
+
+        assert len(summary["indexed"]) == 1
+        assert summary["indexed"][0]["candidate_id"] == "arxiv:2604.24366"
+        assert summary["indexed"][0]["chunk_count"] > 0
+        assert not summary["failed"]
+        assert not summary["skipped_already_indexed"]
+        assert not summary["skipped_no_body"]
+
+    def test_failed_item_not_indexed(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MAX_ATTEMPTS
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        # Drive to terminal failure
+        for _ in range(MAX_ATTEMPTS):
+            q.process_next(max_items=1, _fetcher=_FakeFetcher(_failed_raw()))
+
+        summary = q.index_done_items(_store=_make_ks_store())
+        assert not summary["indexed"]
+        assert not summary["skipped_no_body"]
+
+    def test_pdfplumber_item_not_indexed(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue, MAX_ATTEMPTS
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        for _ in range(MAX_ATTEMPTS):
+            q.process_next(max_items=1, _fetcher=_FakeFetcher(_pdfplumber_raw()))
+
+        summary = q.index_done_items(_store=_make_ks_store())
+        assert not summary["indexed"]
+
+    def test_missing_body_file_reported(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        # Manually inject a done+marker_ready result without a body file
+        q._ensure_dir()
+        import json as _json
+        rec = {
+            "candidate_id": "arxiv:2604.24366",
+            "source_url": "https://arxiv.org/abs/2604.24366",
+            "arxiv_id": "2604.24366",
+            "title": "Test Paper",
+            "body_source": "marker",
+            "body_length": 60000,
+            "marker_ready": True,
+            "queue_status": "done",
+            "processed_at": "2026-05-09T00:00:00+00:00",
+        }
+        with open(q._results_path, "w", encoding="utf-8") as f:
+            f.write(_json.dumps(rec) + "\n")
+
+        summary = q.index_done_items(_store=_make_ks_store())
+        assert not summary["indexed"]
+        assert "arxiv:2604.24366" in summary["skipped_no_body"]
+
+    def test_idempotent_second_call_skips(self, tmp_path: Path) -> None:
+        self._setup_done_queue(tmp_path)
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        first = q.index_done_items(_store=store)
+        second = q.index_done_items(_store=store)
+
+        assert len(first["indexed"]) == 1
+        assert len(second["skipped_already_indexed"]) == 1
+        assert not second["indexed"]
+
+    def test_force_reindexes_already_indexed(self, tmp_path: Path) -> None:
+        self._setup_done_queue(tmp_path)
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.index_done_items(_store=store)
+        second = q.index_done_items(_store=store, force=True)
+
+        assert len(second["indexed"]) == 1
+        assert not second["skipped_already_indexed"]
+
+    def test_indexed_jsonl_written(self, tmp_path: Path) -> None:
+        self._setup_done_queue(tmp_path)
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.index_done_items(_store=store)
+
+        indexed_path = tmp_path / "indexed.jsonl"
+        assert indexed_path.exists()
+        with open(indexed_path, encoding="utf-8") as f:
+            rec = json.loads(f.readline().strip())
+        assert rec["candidate_id"] == "arxiv:2604.24366"
+        assert "doc_id" in rec
+        assert "indexed_at" in rec
+
+    def test_multiple_done_items_all_indexed(self, tmp_path: Path) -> None:
+        self._setup_done_queue(tmp_path, arxiv_id="2604.24366")
+        self._setup_done_queue(tmp_path, arxiv_id="2401.00001")
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        summary = q.index_done_items(_store=store)
+
+        assert len(summary["indexed"]) == 2
+
+    def test_query_finds_indexed_paper(self, tmp_path: Path) -> None:
+        """research-query returns the paper after index_done_items (claim manually added).
+
+        The claim extractor reads body text from metadata_json["body"] or a
+        file:// source_url — neither is set by IngestPipeline.ingest_external.
+        The index_done_items step only stores the source_document record; claim
+        extraction is a separate concern (matching the pattern used by all L2
+        tests in test_research_query.py which inject claims manually).
+        """
+        self._setup_done_queue(tmp_path)
+        store = _make_ks_store()
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        summary = q.index_done_items(_store=store)
+
+        assert len(summary["indexed"]) == 1
+        doc_id = summary["indexed"][0]["doc_id"]
+
+        # Verify source_document has correct metadata for academic query guard
+        src_doc = store.get_source_document(doc_id)
+        assert src_doc is not None
+        assert src_doc.get("source_family") == "academic"
+        import json as _json
+        meta = _json.loads(src_doc.get("metadata_json") or "{}")
+        assert meta.get("body_source") == "marker"
+        assert int(meta.get("body_length", 0)) >= 5000
+
+        # Add a claim linked to the indexed doc so research-query can find it
+        store.add_claim(
+            claim_text="prediction market microstructure and binary spread calibration",
+            claim_type="finding",
+            confidence=0.8,
+            trust_tier="T2",
+            actor="test",
+            source_document_id=doc_id,
+        )
+
+        from packages.research.synthesis.academic_query import query_academic_corpus
+        result = query_academic_corpus(
+            "prediction market microstructure",
+            _store=store,
+        )
+        assert not result.had_fallback, "KS should surface the indexed paper"
+        assert len(result.citations) >= 1
+        assert result.citations[0].body_source == "marker"
+
+
+# ---------------------------------------------------------------------------
+# CLI: index-done subcommand
+# ---------------------------------------------------------------------------
+
+
+class TestCLIIndexDone:
+
+    def test_index_done_in_help(self) -> None:
+        code, out = _run_cli(["--help"])
+        assert code == 0
+        assert "index-done" in out
+
+    def test_index_done_help_exits_zero(self) -> None:
+        code, out = _run_cli(["index-done", "--help"])
+        assert code == 0
+        assert "--force" in out
+
+    def test_index_done_empty_queue_exits_zero(self, tmp_path: Path) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "index-done"])
+        assert code == 0
+
+    def test_index_done_no_body_file_exits_zero(self, tmp_path: Path) -> None:
+        """index-done with no body files (existing done item) exits 0 with no-body warning."""
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q._ensure_dir()
+        rec = {
+            "candidate_id": "arxiv:2604.24366",
+            "source_url": "https://arxiv.org/abs/2604.24366",
+            "arxiv_id": "2604.24366",
+            "title": "Test Paper",
+            "body_source": "marker",
+            "body_length": 60000,
+            "marker_ready": True,
+            "queue_status": "done",
+            "processed_at": "2026-05-09T00:00:00+00:00",
+        }
+        with open(q._results_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "index-done"])
+        assert code == 0
+        assert "no-body" in out.lower() or "body" in out.lower()
+
+    def test_index_done_json_output(self, tmp_path: Path) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "index-done", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert "indexed" in data
+        assert "skipped_already_indexed" in data
+        assert "skipped_no_body" in data
+        assert "failed" in data

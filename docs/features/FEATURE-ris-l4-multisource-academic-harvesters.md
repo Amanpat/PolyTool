@@ -49,8 +49,8 @@ does not become RAG-ready until it completes the L1 Marker queue path.
 | `CrossrefHarvester` | Crossref REST API | Public | None | ✗ | DOI resolution; abstract not always present |
 | `OpenReviewHarvester` | OpenReview API v2 | Public | None | ✗ | ML conferences (NeurIPS/ICLR/ICML); backfill most useful |
 
-**`dedup_candidates(candidates)`** — cross-source deduplication with priority:
-`arxiv_id > doi > s2_paper_id > openreview_id > source_url_hash`.
+**`dedup_candidates(candidates)`** — cross-source deduplication by any shared
+canonical ID (`arxiv_id`, `doi`, `s2_paper_id`, `openreview_id`) with URL fallback.
 First occurrence wins; later duplicates from other sources are dropped.
 
 **`HARVESTER_REGISTRY`** — maps name → class for all 4 active sources.
@@ -86,13 +86,14 @@ The CLI:
 
 ### Tests: `tests/test_academic_harvesters.py`
 
-59 tests, all passing.  Coverage:
+61 tests, all passing.  Coverage:
 - All 4 harvesters: happy path, empty response, network error, malformed response
 - `ArxivHarvester`: `search_since()` date filtering, multiple entries, `arxiv_id` extraction
 - `SemanticScholarHarvester`: DOI fallback URL, S2-only URL, paper-with-no-id skipped
 - `CrossrefHarvester`: JATS XML stripped from abstract, no-abstract paper, `from-pub-date` filter
 - `OpenReviewHarvester`: API v2 `{"value": ...}` schema, API v1 plain-value fallback
-- `dedup_candidates()`: by arxiv_id, by DOI, cross-source, empty list, order preserved
+- `dedup_candidates()`: by arxiv_id, by DOI, mixed DOI+arXiv aliases, cross-source,
+  empty list, order preserved
 - Registry: all 4 sources registered, factory types correct, unknown raises `KeyError`
 - `SOURCE_CAPABILITY_MATRIX`: SSRN/NBER have `status=deferred`
 - `AcademicCandidate.to_review_queue_record()`: key presence, deterministic ID
@@ -122,7 +123,10 @@ visible via `research-harvest --list-sources`.
   `artifacts/research/prefetch_review_queue/review_queue.jsonl`.
   Managed via `research-prefetch-review list/label`.
 - **L1 Marker queue:** After operator labeling, allowed candidates are enqueued to
-  `research-marker-queue enqueue --url ARXIV_URL`.
+  `research-marker-queue enqueue --url ARXIV_URL`. Current L1 direct enqueue supports
+  arXiv IDs/URLs; DOI-only and OpenReview candidates remain review/discovery records
+  until the operator resolves a parseable arXiv URL or a future DOI/PDF resolution path
+  is added.
 - **L2 query:** After Marker parse, papers become queryable via `research-query`.
 
 The full pipeline flow is documented in the L1 Marker runbook
@@ -137,7 +141,7 @@ The full pipeline flow is documented in the L1 Marker runbook
 - [x] Explicit source capability docs (metadata-only vs PDF-capable, backfill vs monitoring)
 - [x] Normalized candidate records compatible with existing relevance/review queue flow
 - [x] CLI/operator path: `research-harvest --search ... --source ...`
-- [x] Dedupe/idempotency behavior across sources
+- [x] Dedupe/idempotency behavior across sources, including mixed DOI+arXiv aliases
 - [x] No paper becomes RAG-ready without L1 Marker path (maintained invariant)
 - [x] Adapter normalization tests with mocked responses
 - [x] Registry/source selection tests
