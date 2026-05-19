@@ -740,6 +740,64 @@ class LiveAcademicFetcher:
             )
         return result
 
+    # Retry delays (seconds) for arXiv API 429 / transient errors.
+    # Conservative: 5s, 15s, 45s — matches arXiv's documented rate-limit recovery window.
+    _ARXIV_RETRY_DELAYS = (5.0, 15.0, 45.0)
+
+    def _fetch_arxiv_api(self, api_url: str) -> bytes:
+        """Call the arXiv Atom API with exponential backoff on 429 / transient errors.
+
+        Wraps ``self._http_fn`` with up to ``len(_ARXIV_RETRY_DELAYS)`` retries.
+        Only retries on rate-limit (HTTP 429) and timeout signals.  Hard errors
+        (404, parse failure) propagate immediately.
+
+        Parameters
+        ----------
+        api_url:
+            Full arXiv API URL, e.g.
+            ``http://export.arxiv.org/api/query?id_list=2604.24366&max_results=1``
+
+        Returns
+        -------
+        bytes
+            Raw response body from the API.
+
+        Raises
+        ------
+        FetchError
+            After all retries are exhausted, or immediately on non-retriable errors.
+        """
+        import time as _time
+
+        last_exc: Optional[FetchError] = None
+        for attempt, delay in enumerate(self._ARXIV_RETRY_DELAYS, start=1):
+            try:
+                return self._http_fn(api_url, self._timeout, {})
+            except FetchError as exc:
+                msg = str(exc)
+                is_retriable = "429" in msg or "Timeout" in msg or "timeout" in msg
+                if not is_retriable:
+                    raise
+                last_exc = exc
+                _logger.warning(
+                    "arXiv API rate-limited or timeout (attempt %d/%d): %s — "
+                    "retrying in %.0fs",
+                    attempt,
+                    len(self._ARXIV_RETRY_DELAYS),
+                    msg,
+                    delay,
+                )
+                _time.sleep(delay)
+
+        # Final attempt after last delay — let the error propagate.
+        try:
+            return self._http_fn(api_url, self._timeout, {})
+        except FetchError:
+            raise
+        # Should not reach — reassures type-checker that we always return bytes.
+        assert last_exc is not None  # pragma: no cover
+        raise last_exc  # pragma: no cover
+
     def fetch(self, url: str) -> dict:
         """Fetch arXiv paper metadata from *url*.
 
@@ -766,9 +824,11 @@ class LiveAcademicFetcher:
         # Canonical abs URL
         canonical_url = f"https://arxiv.org/abs/{arxiv_id}"
 
-        # Call arXiv Atom API
+        # Call arXiv Atom API — retry with exponential backoff on 429 / transient failures.
+        # arXiv enforces per-IP rate limits; rapid consecutive calls trigger HTTP 429.
+        # See docs/dev_logs/2026-05-16_academic-scaled-validation-execution.md Blocker 5.
         api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}&max_results=1"
-        xml_bytes = self._http_fn(api_url, self._timeout, {})
+        xml_bytes = self._fetch_arxiv_api(api_url)
 
         # Parse Atom XML
         try:

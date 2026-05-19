@@ -164,6 +164,15 @@ services:
       - .env
     environment:
       - RIS_PDF_PARSER=marker
+      # Blocker 1 fix: force pdftext inline mode so daemon subprocesses cannot
+      # spawn further children inside the IPC worker subprocess.
+      # See docs/dev_logs/2026-05-17_academic-validation-triage-fixes.md Blocker 1.
+      - WORKER_PAGE_THRESHOLD=999999
+      # Blocker 4 fix: persist PyTorch Inductor JIT kernel cache across container
+      # restarts.  Without this, every restart re-compiles all GPU kernels for each
+      # unique page-image dimension (~30-50 min per format group).
+      # See docs/dev_logs/2026-05-17_academic-validation-triage-fixes.md Blocker 4.
+      - TORCHINDUCTOR_CACHE_DIR=/app/cache/torchinductor
     command: ["python", "-m", "polytool", "research-scheduler", "start"]
     restart: unless-stopped
     deploy:
@@ -181,6 +190,13 @@ services:
       # Host Marker model weight cache — mount read-write so first-run download persists.
       # Target is /home/polytool/.cache/datalab (runtime user is polytool, not root).
       - ${USERPROFILE}/.cache/datalab:/home/polytool/.cache/datalab
+      # Blocker 3 fix: live-mount source so container always runs current main code.
+      # Eliminates stale-image failures without requiring a full docker compose build.
+      # Remove these two mounts and rebuild the image for a sealed production release.
+      - ./packages:/app/packages
+      - ./tools:/app/tools
+      # Blocker 4 fix: persistent JIT cache volume (see TORCHINDUCTOR_CACHE_DIR above).
+      - ./cache:/app/cache
     depends_on:
       clickhouse:
         condition: service_healthy

@@ -195,6 +195,125 @@ class TestLiveAcademicFetcher:
 
 
 # ---------------------------------------------------------------------------
+# LiveAcademicFetcher._fetch_arxiv_api retry/backoff tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchArxivApiRetry:
+    """Offline tests for the arXiv API 429/timeout retry logic."""
+
+    def _make_fetcher_with_seq(self, responses: list):
+        """Build a LiveAcademicFetcher whose _http_fn returns responses in sequence."""
+        from packages.research.ingestion.fetchers import FetchError, LiveAcademicFetcher
+
+        call_iter = iter(responses)
+
+        def http_fn(url, timeout, headers):
+            resp = next(call_iter)
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
+
+        return LiveAcademicFetcher(_http_fn=http_fn)
+
+    def test_retries_on_429_then_succeeds(self):
+        import unittest.mock as mock
+        from packages.research.ingestion.fetchers import FetchError
+
+        xml_bytes = _make_arxiv_xml()
+        fetcher = self._make_fetcher_with_seq([
+            FetchError("HTTP 429: Too Many Requests"),
+            FetchError("HTTP 429: Too Many Requests"),
+            xml_bytes,
+        ])
+
+        with mock.patch("time.sleep") as mock_sleep:
+            result = fetcher._fetch_arxiv_api("http://export.arxiv.org/api/query?id_list=2301.12345")
+
+        assert result == xml_bytes
+        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_args_list[0][0][0] == 5.0
+        assert mock_sleep.call_args_list[1][0][0] == 15.0
+
+    def test_retries_on_timeout_then_succeeds(self):
+        import unittest.mock as mock
+        from packages.research.ingestion.fetchers import FetchError
+
+        xml_bytes = _make_arxiv_xml()
+        fetcher = self._make_fetcher_with_seq([
+            FetchError("Timeout connecting to export.arxiv.org"),
+            xml_bytes,
+        ])
+
+        with mock.patch("time.sleep") as mock_sleep:
+            result = fetcher._fetch_arxiv_api("http://export.arxiv.org/api/query?id_list=2301.12345")
+
+        assert result == xml_bytes
+        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_args_list[0][0][0] == 5.0
+
+    def test_no_retry_on_hard_error(self):
+        import unittest.mock as mock
+        from packages.research.ingestion.fetchers import FetchError, LiveAcademicFetcher
+
+        call_count = [0]
+
+        def http_fn(url, timeout, headers):
+            call_count[0] += 1
+            raise FetchError("HTTP 404: Not Found")
+
+        fetcher = LiveAcademicFetcher(_http_fn=http_fn)
+
+        with mock.patch("time.sleep") as mock_sleep:
+            with pytest.raises(FetchError, match="404"):
+                fetcher._fetch_arxiv_api("http://export.arxiv.org/api/query?id_list=9999.99999")
+
+        assert call_count[0] == 1
+        mock_sleep.assert_not_called()
+
+    def test_exhausts_all_retries_then_raises(self):
+        import unittest.mock as mock
+        from packages.research.ingestion.fetchers import FetchError, LiveAcademicFetcher
+
+        call_count = [0]
+
+        def http_fn(url, timeout, headers):
+            call_count[0] += 1
+            raise FetchError("HTTP 429: Too Many Requests")
+
+        fetcher = LiveAcademicFetcher(_http_fn=http_fn)
+
+        with mock.patch("time.sleep"):
+            with pytest.raises(FetchError, match="429"):
+                fetcher._fetch_arxiv_api("http://export.arxiv.org/api/query?id_list=2301.12345")
+
+        # 3 retries (with sleep) + 1 final attempt = 4 total
+        assert call_count[0] == 4
+
+    def test_retry_delays_called_in_order(self):
+        import unittest.mock as mock
+        from packages.research.ingestion.fetchers import FetchError, LiveAcademicFetcher
+
+        call_count = [0]
+        xml_bytes = _make_arxiv_xml()
+
+        def http_fn(url, timeout, headers):
+            call_count[0] += 1
+            if call_count[0] < 4:
+                raise FetchError("HTTP 429: Too Many Requests")
+            return xml_bytes
+
+        fetcher = LiveAcademicFetcher(_http_fn=http_fn)
+
+        with mock.patch("time.sleep") as mock_sleep:
+            result = fetcher._fetch_arxiv_api("http://export.arxiv.org/api/query?id_list=2301.12345")
+
+        assert result == xml_bytes
+        delays = [call[0][0] for call in mock_sleep.call_args_list]
+        assert delays == [5.0, 15.0, 45.0]
+
+
+# ---------------------------------------------------------------------------
 # LiveGitHubFetcher tests
 # ---------------------------------------------------------------------------
 

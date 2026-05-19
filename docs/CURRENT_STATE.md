@@ -1972,3 +1972,63 @@ optional follow-up and is **not** a functional blocker.
 - ChromaDB academic retrieval (L2.1) deferred.
 
 **Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
+
+## RIS Academic Pipeline — Scaled Validation Triage (2026-05-17)
+
+Batch 1 of the 29-paper scaled validation corpus was executed 2026-05-16 using
+`ris-scheduler-gpu` with `--queue-dir artifacts/research/scaled_validation_queue_v1/`.
+Result: 2 clean parses, 5 infrastructure blockers. Container was stale (built
+before `_persist_body_sidecar`); no body sidecars written.
+
+All 5 blockers triaged and fixed 2026-05-17:
+
+| Blocker | Fix |
+|---------|-----|
+| 1 — pdftext daemon process chain | `WORKER_PAGE_THRESHOLD=999999` in IPC worker + docker-compose env |
+| 2 — CUDA JIT cold-start per format | Mitigated by Blocker 4 (persistent cache) |
+| 3 — Stale container image | Live source volume mounts `./packages` + `./tools` |
+| 4 — No persistent JIT cache | `TORCHINDUCTOR_CACHE_DIR=/app/cache/torchinductor` + `./cache` volume + `.gitignore` |
+| 5 — arXiv API rate-limiting | `_fetch_arxiv_api()` with 3-retry exponential backoff (5s/15s/45s) |
+
+**Smoke test (4 papers, 2026-05-17): PASS.** Blockers 1 and 3 confirmed fixed in
+practice. Blocker 4 (persistent JIT cache) unresolved — `TORCHINDUCTOR_CACHE_DIR`
+empty after run; in-session reuse works but cross-restart persistence is not confirmed.
+arXiv retry (Blocker 5) not triggered due to natural pacing; code is correct.
+
+Additional findings from smoke: `packages/__init__.py` added (missing file prevented
+live-mount import); `index-done` must run inside the Docker container on Windows
+(NTFS ADS colon restriction on candidate_id filenames). Runbook Step 4b updated.
+
+Smoke results: 4/4 parse PASS (`body_source=marker`, `marker_ready=True`). Bodies:
+67–116K chars. parse_s: 2771s / 3279s (cold JIT) / 53s / 12.5s (warm JIT reuse).
+674 claims extracted, 78 KS academic docs (7 marker-indexed). 4/4 papers retrievable.
+
+**Batch 2 partial run (2026-05-17/18, queue: scaled_validation_queue_v2):**
+5/29 papers parsed (all eq-heavy), 5/29 failed, 1 stuck, 18 pending (untouched).
+Two root causes:
+
+1. **arXiv rate limiting**: 5 papers exhausted all 3 fetch retries (HTTP 429 / timeout).
+   Retry backoff (5/15/45s) is insufficient when warm JIT allows rapid sequential fetches.
+   Fix required: pre-fetch PDFs before warm-process (separates fetch from parse).
+2. **Marker timeout**: 1011.6402 (table-heavy empirical) hit `--marker-timeout 3600`;
+   paper may have incompatible or very complex layout. Needs diagnosis.
+3. **Session kill without resume**: background job terminated; 18 papers never reached.
+
+Batch 2 is **not a valid 29-paper measurement**. Classification (production-ready /
+demo-ready) cannot be made from 5/29 eq-heavy-only results. **Pipeline PAUSED** pending
+a prefetch-separation fix before the next full run.
+
+Blocker 5 (arXiv retry) was proven INSUFFICIENT at batch scale despite being structurally
+correct. Blocker 4 (JIT cache persistence) remains unresolved — TorchInductor cache still
+empty after session.
+
+eq-heavy parse quality confirmed: 67K–149K chars per paper, all marker_ready=True,
+33–49 min per paper total (fetch + OCR). IPC warm-worker stable, no daemon errors.
+
+**Tests:** 216 passed (RIS suite) after `packages/__init__.py` addition. No regressions.
+
+**Dev log:** `docs/dev_logs/2026-05-17_academic-validation-smoke-after-triage.md`
+**Triage record:** `docs/dev_logs/2026-05-17_academic-validation-triage-fixes.md`
+**Batch 1 record:** `docs/dev_logs/2026-05-16_academic-scaled-validation-execution.md`
+**Batch 2 start record:** `docs/dev_logs/2026-05-17_academic-scaled-validation-batch2-rerun.md`
+**Operational triage memo:** `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`

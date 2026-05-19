@@ -49,6 +49,9 @@ polytool.yml
 /artifacts/dossiers/**
 /artifacts/**
 
+# JIT kernel cache (populated by TORCHINDUCTOR_CACHE_DIR in docker-compose.yml)
+/cache/
+
 # Private KB (keep only README + .gitkeep)
 kb/**
 !kb/README.md

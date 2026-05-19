@@ -234,6 +234,20 @@ Total: 1 done item(s) examined — 1 indexed, 0 already-indexed, 0 no-body, 0 fa
 extraction is idempotent: re-running on the same doc produces the same claim IDs
 (INSERT OR IGNORE semantics in the KnowledgeStore).
 
+**Windows host note (NTFS colon restriction):** Candidate IDs like `arxiv:1106.5040`
+contain colons. NTFS treats `:` as an Alternate Data Stream separator, so Windows
+Python cannot open `bodies/arxiv:1106.5040.body.txt` as a regular file. Running
+`index-done` from the Windows host will report "body file missing" for all papers.
+**Always run `index-done` inside the Docker container** when using the GPU parse path:
+
+```bash
+docker exec polytool-ris-scheduler-gpu sh -c "cd /app && python -m polytool \
+  research-marker-queue --queue-dir /app/artifacts/research/QUEUE_DIR index-done"
+```
+
+Confirmed 2026-05-17 smoke test: `index-done` inside container indexed all 4 papers
+(674 claims) cleanly; host-side run reported 4 no-body failures for the same files.
+
 **Body file missing (pre-fix queue items):** Papers processed before 2026-05-09
 do not have body sidecar files. `index-done` reports them as `no-body` and
 suggests re-enqueuing with `--force`:

@@ -80,7 +80,18 @@ def _marker_ipc_worker_main(
         Must be picklable when using real multiprocessing.Process (spawn mode).
         Thread-based test injection bypasses the pickling requirement.
     """
+    import os as _os
     import time as _t
+
+    # Force pdftext to run text extraction inline (single-process) rather than
+    # spawning a ProcessPoolExecutor pool.  This is required because this function
+    # runs inside a subprocess spawned by MarkerIPCWorker.start(), and Python
+    # prohibits daemon processes (the ProcessPoolExecutor workers that pdftext
+    # creates) from spawning further children.  Setting WORKER_PAGE_THRESHOLD to
+    # an unreachably large value causes pdftext._get_pages() to take the
+    # single-process path (workers = min(N, page_count // threshold) = 0 <= 1).
+    # See docs/dev_logs/2026-05-16_academic-scaled-validation-execution.md Blocker 1.
+    _os.environ.setdefault("WORKER_PAGE_THRESHOLD", "999999")
 
     if _extractor_cls is None:
         from packages.research.ingestion.extractors import MarkerPDFExtractor
