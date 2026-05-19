@@ -9,6 +9,10 @@ section before assuming a bug.
 
 ---
 
+> **Academic PDF ingestion (arXiv → Marker → KnowledgeStore)** uses a separate pipeline.
+> See **[RIS_MARKER_QUEUE_RUNBOOK.md](RIS_MARKER_QUEUE_RUNBOOK.md)** for the full operator path,
+> including the WP-1 prefetch-then-parse workflow.
+
 ## Quick Reference
 
 | Command | What it does |

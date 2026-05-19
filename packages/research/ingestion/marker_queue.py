@@ -29,9 +29,11 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_QUEUE_DIR = Path("artifacts/research/marker_parse_queue")
 _BODY_STORE_SUBDIR = "bodies"  # subdir of queue_dir for body text + metadata sidecars
+_PDF_CACHE_SUBDIR = "pdf_cache"  # subdir for pre-fetched PDFs
 
 MAX_ATTEMPTS = 3
 MIN_MARKER_BODY_LENGTH = 5000  # chars; below this even a "marker" parse is not rag-ready
+_PDF_MIN_BYTES = 1000  # bytes; below this a downloaded PDF is suspect (HTML error page)
 
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})")
 
@@ -462,6 +464,279 @@ class MarkerParseQueue:
                 "marker_queue: failed to persist body sidecar for %s: %s", candidate_id, exc
             )
 
+    # ------------------------------------------------------------------
+    # PDF prefetch cache helpers
+    # ------------------------------------------------------------------
+
+    def _pdf_cache_path(self, candidate_id: str) -> Path:
+        """Return the local cache path for a candidate's PDF.
+
+        Replaces ':' with '-' so the filename is NTFS-safe on Windows.
+        E.g. 'arxiv:1234.56789' -> pdf_cache/arxiv-1234.56789.pdf
+        """
+        safe = candidate_id.replace(":", "-")
+        return self.queue_dir / _PDF_CACHE_SUBDIR / f"{safe}.pdf"
+
+    def _prefetch_manifest_path(self) -> Path:
+        return self.queue_dir / _PDF_CACHE_SUBDIR / "manifest.jsonl"
+
+    def _read_prefetch_manifest(self) -> dict[str, dict]:
+        """Return prefetch manifest records keyed by candidate_id (last-wins)."""
+        mp = self._prefetch_manifest_path()
+        records: dict[str, dict] = {}
+        if not mp.exists():
+            return records
+        with open(mp, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        rec = json.loads(line)
+                        cid = rec.get("candidate_id", "")
+                        if cid:
+                            records[cid] = rec
+                    except json.JSONDecodeError:
+                        pass
+        return records
+
+    def _write_prefetch_manifest(self, records: dict[str, dict]) -> None:
+        """Write the full prefetch manifest (one record per candidate_id)."""
+        mp = self._prefetch_manifest_path()
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        with open(mp, "w", encoding="utf-8") as f:
+            for rec in records.values():
+                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+
+    # ------------------------------------------------------------------
+    # Prefetch command
+    # ------------------------------------------------------------------
+
+    def prefetch_pdfs(
+        self,
+        max_items: Optional[int] = None,
+        delay_seconds: float = 10.0,
+        _http_fn=None,
+    ) -> dict:
+        """Pre-download PDFs for pending queue items to a local cache.
+
+        Run this before warm-process to fetch all PDFs from arXiv with
+        conservative delays between requests.  Warm-process will then read from
+        the local cache and never contact arXiv during GPU parsing.
+
+        Idempotent / resumable: existing valid cached PDFs are reused.  A second
+        run only fetches items that are still missing or previously failed.
+
+        After a successful download the queue record gains a ``pdf_url`` field
+        pointing to the local file path.  ``_process_item`` checks this field and
+        calls ``fetch_pdf_direct`` (local path) instead of ``fetch`` (live arXiv),
+        eliminating all arXiv network traffic during the parse phase.
+
+        Parameters
+        ----------
+        max_items:
+            Max number of pending items to prefetch.  None = all pending items.
+        delay_seconds:
+            Seconds to sleep between consecutive PDF downloads (default 10.0).
+            Conservative: arXiv's rate-limit window requires >5s between calls
+            under sustained load.
+        _http_fn:
+            Injectable HTTP function for tests.  Signature: (url, timeout, headers) -> bytes.
+            None = stdlib urllib (_default_urlopen).
+
+        Returns
+        -------
+        dict with keys:
+            cached: list[{candidate_id, pdf_cache_path, file_size}]
+            skipped_already_cached: list[str]  candidate_ids
+            failed: list[{candidate_id, error}]
+            total: int  (count of pending items considered)
+        """
+        import time as _time
+        from packages.research.ingestion.fetchers import _default_urlopen
+
+        http_fn = _http_fn if _http_fn is not None else _default_urlopen
+
+        cache_dir = self.queue_dir / _PDF_CACHE_SUBDIR
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        manifest = self._read_prefetch_manifest()
+        records = self._read_queue()
+        pending = [r for r in records if r.get("status") == "pending"]
+        if max_items is not None:
+            pending = pending[:max_items]
+
+        summary: dict = {
+            "cached": [],
+            "skipped_already_cached": [],
+            "failed": [],
+            "total": len(pending),
+        }
+        queue_dirty = False
+
+        for idx, item in enumerate(pending):
+            cid = item["candidate_id"]
+            arxiv_id = item.get("arxiv_id", "")
+            source_url = item.get("source_url", "")
+
+            if not arxiv_id:
+                summary["failed"].append(
+                    {"candidate_id": cid, "error": "no arxiv_id in queue record"}
+                )
+                _logger.warning("prefetch: %s has no arxiv_id, skipping", cid)
+                continue
+
+            pdf_path = self._pdf_cache_path(cid)
+            existing = manifest.get(cid, {})
+
+            # Idempotent: skip if already cached with valid file
+            if (
+                existing.get("status") == "cached"
+                and pdf_path.exists()
+                and pdf_path.stat().st_size >= _PDF_MIN_BYTES
+            ):
+                if not item.get("pdf_url"):
+                    for r in records:
+                        if r.get("candidate_id") == cid:
+                            r["pdf_url"] = str(pdf_path)
+                            r["updated_at"] = _now_iso()
+                            queue_dirty = True
+                            break
+                summary["skipped_already_cached"].append(cid)
+                _logger.info(
+                    "prefetch: %s already cached (%d bytes), skipping",
+                    cid, pdf_path.stat().st_size,
+                )
+                continue
+
+            # Build manifest record (will be updated to "cached" or "failed")
+            manifest_rec: dict = {
+                "candidate_id": cid,
+                "arxiv_id": arxiv_id,
+                "source_url": source_url,
+                "pdf_cache_path": str(pdf_path),
+                "status": "pending",
+                "attempts": existing.get("attempts", 0) + 1,
+                "error": None,
+                "fetched_at": None,
+                "file_size": 0,
+            }
+
+            pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+            _logger.info("prefetch: downloading %s from %s", cid, pdf_url)
+
+            try:
+                pdf_bytes = http_fn(pdf_url, 60, {})
+                if len(pdf_bytes) < _PDF_MIN_BYTES:
+                    raise ValueError(
+                        f"downloaded PDF too small ({len(pdf_bytes)} bytes) — "
+                        "may be an HTML error page"
+                    )
+
+                pdf_path.write_bytes(pdf_bytes)
+                file_size = len(pdf_bytes)
+
+                manifest_rec["status"] = "cached"
+                manifest_rec["fetched_at"] = _now_iso()
+                manifest_rec["file_size"] = file_size
+
+                # Update queue record with local pdf_url so warm-process skips arXiv
+                for r in records:
+                    if r.get("candidate_id") == cid:
+                        r["pdf_url"] = str(pdf_path)
+                        r["updated_at"] = _now_iso()
+                        queue_dirty = True
+                        break
+
+                summary["cached"].append(
+                    {
+                        "candidate_id": cid,
+                        "pdf_cache_path": str(pdf_path),
+                        "file_size": file_size,
+                    }
+                )
+                _logger.info("prefetch: %s cached (%d bytes)", cid, file_size)
+
+            except Exception as exc:
+                err_msg = str(exc)[:300]
+                manifest_rec["status"] = "failed"
+                manifest_rec["error"] = err_msg
+                manifest_rec["fetched_at"] = _now_iso()
+                summary["failed"].append({"candidate_id": cid, "error": err_msg})
+                _logger.warning("prefetch: %s failed: %s", cid, err_msg)
+
+            # Persist manifest after every item (resumability on interrupt)
+            manifest[cid] = manifest_rec
+            self._write_prefetch_manifest(manifest)
+
+            # Conservative delay between downloads (skip after last item)
+            if idx < len(pending) - 1:
+                _logger.info("prefetch: sleeping %.1fs before next download", delay_seconds)
+                _time.sleep(delay_seconds)
+
+        if queue_dirty:
+            self._write_queue(records)
+
+        return summary
+
+    # ------------------------------------------------------------------
+    # Status report
+    # ------------------------------------------------------------------
+
+    def get_status_report(self) -> dict:
+        """Return a structured queue status report with stuck-item detection.
+
+        'processing' items are likely stuck when no warm-process is active.
+        Operators should reset them with ``enqueue --force``.
+
+        Returns
+        -------
+        dict with keys:
+            counts: {pending, processing, done, failed, total}
+            processing_items: list[str]  candidate_ids currently in processing state
+            stuck_warning: bool  True when any processing items exist
+            failed_details: list[{candidate_id, failure_reason, attempts}]
+            pending_ids: list[str]
+            done_ids: list[str]
+            prefetch_stats: {cached, failed, total_manifest_entries}
+        """
+        records = self._read_queue()
+        counts = self.get_counts()
+        best_results = self._read_best_results()
+        manifest = self._read_prefetch_manifest()
+
+        pending_items = [r for r in records if r.get("status") == "pending"]
+        done_items = [r for r in records if r.get("status") == "done"]
+        failed_items = [r for r in records if r.get("status") == "failed"]
+        processing_items = [r for r in records if r.get("status") == "processing"]
+
+        failed_details = []
+        for r in failed_items:
+            cid = r.get("candidate_id", "")
+            result = best_results.get(cid, {})
+            failed_details.append(
+                {
+                    "candidate_id": cid,
+                    "failure_reason": result.get("failure_reason", "unknown"),
+                    "attempts": r.get("attempts", 0),
+                }
+            )
+
+        prefetch_stats = {
+            "cached": sum(1 for m in manifest.values() if m.get("status") == "cached"),
+            "failed": sum(1 for m in manifest.values() if m.get("status") == "failed"),
+            "total_manifest_entries": len(manifest),
+        }
+
+        return {
+            "counts": counts,
+            "processing_items": [r.get("candidate_id") for r in processing_items],
+            "stuck_warning": len(processing_items) > 0,
+            "failed_details": failed_details,
+            "pending_ids": [r.get("candidate_id") for r in pending_items],
+            "done_ids": [r.get("candidate_id") for r in done_items],
+            "prefetch_stats": prefetch_stats,
+        }
+
     def _read_best_results(self) -> dict[str, dict]:
         """Return the most-recent result record per candidate_id from results.jsonl.
 
@@ -727,7 +1002,25 @@ class MarkerParseQueue:
         raw: dict = {}
         try:
             pdf_url = item.get("pdf_url", "")
+            use_direct = False
             if pdf_url and hasattr(fetcher, "fetch_pdf_direct"):
+                is_local = not (
+                    pdf_url.startswith("http://") or pdf_url.startswith("https://")
+                )
+                if is_local:
+                    if Path(pdf_url).exists():
+                        use_direct = True
+                    else:
+                        _logger.warning(
+                            "marker_queue: cached PDF missing at %r for %s; "
+                            "falling back to live arXiv fetch",
+                            pdf_url,
+                            cid,
+                        )
+                else:
+                    use_direct = True  # HTTP url — always attempt
+
+            if use_direct:
                 raw = fetcher.fetch_pdf_direct(pdf_url, title=item.get("title", ""))
             else:
                 raw = fetcher.fetch(source_url)

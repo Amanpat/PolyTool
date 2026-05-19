@@ -299,6 +299,170 @@ def _cmd_index_done(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _cmd_prefetch(args: argparse.Namespace) -> int:
+    """Download PDFs for pending queue items to local cache before warm-process."""
+    from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+    queue_dir = Path(args.queue_dir) if args.queue_dir else None
+    q = MarkerParseQueue(queue_dir=queue_dir)
+
+    counts = q.get_counts()
+    pending = counts.get("pending", 0)
+
+    if pending == 0:
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "cached": [],
+                        "skipped_already_cached": [],
+                        "failed": [],
+                        "total": 0,
+                        "message": "no pending items",
+                    }
+                )
+            )
+        else:
+            print("No pending items to prefetch.")
+        return 0
+
+    max_items: Optional[int] = args.max_items  # None = all
+    delay_seconds: float = args.delay_seconds
+    effective = min(max_items, pending) if max_items is not None else pending
+
+    if not args.json:
+        print(f"Prefetching PDFs for up to {effective} pending item(s)")
+        print(f"  delay between downloads: {delay_seconds}s")
+        cache_note = (
+            str(q.queue_dir / "pdf_cache")
+            if not args.queue_dir
+            else str(Path(args.queue_dir) / "pdf_cache")
+        )
+        print(f"  cache dir: {cache_note}")
+        print()
+
+    try:
+        result = q.prefetch_pdfs(
+            max_items=max_items,
+            delay_seconds=delay_seconds,
+        )
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc), "exit_code": 1}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+
+    cached = result.get("cached", [])
+    skipped = result.get("skipped_already_cached", [])
+    failed = result.get("failed", [])
+
+    for item in cached:
+        size_kb = item.get("file_size", 0) // 1024
+        print(f"  [OK]   {item['candidate_id']}  ({size_kb} KB)")
+    for cid in skipped:
+        print(f"  [skip] {cid}  already cached")
+    for item in failed:
+        print(f"  [FAIL] {item['candidate_id']}  {item.get('error', '')[:80]}")
+
+    print()
+    print(
+        f"Prefetch complete: {len(cached)} downloaded, "
+        f"{len(skipped)} already cached, {len(failed)} failed "
+        f"(total pending considered: {result.get('total', 0)})"
+    )
+    if failed:
+        print(
+            "Tip: re-run prefetch to retry failed items. "
+            "Failed items still go through live arXiv fetch during warm-process."
+        )
+    return 0
+
+
+def _cmd_status_report(args: argparse.Namespace) -> int:
+    """Print a structured status report for the queue with stuck-item detection."""
+    from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+    queue_dir = Path(args.queue_dir) if args.queue_dir else None
+    q = MarkerParseQueue(queue_dir=queue_dir)
+
+    try:
+        report = q.get_status_report()
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc), "exit_code": 1}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+
+    counts = report.get("counts", {})
+    print("Marker Queue Status Report")
+    print("=" * 40)
+    print(f"  pending:    {counts.get('pending', 0)}")
+    print(f"  processing: {counts.get('processing', 0)}", end="")
+    if report.get("stuck_warning"):
+        print("  <-- likely stuck; no active warm-process")
+    else:
+        print()
+    print(f"  done:       {counts.get('done', 0)}")
+    print(f"  failed:     {counts.get('failed', 0)}")
+    print(f"  total:      {counts.get('total', 0)}")
+
+    ps = report.get("prefetch_stats", {})
+    if ps.get("total_manifest_entries", 0) > 0:
+        print(
+            f"\nPrefetch cache: {ps.get('cached', 0)} cached, "
+            f"{ps.get('failed', 0)} failed "
+            f"({ps.get('total_manifest_entries', 0)} total entries in manifest)"
+        )
+
+    processing_items = report.get("processing_items", [])
+    if processing_items:
+        print("\nStuck/processing items (reset with --force):")
+        queue_dir_arg = f"--queue-dir {args.queue_dir} " if args.queue_dir else ""
+        for cid in processing_items:
+            arxiv_id = cid.replace("arxiv:", "")
+            print(f"  {cid}")
+            print(
+                f"    -> python -m polytool research-marker-queue "
+                f"{queue_dir_arg}enqueue --url {arxiv_id} --force"
+            )
+
+    failed_details = report.get("failed_details", [])
+    if failed_details:
+        print(f"\nFailed items ({len(failed_details)} — all retries exhausted):")
+        for item in failed_details:
+            reason = (item.get("failure_reason") or "unknown")[:80]
+            print(
+                f"  {item.get('candidate_id', '?')}  "
+                f"[{item.get('attempts', 0)} attempts]  {reason}"
+            )
+        print(
+            "\nTip: run `prefetch` before `warm-process` to avoid arXiv rate-limit failures."
+        )
+        print(
+            "     Then re-enqueue failed items with --force when ready to retry."
+        )
+
+    pending_ids = report.get("pending_ids", [])
+    if pending_ids:
+        print(f"\nPending ({len(pending_ids)} items):")
+        for cid in pending_ids[:10]:
+            print(f"  {cid}")
+        if len(pending_ids) > 10:
+            print(f"  ... and {len(pending_ids) - 10} more")
+
+    return 0
+
+
 def _cmd_counts(args: argparse.Namespace) -> int:
     from packages.research.ingestion.marker_queue import MarkerParseQueue
 
@@ -517,6 +681,59 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output counts as JSON",
     )
 
+    # prefetch
+    p_prefetch = subparsers.add_parser(
+        "prefetch",
+        help=(
+            "Pre-download PDFs for pending queue items to a local cache. "
+            "Run this BEFORE warm-process to separate arXiv PDF fetching from "
+            "GPU Marker parsing. Warm-process then reads local files and makes "
+            "no arXiv network calls during the parse phase. "
+            "Idempotent: already-cached PDFs are skipped."
+        ),
+    )
+    p_prefetch.add_argument(
+        "--max-items",
+        type=int,
+        default=None,
+        dest="max_items",
+        metavar="N",
+        help="Max pending items to prefetch (default: all pending)",
+    )
+    p_prefetch.add_argument(
+        "--delay-seconds",
+        type=float,
+        default=10.0,
+        dest="delay_seconds",
+        metavar="SECONDS",
+        help=(
+            "Seconds to sleep between successive PDF downloads (default: 10.0). "
+            "Keep >= 5s to avoid arXiv rate limits under sustained load."
+        ),
+    )
+    p_prefetch.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output result as JSON",
+    )
+
+    # status-report
+    p_status = subparsers.add_parser(
+        "status-report",
+        help=(
+            "Print a structured status report: counts, stuck items (processing "
+            "with no active worker), failed-item failure reasons, and prefetch "
+            "cache stats."
+        ),
+    )
+    p_status.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output report as JSON",
+    )
+
     return parser
 
 
@@ -549,6 +766,10 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_index_done(args)
     elif args.subcommand == "counts":
         return _cmd_counts(args)
+    elif args.subcommand == "prefetch":
+        return _cmd_prefetch(args)
+    elif args.subcommand == "status-report":
+        return _cmd_status_report(args)
     else:
         print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
         return 1

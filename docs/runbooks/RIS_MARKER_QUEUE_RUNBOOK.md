@@ -1,9 +1,10 @@
 # RIS Marker Parse Queue — L1 Operator Runbook
 
-**Status:** Production-ready as of 2026-05-09 (L1 Marker Production Readiness Rollout complete)
+**Status:** L1 pipeline production-ready as of 2026-05-09. WP-1 prefetch separation shipped 2026-05-19 — `prefetch` and `status-report` subcommands are live.
 **Track:** Research Intelligence System — Layer 1
 **Feature doc:** `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`
 **IPC warm-worker doc:** `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`
+**Operational triage:** `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`
 
 ---
 
@@ -23,7 +24,9 @@ L3 Relevance Filter (scored inline by research-harvest)
 Operator label (research-prefetch-review list / label)
   └─ allow → enqueue to Marker queue
        ↓
-L1 Marker Parse (research-marker-queue enqueue + warm-process)
+L1 Marker Parse (research-marker-queue enqueue + prefetch + warm-process)
+  └─ prefetch: downloads PDFs to local cache before GPU parse (WP-1)
+  └─ warm-process reads from cache — no live arXiv calls during parse
   └─ body_source=marker, body_length>=5000 → RAG-ready
   └─ body text + metadata persisted to bodies/{candidate_id}.body.txt/.meta.json
   └─ marker_failed / short → rejected (retryable)
@@ -36,10 +39,14 @@ L2 Query (research-query --question "...")
   └─ multi-angle KS query over Marker-ready academic corpus
 ```
 
-### Quick start (full pipeline)
+### Quick start (full pipeline — WP-1 prefetch path)
+
+> **Recommended path for batches of 5+ papers.** The `prefetch` command (Step 3b)
+> requires WP-1 to ship. For 1–3 papers on a reliable connection, the pre-WP-1 path
+> (enqueue → warm-process directly) still works — see [Operator Path](#operator-path-end-to-end) below.
 
 ```bash
-# Step 1 — Discover candidates (L4, no PDF, no Marker)
+# Step 1 — Discover candidates (L4, metadata only — no PDF yet)
 python -m polytool research-harvest \
   --search "prediction markets microstructure" \
   --source all --max-results 10
@@ -48,17 +55,29 @@ python -m polytool research-harvest \
 python -m polytool research-prefetch-review list
 python -m polytool research-prefetch-review label --id CANDIDATE_ID --label allow
 
-# Step 3 — Enqueue allowed papers to Marker queue (L1)
+# Step 3 — Enqueue allowed papers to Marker queue
 python -m polytool research-marker-queue enqueue --url ARXIV_ID
 
-# Step 4 — Parse (inside Docker/GPU container)
-python -m polytool research-marker-queue warm-process --max-items 5
+# Step 3b — Prefetch PDFs to local disk before starting GPU parse  [WP-1]
+#            Do this on the Windows host, outside Docker. Safe to retry.
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --max-items 10 \
+  --delay-seconds 5
 
-# Step 4b — Index completed papers AND extract claims (L2 handoff)
-#           Claims are extracted automatically; no separate step needed.
-python -m polytool research-marker-queue index-done
+# Step 4 — Parse cached PDFs (inside Docker/GPU container)
+#           warm-process reads from local cache; no live arXiv calls.
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+  python -m polytool research-marker-queue warm-process \
+  --max-items 10 \
+  --marker-timeout 900
 
-# Step 5 — Query the Marker-ready corpus (L2)
+# Step 4b — Index completed papers AND extract claims (run INSIDE Docker)
+docker exec polytool-ris-scheduler-gpu sh -c \
+  "cd /app && python -m polytool research-marker-queue \
+   --queue-dir /app/artifacts/research/marker_parse_queue index-done"
+
+# Step 5 — Query the Marker-ready corpus
 python -m polytool research-query --question "optimal spread in prediction markets"
 ```
 
@@ -80,6 +99,418 @@ production path.
 
 ---
 
+## Prefetch then Parse (WP-1 Workflow)
+
+### Why this exists
+
+The previous workflow fetched each paper's PDF from arXiv **during** the GPU parse session.
+This caused two problems in production:
+
+1. **arXiv rate limiting (HTTP 429):** Once GPU parsing warms up, papers complete in 40–60
+   seconds each. Multiple consecutive papers then hit arXiv's download endpoint in rapid
+   succession. The built-in retry backoff (5 s / 15 s / 45 s) is not long enough for
+   arXiv's rate-limit reset window under load. In the 29-paper Batch 2 run, 5 of the
+   first 10 papers failed on fetch alone — not on parsing.
+
+2. **Fetch failure aborts a paper that could parse fine:** A network timeout during
+   download marks the paper `failed` and counts against its 3 retry attempts. The GPU is
+   idle while this happens.
+
+The fix is to separate fetch from parse:
+- **Prefetch** runs on the Windows host, outside Docker, before the GPU session starts.
+  It downloads PDFs to a local cache with controlled spacing between requests.
+- **warm-process** then reads only from local cache — no live arXiv calls during the
+  GPU session.
+
+The GPU is fully occupied parsing. Network errors cannot abort a parse run.
+
+---
+
+### Step-by-step: Prefetch then Parse
+
+#### Before you start — check prerequisites
+
+```bash
+# 1. Confirm Docker Desktop is running and GPU passthrough works
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi
+# Expected: GPU listed, VRAM shown (e.g. 8192 MiB). If this fails, see Prerequisites below.
+
+# 2. Check queue status — how many papers are pending?
+python -m polytool research-marker-queue counts
+# Expected output example:
+#   pending:    10
+#   done:        4
+#   failed:      1
+#   processing:  0
+```
+
+#### Step 1 — Enqueue papers
+
+If you have not already enqueued papers (e.g. after `research-harvest` and labeling), do so now:
+
+```bash
+# Single paper by arXiv ID
+python -m polytool research-marker-queue enqueue --url 2604.24366
+
+# Multiple papers — run once per arXiv ID
+python -m polytool research-marker-queue enqueue --url 2604.24366
+python -m polytool research-marker-queue enqueue --url 2109.07581
+python -m polytool research-marker-queue enqueue --url 1910.08858
+```
+
+Output per paper: `Enqueued: arxiv:2604.24366  (status=pending)`
+
+#### Step 2 — Prefetch PDFs to local cache  [requires WP-1]
+
+> **Run this on the Windows host, outside Docker.** Prefetch only downloads files — it
+> does not use the GPU and does not require the Docker container to be running.
+
+```bash
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --max-items 10 \
+  --delay-seconds 5
+```
+
+- `--max-items N` — how many pending papers to prefetch (default: all pending)
+- `--delay-seconds S` — seconds to wait between each download (default: 5). Use 10–15
+  for large batches to stay within arXiv's rate limits.
+- `--queue-dir PATH` — path to your queue directory (required if not using the default)
+
+**Expected output (per paper):**
+```
+[PREFETCH OK] arxiv:2604.24366  cached to bodies/arxiv:2604.24366.pdf  (1.4 MB)
+[PREFETCH OK] arxiv:2109.07581  cached to bodies/arxiv:2109.07581.pdf  (2.1 MB)
+```
+
+**Expected output if already cached:**
+```
+[PREFETCH SKIP] arxiv:2604.24366  already cached — skipping
+```
+
+**What to check before moving on:**
+
+```bash
+# View the queue status — shows cached count, stuck items, and failed details
+python -m polytool research-marker-queue --queue-dir artifacts/research/marker_parse_queue status-report
+```
+
+Expected: `prefetch_stats.cached` equals the number of papers you intend to parse.
+Papers missing from the cache appear as pending with no `pdf_url`; re-run prefetch.
+
+#### Step 3 — Start the GPU container
+
+```bash
+# Verify Docker is running
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi
+```
+
+If the container is already running from a previous session, you can use `docker exec`
+instead of `run --rm` in the next step.
+
+#### Step 4 — Parse cached PDFs (inside Docker)
+
+> **This step MUST run inside the Docker/GPU container.** Do not run warm-process on the
+> Windows host — GPU Marker runs on Linux only and requires the container environment.
+
+```bash
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+  python -m polytool research-marker-queue warm-process \
+  --max-items 10 \
+  --marker-timeout 900
+```
+
+- `--max-items N` — process up to N papers in one session. Start with 5 to verify before
+  committing to a long run.
+- `--marker-timeout SECONDS` — per-paper timeout. 900 s (15 min) works for most papers.
+  Use 3600 s for known equation-heavy papers. See Troubleshooting for timeout failures.
+
+**Expected output (per paper):**
+```
+[PASS] arxiv:2604.24366
+       body_source:          marker
+       body_length:          56,923 chars
+       parse_seconds:        45.6s
+       queue_status:         done  marker_ready=True
+       ipc_warm_worker_used: True
+```
+
+**What to watch for:**
+
+| Output | Meaning |
+|--------|---------|
+| `[PASS] ... marker_ready=True` | Paper parsed successfully. Proceed. |
+| `[FAIL] ... failure_reason: fetch_failed` | PDF was not cached; warm-process tried live fetch and failed. Run prefetch again for this paper. |
+| `[FAIL] ... failure_reason: marker_timeout` | Paper exceeded the timeout. See Troubleshooting. |
+| `[FAIL] ... failure_reason: marker_failed` | Marker could not extract text (image-only PDF, corruption). Paper is not RAG-eligible. |
+
+**Performance expectations:**
+
+| Scenario | Expected time |
+|----------|--------------|
+| Paper 1 in session (cold model load) | 72–97 s total |
+| Papers 2+ (warm GPU models) | 45–70 s each |
+| Equation-heavy paper (25–46 pages) | 40–49 min warm (JIT recompile for new format group) |
+
+The first paper in a new GPU session pays a one-time 27 s model-load overhead.
+Papers in the same "format group" (similar layout) share JIT-compiled kernels and
+run much faster after the first of that group.
+
+#### Step 5 — Check parse results
+
+```bash
+# Summary counts
+python -m polytool research-marker-queue counts
+
+# Detailed list of done papers
+python -m polytool research-marker-queue list --status done
+
+# Detailed list of failures (inspect failure_reason)
+python -m polytool research-marker-queue list --status failed
+```
+
+#### Step 6 — Index papers and extract claims (inside Docker)
+
+> **MUST run inside Docker on Windows.** arXiv candidate IDs contain colons
+> (`arxiv:1106.5040`). Windows NTFS treats `:` as an Alternate Data Stream separator
+> and cannot open these filenames. Running `index-done` from the Windows host reports
+> "body file missing" for every paper. Always use the `docker exec` form below.
+
+```bash
+docker exec polytool-ris-scheduler-gpu sh -c \
+  "cd /app && python -m polytool research-marker-queue \
+   --queue-dir /app/artifacts/research/marker_parse_queue index-done"
+```
+
+Replace `marker_parse_queue` with your actual queue directory name if using `--queue-dir`.
+
+**Expected output (per paper):**
+```
+Indexed 1 paper(s):
+  [OK] arxiv:2604.24366  doc_id=abc123...  chunks=47  claims=38
+Total: 1 done item(s) examined — 1 indexed, 0 already-indexed, 0 no-body, 0 failed, 38 claim(s) extracted.
+```
+
+`index-done` is idempotent — running it twice skips already-indexed papers.
+
+#### Step 7 — Query the indexed corpus
+
+```bash
+python -m polytool research-query --question "optimal spread in prediction markets"
+python -m polytool research-query --question "sports betting inefficiencies" --step-back --k 10
+```
+
+A successful query returns citations with `had_fallback=False` and lists papers by title
+with matching claim snippets. If `had_fallback=True`, see the No-result cases table in
+the [Querying section](#querying-the-academic-corpus-l2--research-query) below.
+
+---
+
+### Troubleshooting (WP-1 Prefetch Path)
+
+#### arXiv 429 / timeout during prefetch
+
+**Symptom:** `[PREFETCH FAIL] arxiv:XXXX  HTTP 429 — rate limited` or connection timeout.
+
+**Cause:** Too many requests too quickly.
+
+**Fix:**
+```bash
+# Re-run prefetch with a longer delay
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --delay-seconds 15
+```
+
+Prefetch is safe to re-run — already-cached papers are skipped automatically.
+If a single paper keeps failing, check whether the arXiv ID is correct:
+```bash
+# Verify the paper exists on arXiv
+python -m polytool research-marker-queue list --status pending
+# Check the arxiv_id field matches what you expect
+```
+
+#### Cached PDF is missing or zero-byte
+
+**Symptom:** warm-process reports `fetch_failed` even though you ran prefetch, or
+`[PREFETCH OK]` showed 0 bytes.
+
+**Check:**
+```bash
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue --status
+# Look for cached=False or size=0 entries
+```
+
+**Fix:** Re-run prefetch for the affected papers:
+```bash
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --delay-seconds 15
+```
+
+If the PDF is consistently 0 bytes, the arXiv paper may be HTML-only (no PDF) or
+access-restricted. Mark it as manually skipped.
+
+#### Docker not running
+
+**Symptom:** `docker: Cannot connect to the Docker daemon` or container not found.
+
+**Fix:**
+1. Open Docker Desktop and wait for it to show "Engine running."
+2. Re-run the nvidia-smi check:
+   ```bash
+   docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi
+   ```
+3. If GPU is not listed, check that Docker Desktop has GPU passthrough enabled:
+   Settings → Resources → GPU → enable the toggle.
+
+#### index-done run on Windows host instead of inside container
+
+**Symptom:** `index-done` reports all papers as `no-body` even though warm-process
+succeeded and `results.jsonl` shows `marker_ready=True`.
+
+**Cause:** Windows NTFS cannot open filenames that contain colons. arXiv candidate IDs
+like `arxiv:1106.5040` contain a colon. The body files exist on disk but the Windows
+Python process cannot read them.
+
+**Fix:** Always run `index-done` via docker exec:
+```bash
+docker exec polytool-ris-scheduler-gpu sh -c \
+  "cd /app && python -m polytool research-marker-queue \
+   --queue-dir /app/artifacts/research/QUEUE_DIR_NAME index-done"
+```
+
+Replace `QUEUE_DIR_NAME` with the name of your queue directory (e.g. `marker_parse_queue`).
+
+This was confirmed in the 2026-05-17 smoke test: host-side run reported 4 no-body
+failures; container-side run indexed all 4 papers cleanly.
+
+#### Marker timeout on one paper
+
+**Symptom:** `[FAIL] arxiv:XXXX  failure_reason: marker_timeout`
+
+**Cause:** The paper exceeded `--marker-timeout`. This is common for equation-heavy or
+table-dense papers (e.g. NYSE TAQ empirical papers with thousands of embedded table cells).
+
+**Options:**
+
+1. **Retry with a longer timeout** (try 3600 s or 7200 s):
+   ```bash
+   # Reset the paper to pending
+   python -m polytool research-marker-queue enqueue --url ARXIV_ID --force
+
+   # Re-run with a longer timeout
+   docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+     python -m polytool research-marker-queue warm-process \
+     --max-items 1 \
+     --marker-timeout 7200
+   ```
+
+2. **Skip the paper** if it consistently times out (likely a scanned/image PDF):
+   Leave it as `failed` in the queue. It will not block indexing of other papers.
+   `index-done` skips `failed` papers automatically.
+
+3. **Investigate the paper format** before spending GPU time:
+   Download the PDF manually and check whether it contains selectable text. If it is
+   a scanned-only PDF, Marker cannot extract text regardless of timeout.
+
+#### Interrupted run / resuming after session kill
+
+**Symptom:** The Docker container stopped mid-run. Some papers are `done`, some are
+`failed`, one may be stuck in `processing`.
+
+**Fix (3 steps):**
+
+```bash
+# 1. Reset any paper stuck in 'processing' (worker was killed mid-parse)
+python -m polytool research-marker-queue enqueue \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --url STUCK_ARXIV_ID --force
+# Output: Enqueued: arxiv:XXXX  (status=pending)
+
+# 2. Check which papers are still pending
+python -m polytool research-marker-queue counts
+
+# 3. Re-run prefetch to make sure all pending papers are still cached
+#    (Docker volumes are persistent across restarts, but verify)
+python -m polytool research-marker-queue prefetch \
+  --queue-dir artifacts/research/marker_parse_queue \
+  --status
+
+# 4. Re-run warm-process — already-done papers are skipped automatically
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+  python -m polytool research-marker-queue warm-process \
+  --max-items 30 \
+  --marker-timeout 900
+```
+
+The queue is resumable by design: `warm-process` only picks up `pending` items.
+`done` and `failed` papers are not re-processed unless you `--force` re-enqueue them.
+
+The in-session JIT cache (TorchInductor/Triton compiled kernels) is **not** persistent
+across Docker sessions. After a restart, the first paper in each format group will re-pay
+the full JIT cold-start cost (27 s per paper + OCR compile time for equation-heavy papers).
+
+---
+
+### 5-Paper End-to-End Validation Checklist
+
+Run this checklist on a fresh queue of 5 arXiv papers before doing a large batch.
+All 5 steps must pass before the corpus is considered minimally validated.
+
+**Setup:** Create an isolated test queue:
+```bash
+# Use a separate queue dir so you don't mix with your main corpus
+mkdir -p artifacts/research/test_5paper_queue
+# Enqueue 5 papers of different types
+python -m polytool research-marker-queue --queue-dir artifacts/research/test_5paper_queue enqueue --url 2604.24366
+python -m polytool research-marker-queue --queue-dir artifacts/research/test_5paper_queue enqueue --url 2109.07581
+python -m polytool research-marker-queue --queue-dir artifacts/research/test_5paper_queue enqueue --url 1910.08858
+python -m polytool research-marker-queue --queue-dir artifacts/research/test_5paper_queue enqueue --url 2307.14129
+python -m polytool research-marker-queue --queue-dir artifacts/research/test_5paper_queue enqueue --url 1705.01446
+```
+
+**Checklist:**
+
+| # | Check | Expected result | Command |
+|---|-------|-----------------|---------|
+| 1 | Prefetch completes without 429 errors | 5 `[PREFETCH OK]` lines, 0 failures | `research-marker-queue prefetch --queue-dir ... --delay-seconds 5` |
+| 2 | All 5 PDFs cached and non-zero | `prefetch_stats.cached=5` | `research-marker-queue --queue-dir ... status-report` |
+| 3 | warm-process: 5 done, 0 failed, 0 stuck | Queue shows `done: 5` | `research-marker-queue counts --queue-dir ...` |
+| 4 | All 5 papers `marker_ready=True` | `body_source=marker`, `body_length>=5000` for all | `research-marker-queue list --status done --queue-dir ...` |
+| 5 | index-done (in Docker) indexes all 5 | `5 indexed, 0 no-body, 0 failed` | `docker exec ... research-marker-queue --queue-dir ... index-done` |
+| 6 | research-query returns citations | `had_fallback=False` with ≥1 citation | `research-query --question "prediction markets"` |
+
+If any check fails, consult the Troubleshooting section above before running a full batch.
+
+---
+
+### Corpus Status (as of 2026-05-18)
+
+**The 29-paper scaled validation corpus is paused. Do not run the full batch yet.**
+
+Current state of `artifacts/research/scaled_validation_queue_v2`:
+
+| Status | Count | Notes |
+|--------|-------|-------|
+| done | 5 | All equation-heavy arXiv papers; `marker_ready=True` for all |
+| failed | 5 | Fetch failures (HTTP 429 / timeout) during Batch 2 — root cause: arXiv rate limiting |
+| processing | 1 | arxiv:1011.6402 — stuck after session kill; needs `--force` reset before rerun |
+| pending | 18 | Table-heavy, prose/survey, outlier papers — never reached |
+
+**Why paused:** The rate-limit root cause (papers failing fetch during GPU parse) cannot be
+fixed by retrying. The correct fix is the WP-1 prefetch separation. Once WP-1 ships and
+the `prefetch` command is available, the full 29-paper rerun can proceed. See
+`docs/dev_logs/2026-05-18_academic-ris-operational-triage.md` for full analysis.
+
+**Do not:**
+- Run `warm-process` on the 29-paper queue without prefetching first.
+- Reset failed papers until WP-1 is confirmed shipped and tested.
+- Treat the 5/29 done count as a representative corpus sample.
+
+---
+
 ## Prerequisites
 
 - Docker Desktop with GPU passthrough enabled on the dev machine
@@ -95,6 +526,10 @@ docker compose --profile ris-gpu run --rm ris-scheduler-gpu nvidia-smi
 ---
 
 ## Operator Path (end-to-end)
+
+> **Pre-WP-1 / small-batch path.** Use this for 1–3 papers on a reliable connection
+> where arXiv rate limiting is not a concern. For larger batches (5+ papers), use the
+> [Prefetch then Parse](#prefetch-then-parse-wp-1-workflow) section above instead.
 
 ### Step 1 — Enqueue one or more arXiv papers
 
