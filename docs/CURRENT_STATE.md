@@ -2032,3 +2032,29 @@ eq-heavy parse quality confirmed: 67K–149K chars per paper, all marker_ready=T
 **Batch 1 record:** `docs/dev_logs/2026-05-16_academic-scaled-validation-execution.md`
 **Batch 2 start record:** `docs/dev_logs/2026-05-17_academic-scaled-validation-batch2-rerun.md`
 **Operational triage memo:** `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`
+
+### WP-1 PDF Prefetch Separation — CLOSED 2026-05-22
+
+**Status: COMPLETE — WP-1 PASSES**
+
+WP-1 separates arXiv PDF download (prefetch phase) from GPU parse (warm-process).
+Implementation shipped 2026-05-19. A cross-platform POSIX path separator bug was
+found and fixed 2026-05-22 (commit 22f9201): `str(pdf_path)` on Windows produces
+backslash paths that Docker/Linux cannot resolve; fixed to `pdf_path.as_posix()`.
+
+**Cached E2E proof (2026-05-22, arxiv:2510.05533):**
+- prefetch: 523 KB PDF cached, POSIX `pdf_url` in queue record
+- warm-process: 16.4s parse, body_len=93,720, `meta.json.url` = local file path
+  (NOT arXiv URL) — proves no arXiv API call during parse
+- index-done: 34 chunks, 167 claims indexed
+- research-query `"language model"`: had_fallback=False, 20 claims, 1 citation
+
+WP-1 core claim verified: *PDFs are prefetched separately; warm-process reads the
+local cached file and does not call the arXiv API.*
+
+**29-paper rerun:** Safe to proceed. Use `--marker-timeout 14400` for eq-heavy papers
+(file_size > 1.5 MB). Prose/survey papers complete in 15–60s at 3600s default.
+
+**Dev logs:** `docs/dev_logs/2026-05-19_academic-prefetch-separation-wp1.md`,
+`docs/dev_logs/2026-05-22_academic-prefetch-wp1-5paper-e2e.md`,
+`docs/dev_logs/2026-05-22_academic-prefetch-wp1-cached-e2e-closeout.md`
