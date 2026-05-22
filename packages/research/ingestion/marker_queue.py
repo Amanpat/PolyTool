@@ -588,19 +588,20 @@ class MarkerParseQueue:
             pdf_path = self._pdf_cache_path(cid)
             existing = manifest.get(cid, {})
 
-            # Idempotent: skip if already cached with valid file
+            # Idempotent: skip if already cached with valid file.
+            # Always (re)write pdf_url as POSIX so Docker/Linux can resolve it
+            # even when prefetch ran on Windows.
             if (
                 existing.get("status") == "cached"
                 and pdf_path.exists()
                 and pdf_path.stat().st_size >= _PDF_MIN_BYTES
             ):
-                if not item.get("pdf_url"):
-                    for r in records:
-                        if r.get("candidate_id") == cid:
-                            r["pdf_url"] = str(pdf_path)
-                            r["updated_at"] = _now_iso()
-                            queue_dirty = True
-                            break
+                for r in records:
+                    if r.get("candidate_id") == cid:
+                        r["pdf_url"] = pdf_path.as_posix()
+                        r["updated_at"] = _now_iso()
+                        queue_dirty = True
+                        break
                 summary["skipped_already_cached"].append(cid)
                 _logger.info(
                     "prefetch: %s already cached (%d bytes), skipping",
@@ -639,10 +640,12 @@ class MarkerParseQueue:
                 manifest_rec["fetched_at"] = _now_iso()
                 manifest_rec["file_size"] = file_size
 
-                # Update queue record with local pdf_url so warm-process skips arXiv
+                # Update queue record with local pdf_url so warm-process skips arXiv.
+                # Use POSIX forward-slash path so the path is valid inside Docker
+                # (Linux) even when prefetch ran on Windows.
                 for r in records:
                     if r.get("candidate_id") == cid:
-                        r["pdf_url"] = str(pdf_path)
+                        r["pdf_url"] = pdf_path.as_posix()
                         r["updated_at"] = _now_iso()
                         queue_dirty = True
                         break

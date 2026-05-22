@@ -337,9 +337,9 @@ python -m polytool research-marker-queue list --status pending
 
 **Check:**
 ```bash
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue --status
-# Look for cached=False or size=0 entries
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue status-report
+# Look for prefetch cached/failed counts and failed-item details
 ```
 
 **Fix:** Re-run prefetch for the affected papers:
@@ -436,7 +436,10 @@ python -m polytool research-marker-queue counts
 #    (Docker volumes are persistent across restarts, but verify)
 python -m polytool research-marker-queue prefetch \
   --queue-dir artifacts/research/marker_parse_queue \
-  --status
+  --delay-seconds 5
+
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue status-report
 
 # 4. Re-run warm-process — already-done papers are skipped automatically
 docker compose --profile ris-gpu run --rm ris-scheduler-gpu \

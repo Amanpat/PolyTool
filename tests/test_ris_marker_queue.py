@@ -27,6 +27,9 @@ from unittest.mock import MagicMock
 import pytest
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1090,6 +1093,250 @@ class TestCLIWarmProcess:
         data = json.loads(out)
         assert data["processed"] == []
         assert "ipc_warm_worker_used" in data
+
+
+# ---------------------------------------------------------------------------
+# WP-1 PDF prefetch separation: cache manifest and warm-process routing
+# ---------------------------------------------------------------------------
+
+
+def _fake_pdf_bytes(size: int = 1500) -> bytes:
+    return b"%PDF-1.4\n" + (b"0" * size)
+
+
+def _read_prefetch_manifest(queue_dir: Path) -> dict[str, dict]:
+    manifest_path = queue_dir / "pdf_cache" / "manifest.jsonl"
+    assert manifest_path.exists(), "prefetch manifest must be written"
+    records: dict[str, dict] = {}
+    with open(manifest_path, encoding="utf-8") as f:
+        for line in f:
+            rec = json.loads(line)
+            records[rec["candidate_id"]] = rec
+    return records
+
+
+class _NoArxivFetchDirectFetcher:
+    """Fetcher that fails the test if warm-process falls back to live arXiv fetch."""
+
+    def __init__(self, direct_raw: dict) -> None:
+        self._direct_raw = direct_raw
+        self.fetch_called = 0
+        self.fetch_pdf_direct_called = 0
+        self.last_direct_url = ""
+
+    def fetch(self, url: str) -> dict:
+        self.fetch_called += 1
+        raise AssertionError(f"live arXiv fetch must not be called: {url}")
+
+    def fetch_pdf_direct(self, url_or_path: str, title: str = "") -> dict:
+        self.fetch_pdf_direct_called += 1
+        self.last_direct_url = url_or_path
+        result = dict(self._direct_raw)
+        if title and not result.get("title"):
+            result["title"] = title
+        return result
+
+
+class TestPrefetchPdfSeparation:
+    def test_prefetch_writes_manifest_and_updates_queue_pdf_url(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+
+        result = q.prefetch_pdfs(
+            max_items=1,
+            delay_seconds=0,
+            _http_fn=lambda url, timeout, headers: _fake_pdf_bytes(2048),
+        )
+
+        assert result["failed"] == []
+        assert len(result["cached"]) == 1
+        manifest = _read_prefetch_manifest(tmp_path)
+        rec = manifest["arxiv:2604.24366"]
+        assert rec["status"] == "cached"
+        assert rec["attempts"] == 1
+        assert rec["file_size"] >= 1000
+        assert rec["fetched_at"]
+        pdf_path = Path(rec["pdf_cache_path"])
+        assert pdf_path.parent.name == "pdf_cache"
+        assert pdf_path.name == "arxiv-2604.24366.pdf"
+        assert pdf_path.exists()
+
+        queue_rec = q.list_queue()[0]
+        assert queue_rec["status"] == "pending"
+        assert queue_rec["attempts"] == 0
+        assert Path(queue_rec["pdf_url"]) == Path(rec["pdf_cache_path"])
+
+    def test_prefetch_rerun_reuses_valid_cached_pdf_without_refetch(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        calls: list[str] = []
+
+        def http_once(url, timeout, headers):
+            calls.append(url)
+            return _fake_pdf_bytes(2048)
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        first = q.prefetch_pdfs(delay_seconds=0, _http_fn=http_once)
+        assert len(first["cached"]) == 1
+        assert len(calls) == 1
+
+        def fail_if_refetched(url, timeout, headers):
+            raise AssertionError(f"cached PDF should not be refetched: {url}")
+
+        second = q.prefetch_pdfs(delay_seconds=0, _http_fn=fail_if_refetched)
+        assert second["cached"] == []
+        assert second["failed"] == []
+        assert second["skipped_already_cached"] == ["arxiv:2604.24366"]
+        assert len(calls) == 1
+
+        manifest = _read_prefetch_manifest(tmp_path)
+        assert manifest["arxiv:2604.24366"]["attempts"] == 1
+
+    def test_prefetch_failure_records_manifest_error_without_corrupting_queue(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        def failing_http(url, timeout, headers):
+            raise OSError("HTTP 429 rate limited")
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1206.4810")
+        result = q.prefetch_pdfs(delay_seconds=0, _http_fn=failing_http)
+
+        assert result["cached"] == []
+        assert result["failed"][0]["candidate_id"] == "arxiv:1206.4810"
+        assert "HTTP 429" in result["failed"][0]["error"]
+
+        manifest = _read_prefetch_manifest(tmp_path)
+        rec = manifest["arxiv:1206.4810"]
+        assert rec["status"] == "failed"
+        assert rec["attempts"] == 1
+        assert "HTTP 429" in rec["error"]
+        assert rec["file_size"] == 0
+        assert rec["fetched_at"]
+
+        queue_rec = q.list_queue()[0]
+        assert queue_rec["status"] == "pending"
+        assert queue_rec["attempts"] == 0
+        assert "pdf_url" not in queue_rec
+
+    def test_status_report_counts_prefetch_manifest_states(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        def selective_http(url, timeout, headers):
+            if "2401.00001" in url:
+                raise TimeoutError("download timeout")
+            return _fake_pdf_bytes(2048)
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.enqueue("2401.00001")
+        q.prefetch_pdfs(delay_seconds=0, _http_fn=selective_http)
+
+        report = q.get_status_report()
+        assert report["counts"]["pending"] == 2
+        assert report["prefetch_stats"] == {
+            "cached": 1,
+            "failed": 1,
+            "total_manifest_entries": 2,
+        }
+
+    def test_warm_process_prefers_cached_local_pdf_and_skips_arxiv_fetch(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        q.prefetch_pdfs(
+            delay_seconds=0,
+            _http_fn=lambda url, timeout, headers: _fake_pdf_bytes(2048),
+        )
+
+        fetcher = _NoArxivFetchDirectFetcher(_marker_raw())
+        results = q.process_next_ipc(max_items=1, _fetcher=fetcher)
+
+        assert len(results) == 1
+        assert results[0]["marker_ready"] is True
+        assert results[0]["queue_status"] == "done"
+        assert fetcher.fetch_pdf_direct_called == 1
+        assert fetcher.fetch_called == 0
+        assert fetcher.last_direct_url.endswith("pdf_cache\\arxiv-2604.24366.pdf") or (
+            fetcher.last_direct_url.endswith("pdf_cache/arxiv-2604.24366.pdf")
+        )
+
+    def test_direct_local_pdf_item_still_works_without_prefetch_manifest(
+        self, tmp_path: Path
+    ) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+
+        local_pdf = tmp_path / "manual.pdf"
+        local_pdf.write_bytes(_fake_pdf_bytes(2048))
+
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("1910.08858", pdf_url=str(local_pdf))
+        fetcher = _NoArxivFetchDirectFetcher(_marker_raw())
+        results = q.process_next(max_items=1, _fetcher=fetcher)
+
+        assert results[0]["marker_ready"] is True
+        assert fetcher.fetch_pdf_direct_called == 1
+        assert fetcher.last_direct_url == str(local_pdf)
+
+
+class TestCLIPrefetchSeparation:
+    def test_prefetch_help_documents_required_operator_options(self) -> None:
+        code, out = _run_cli(["prefetch", "--help"])
+        assert code == 0
+        assert "--max-items" in out
+        assert "--delay-seconds" in out
+        assert "--json" in out
+
+        top_code, top_out = _run_cli(["--help"])
+        assert top_code == 0
+        assert "--queue-dir" in top_out
+        assert "prefetch" in top_out
+        assert "status-report" in top_out
+
+    def test_prefetch_json_cli_is_offline_with_injected_empty_queue(
+        self, tmp_path: Path
+    ) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "prefetch", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert data["message"] == "no pending items"
+        assert data["cached"] == []
+        assert data["failed"] == []
+
+    def test_runbook_mentions_live_prefetch_status_report_contract(self) -> None:
+        runbook = (_REPO_ROOT / "docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md").read_text(
+            encoding="utf-8"
+        )
+        assert "`prefetch` and `status-report` subcommands are live" in runbook
+        code, out = _run_cli(["--help"])
+        assert code == 0
+        assert "prefetch" in out
+        assert "status-report" in out
+
+    def test_runbook_does_not_use_unsupported_prefetch_status_flag(self) -> None:
+        runbook = (_REPO_ROOT / "docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md").read_text(
+            encoding="utf-8"
+        )
+        bad_inline_status = (
+            "prefetch \\\n  --queue-dir artifacts/research/marker_parse_queue --status"
+        )
+        assert bad_inline_status not in runbook
+        assert "prefetch \\\n  --status" not in runbook
+        assert "prefetch --status" not in runbook
 
 
 # ---------------------------------------------------------------------------
