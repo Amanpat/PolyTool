@@ -41,6 +41,7 @@ def _cmd_enqueue(args: argparse.Namespace) -> int:
             title=args.title or "",
             force=args.force,
             pdf_url=getattr(args, "pdf_url", "") or "",
+            ingest_tier=getattr(args, "tier", 2),
         )
     except ValueError as exc:
         if args.json:
@@ -160,7 +161,11 @@ def _cmd_process(args: argparse.Namespace) -> int:
 
 def _cmd_warm_process(args: argparse.Namespace) -> int:
     import sys as _sys
-    from packages.research.ingestion.marker_queue import MarkerParseQueue
+    from packages.research.ingestion.marker_queue import (
+        MarkerParseQueue,
+        auto_timeout_from_file_size,
+        _FILE_SIZE_TIMEOUT_DEFAULT,
+    )
 
     queue_dir = Path(args.queue_dir) if args.queue_dir else None
     q = MarkerParseQueue(queue_dir=queue_dir)
@@ -180,17 +185,80 @@ def _cmd_warm_process(args: argparse.Namespace) -> int:
         return 0
 
     max_items: int = args.max_items
-    marker_timeout: float = args.marker_timeout
+    auto_timeout: bool = getattr(args, "auto_timeout", False)
     platform_note = (
         "Linux/Docker IPC warm-worker" if _sys.platform != "win32"
         else "Windows warm thread"
     )
 
+    if auto_timeout:
+        # Compute recommended timeout from prefetch manifest file sizes.
+        # Uses the MAX across all pending items so the single-batch timeout
+        # is safe for the worst case.
+        # Fails with exit code 1 when any item lacks cached PDF size data
+        # (prefetch not run). Use --allow-uncached to override.
+        manifest = q._read_prefetch_manifest()
+        pending_records = q.list_queue(status_filter="pending")
+        timeouts: list[float] = []
+        uncached_ids: list[str] = []
+        for r in pending_records:
+            cid = r.get("candidate_id", "")
+            m_entry = manifest.get(cid, {})
+            file_size = m_entry.get("file_size", 0) if m_entry.get("status") == "cached" else 0
+            if file_size > 0:
+                timeouts.append(auto_timeout_from_file_size(file_size))
+            else:
+                uncached_ids.append(cid)
+                timeouts.append(_FILE_SIZE_TIMEOUT_DEFAULT)
+
+        allow_uncached = getattr(args, "allow_uncached", False)
+        if uncached_ids and not allow_uncached:
+            err_lines = [
+                f"--auto-timeout: {len(uncached_ids)} pending item(s) lack cached prefetch data.",
+                "Run 'prefetch' first so PDF file sizes are known, then retry.",
+                "Uncached items:",
+            ]
+            for cid in uncached_ids:
+                err_lines.append(f"  {cid}")
+            err_lines.append(
+                f"Use --allow-uncached to proceed anyway "
+                f"(falls back to {_FILE_SIZE_TIMEOUT_DEFAULT:.0f}s for uncached items)."
+            )
+            if args.json:
+                print(json.dumps({
+                    "error": "uncached items found for --auto-timeout",
+                    "uncached_ids": uncached_ids,
+                    "exit_code": 1,
+                }))
+            else:
+                for line in err_lines:
+                    print(line, file=sys.stderr)
+            return 1
+
+        if uncached_ids and not args.json:
+            print(
+                f"WARNING --allow-uncached: {len(uncached_ids)} item(s) have no prefetch data; "
+                f"using {_FILE_SIZE_TIMEOUT_DEFAULT:.0f}s for them.",
+                file=sys.stderr,
+            )
+
+        marker_timeout = max(timeouts) if timeouts else _FILE_SIZE_TIMEOUT_DEFAULT
+        if not args.json:
+            uncached_note = (
+                f" ({len(uncached_ids)} used default timeout)" if uncached_ids else ""
+            )
+            print(
+                f"Auto-timeout: {marker_timeout:.0f}s (max across {len(timeouts)} pending item(s))"
+                f"{uncached_note}"
+            )
+    else:
+        marker_timeout = args.marker_timeout
+
     if not args.json:
         to_process = min(max_items, pending)
         print(
             f"Processing up to {to_process} item(s) via {platform_note} "
-            f"(marker_timeout={marker_timeout}s, MAX_ATTEMPTS=3)"
+            f"(marker_timeout={marker_timeout:.0f}s, MAX_ATTEMPTS=3)"
         )
 
     results = q.process_next_ipc(max_items=max_items, marker_timeout=marker_timeout)
@@ -452,10 +520,52 @@ def _cmd_status_report(args: argparse.Namespace) -> int:
             "     Then re-enqueue failed items with --force when ready to retry."
         )
 
+    # Sidecar / indexed progress
+    sidecar_count = report.get("sidecar_count", 0)
+    indexed_count = report.get("indexed_count", 0)
+    total_done = counts.get("done", 0)
+    print(f"\nPipeline progress:")
+    print(f"  done (warm-process):   {total_done}")
+    print(f"  body sidecars written: {sidecar_count}  (of {total_done} done)")
+    print(f"  indexed into KS:       {indexed_count}  (of {sidecar_count} sidecar(s))")
+
+    # Timeout-risk classification for pending items
+    timeout_risk_items = report.get("timeout_risk_items", [])
+    if timeout_risk_items:
+        tier3 = [i for i in timeout_risk_items if i.get("tier3_flag")]
+        known_risk = [i for i in timeout_risk_items if i.get("is_known_timeout_risk")]
+        print(f"\nPending timeout classification ({len(timeout_risk_items)} item(s)):")
+        if tier3:
+            print(f"  *** {len(tier3)} Tier-3 item(s) — operator approval required before full batch run ***")
+        for item in timeout_risk_items:
+            cid = item.get("candidate_id", "?")
+            bucket = item.get("size_bucket", "unknown")
+            kb = item.get("file_size_kb")
+            kb_str = f"{kb} KB" if kb is not None else "size unknown"
+            rec_t = item.get("recommended_timeout_seconds")
+            rec_str = f"{rec_t:.0f}s" if rec_t is not None else "no prefetch data"
+            risk_tag = " [KNOWN TIMEOUT RISK]" if item.get("is_known_timeout_risk") else ""
+            tier3_tag = " [TIER-3]" if item.get("tier3_flag") else ""
+            tier = item.get("ingest_tier", 2)
+            print(
+                f"  {cid}  {kb_str}  bucket={bucket}  "
+                f"rec_timeout={rec_str}  tier={tier}{tier3_tag}{risk_tag}"
+            )
+        if known_risk:
+            print(
+                "\n  Note: KNOWN TIMEOUT RISK papers (1011.6402, 2307.14129, 2409.02025)"
+                "\n  require --tier 3 and operator approval. Exclude from automated batches."
+            )
+
     pending_ids = report.get("pending_ids", [])
     if pending_ids:
-        print(f"\nPending ({len(pending_ids)} items):")
-        for cid in pending_ids[:10]:
+        non_risk_pending = [
+            cid for cid in pending_ids
+            if not any(i.get("candidate_id") == cid and i.get("tier3_flag") for i in timeout_risk_items)
+        ]
+        print(f"\nPending ({len(pending_ids)} total):")
+        shown = pending_ids[:10]
+        for cid in shown:
             print(f"  {cid}")
         if len(pending_ids) > 10:
             print(f"  ... and {len(pending_ids) - 10} more")
@@ -480,6 +590,77 @@ def _cmd_counts(args: argparse.Namespace) -> int:
     print(f"  done:       {counts.get('done', 0)}")
     print(f"  failed:     {counts.get('failed', 0)}")
     print(f"  total:      {counts.get('total', 0)}")
+    return 0
+
+
+def _cmd_jit_cache_check(args: argparse.Namespace) -> int:
+    """Print JIT cache persistence diagnostic instructions and current env state."""
+    import os
+
+    torchinductor_dir = os.environ.get("TORCHINDUCTOR_CACHE_DIR", "")
+    triton_dir = os.environ.get("TRITON_CACHE_DIR", "")
+
+    lines = [
+        "JIT Cache Persistence Diagnostic",
+        "=" * 50,
+        "",
+        "Background:",
+        "  Marker uses Surya OCR which compiles TorchInductor/Triton kernels on first",
+        "  use of a new 'format group' (distinct page layout / equation density class).",
+        "  Cold-start compilation takes 27-50 min per format group. If the cache does",
+        "  not persist across Docker restarts, every new container pays this cost again.",
+        "",
+        "  TORCHINDUCTOR_CACHE_DIR confirmed empty after batch runs (2026-05-23).",
+        "  TRITON_CACHE_DIR is the suspected correct env var for Surya's kernel cache.",
+        "",
+        "Current environment:",
+        f"  TORCHINDUCTOR_CACHE_DIR = {repr(torchinductor_dir) if torchinductor_dir else '(not set)'}",
+        f"  TRITON_CACHE_DIR        = {repr(triton_dir) if triton_dir else '(not set)'}",
+        "",
+        "Diagnostic steps (run inside the Docker container):",
+        "",
+        "  Step 1 — Locate kernel cache before run:",
+        "    find ~/.triton -name '*.cubin' -o -name '*.ptx' 2>/dev/null | head -20",
+        "    find /tmp -name '*.cubin' 2>/dev/null | head -5",
+        "",
+        "  Step 2 — Create a timestamp marker BEFORE processing (required for Step 4):",
+        "    touch /tmp/before_marker",
+        "",
+        "  Step 3 — Process one warm paper, note parse_seconds:",
+        "    python -m polytool research-marker-queue warm-process --max-items 1",
+        "",
+        "  Step 4 — Record kernel cache location after run:",
+        "    find ~/.triton -newer /tmp/before_marker -name '*.cubin' 2>/dev/null | head -20",
+        "    ls -la ~/.triton/  # or /root/.triton/ in Docker",
+        "",
+        "  Step 5 — Restart Docker container (do NOT rm -v the volume):",
+        "    docker restart <container_name>",
+        "",
+        "  Step 6 — Process the SAME paper (re-enqueue with --force), check parse_seconds:",
+        "    If parse_seconds < 120s: cache IS persistent (cold-start paid once).",
+        "    If parse_seconds >= 1800s: cache NOT persistent (JIT recompiles every run).",
+        "",
+        "  Step 7 — If cache is NOT persistent, mount a host volume for the cache dir:",
+        "    docker run -v /host/triton_cache:/root/.triton <image>",
+        "    Then set TRITON_CACHE_DIR=/root/.triton in the container environment.",
+        "",
+        "Known timeout-risk papers (do NOT include in automated batch until resolved):",
+        "  arxiv:1011.6402  — confirmed timeout at 3600s (eq-heavy, large)",
+        "  arxiv:2307.14129 — confirmed timeout at 2947s (eq-heavy)",
+        "  arxiv:2409.02025 — HTTP 429 / fetch failures in multiple runs",
+        "",
+        "See docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md §JIT Cache Persistence for full runbook.",
+    ]
+
+    if args.json:
+        print(json.dumps({
+            "torchinductor_cache_dir": torchinductor_dir or None,
+            "triton_cache_dir": triton_dir or None,
+            "instructions": lines,
+        }, indent=2))
+    else:
+        print("\n".join(lines))
+
     return 0
 
 
@@ -541,6 +722,18 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Re-enqueue even if the paper already exists (resets to pending)",
+    )
+    p_enqueue.add_argument(
+        "--tier",
+        type=int,
+        default=2,
+        choices=[2, 3],
+        metavar="{2,3}",
+        help=(
+            "Ingest tier: 2 (default) = canonical Marker GPU parse; "
+            "3 = extended-timeout Marker parse requiring operator approval. "
+            "Tier 0/1 are not accepted (conflict with canonical RAG gate)."
+        ),
     )
     p_enqueue.add_argument(
         "--json",
@@ -621,7 +814,34 @@ def _build_parser() -> argparse.ArgumentParser:
         default=900.0,
         dest="marker_timeout",
         metavar="SECONDS",
-        help="Marker extraction timeout in seconds (default: 900)",
+        help=(
+            "Marker extraction timeout in seconds (default: 900). "
+            "Ignored when --auto-timeout is set."
+        ),
+    )
+    p_warm.add_argument(
+        "--auto-timeout",
+        action="store_true",
+        default=False,
+        dest="auto_timeout",
+        help=(
+            "Compute timeout automatically from prefetch manifest PDF file sizes. "
+            "Uses the maximum recommended timeout across all pending items: "
+            "<=600KB->3600s, 601-1500KB->7200s, >1500KB->14400s. "
+            "Requires prefetch to have run first (file sizes must be in manifest)."
+        ),
+    )
+    p_warm.add_argument(
+        "--allow-uncached",
+        action="store_true",
+        default=False,
+        dest="allow_uncached",
+        help=(
+            "When --auto-timeout is set, allow pending items that lack cached prefetch "
+            "manifest data to proceed using the conservative default timeout "
+            f"({int(14400)}s). Default: fail with exit code 1 and list the uncached "
+            "items so the operator can run 'prefetch' first."
+        ),
     )
     p_warm.add_argument(
         "--json",
@@ -734,6 +954,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output report as JSON",
     )
 
+    # jit-cache-check
+    p_jit = subparsers.add_parser(
+        "jit-cache-check",
+        help=(
+            "Print JIT cache persistence diagnostic instructions and current env state. "
+            "Guides operator through TRITON_CACHE_DIR investigation to determine whether "
+            "TorchInductor/Triton kernel cache persists across Docker restarts."
+        ),
+    )
+    p_jit.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output diagnostic data as JSON",
+    )
+
     return parser
 
 
@@ -770,6 +1006,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_prefetch(args)
     elif args.subcommand == "status-report":
         return _cmd_status_report(args)
+    elif args.subcommand == "jit-cache-check":
+        return _cmd_jit_cache_check(args)
     else:
         print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
         return 1

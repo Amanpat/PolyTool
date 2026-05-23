@@ -37,6 +37,42 @@ _PDF_MIN_BYTES = 1000  # bytes; below this a downloaded PDF is suspect (HTML err
 
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})")
 
+# arXiv IDs with confirmed timeout evidence from scaled validation runs.
+# These should be flagged as Tier 3 (operator-approval) before queuing a full batch.
+_TIMEOUT_RISK_ARXIV_IDS: frozenset[str] = frozenset(
+    {"1011.6402", "2307.14129", "2409.02025"}
+)
+
+# File-size-based auto-timeout buckets (bytes → recommended Marker timeout in seconds).
+# Evidence-based from batch run artifacts; override with --marker-timeout if needed.
+_FILE_SIZE_TIMEOUT_BUCKETS: tuple[tuple[int, float], ...] = (
+    (600 * 1024, 3600.0),   # ≤600 KB → 3600s (1 hour)
+    (1500 * 1024, 7200.0),  # ≤1500 KB → 7200s (2 hours)
+)
+_FILE_SIZE_TIMEOUT_DEFAULT = 14400.0  # >1500 KB → 14400s (4 hours)
+
+# Ingest tier policy:
+#   Tier 2 (default): GPU Marker full parse — canonical academic RAG production standard.
+#   Tier 3: GPU Marker with extended timeout + operator approval required before queuing.
+#   Tier 0/1: NOT accepted as canonical academic RAG ingestion (conflicts with Marker gate).
+_VALID_INGEST_TIERS = frozenset({2, 3})
+
+
+def auto_timeout_from_file_size(file_size_bytes: int) -> float:
+    """Return recommended Marker timeout (seconds) based on PDF file size.
+
+    Bucket thresholds from observed batch-run timings:
+      ≤600 KB  → 3600s   (prose/survey; typical 45-70s warm; budget for cold-start)
+      ≤1500 KB → 7200s   (mixed content, moderate eq density)
+      >1500 KB → 14400s  (eq-heavy; observed 1975s-3279s warm; allow for JIT cold-start)
+
+    Caller --marker-timeout override always takes precedence over this default.
+    """
+    for threshold_bytes, timeout_s in _FILE_SIZE_TIMEOUT_BUCKETS:
+        if file_size_bytes <= threshold_bytes:
+            return timeout_s
+    return _FILE_SIZE_TIMEOUT_DEFAULT
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -116,7 +152,12 @@ class MarkerParseQueue:
     # ------------------------------------------------------------------
 
     def enqueue(
-        self, url_or_id: str, title: str = "", force: bool = False, pdf_url: str = ""
+        self,
+        url_or_id: str,
+        title: str = "",
+        force: bool = False,
+        pdf_url: str = "",
+        ingest_tier: int = 2,
     ) -> dict:
         """Enqueue one arXiv paper for Marker parsing.
 
@@ -132,11 +173,23 @@ class MarkerParseQueue:
             Optional direct PDF URL or local path. When set, warm-process skips the
             arXiv metadata API and downloads/reads the PDF directly. Useful when the
             arXiv Atom API is rate-limited. Does not affect candidate_id derivation.
+        ingest_tier:
+            2 (default): GPU Marker parse — canonical academic RAG production path.
+            3: GPU Marker with extended timeout; requires operator approval before
+            inclusion in a full batch. Tier 0/1 are NOT accepted (conflict with the
+            Marker-only canonical RAG gate: body_source=marker AND body_length>=5000).
 
         Returns
         -------
-        dict: candidate_id, status, action ("added"|"skipped"|"reset")
+        dict: candidate_id, status, action ("added"|"skipped"|"reset"), ingest_tier
         """
+        if ingest_tier not in _VALID_INGEST_TIERS:
+            raise ValueError(
+                f"ingest_tier={ingest_tier!r} is not valid. "
+                f"Must be one of {sorted(_VALID_INGEST_TIERS)}. "
+                "Tier 0/1 are not accepted as canonical academic RAG ingestion."
+            )
+
         arxiv_id = extract_arxiv_id(url_or_id)
         if arxiv_id is None:
             raise ValueError(f"Cannot extract arXiv ID from: {url_or_id!r}")
@@ -163,10 +216,16 @@ class MarkerParseQueue:
                 **existing,
                 "status": "pending",
                 "attempts": 0,
+                "ingest_tier": ingest_tier,
                 "updated_at": now,
             }
             self._write_queue(records)
-            return {"candidate_id": cid, "status": "pending", "action": "reset"}
+            return {
+                "candidate_id": cid,
+                "status": "pending",
+                "action": "reset",
+                "ingest_tier": ingest_tier,
+            }
 
         now = _now_iso()
         record: dict = {
@@ -176,6 +235,7 @@ class MarkerParseQueue:
             "title": title,
             "status": "pending",
             "attempts": 0,
+            "ingest_tier": ingest_tier,
             "created_at": now,
             "updated_at": now,
         }
@@ -183,7 +243,12 @@ class MarkerParseQueue:
             record["pdf_url"] = pdf_url
         records.append(record)
         self._write_queue(records)
-        return {"candidate_id": cid, "status": "pending", "action": "added"}
+        return {
+            "candidate_id": cid,
+            "status": "pending",
+            "action": "added",
+            "ingest_tier": ingest_tier,
+        }
 
     def list_queue(self, status_filter: Optional[str] = None) -> list[dict]:
         """Return queue records, optionally filtered by status.
@@ -701,6 +766,11 @@ class MarkerParseQueue:
             pending_ids: list[str]
             done_ids: list[str]
             prefetch_stats: {cached, failed, total_manifest_entries}
+            sidecar_count: int  number of .body.txt files written by warm-process
+            indexed_count: int  number of papers indexed into KnowledgeStore
+            timeout_risk_items: list[{candidate_id, arxiv_id, file_size_bytes,
+                file_size_kb, size_bucket, is_known_timeout_risk,
+                recommended_timeout_seconds, tier3_flag, ingest_tier}]
         """
         records = self._read_queue()
         counts = self.get_counts()
@@ -730,6 +800,52 @@ class MarkerParseQueue:
             "total_manifest_entries": len(manifest),
         }
 
+        # Sidecar count: body.txt files written by warm-process
+        body_dir = self.queue_dir / _BODY_STORE_SUBDIR
+        sidecar_count = len(list(body_dir.glob("*.body.txt"))) if body_dir.exists() else 0
+
+        # Indexed count: entries in indexed.jsonl
+        indexed_path = self.queue_dir / "indexed.jsonl"
+        indexed_count = 0
+        if indexed_path.exists():
+            with open(indexed_path, encoding="utf-8") as _f:
+                for _line in _f:
+                    if _line.strip():
+                        indexed_count += 1
+
+        # Timeout-risk classification for pending items
+        def _size_bucket(bytes_: int) -> str:
+            if bytes_ <= 0:
+                return "unknown"
+            if bytes_ <= 600 * 1024:
+                return "small (<=600KB)"
+            if bytes_ <= 1500 * 1024:
+                return "medium (601-1500KB)"
+            return "large (>1500KB)"
+
+        timeout_risk_items = []
+        for r in pending_items:
+            cid = r.get("candidate_id", "")
+            arxiv_id = r.get("arxiv_id", "")
+            m_entry = manifest.get(cid, {})
+            file_size = m_entry.get("file_size", 0) if m_entry.get("status") == "cached" else 0
+            is_known_risk = arxiv_id in _TIMEOUT_RISK_ARXIV_IDS
+            recommended_timeout = auto_timeout_from_file_size(file_size) if file_size > 0 else None
+            tier3_flag = is_known_risk or file_size > 1500 * 1024
+            timeout_risk_items.append(
+                {
+                    "candidate_id": cid,
+                    "arxiv_id": arxiv_id,
+                    "file_size_bytes": file_size,
+                    "file_size_kb": round(file_size / 1024, 1) if file_size > 0 else None,
+                    "size_bucket": _size_bucket(file_size),
+                    "is_known_timeout_risk": is_known_risk,
+                    "recommended_timeout_seconds": recommended_timeout,
+                    "tier3_flag": tier3_flag,
+                    "ingest_tier": r.get("ingest_tier", 2),
+                }
+            )
+
         return {
             "counts": counts,
             "processing_items": [r.get("candidate_id") for r in processing_items],
@@ -738,6 +854,9 @@ class MarkerParseQueue:
             "pending_ids": [r.get("candidate_id") for r in pending_items],
             "done_ids": [r.get("candidate_id") for r in done_items],
             "prefetch_stats": prefetch_stats,
+            "sidecar_count": sidecar_count,
+            "indexed_count": indexed_count,
+            "timeout_risk_items": timeout_risk_items,
         }
 
     def _read_best_results(self) -> dict[str, dict]:

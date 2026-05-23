@@ -241,8 +241,13 @@ docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
 |--------|---------|
 | `[PASS] ... marker_ready=True` | Paper parsed successfully. Proceed. |
 | `[FAIL] ... failure_reason: fetch_failed` | PDF was not cached; warm-process tried live fetch and failed. Run prefetch again for this paper. |
+| `[FAIL] ... failure_reason: cache_missing` | Paper has no cached PDF and no live arXiv fetch available. Run `prefetch` before `warm-process`. |
 | `[FAIL] ... failure_reason: marker_timeout` | Paper exceeded the timeout. See Troubleshooting. |
 | `[FAIL] ... failure_reason: marker_failed` | Marker could not extract text (image-only PDF, corruption). Paper is not RAG-eligible. |
+| `[FAIL] ... failure_reason: parse_error` | Marker returned an error or non-zero exit. PDF may be corrupted or unsupported format. |
+| `done` / no sidecar | warm-process completed but body sidecar missing. `index-done` will report `skipped_no_body`. Re-enqueue with `--force` and reprocess. |
+| `done` / sidecar present / not in indexed.jsonl | `index-done` not yet run for this paper (`index_pending`). Run `index-done`. |
+| KS indexed / `research-query` returns nothing | Query not run, or substring mismatch. Check claim text with SQLite inspection. |
 
 **Performance expectations:**
 
@@ -502,14 +507,31 @@ Current state of `artifacts/research/scaled_validation_queue_v2`:
 | processing | 1 | arxiv:1011.6402 — stuck after session kill; needs `--force` reset before rerun |
 | pending | 18 | Table-heavy, prose/survey, outlier papers — never reached |
 
-**Why paused:** The rate-limit root cause (papers failing fetch during GPU parse) cannot be
-fixed by retrying. The correct fix is the WP-1 prefetch separation. Once WP-1 ships and
-the `prefetch` command is available, the full 29-paper rerun can proceed. See
-`docs/dev_logs/2026-05-18_academic-ris-operational-triage.md` for full analysis.
+**Why paused:** The rate-limit root cause (papers failing fetch during GPU parse) was fixed
+by WP-1 prefetch separation (shipped 2026-05-22, E2E validated). However the full 29-paper
+rerun is NOT yet unblocked. Remaining blockers per WP-2 review (2026-05-23):
+
+1. **JIT cache persistence unknown.** TORCHINDUCTOR_CACHE_DIR confirmed empty after batch
+   runs. TRITON_CACHE_DIR (the suspected Surya/Triton kernel cache) not yet tested. Until
+   persistence is confirmed, each Docker restart may pay 27–50 min cold-start per format
+   group — making the full batch runtime unpredictable. Run `jit-cache-check` diagnostic
+   before proceeding.
+
+2. **Three timeout-risk papers need Tier-3 handling.** `arxiv:1011.6402` timed out at
+   3600s (confirmed). `arxiv:2307.14129` took 2947s. `arxiv:2409.02025` failed with HTTP
+   429 / fetch errors across multiple runs. These must be re-enqueued with `--tier 3` and
+   require explicit operator approval before inclusion in a batch.
+
+3. **Use `--auto-timeout` for the full batch.** Run `prefetch` first so file sizes are in
+   the manifest, then pass `--auto-timeout` to `warm-process`.
+
+See `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md` for pre-WP-1 analysis
+and `docs/dev_logs/2026-05-23_academic-processing-speed-diagnosis.md` for the WP-2
+blockers.
 
 **Do not:**
 - Run `warm-process` on the 29-paper queue without prefetching first.
-- Reset failed papers until WP-1 is confirmed shipped and tested.
+- Reset and include timeout-risk papers without `--tier 3` and operator approval.
 - Treat the 5/29 done count as a representative corpus sample.
 
 ---
@@ -792,7 +814,7 @@ The IPC warm-worker (Linux/Docker) is the production path validated on 2026-05-0
 | Paper 1 (cold model load) | ~45-70s inference + ~27s cold-load overhead ≈ 72-97s total |
 | Papers 2+ (warm) | ~45-70s inference, ≤1s overhead (models stay in GPU VRAM) |
 | Short prose paper (15 pages) | ~45-55s warm |
-| Dense math/ML paper (25-46 pages) | ~60-70s warm |
+| Dense math/ML paper (25-46 pages) | 33–55 min warm (1975s–3279s observed); JIT cold-start adds 27–50 min for new format groups |
 
 These times are hardware constants for the RTX 2070 Super with Marker's five-model
 pipeline. They cannot be reduced by queue design. The IPC warm-worker eliminates only
@@ -896,6 +918,79 @@ research-harvest (or manual enqueue)
 - ChromaDB academic retrieval (L2.1) deferred.
 
 **Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
+
+---
+
+## JIT Cache Persistence (WP-2 — UNRESOLVED)
+
+### Background
+
+Marker uses Surya OCR, which JIT-compiles TorchInductor/Triton CUDA kernels on first
+use of each distinct "format group" (unique page layout + equation density class). A
+cold-start compile event adds **27–50 min** to the first paper of that format group.
+Subsequent papers sharing the same format group reuse the compiled kernel and run at
+full warm speed.
+
+If the JIT cache does **not** persist across Docker restarts, every new container session
+pays the full cold-start cost for every format group — making full-batch planning impossible.
+
+`TORCHINDUCTOR_CACHE_DIR` was confirmed empty after multiple batch runs (2026-05-23).
+`TRITON_CACHE_DIR` (the correct env var for Surya's Triton kernel cache) has not yet been
+tested for cross-restart persistence.
+
+### Diagnostic Procedure
+
+Run `jit-cache-check` to print current env state and step-by-step instructions:
+
+```bash
+python -m polytool research-marker-queue jit-cache-check
+```
+
+Manual investigation steps (inside the Docker container):
+
+```bash
+# Step 1 — Find kernel cache before run
+find ~/.triton -name '*.cubin' -o -name '*.ptx' 2>/dev/null | head -20
+
+# Step 2 — Process one warm paper, note parse_seconds
+python -m polytool research-marker-queue warm-process --max-items 1
+
+# Step 3 — Record cache location after run
+ls -la ~/.triton/    # or /root/.triton/ in Docker
+find ~/.triton -name '*.cubin' | head -10
+
+# Step 4 — Restart the container (do NOT rm -v the volume)
+docker restart <container_name>
+
+# Step 5 — Re-process the same paper with --force, check parse_seconds
+#   parse_seconds < 120s → cache IS persistent
+#   parse_seconds >= 1800s → cache NOT persistent (JIT recompiles every run)
+
+# Step 6 — If NOT persistent, mount the cache to a host volume:
+docker run -v /host/triton_cache:/root/.triton <image>
+# And set TRITON_CACHE_DIR=/root/.triton in the container environment.
+```
+
+### Known Timeout-Risk Papers
+
+These papers must NOT be included in automated batch runs until Tier-3 handling is in place:
+
+| arXiv ID | Evidence | Action |
+|----------|----------|--------|
+| `1011.6402` | Confirmed timeout at 3600s (parse_seconds=3600.01) | Re-enqueue with `--tier 3`; operator approval required |
+| `2307.14129` | parse_seconds=2947s in scaled validation | Re-enqueue with `--tier 3`; operator approval required |
+| `2409.02025` | HTTP 429 / fetch failures across multiple runs | Fix fetch path first; then `--tier 3` |
+
+To classify these correctly before a full batch run:
+
+```bash
+# Check status-report for Tier-3 flags on all pending items
+python -m polytool research-marker-queue status-report
+
+# Re-enqueue known-risk papers with Tier 3
+python -m polytool research-marker-queue enqueue --url 1011.6402 --force --tier 3
+python -m polytool research-marker-queue enqueue --url 2307.14129 --force --tier 3
+```
 
 ---
 

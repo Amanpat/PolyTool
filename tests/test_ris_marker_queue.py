@@ -2152,3 +2152,324 @@ class TestCLIIndexDone:
         assert "skipped_already_indexed" in data
         assert "skipped_no_body" in data
         assert "failed" in data
+
+
+# ---------------------------------------------------------------------------
+# WP-2 — auto_timeout_from_file_size unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestAutoTimeoutFromFileSize:
+    def test_zero_bytes_returns_small_bucket(self) -> None:
+        # 0 bytes falls into ≤600KB bucket (3600s); callers guard file_size > 0 separately
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(0) == 3600.0
+
+    def test_small_file_at_boundary(self) -> None:
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(600 * 1024) == 3600.0
+
+    def test_medium_file_just_above_small_boundary(self) -> None:
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(600 * 1024 + 1) == 7200.0
+
+    def test_medium_file_at_upper_boundary(self) -> None:
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(1500 * 1024) == 7200.0
+
+    def test_large_file_just_above_medium_boundary(self) -> None:
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(1500 * 1024 + 1) == 14400.0
+
+    def test_large_file_returns_max_timeout(self) -> None:
+        from packages.research.ingestion.marker_queue import auto_timeout_from_file_size
+        assert auto_timeout_from_file_size(10 * 1024 * 1024) == 14400.0
+
+
+# ---------------------------------------------------------------------------
+# WP-2 — enqueue with ingest_tier tests
+# ---------------------------------------------------------------------------
+
+
+class TestEnqueueIngestTier:
+    def test_default_tier_is_2(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        outcome = q.enqueue("2604.24366")
+        assert outcome.get("ingest_tier") == 2
+
+    def test_tier_3_accepted(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        outcome = q.enqueue("2604.24366", ingest_tier=3)
+        assert outcome.get("ingest_tier") == 3
+        records = q.list_queue()
+        assert records[0]["ingest_tier"] == 3
+
+    def test_invalid_tier_raises(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        with pytest.raises(ValueError, match="ingest_tier"):
+            q.enqueue("2604.24366", ingest_tier=1)
+
+    def test_tier_0_raises(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        with pytest.raises(ValueError, match="Tier 0"):
+            q.enqueue("2604.24366", ingest_tier=0)
+
+    def test_force_reset_preserves_new_tier(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366", ingest_tier=2)
+        outcome = q.enqueue("2604.24366", ingest_tier=3, force=True)
+        assert outcome.get("ingest_tier") == 3
+        records = q.list_queue()
+        assert records[0]["ingest_tier"] == 3
+
+    def test_cli_tier_flag_accepted(self, tmp_path: Path) -> None:
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "enqueue", "--url", "2604.24366", "--tier", "3",
+        ])
+        assert code == 0
+
+    def test_cli_invalid_tier_exits_nonzero(self, tmp_path: Path) -> None:
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "enqueue", "--url", "2604.24366", "--tier", "1",
+        ])
+        assert code != 0  # argparse returns 2 for invalid choices, not 1
+
+
+# ---------------------------------------------------------------------------
+# WP-2 — enhanced get_status_report tests
+# ---------------------------------------------------------------------------
+
+
+class TestStatusReportWP2:
+    def _make_queue_with_done_item(self, tmp_path: Path):
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        # Update queue.jsonl to mark the item as done (get_status_report reads queue.jsonl)
+        records = q._read_queue()
+        for r in records:
+            if r.get("candidate_id") == "arxiv:2604.24366":
+                r["status"] = "done"
+                r["marker_ready"] = True
+        q._write_queue(records)
+        # Also write result record to results.jsonl
+        rec = {
+            "candidate_id": "arxiv:2604.24366",
+            "arxiv_id": "2604.24366",
+            "source_url": "https://arxiv.org/abs/2604.24366",
+            "title": "Test Paper",
+            "status": "done",
+            "attempts": 1,
+            "ingest_tier": 2,
+            "marker_ready": True,
+            "body_source": "marker",
+            "body_length": 10000,
+            "parse_seconds": 12.0,
+            "failure_reason": None,
+        }
+        with open(q._results_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+        return q
+
+    def test_sidecar_count_zero_when_no_bodies(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        report = q.get_status_report()
+        assert report["sidecar_count"] == 0
+
+    def test_sidecar_count_reflects_body_files(self, tmp_path: Path) -> None:
+        q = self._make_queue_with_done_item(tmp_path)
+        body_dir = tmp_path / "bodies"
+        body_dir.mkdir()
+        # Use a Windows-safe filename (colons are invalid on NTFS); glob counts any *.body.txt
+        (body_dir / "arxiv_2604.24366.body.txt").write_text("body text", encoding="utf-8")
+        report = q.get_status_report()
+        assert report["sidecar_count"] == 1
+
+    def test_indexed_count_zero_when_no_indexed_jsonl(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        report = q.get_status_report()
+        assert report["indexed_count"] == 0
+
+    def test_indexed_count_reflects_indexed_jsonl(self, tmp_path: Path) -> None:
+        q = self._make_queue_with_done_item(tmp_path)
+        indexed_path = tmp_path / "indexed.jsonl"
+        indexed_path.write_text(
+            json.dumps({"candidate_id": "arxiv:2604.24366", "doc_id": "abc"}) + "\n",
+            encoding="utf-8",
+        )
+        report = q.get_status_report()
+        assert report["indexed_count"] == 1
+
+    def test_timeout_risk_items_empty_when_no_pending(self, tmp_path: Path) -> None:
+        q = self._make_queue_with_done_item(tmp_path)
+        report = q.get_status_report()
+        assert report["timeout_risk_items"] == []
+
+    def test_timeout_risk_items_present_for_pending(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        report = q.get_status_report()
+        assert len(report["timeout_risk_items"]) == 1
+        item = report["timeout_risk_items"][0]
+        assert item["candidate_id"] == "arxiv:2604.24366"
+        assert "size_bucket" in item
+        assert "recommended_timeout_seconds" in item
+        assert "tier3_flag" in item
+
+    def test_known_timeout_risk_paper_flagged(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import (
+            MarkerParseQueue,
+            _TIMEOUT_RISK_ARXIV_IDS,
+        )
+        known_id = next(iter(_TIMEOUT_RISK_ARXIV_IDS))
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue(known_id)
+        report = q.get_status_report()
+        items = report["timeout_risk_items"]
+        assert len(items) == 1
+        assert items[0]["is_known_timeout_risk"] is True
+        assert items[0]["tier3_flag"] is True
+
+    def test_status_report_json_includes_wp2_fields(self, tmp_path: Path) -> None:
+        code, out = _run_cli(["--queue-dir", str(tmp_path), "status-report", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert "sidecar_count" in data
+        assert "indexed_count" in data
+        assert "timeout_risk_items" in data
+
+
+# ---------------------------------------------------------------------------
+# WP-2 — jit-cache-check CLI tests
+# ---------------------------------------------------------------------------
+
+
+class TestCLIJitCacheCheck:
+    def test_jit_cache_check_in_help(self) -> None:
+        code, out = _run_cli(["--help"])
+        assert code == 0
+        assert "jit-cache-check" in out
+
+    def test_jit_cache_check_exits_zero(self) -> None:
+        code, out = _run_cli(["jit-cache-check"])
+        assert code == 0
+
+    def test_jit_cache_check_mentions_triton(self) -> None:
+        code, out = _run_cli(["jit-cache-check"])
+        assert code == 0
+        assert "TRITON_CACHE_DIR" in out
+
+    def test_jit_cache_check_mentions_known_risk_papers(self) -> None:
+        code, out = _run_cli(["jit-cache-check"])
+        assert code == 0
+        assert "1011.6402" in out
+        assert "2307.14129" in out
+
+    def test_jit_cache_check_json_output(self) -> None:
+        code, out = _run_cli(["jit-cache-check", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        assert "triton_cache_dir" in data
+        assert "torchinductor_cache_dir" in data
+        assert "instructions" in data
+
+    def test_jit_cache_check_includes_touch_before_marker(self) -> None:
+        # Concern #2 fix: instructions must include the touch step so Step 4
+        # `find ... -newer /tmp/before_marker` is copy-paste reliable.
+        code, out = _run_cli(["jit-cache-check"])
+        assert code == 0
+        assert "touch /tmp/before_marker" in out
+
+    def test_jit_cache_check_json_instructions_include_touch(self) -> None:
+        code, out = _run_cli(["jit-cache-check", "--json"])
+        assert code == 0
+        data = json.loads(out)
+        joined = "\n".join(data["instructions"])
+        assert "touch /tmp/before_marker" in joined
+
+
+# ---------------------------------------------------------------------------
+# WP-2 review concerns fix — --auto-timeout uncached fail-fast tests
+# ---------------------------------------------------------------------------
+
+
+class TestAutoTimeoutUncached:
+    """Concern #1 fix: --auto-timeout fails when pending items lack manifest data."""
+
+    def test_auto_timeout_fails_when_no_manifest_data(self, tmp_path: Path) -> None:
+        # Pending item with no prefetch manifest → exit code 1 (fail-fast)
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        code, _ = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "warm-process", "--auto-timeout",
+        ])
+        assert code != 0
+
+    def test_auto_timeout_json_error_includes_uncached_ids(self, tmp_path: Path) -> None:
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        q.enqueue("2604.24366")
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "warm-process", "--auto-timeout", "--json",
+        ])
+        assert code != 0
+        data = json.loads(out)
+        assert "uncached_ids" in data
+        assert any("2604.24366" in cid for cid in data["uncached_ids"])
+
+    def test_auto_timeout_allow_uncached_flag_in_help(self) -> None:
+        # --allow-uncached must appear in warm-process --help
+        code, out = _run_cli(["warm-process", "--help"])
+        assert code == 0
+        assert "--allow-uncached" in out
+
+    def test_auto_timeout_allow_uncached_empty_queue_exits_zero(
+        self, tmp_path: Path
+    ) -> None:
+        # Empty queue: --auto-timeout --allow-uncached must exit 0 immediately.
+        # Verifies flag is parsed without argparse error and the guard is not hit.
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "warm-process", "--auto-timeout", "--allow-uncached",
+        ])
+        assert code == 0
+
+    def test_auto_timeout_allow_uncached_does_not_return_uncached_error_json(
+        self, tmp_path: Path
+    ) -> None:
+        # With --allow-uncached set, the uncached-items gate must not produce the
+        # error JSON. The command proceeds past the gate (may fail later for other
+        # reasons such as no Marker binary, but NOT with the uncached-items error).
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        q = MarkerParseQueue(queue_dir=tmp_path)
+        # Mark the item done immediately so warm-process skips it — this lets us
+        # verify the gate logic without invoking Marker at all.
+        q.enqueue("2604.24366")
+        records = q._read_queue()
+        for r in records:
+            r["status"] = "done"
+        q._write_queue(records)
+        # Now there are 0 pending items → warm-process returns 0 with "no pending" message.
+        code, out = _run_cli([
+            "--queue-dir", str(tmp_path),
+            "warm-process", "--auto-timeout", "--allow-uncached", "--json",
+        ])
+        assert code == 0
+        data = json.loads(out)
+        # Must not be the uncached-items error response
+        assert data.get("error") != "uncached items found for --auto-timeout"

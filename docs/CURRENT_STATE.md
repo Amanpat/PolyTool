@@ -2052,8 +2052,15 @@ backslash paths that Docker/Linux cannot resolve; fixed to `pdf_path.as_posix()`
 WP-1 core claim verified: *PDFs are prefetched separately; warm-process reads the
 local cached file and does not call the arXiv API.*
 
-**29-paper rerun:** Safe to proceed. Use `--marker-timeout 14400` for eq-heavy papers
-(file_size > 1.5 MB). Prose/survey papers complete in 15–60s at 3600s default.
+**29-paper rerun:** NOT YET READY. WP-1 shipped and is validated, but the full 29-paper
+rerun is delayed pending WP-2 (speed/observability hardening). Blockers:
+- JIT cache persistence not confirmed: TORCHINDUCTOR_CACHE_DIR confirmed empty after
+  batch runs; TRITON_CACHE_DIR not yet tested. Cold-start cost unknown per restart.
+- Three timeout-risk papers require Tier-3 classification and operator approval before
+  batch inclusion: `arxiv:1011.6402` (timeout confirmed), `arxiv:2307.14129` (2947s),
+  `arxiv:2409.02025` (HTTP 429 / fetch failures).
+- Use `--auto-timeout` or explicit `--marker-timeout 7200`/`14400` for eq-heavy papers.
+  Run `jit-cache-check` diagnostic first to confirm cache persistence.
 
 **Dev logs:** `docs/dev_logs/2026-05-19_academic-prefetch-separation-wp1.md`,
 `docs/dev_logs/2026-05-22_academic-prefetch-wp1-5paper-e2e.md`,
