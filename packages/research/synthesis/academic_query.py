@@ -26,6 +26,7 @@ Scope guards (from Work-Packet - PaperQA2 RAG Control Flow.md):
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -35,6 +36,42 @@ from packages.research.ingestion.retriever import query_knowledge_store_for_rrf
 from packages.research.synthesis.query_planner import plan_queries
 
 _MIN_MARKER_BODY_LENGTH = 5000
+
+# ---------------------------------------------------------------------------
+# Snippet sanitation — display-only, stored claim_text is never modified
+# ---------------------------------------------------------------------------
+
+# Whitelist of known Marker HTML tags (not a general <[^>]+> to avoid stripping
+# math inequality signs like a < b or LaTeX expressions).
+_KNOWN_MARKER_TAGS = re.compile(
+    r"</?(?:sup|sub|br|a)(?:\s[^>]*)?/?>",
+    re.IGNORECASE,
+)
+# Marker internal cross-reference anchors: (#page-N-M)
+_PAGE_REF = re.compile(r"\(#page-\d+-\d+\)")
+# Markdown heading markers at the start of a line (## Title, #### **Section**)
+_MD_HEADING = re.compile(r"(?m)^#{1,6}[ \t]*")
+# Three or more consecutive newlines collapsed to two
+_EXCESS_NEWLINES = re.compile(r"\n{3,}")
+# Three or more consecutive spaces/tabs collapsed to one
+_EXCESS_SPACES = re.compile(r"[ \t]{3,}")
+
+
+def _sanitize_snippet(text: str) -> str:
+    """Strip Marker/markdown OCR artifacts from operator-facing snippets.
+
+    Display-only: stored claim_text in KnowledgeStore is never mutated.
+    Strips known Marker HTML tags (sup, sub, br, a), Marker page cross-reference
+    anchors (#page-N-M), markdown heading markers, and excessive whitespace runs.
+    Math expressions using bare < or > are preserved because only named Marker
+    tag patterns are targeted.
+    """
+    text = _KNOWN_MARKER_TAGS.sub("", text)
+    text = _PAGE_REF.sub("", text)
+    text = _MD_HEADING.sub("", text)
+    text = _EXCESS_NEWLINES.sub("\n\n", text)
+    text = _EXCESS_SPACES.sub(" ", text)
+    return text.strip()
 
 if TYPE_CHECKING:
     pass
@@ -403,9 +440,11 @@ def query_academic_corpus(
             if body_source == "marker":
                 marker_only_count += 1
 
-            # Best snippet from highest-scoring claim for this paper
+            # Best snippet from highest-scoring claim for this paper.
+            # _sanitize_snippet strips Marker artifacts at display time only;
+            # stored claim_text is not modified.
             best_claim = max(claims, key=lambda c: c.get("score", 0.0))
-            snippet = best_claim.get("snippet", "")
+            snippet = _sanitize_snippet(best_claim.get("snippet", ""))
 
             citations.append(AcademicCitation(
                 title=title,

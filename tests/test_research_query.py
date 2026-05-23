@@ -642,3 +642,250 @@ class TestNaturalLanguageRetrieval:
         ks = self._pm_ks()
         result = self._call("what are prediction markets", ks, max_query_angles=3)
         assert "prediction markets" in result.query_angles
+
+
+# ---------------------------------------------------------------------------
+# Tests — _sanitize_snippet (Deliverable C)
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeSnippet:
+    """Unit tests for the display-only Marker artifact sanitizer."""
+
+    def _sanitize(self, text):
+        from packages.research.synthesis.academic_query import _sanitize_snippet
+        return _sanitize_snippet(text)
+
+    # --- Known Marker HTML tags ---
+
+    def test_strips_sup_tag(self):
+        assert "<sup>" not in self._sanitize("<sup>∗</sup> Footnote text here.")
+
+    def test_strips_sup_content_preserved(self):
+        # Content between tags is kept; only the tags are removed
+        result = self._sanitize("<sup>∗</sup> Footnote text here.")
+        assert "∗" in result
+        assert "Footnote text here" in result
+
+    def test_strips_closing_sup_tag(self):
+        assert "</sup>" not in self._sanitize("text<sup>1</sup> more text")
+
+    def test_strips_sub_tag(self):
+        result = self._sanitize("CO<sub>2</sub> emissions")
+        assert "<sub>" not in result
+        assert "</sub>" not in result
+        assert "CO" in result
+        assert "2" in result
+
+    def test_strips_br_tag(self):
+        assert "<br>" not in self._sanitize("line one<br>line two")
+
+    def test_strips_br_self_closing(self):
+        assert "<br/>" not in self._sanitize("line one<br/>line two")
+
+    def test_strips_br_spaced_self_closing(self):
+        assert "<br />" not in self._sanitize("line one<br />line two")
+
+    def test_strips_anchor_tag_with_href(self):
+        result = self._sanitize('<a href="https://example.com">link text</a>')
+        assert "<a" not in result
+        assert "</a>" not in result
+        assert "link text" in result
+
+    # --- Page reference anchors ---
+
+    def test_strips_page_ref_at_start(self):
+        result = self._sanitize("(#page-18-0) Some citation text.")
+        assert "(#page-18-0)" not in result
+        assert "Some citation text" in result
+
+    def test_strips_page_ref_mid_text(self):
+        raw = "Sentence one (#page-3-1) continues here."
+        result = self._sanitize(raw)
+        assert "(#page-3-1)" not in result
+        assert "Sentence one" in result
+        assert "continues here" in result
+
+    def test_strips_multiple_page_refs(self):
+        raw = "(#page-1-0) First. (#page-2-0) Second."
+        result = self._sanitize(raw)
+        assert "(#page-1-0)" not in result
+        assert "(#page-2-0)" not in result
+        assert "First" in result
+        assert "Second" in result
+
+    def test_page_ref_large_numbers(self):
+        result = self._sanitize("Text (#page-123-456) end.")
+        assert "(#page-123-456)" not in result
+
+    # --- Markdown heading markers ---
+
+    def test_strips_h4_heading(self):
+        raw = "#### **Abstract**\n\nContent here."
+        result = self._sanitize(raw)
+        assert "####" not in result
+        assert "Abstract" in result
+        assert "Content here" in result
+
+    def test_strips_h1_heading(self):
+        raw = "# Introduction\n\nSome text."
+        result = self._sanitize(raw)
+        assert result.startswith("Introduction") or "Introduction" in result
+        assert "#" not in result.split("\n")[0]
+
+    def test_strips_h2_heading(self):
+        raw = "## Related Work\n\nSome text."
+        result = self._sanitize(raw)
+        assert "##" not in result
+        assert "Related Work" in result
+
+    def test_heading_only_at_line_start(self):
+        # # inside the middle of a line must not be stripped
+        raw = "Price of BTC in USD is $50,000 (a 50# gain)."
+        result = self._sanitize(raw)
+        assert "50#" in result  # mid-line # preserved
+
+    # --- Whitespace normalization ---
+
+    def test_collapses_excess_newlines(self):
+        raw = "Para one.\n\n\n\nPara two."
+        result = self._sanitize(raw)
+        assert "\n\n\n" not in result
+        assert "Para one" in result
+        assert "Para two" in result
+
+    def test_collapses_excess_spaces(self):
+        raw = "word1   word2    word3"
+        result = self._sanitize(raw)
+        assert "   " not in result
+        assert "word1" in result
+        assert "word2" in result
+
+    def test_leading_trailing_whitespace_stripped(self):
+        result = self._sanitize("  \n  some text  \n  ")
+        assert result == result.strip()
+
+    # --- Preservation guarantees ---
+
+    def test_plain_text_unchanged(self):
+        plain = "Prediction markets aggregate information efficiently in binary markets."
+        assert self._sanitize(plain) == plain
+
+    def test_numbers_preserved(self):
+        raw = "Performance improved from 22.5% to 47.1% on QA tasks."
+        result = self._sanitize(raw)
+        assert "22.5%" in result
+        assert "47.1%" in result
+
+    def test_math_inequality_preserved(self):
+        # Bare < and > in math context must survive (not matching named tags)
+        raw = "If a < b and b > 0 then a < b < c."
+        result = self._sanitize(raw)
+        assert "a < b" in result
+        assert "b > 0" in result
+
+    def test_latex_dollar_math_preserved(self):
+        raw = "Given $\\sigma^2 \\leq 0.003$, the spread is minimal."
+        result = self._sanitize(raw)
+        assert "$\\sigma^2" in result
+
+    def test_real_marker_abstract_snippet(self):
+        """Simulate the actual bad snippet from arxiv:2510.05533."""
+        raw = (
+            "<sup>∗</sup> Work was done while the author was working at JP Morgan Chase.\n\n"
+            "#### **Abstract**\n\n"
+            "We provide a comprehensive survey of Large Language Models in financial prediction."
+        )
+        result = self._sanitize(raw)
+        assert "<sup>" not in result
+        assert "</sup>" not in result
+        assert "####" not in result
+        assert "∗" in result
+        assert "Abstract" in result
+        assert "We provide a comprehensive survey" in result
+
+    def test_real_marker_page_ref_snippet(self):
+        """Simulate the actual page-ref snippet from arxiv:2510.05533."""
+        raw = (
+            "(#page-18-0) (Li et al., 2024b; Wang et al., 2023) can be used to significantly "
+            "improve the generation quality of LLMs (Gao et al., 2023) from 22.5% to 47.1% on "
+            "Open-Book QA (Mihaylov et al., 2018)."
+        )
+        result = self._sanitize(raw)
+        assert "(#page-18-0)" not in result
+        assert "Li et al., 2024b" in result
+        assert "22.5%" in result
+        assert "47.1%" in result
+
+
+class TestSanitizeSnippetIntegration:
+    """Integration: AcademicCitation.best_snippet is sanitized; KS claim_text is not."""
+
+    def _call(self, question, ks, **kwargs):
+        from packages.research.synthesis.academic_query import query_academic_corpus
+        return query_academic_corpus(question, _store=ks, **kwargs)
+
+    def test_citation_snippet_has_no_html_tags(self):
+        """best_snippet must have Marker HTML tags stripped."""
+        raw_claim = "<sup>∗</sup> Prediction markets aggregate information efficiently."
+        ks = _make_ks(academic_docs=[{
+            "title": "Sanitize Test Paper",
+            "metadata_json": _marker_metadata("9876.54321", "marker"),
+            "claims": [raw_claim],
+        }])
+        result = self._call("prediction markets", ks)
+        assert result.had_fallback is False
+        snippet = result.citations[0].best_snippet
+        assert "<sup>" not in snippet
+        assert "</sup>" not in snippet
+        # Content between tags survives
+        assert "∗" in snippet or "Prediction markets" in snippet
+
+    def test_citation_snippet_has_no_page_ref(self):
+        """best_snippet must have (#page-N-M) anchors stripped."""
+        raw_claim = "(#page-5-0) Language models achieve 47.1% accuracy on QA tasks."
+        ks = _make_ks(academic_docs=[{
+            "title": "PageRef Test Paper",
+            "metadata_json": _marker_metadata("1111.22222", "marker"),
+            "claims": [raw_claim],
+        }])
+        result = self._call("language models", ks)
+        assert result.had_fallback is False
+        snippet = result.citations[0].best_snippet
+        assert "(#page-5-0)" not in snippet
+        assert "47.1%" in snippet
+
+    def test_citation_snippet_has_no_md_heading(self):
+        """best_snippet must have markdown heading markers stripped."""
+        raw_claim = "#### **Results**\n\nThe model achieves state-of-the-art performance."
+        ks = _make_ks(academic_docs=[{
+            "title": "Heading Test Paper",
+            "metadata_json": _marker_metadata("3333.44444", "marker"),
+            "claims": [raw_claim],
+        }])
+        result = self._call("Results", ks)
+        assert result.had_fallback is False
+        snippet = result.citations[0].best_snippet
+        assert "####" not in snippet
+        assert "Results" in snippet
+        assert "state-of-the-art" in snippet
+
+    def test_stored_claim_text_not_modified(self):
+        """Sanitization must only affect display output; KS claim_text is unchanged."""
+        raw_claim = "<sup>1</sup> (Li et al., 2024b) can improve prediction market accuracy."
+        ks = _make_ks(academic_docs=[{
+            "title": "Immutability Test Paper",
+            "metadata_json": _marker_metadata("5555.66666", "marker"),
+            "claims": [raw_claim],
+        }])
+        # Run the query (which sanitizes the snippet)
+        result = self._call("prediction market", ks)
+        assert result.had_fallback is False
+
+        # Verify the same underlying KS claim_text still has raw content.
+        all_claims = ks.query_claims()
+        matching = [c for c in all_claims if "prediction market" in c.get("claim_text", "").lower()]
+        assert len(matching) >= 1
+        stored_text = matching[0]["claim_text"]
+        # Raw HTML must still be in the stored claim
+        assert "<sup>" in stored_text or raw_claim in stored_text
