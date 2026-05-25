@@ -5,19 +5,22 @@ implemented over the existing KnowledgeStore + query_planner stack.
 
 Algorithm (adapted from PaperQA2):
 1. Plan multi-angle queries from the question (deterministic or LLM-expanded)
-2. Query KnowledgeStore with source_family="academic" for each planned query
-3. Merge results by claim_id, keeping best effective_score per claim
+2. Try semantic retrieval via ChromaDB academic_papers collection (L2.1 path):
+   - If Chroma returns hits, resolve ks_doc_id back to KS source documents,
+     filter to Marker-ready metadata, return semantic citations directly.
+   - If Chroma is unavailable or returns no hits, fall through to lexical.
+3. Lexical retrieval: Query KnowledgeStore with source_family="academic" for
+   each planned query angle; merge by claim_id, keeping best effective_score.
 4. Filter papers to Marker/RAG-ready metadata (body_source=marker, length >= 5000)
 5. Group claims by source_document (paper-level aggregation)
 6. For each paper, attach citation metadata (title, arxiv_id, source_url, body_source)
-7. Return AcademicQueryResult with ranked citations
-8. Graceful fallback: had_fallback=True + actionable warning when KS empty
+7. Return AcademicQueryResult with ranked citations and retrieval_mode
 
-Scope guards (from Work-Packet - PaperQA2 RAG Control Flow.md):
+Scope guards:
 - Only queries KnowledgeStore with source_family="academic" and defensively
   re-checks Marker-ready metadata at query time for legacy/bad KS rows
-- Does NOT query ChromaDB vector index in this version
-  (body_source not stored in Chroma metadata; future L2.1 can add that path)
+- Chroma semantic path requires the academic_papers collection populated by
+  research-marker-queue index-done --reindex-chroma (Deliverable A)
 - Does NOT change the corpus ingestion path
 - Embeddings and LLM synthesis are optional (provider_name="manual" by default)
 - Existing rag-query command is unchanged
@@ -27,7 +30,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -49,8 +52,13 @@ _KNOWN_MARKER_TAGS = re.compile(
 )
 # Marker internal cross-reference anchors: (#page-N-M)
 _PAGE_REF = re.compile(r"\(#page-\d+-\d+\)")
-# Markdown heading markers at the start of a line (## Title, #### **Section**)
-_MD_HEADING = re.compile(r"(?m)^#{1,6}[ \t]*")
+# Orphaned page-anchor prefix produced by claim_text[:400] mid-pattern truncation.
+# Matches "(#pag..." at end of string when the closing ")" was cut off.
+_PAGE_REF_ORPHAN = re.compile(r"\(#pag[^\)]*$")
+# Markdown heading markers at line start OR inline after whitespace.
+# The inline variant catches Marker OCR artifacts like " #### **Abstract** "
+# embedded in the middle of a snippet (not at a line boundary).
+_MD_HEADING = re.compile(r"(?m)(?:^#{1,6}[ \t]*|(?<=\s)#{1,6}[ \t]+)")
 # Three or more consecutive newlines collapsed to two
 _EXCESS_NEWLINES = re.compile(r"\n{3,}")
 # Three or more consecutive spaces/tabs collapsed to one
@@ -62,16 +70,19 @@ def _sanitize_snippet(text: str) -> str:
 
     Display-only: stored claim_text in KnowledgeStore is never mutated.
     Strips known Marker HTML tags (sup, sub, br, a), Marker page cross-reference
-    anchors (#page-N-M), markdown heading markers, and excessive whitespace runs.
+    anchors (#page-N-M), orphaned partial anchors at truncation boundaries,
+    markdown heading markers (line-start and inline), and excessive whitespace.
     Math expressions using bare < or > are preserved because only named Marker
     tag patterns are targeted.
     """
     text = _KNOWN_MARKER_TAGS.sub("", text)
     text = _PAGE_REF.sub("", text)
+    text = _PAGE_REF_ORPHAN.sub("", text)
     text = _MD_HEADING.sub("", text)
     text = _EXCESS_NEWLINES.sub("\n\n", text)
     text = _EXCESS_SPACES.sub(" ", text)
     return text.strip()
+
 
 if TYPE_CHECKING:
     pass
@@ -95,7 +106,7 @@ class AcademicCitation:
     best_snippet: str
     paper_score: float
     body_source: str   # "marker" for canonical corpus; "unknown" if metadata missing
-    claim_count: int   # how many claims from this paper matched the query
+    claim_count: int   # how many claims (or Chroma chunks) from this paper matched
 
 
 @dataclass
@@ -108,6 +119,8 @@ class AcademicQueryResult:
     had_fallback: bool         # True when no academic docs found in KS
     warning: Optional[str]
     query_angles: list[str]    # which query angles were actually executed
+    retrieval_mode: str = "lexical"  # "lexical" | "semantic"
+    semantic_unavailable_reason: Optional[str] = None  # why Chroma was skipped, or None if used
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +304,121 @@ def _group_by_paper(
     return by_paper
 
 
+def _open_chroma_collection(chroma_path: Optional[Path] = None):
+    """Open the academic_papers ChromaDB collection. Returns (collection, reason).
+
+    Returns (None, reason_str) on any failure so callers can surface why semantic
+    retrieval was skipped. Checks collection existence BEFORE any model init so
+    that missing-collection queries fail fast without Hugging Face retries.
+
+    Order of operations (critical for fast-fail):
+    1. Import chromadb (cheap — just a module lookup if already imported).
+    2. Open PersistentClient (reads local SQLite, no network).
+    3. list_collections() — lightweight, no model init.
+    4. If academic_papers absent → return early, no model ever touched.
+    5. If present → open collection WITHOUT an embedding function; query-time
+       embeddings are computed manually in _query_chroma_semantic using the same
+       SentenceTransformerEmbedder used at index time (avoids EF conflict since
+       index-done upserts pre-computed embeddings with no Chroma EF attached).
+    """
+    try:
+        import chromadb  # type: ignore
+    except ImportError:
+        return None, "chromadb not installed; pip install chromadb"
+    try:
+        path = chroma_path or Path("kb/rag/index")
+        client = chromadb.PersistentClient(path=str(path))
+        existing = {c.name for c in client.list_collections()}
+        if "academic_papers" not in existing:
+            return None, (
+                "academic_papers collection not found; "
+                "run: python -m polytool research-marker-queue index-done --reindex-chroma"
+            )
+        # Open without specifying an EF — the collection was created by index-done
+        # which upserts pre-computed BAAI/bge-large-en-v1.5 embeddings directly.
+        # Attaching a different EF here would cause a Chroma EF conflict error.
+        return client.get_collection(name="academic_papers"), None
+    except Exception as exc:
+        return None, f"Chroma unavailable: {exc}"
+
+
+def _query_chroma_semantic(
+    collection,
+    question: str,
+    n_results: int = 20,
+    min_similarity: float = 0.3,
+    _embed_fn=None,
+) -> list[tuple[str, float, str]]:
+    """Query ChromaDB for the question. Returns (ks_doc_id, similarity, chunk_text).
+
+    Deduplicates by ks_doc_id so each paper appears at most once (best chunk).
+    Hits below min_similarity are discarded so unrelated nearest-neighbor results
+    do not satisfy queries that have no relevant paper in the corpus.
+    Returns [] on any Chroma error so the caller falls through to lexical.
+
+    Model loading uses local_files_only=True to fail immediately when the BGE
+    model is not locally cached — avoiding HuggingFace network retries and the
+    resulting 120 s+ hang. If the model is absent, falls back to query_texts=
+    (Chroma EF-less collections reject this too, returning [] → lexical fallback).
+
+    _embed_fn: optional callable(str) -> list[float] | None for testing. When
+    provided, bypasses the real model load entirely. Return None to force the
+    query_texts= path (useful for fake-Chroma collection tests).
+    """
+    query_embedding = None
+    if _embed_fn is not None:
+        try:
+            query_embedding = _embed_fn(question)
+        except Exception:
+            pass
+    else:
+        # Fast-fail: only loads from local cache, never downloads.
+        try:
+            from sentence_transformers import SentenceTransformer
+            from packages.polymarket.rag.embedder import DEFAULT_EMBED_MODEL
+            _model = SentenceTransformer(DEFAULT_EMBED_MODEL, local_files_only=True)
+            _raw = _model.encode(question, convert_to_numpy=True, normalize_embeddings=True)
+            query_embedding = _raw.astype("float32").tolist()
+        except Exception:
+            pass  # Model not locally cached — use query_texts= path immediately
+
+    try:
+        if query_embedding is not None:
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results,
+                include=["metadatas", "distances", "documents"],
+            )
+        else:
+            results = collection.query(
+                query_texts=[question],
+                n_results=n_results,
+                include=["metadatas", "distances", "documents"],
+            )
+    except Exception:
+        return []
+
+    hits: list[tuple[str, float, str]] = []
+    seen: set[str] = set()
+    metadatas = (results.get("metadatas") or [[]])[0]
+    distances = (results.get("distances") or [[]])[0]
+    documents = (results.get("documents") or [[]])[0]
+
+    for meta, dist, doc_text in zip(metadatas, distances, documents):
+        if not isinstance(meta, dict):
+            continue
+        ks_doc_id = meta.get("ks_doc_id")
+        if not ks_doc_id or ks_doc_id in seen:
+            continue
+        seen.add(ks_doc_id)
+        similarity = max(0.0, 1.0 - float(dist))
+        if similarity < min_similarity:
+            continue  # below relevance threshold — unrelated nearest-neighbor hit
+        hits.append((str(ks_doc_id), similarity, doc_text or ""))
+
+    return hits
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -303,11 +431,18 @@ def query_academic_corpus(
     k: int = 8,
     max_query_angles: int = 3,
     include_step_back: bool = False,
-    _store: Optional[KnowledgeStore] = None,   # injectable for testing
+    _store: Optional[KnowledgeStore] = None,      # injectable for testing
+    _chroma_collection=None,                       # injectable for testing; bypasses _open_chroma_collection
+    _embed_fn=None,                                # injectable for testing; overrides model load in _query_chroma_semantic
+    chroma_path: Optional[Path] = None,
 ) -> AcademicQueryResult:
-    """Query the academic corpus (KnowledgeStore, source_family='academic').
+    """Query the academic corpus with semantic-first retrieval (L2.1).
 
-    Uses multi-angle query planning (PaperQA2-inspired paper-level search).
+    Tries ChromaDB semantic retrieval first: if the academic_papers collection
+    is available and returns hits, those results are returned directly (semantic
+    mode). If Chroma is unavailable or returns no hits, falls back to
+    KnowledgeStore multi-angle lexical retrieval (lexical mode).
+
     Only returns results from Marker-quality ingests. The ingest gate enforces
     this for new rows, and this query path re-checks source metadata so legacy
     pdfplumber or short-body academic rows cannot be cited.
@@ -324,15 +459,24 @@ def query_academic_corpus(
     k:
         Maximum number of paper-level citations to return.
     max_query_angles:
-        Number of query angles for multi-angle retrieval (1 = primary only).
+        Number of query angles for multi-angle lexical retrieval (1 = primary only).
     include_step_back:
-        If True, include a broader step-back query angle.
+        If True, include a broader step-back query angle (lexical path only).
     _store:
         Test injection: if provided, use this KS instance instead of ks_path.
+    _chroma_collection:
+        Test injection: if provided, use this Chroma collection instead of
+        opening the real one. Allows offline unit tests with a fake collection.
+    _embed_fn:
+        Test injection: callable(str) -> list[float] | None. When provided,
+        bypasses the real sentence-transformer model load. Pass ``lambda q: None``
+        to force the query_texts= path so fake collections match by text key.
+    chroma_path:
+        Override ChromaDB persist directory (default: kb/rag/index).
     """
     from packages.polymarket.rag.knowledge_store import DEFAULT_KNOWLEDGE_DB_PATH
 
-    # Step 1: Resolve KS
+    # Resolve KS — single connection, single close in finally
     if _store is not None:
         ks = _store
         _owns_ks = False
@@ -341,14 +485,75 @@ def query_academic_corpus(
         ks = KnowledgeStore(resolved)
         _owns_ks = True
 
-    # Step 2: Build multi-angle queries
-    sub_queries = _build_sub_queries(question, max_query_angles, include_step_back)
-    query_angles = [q for q, _ in sub_queries]
+    # Injected collection takes precedence; else try to open the real one.
+    # _open_chroma_collection now returns (collection_or_None, reason_or_None)
+    # so that callers can surface why semantic retrieval was skipped.
+    _semantic_reason: Optional[str] = None
+    if _chroma_collection is not None:
+        coll = _chroma_collection
+    else:
+        coll, _semantic_reason = _open_chroma_collection(chroma_path)
 
-    # Step 3: Query KS for each angle, merge by claim_id
-    all_raw: list[dict] = []
-    _academic_docs_exist: bool = False  # probed only when all_raw is empty
+    citations: list[AcademicCitation] = []
+    marker_only_count = 0
+    total_claims_found = 0
+    query_angles: list[str] = [question]
+    retrieval_mode = "lexical"
+
     try:
+        # ------------------------------------------------------------------
+        # Semantic-first path: Chroma available → skip lexical entirely
+        # ------------------------------------------------------------------
+        if coll is not None:
+            chroma_hits = _query_chroma_semantic(coll, question, _embed_fn=_embed_fn)
+            if chroma_hits:
+                retrieval_mode = "semantic"
+                total_claims_found = len(chroma_hits)
+                for ks_doc_id, score, chunk_text in chroma_hits[:k]:
+                    src_doc = ks.get_source_document(ks_doc_id)
+                    if not src_doc:
+                        continue
+                    metadata_json = src_doc.get("metadata_json")
+                    if not _is_marker_ready_metadata(metadata_json):
+                        continue
+                    body_source = _extract_body_source(metadata_json)
+                    if body_source == "marker":
+                        marker_only_count += 1
+                    citations.append(AcademicCitation(
+                        title=src_doc.get("title") or "(unknown)",
+                        arxiv_id=_extract_arxiv_id(metadata_json),
+                        source_url=src_doc.get("source_url"),
+                        best_snippet=_sanitize_snippet(chunk_text),
+                        paper_score=score,
+                        body_source=body_source,
+                        claim_count=1,
+                    ))
+                if citations:
+                    return AcademicQueryResult(
+                        question=question,
+                        citations=citations,
+                        marker_only_count=marker_only_count,
+                        total_claims_found=total_claims_found,
+                        had_fallback=False,
+                        warning=None,
+                        query_angles=query_angles,
+                        retrieval_mode="semantic",
+                        semantic_unavailable_reason=None,
+                    )
+                # All Chroma hits failed Marker gate — fall through to lexical
+                citations = []
+                marker_only_count = 0
+                total_claims_found = 0
+                retrieval_mode = "lexical"
+
+        # ------------------------------------------------------------------
+        # Lexical path: KS substring multi-angle retrieval
+        # ------------------------------------------------------------------
+        sub_queries = _build_sub_queries(question, max_query_angles, include_step_back)
+        query_angles = [q for q, _ in sub_queries]
+
+        all_raw: list[dict] = []
+        _academic_docs_exist = False
         for query_text, _label in sub_queries:
             try:
                 results = query_knowledge_store_for_rrf(
@@ -365,87 +570,59 @@ def query_academic_corpus(
         # (Case A) from populated corpus with no matching claims (Case B).
         if not all_raw:
             _academic_docs_exist = _has_academic_documents(ks)
-    finally:
-        if _owns_ks:
-            ks.close()
 
-    total_claims_found = len(all_raw)
-    merged = _merge_claims(all_raw)
+        total_claims_found = len(all_raw)
+        merged = _merge_claims(all_raw)
 
-    # Step 4: Check fallback condition
-    if not merged:
-        if _academic_docs_exist:
-            _warning = (
-                "Academic documents exist in the KnowledgeStore, but no relevant "
-                "claims matched this question. Try a more specific question or "
-                "add more related papers: "
-                "python -m polytool research-marker-queue enqueue --url ARXIV_ID"
+        if not merged:
+            if _academic_docs_exist:
+                _warning = (
+                    "Academic documents exist in the KnowledgeStore, but no relevant "
+                    "claims matched this question. Try a more specific question or "
+                    "add more related papers: "
+                    "python -m polytool research-marker-queue enqueue --url ARXIV_ID"
+                )
+            else:
+                _warning = (
+                    "No academic documents found in the KnowledgeStore. "
+                    "To add papers: python -m polytool research-marker-queue enqueue --url ARXIV_ID"
+                )
+            return AcademicQueryResult(
+                question=question,
+                citations=[],
+                marker_only_count=0,
+                total_claims_found=0,
+                had_fallback=True,
+                warning=_warning,
+                query_angles=query_angles,
+                retrieval_mode=retrieval_mode,
+                semantic_unavailable_reason=_semantic_reason,
             )
-        else:
-            _warning = (
-                "No academic documents found in the KnowledgeStore. "
-                "To add papers: python -m polytool research-marker-queue enqueue --url ARXIV_ID"
-            )
-        return AcademicQueryResult(
-            question=question,
-            citations=[],
-            marker_only_count=0,
-            total_claims_found=0,
-            had_fallback=True,
-            warning=_warning,
-            query_angles=query_angles,
-        )
 
-    # Step 5: Group by paper, rank by max claim score
-    by_paper = _group_by_paper(merged)
-    paper_scores: list[tuple[str, float, list[dict]]] = []
-    for doc_id, claims in by_paper.items():
-        best_score = max(c.get("score", 0.0) for c in claims)
-        paper_scores.append((doc_id, best_score, claims))
-    paper_scores.sort(key=lambda x: x[1], reverse=True)
+        by_paper = _group_by_paper(merged)
+        paper_scores_list: list[tuple[str, float, list[dict]]] = []
+        for doc_id, claims in by_paper.items():
+            best_score = max(c.get("score", 0.0) for c in claims)
+            paper_scores_list.append((doc_id, best_score, claims))
+        paper_scores_list.sort(key=lambda x: x[1], reverse=True)
 
-    # Step 6: Attach citation metadata, take top-k papers
-    if _store is not None:
-        ks2 = _store
-        _owns_ks2 = False
-    else:
-        resolved2 = ks_path or DEFAULT_KNOWLEDGE_DB_PATH
-        ks2 = KnowledgeStore(resolved2)
-        _owns_ks2 = True
-
-    citations: list[AcademicCitation] = []
-    marker_only_count = 0
-
-    try:
-        for doc_id, best_score, claims in paper_scores:
-            title = "(unknown)"
-            source_url: Optional[str] = None
-            arxiv_id: Optional[str] = None
-            body_source = "unknown"
-
+        for doc_id, best_score, claims in paper_scores_list:
             if not doc_id:
                 continue
-            src_doc = ks2.get_source_document(doc_id)
+            src_doc = ks.get_source_document(doc_id)
             if not src_doc:
                 continue
-
             title = src_doc.get("title") or "(unknown)"
-            source_url = src_doc.get("source_url")
+            source_url: Optional[str] = src_doc.get("source_url")
             metadata_json = src_doc.get("metadata_json")
             if not _is_marker_ready_metadata(metadata_json):
                 continue
             arxiv_id = _extract_arxiv_id(metadata_json)
             body_source = _extract_body_source(metadata_json)
-
             if body_source == "marker":
                 marker_only_count += 1
-
-            # Best snippet from highest-scoring claim for this paper.
-            # _sanitize_snippet strips Marker artifacts at display time only;
-            # stored claim_text is not modified.
             best_claim = max(claims, key=lambda c: c.get("score", 0.0))
             snippet = _sanitize_snippet(best_claim.get("snippet", ""))
-
             citations.append(AcademicCitation(
                 title=title,
                 arxiv_id=arxiv_id,
@@ -457,9 +634,10 @@ def query_academic_corpus(
             ))
             if len(citations) >= k:
                 break
+
     finally:
-        if _owns_ks2:
-            ks2.close()
+        if _owns_ks:
+            ks.close()
 
     if not citations:
         return AcademicQueryResult(
@@ -474,6 +652,8 @@ def query_academic_corpus(
                 "papers through research-marker-queue before querying."
             ),
             query_angles=query_angles,
+            retrieval_mode=retrieval_mode,
+            semantic_unavailable_reason=_semantic_reason,
         )
 
     return AcademicQueryResult(
@@ -484,4 +664,6 @@ def query_academic_corpus(
         had_fallback=False,
         warning=None,
         query_angles=query_angles,
+        retrieval_mode=retrieval_mode,
+        semantic_unavailable_reason=_semantic_reason,
     )

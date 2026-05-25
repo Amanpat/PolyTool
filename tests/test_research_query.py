@@ -88,6 +88,39 @@ def _marker_metadata(arxiv_id="2604.24366", body_source="marker", body_length=56
     })
 
 
+def _get_ks_doc_id(ks, title: str) -> str:
+    """Return the KS source_document.id for the given title (for fake Chroma setup)."""
+    row = ks._conn.execute(
+        "SELECT id FROM source_documents WHERE title = ?", (title,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"No source document with title={title!r}")
+    return str(row[0])
+
+
+class _FakeChromaCollForAcademic:
+    """Fake ChromaDB collection for offline semantic retrieval tests.
+
+    query_responses maps query_text.lower() -> [(ks_doc_id, similarity_score), ...]
+    """
+
+    def __init__(self, query_responses: dict):
+        self._resp = {k.lower(): v for k, v in query_responses.items()}
+
+    def query(self, query_texts=None, query_embeddings=None, n_results=10, where=None, include=None):
+        qt = (query_texts[0] if query_texts else "").lower()
+        hits = self._resp.get(qt, [])[:n_results]
+        return {
+            "ids": [[f"chunk_{doc_id}_0" for doc_id, _ in hits]],
+            "distances": [[max(0.0, 1.0 - score) for _, score in hits]],
+            "metadatas": [[
+                {"ks_doc_id": doc_id, "chunk_index": 0, "body_source": "marker"}
+                for doc_id, _ in hits
+            ]],
+            "documents": [[f"Chunk content for document {doc_id}" for doc_id, _ in hits]],
+        }
+
+
 # ---------------------------------------------------------------------------
 # Tests — academic_query.query_academic_corpus()
 # ---------------------------------------------------------------------------
@@ -817,6 +850,21 @@ class TestSanitizeSnippet:
         assert "22.5%" in result
         assert "47.1%" in result
 
+    def test_strips_inline_heading_mid_snippet(self):
+        """#### mid-snippet (not at line start) must be stripped."""
+        raw = "DISC FinLLM #### **Abstract** Large language models provide..."
+        result = self._sanitize(raw)
+        assert "####" not in result
+        assert "DISC FinLLM" in result
+        assert "Large language models" in result
+
+    def test_strips_orphaned_page_anchor_after_truncation(self):
+        """(#pag... artifact left by :400 truncation must be removed."""
+        raw = "DISC FinLLM [2023b\\)], DISC FinLLM [2023\\)] (#pag"
+        result = self._sanitize(raw)
+        assert "(#pag" not in result
+        assert "DISC FinLLM" in result
+
 
 class TestSanitizeSnippetIntegration:
     """Integration: AcademicCitation.best_snippet is sanitized; KS claim_text is not."""
@@ -889,3 +937,238 @@ class TestSanitizeSnippetIntegration:
         stored_text = matching[0]["claim_text"]
         # Raw HTML must still be in the stored claim
         assert "<sup>" in stored_text or raw_claim in stored_text
+
+
+# ---------------------------------------------------------------------------
+# Tests - L2.1 Deliverable B semantic retrieval acceptance gaps
+# ---------------------------------------------------------------------------
+
+
+class TestSemanticRetrievalAcceptanceGaps:
+    """Acceptance cases that require semantic retrieval beyond substring search.
+
+    These tests are intentionally xfailed while Deliverable B is blocked. They
+    should be unmarked and made passing when query_academic_corpus gains a
+    Chroma-backed semantic fallback/merge path.
+    """
+
+    def _call(self, question, ks, **kwargs):
+        from packages.research.synthesis.academic_query import query_academic_corpus
+        return query_academic_corpus(question, _store=ks, **kwargs)
+
+    def test_abbreviation_query_llm_finds_large_language_model_paper_not_bellman(self):
+        """LLM must not be satisfied by substring hits inside unrelated words."""
+        ks = _make_ks(academic_docs=[
+            {
+                "title": "Bellman Equations in Market Making",
+                "metadata_json": _marker_metadata("1810.04383", "marker"),
+                "claims": ["Hamilton-Jacobi-Bellman equations define the control problem."],
+            },
+            {
+                "title": "The New Quant",
+                "metadata_json": _marker_metadata("2510.05533", "marker"),
+                "claims": [
+                    "Large Language Models can support financial prediction and trading."
+                ],
+            },
+        ])
+        new_quant_id = _get_ks_doc_id(ks, "The New Quant")
+        fake_coll = _FakeChromaCollForAcademic({
+            "llm": [(new_quant_id, 0.92)],
+        })
+        result = self._call("LLM", ks, _chroma_collection=fake_coll, _embed_fn=lambda q: None)
+        assert result.had_fallback is False
+        assert result.citations
+        assert result.citations[0].title == "The New Quant"
+        assert all("Bellman" not in c.title for c in result.citations)
+
+    def test_multi_word_query_language_model_financial_prediction_returns_paper(self):
+        """Non-contiguous related terms should retrieve through semantic search."""
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": [
+                "Large language models are evaluated for financial prediction tasks."
+            ],
+        }])
+        new_quant_id = _get_ks_doc_id(ks, "The New Quant")
+        fake_coll = _FakeChromaCollForAcademic({
+            "language model financial prediction": [(new_quant_id, 0.88)],
+        })
+        result = self._call("language model financial prediction", ks, _chroma_collection=fake_coll, _embed_fn=lambda q: None)
+        assert result.had_fallback is False
+        assert result.citations[0].title == "The New Quant"
+
+    def test_conversational_hallucination_query_returns_paper(self):
+        """Conversational wording should still retrieve the core topic."""
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": [
+                "Hallucination is a key limitation for language-model trading systems."
+            ],
+        }])
+        new_quant_id = _get_ks_doc_id(ks, "The New Quant")
+        fake_coll = _FakeChromaCollForAcademic({
+            "what does this paper say about hallucination": [(new_quant_id, 0.85)],
+        })
+        result = self._call(
+            "what does this paper say about hallucination", ks,
+            _chroma_collection=fake_coll,
+            _embed_fn=lambda q: None,
+        )
+        assert result.had_fallback is False
+        assert result.citations[0].title == "The New Quant"
+
+    def test_unrelated_weather_query_stays_rejected(self):
+        """The semantic path must not make unrelated controls look relevant."""
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": [
+                "Large language models are evaluated for financial prediction tasks."
+            ],
+        }])
+        result = self._call("weather forecast", ks)
+        assert result.had_fallback is True
+        assert result.citations == []
+
+    def test_weather_query_low_similarity_chroma_hit_rejected_by_threshold(self):
+        """Low-similarity nearest-neighbor Chroma hit must be discarded.
+
+        Even when academic_papers exists and the embedding path is active, an
+        unrelated query ('weather forecast') that returns only a low-similarity
+        hit must be treated as no-result and fall through to had_fallback=True.
+        """
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": [
+                "Large language models are evaluated for financial prediction tasks."
+            ],
+        }])
+        new_quant_id = _get_ks_doc_id(ks, "The New Quant")
+        # Inject a fake collection that returns a low-similarity hit (0.10 < 0.30 threshold)
+        fake_coll = _FakeChromaCollForAcademic({
+            "weather forecast": [(new_quant_id, 0.10)],
+        })
+        result = self._call("weather forecast", ks, _chroma_collection=fake_coll, _embed_fn=lambda q: None)
+        assert result.had_fallback is True, (
+            "Low-similarity nearest-neighbor hit (0.10) should be discarded by "
+            "the min_similarity threshold and fall through to lexical/no-result"
+        )
+        assert result.citations == []
+
+    def test_result_exposes_retrieval_mode_metadata(self):
+        """Operators need to distinguish lexical, semantic, and fallback results."""
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": [
+                "Large language models are evaluated for financial prediction tasks."
+            ],
+        }])
+        result = self._call("language model financial prediction", ks)
+        assert getattr(result, "retrieval_mode") in {"lexical", "semantic", "hybrid"}
+
+
+# ---------------------------------------------------------------------------
+# Tests — _open_chroma_collection fast-fail behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestOpenChromaCollectionFastFail:
+    """Verify _open_chroma_collection fails fast without touching HuggingFace.
+
+    The fix: collection existence is checked via list_collections() (local SQLite,
+    no network) BEFORE SentenceTransformerEmbeddingFunction is instantiated.
+    These tests assert that the embedding function is never called when the
+    academic_papers collection is absent.
+    """
+
+    def _call(self, **kwargs):
+        from packages.research.synthesis.academic_query import _open_chroma_collection
+        return _open_chroma_collection(**kwargs)
+
+    def test_missing_collection_returns_none_without_touching_collection(self, monkeypatch):
+        """When academic_papers is absent, returns (None, reason) without get_collection."""
+        import sys
+        from unittest.mock import MagicMock
+
+        fake_client = MagicMock()
+        fake_coll_obj = MagicMock()
+        fake_coll_obj.name = "some_other_collection"
+        fake_client.list_collections.return_value = [fake_coll_obj]
+
+        fake_chromadb = MagicMock()
+        fake_chromadb.PersistentClient.return_value = fake_client
+
+        monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb)
+
+        coll, reason = self._call()
+
+        assert coll is None
+        assert reason is not None
+        assert "academic_papers" in reason
+        # get_collection must never be called when collection is absent
+        fake_client.get_collection.assert_not_called()
+
+    def test_empty_collection_list_returns_none_without_touching_collection(self, monkeypatch):
+        """When Chroma store is empty, returns (None, reason) without get_collection."""
+        import sys
+        from unittest.mock import MagicMock
+
+        fake_client = MagicMock()
+        fake_client.list_collections.return_value = []
+
+        fake_chromadb = MagicMock()
+        fake_chromadb.PersistentClient.return_value = fake_client
+
+        monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb)
+
+        coll, reason = self._call()
+
+        assert coll is None
+        assert reason is not None
+        fake_client.get_collection.assert_not_called()
+
+    def test_chromadb_import_error_returns_none_gracefully(self, monkeypatch):
+        """When chromadb is not installed, returns (None, reason) without raising."""
+        import sys
+        # Simulate ImportError by removing chromadb from sys.modules
+        monkeypatch.setitem(sys.modules, "chromadb", None)
+
+        coll, reason = self._call()
+
+        assert coll is None
+        assert reason is not None
+        assert "chromadb" in reason.lower()
+
+    def test_academic_papers_present_opens_collection_without_ef(self, monkeypatch):
+        """When academic_papers exists, collection is opened WITHOUT an embedding function.
+
+        The marker queue upserts pre-computed embeddings; attaching a Chroma EF at
+        open time would cause an EF conflict error. Query-time embeddings are computed
+        separately by _query_chroma_semantic using SentenceTransformerEmbedder.
+        """
+        import sys
+        from unittest.mock import MagicMock
+
+        fake_collection = MagicMock()
+        fake_client = MagicMock()
+        fake_coll_obj = MagicMock()
+        fake_coll_obj.name = "academic_papers"
+        fake_client.list_collections.return_value = [fake_coll_obj]
+        fake_client.get_collection.return_value = fake_collection
+
+        fake_chromadb = MagicMock()
+        fake_chromadb.PersistentClient.return_value = fake_client
+
+        monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb)
+
+        coll, reason = self._call()
+
+        assert reason is None
+        assert coll is fake_collection
+        # get_collection must be called WITHOUT an embedding_function kwarg
+        fake_client.get_collection.assert_called_once_with(name="academic_papers")
