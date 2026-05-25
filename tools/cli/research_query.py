@@ -90,6 +90,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             "marker_only_count": 0,
             "total_claims_found": 0,
             "had_fallback": True,
+            "retrieval_mode": "lexical",
+            "semantic_unavailable_reason": None,
             "warning": (
                 f"KnowledgeStore not found at {ks_path}. "
                 "Run research-ingest or research-acquire to populate the store first."
@@ -126,6 +128,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         "marker_only_count": result.marker_only_count,
         "total_claims_found": result.total_claims_found,
         "had_fallback": result.had_fallback,
+        "retrieval_mode": result.retrieval_mode,
+        "semantic_unavailable_reason": result.semantic_unavailable_reason,
         "warning": result.warning,
         "query_angles": result.query_angles,
     }

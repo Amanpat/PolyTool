@@ -725,6 +725,57 @@ Output locations (gitignored):
 | Body text | `artifacts/research/marker_parse_queue/bodies/{candidate_id}.body.txt` |
 | Fetch metadata | `artifacts/research/marker_parse_queue/bodies/{candidate_id}.meta.json` |
 | Indexed log | `artifacts/research/marker_parse_queue/indexed.jsonl` |
+| Chroma embedded log | `artifacts/research/marker_parse_queue/chroma_embedded.jsonl` |
+
+### Step 4c — Embed indexed papers into ChromaDB `academic_papers` collection (L2.1)
+
+After `index-done` succeeds, embed papers into the dedicated `academic_papers` Chroma
+collection so semantic retrieval can trace every chunk back to its KnowledgeStore document
+via `ks_doc_id`.
+
+```bash
+# Index completed papers and embed them into Chroma
+python -m polytool research-marker-queue index-done --reindex-chroma
+
+# Re-index and re-embed already-indexed queue items
+python -m polytool research-marker-queue index-done --reindex-chroma --force
+
+# Use a non-default Chroma directory
+python -m polytool research-marker-queue index-done --reindex-chroma --chroma-path PATH
+
+# Verify linkage health (JSON report)
+python -m polytool research-marker-queue check-chroma-links --json
+```
+
+There is no separate Chroma embedding subcommand. Chroma population is exposed to
+operators through `index-done --reindex-chroma`; use `--force` when you intentionally
+want to reprocess queue items that are already recorded in `indexed.jsonl`.
+
+**How `check-chroma-links` works:**
+
+1. Opens `academic_papers` in the Chroma persistent store
+2. Fetches all chunk metadata with `collection.get(include=["metadatas"])`
+3. For each chunk, checks that `ks_doc_id` is present and non-empty
+4. Cross-references each unique `ks_doc_id` against the KnowledgeStore — reports
+   any that cannot be found (orphaned chunks)
+5. Exits 0 when both `missing_ks_doc_id` and `ks_doc_id_not_in_ks` are 0
+
+**Clean linkage output:**
+```json
+{
+  "collection": "academic_papers",
+  "total_chunks": 423,
+  "unique_papers": 9,
+  "valid_ks_doc_id": 423,
+  "missing_ks_doc_id": 0,
+  "ks_doc_id_not_in_ks": 0,
+  "not_in_ks_doc_ids": []
+}
+```
+
+**Idempotency:** Chunk IDs are deterministic (`sha256(ks_doc_id + "\x00" + chunk_index)`),
+so `index-done --reindex-chroma` is safe to re-run. Use `--force` to reprocess
+already-indexed queue items; Chroma upsert overwrites existing chunks by ID.
 
 ---
 

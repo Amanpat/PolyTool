@@ -47,7 +47,7 @@ _MIN_MARKER_BODY_LENGTH = 5000
 # Whitelist of known Marker HTML tags (not a general <[^>]+> to avoid stripping
 # math inequality signs like a < b or LaTeX expressions).
 _KNOWN_MARKER_TAGS = re.compile(
-    r"</?(?:sup|sub|br|a)(?:\s[^>]*)?/?>",
+    r"</?(?:sup|sub|br|a|span)(?:\s[^>]*)?/?>",
     re.IGNORECASE,
 )
 # Marker internal cross-reference anchors: (#page-N-M)
@@ -346,7 +346,7 @@ def _query_chroma_semantic(
     collection,
     question: str,
     n_results: int = 20,
-    min_similarity: float = 0.3,
+    min_similarity: float = 0.18,
     _embed_fn=None,
 ) -> list[tuple[str, float, str]]:
     """Query ChromaDB for the question. Returns (ks_doc_id, similarity, chunk_text).

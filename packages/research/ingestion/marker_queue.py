@@ -57,6 +57,12 @@ _FILE_SIZE_TIMEOUT_DEFAULT = 14400.0  # >1500 KB → 14400s (4 hours)
 #   Tier 0/1: NOT accepted as canonical academic RAG ingestion (conflicts with Marker gate).
 _VALID_INGEST_TIERS = frozenset({2, 3})
 
+# ChromaDB collection name for academic paper embeddings (Deliverable A).
+# Separate from the general polytool_rag collection so academic-only semantic
+# search can be scoped cleanly. Populated by index_done_items(embed_chroma=True)
+# or embed_done_items_into_chroma() backfill.
+_ACADEMIC_CHROMA_COLLECTION = "academic_papers"
+
 
 def auto_timeout_from_file_size(file_size_bytes: int) -> float:
     """Return recommended Marker timeout (seconds) based on PDF file size.
@@ -882,12 +888,104 @@ class MarkerParseQueue:
                     best[cid] = rec
         return best
 
+    def _embed_body_into_chroma(
+        self,
+        body_text: str,
+        ks_doc_id: str,
+        arxiv_id: str,
+        title: str,
+        candidate_id: str,
+        body_source: str,
+        chroma_path: Optional[Path] = None,
+        collection_name: str = _ACADEMIC_CHROMA_COLLECTION,
+        _chromadb=None,   # injectable for offline testing
+        _embedder_cls=None,  # injectable for offline testing
+    ) -> dict:
+        """Embed body_text into the academic ChromaDB collection.
+
+        Chunks the body, generates deterministic chunk IDs from ks_doc_id +
+        chunk_index (stable across re-runs), and upserts into the named
+        collection with ks_doc_id in each chunk's metadata.
+
+        Idempotent: upsert by deterministic ID overwrites existing chunks.
+
+        Parameters
+        ----------
+        _chromadb:
+            Inject the chromadb module (avoids the real import in tests).
+        _embedder_cls:
+            Inject the embedder class (avoids sentence-transformers in tests).
+
+        Returns
+        -------
+        dict with key ``chunks_upserted`` (int).
+        """
+        import hashlib
+        from packages.polymarket.rag.chunker import chunk_text
+
+        if chroma_path is None:
+            from packages.polymarket.rag.defaults import RAG_DEFAULT_PERSIST_DIR
+            chroma_path = RAG_DEFAULT_PERSIST_DIR
+
+        if _chromadb is None:
+            try:
+                import chromadb as _chromadb
+            except ImportError as exc:
+                raise RuntimeError(
+                    "chromadb is required for Chroma embedding. "
+                    "Install with: pip install chromadb"
+                ) from exc
+
+        if _embedder_cls is None:
+            from packages.polymarket.rag.embedder import SentenceTransformerEmbedder
+            _embedder_cls = SentenceTransformerEmbedder
+
+        chunks = chunk_text(body_text)
+        if not chunks:
+            return {"chunks_upserted": 0}
+
+        embedder = _embedder_cls()
+        texts = [c.text for c in chunks]
+        embeddings = embedder.embed_texts(texts)  # np.ndarray (n, dim)
+
+        chunk_ids: list[str] = []
+        metadatas: list[dict] = []
+        for i, chunk in enumerate(chunks):
+            cid_hash = hashlib.sha256(
+                f"{ks_doc_id}\x00{i}".encode()
+            ).hexdigest()
+            chunk_ids.append(cid_hash)
+            metadatas.append({
+                "ks_doc_id": ks_doc_id,
+                "arxiv_id": arxiv_id or "",
+                "body_source": body_source,
+                "source_family": "academic",
+                "title": title or "",
+                "candidate_id": candidate_id,
+                "chunk_index": i,
+            })
+
+        client = _chromadb.PersistentClient(path=str(chroma_path))
+        collection = client.get_or_create_collection(name=collection_name)
+        collection.upsert(
+            ids=chunk_ids,
+            embeddings=embeddings.tolist(),
+            metadatas=metadatas,
+            documents=texts,
+        )
+
+        return {"chunks_upserted": len(chunks)}
+
     def index_done_items(
         self,
         ks_path: Optional[Path] = None,
         force: bool = False,
         extract_claims: bool = True,
+        embed_chroma: bool = False,
+        chroma_path: Optional[Path] = None,
         _store=None,  # injectable KnowledgeStore for tests
+        _chromadb=None,  # injectable for tests (passed to _embed_body_into_chroma)
+        _embedder_cls=None,  # injectable for tests
     ) -> dict:
         """Index all marker-ready done items into the KnowledgeStore.
 
@@ -930,11 +1028,13 @@ class MarkerParseQueue:
         Returns
         -------
         dict with keys:
-            indexed                  list of {candidate_id, doc_id, chunk_count, claims_extracted}
-            skipped_already_indexed  list of candidate_ids
-            skipped_no_body          list of candidate_ids (body file missing)
-            failed                   list of {candidate_id, error}
-            total_claims_extracted   int total claims extracted across all indexed papers
+            indexed                      list of {candidate_id, doc_id, chunk_count,
+                                           claims_extracted[, chroma_chunks_upserted]}
+            skipped_already_indexed      list of candidate_ids
+            skipped_no_body              list of candidate_ids (body file missing)
+            failed                       list of {candidate_id, error}
+            total_claims_extracted       int
+            total_chroma_chunks_upserted int (non-zero only when embed_chroma=True)
         """
         from packages.research.ingestion.pipeline import IngestPipeline
         from packages.polymarket.rag.knowledge_store import (
@@ -978,6 +1078,7 @@ class MarkerParseQueue:
             "skipped_no_body": [],
             "failed": [],
             "total_claims_extracted": 0,
+            "total_chroma_chunks_upserted": 0,
         }
 
         try:
@@ -991,18 +1092,28 @@ class MarkerParseQueue:
 
                 body_file = body_dir / f"{cid}.body.txt"
                 if not body_file.exists():
-                    _logger.warning(
-                        "marker_queue index-done: body file missing for %s; "
-                        "re-enqueue with --force to re-process",
-                        cid,
-                    )
-                    summary["skipped_no_body"].append(cid)
-                    continue
+                    # Windows NTFS workaround: ':' in filenames written by
+                    # Docker/Linux is stored as U+F03A on the host filesystem.
+                    ntfs_cid = cid.replace(":", "")
+                    ntfs_body_file = body_dir / f"{ntfs_cid}.body.txt"
+                    if ntfs_body_file.exists():
+                        body_file = ntfs_body_file
+                    else:
+                        _logger.warning(
+                            "marker_queue index-done: body file missing for %s; "
+                            "re-enqueue with --force to re-process",
+                            cid,
+                        )
+                        summary["skipped_no_body"].append(cid)
+                        continue
 
                 body_text = body_file.read_text(encoding="utf-8")
 
                 # Read metadata sidecar if available
+                ntfs_cid = cid.replace(":", "")
                 meta_file = body_dir / f"{cid}.meta.json"
+                if not meta_file.exists():
+                    meta_file = body_dir / f"{ntfs_cid}.meta.json"
                 sidecar_meta: dict = {}
                 if meta_file.exists():
                     try:
@@ -1065,6 +1176,36 @@ class MarkerParseQueue:
                             "marker_queue: claim extraction failed for %s: %s", cid, exc
                         )
 
+                # Optional: embed into academic Chroma collection (non-fatal)
+                chroma_chunks = 0
+                if embed_chroma and ingest_result.doc_id:
+                    _arxiv_id = ""
+                    _cids = raw_source.get("canonical_ids")
+                    if isinstance(_cids, dict):
+                        _arxiv_id = _cids.get("arxiv_id", "") or ""
+                    try:
+                        _er = self._embed_body_into_chroma(
+                            body_text=body_text,
+                            ks_doc_id=ingest_result.doc_id,
+                            arxiv_id=_arxiv_id,
+                            title=raw_source.get("title", ""),
+                            candidate_id=cid,
+                            body_source=raw_source.get("body_source", "marker"),
+                            chroma_path=chroma_path,
+                            _chromadb=_chromadb,
+                            _embedder_cls=_embedder_cls,
+                        )
+                        chroma_chunks = _er.get("chunks_upserted", 0)
+                        _logger.info(
+                            "marker_queue: chroma-embedded %s -> %d chunk(s)",
+                            cid, chroma_chunks,
+                        )
+                    except Exception as _exc:
+                        _logger.warning(
+                            "marker_queue: Chroma embedding failed for %s: %s",
+                            cid, _exc,
+                        )
+
                 # Record as indexed
                 self._ensure_dir()
                 indexed_rec = {
@@ -1077,15 +1218,17 @@ class MarkerParseQueue:
                 with open(indexed_path, "a", encoding="utf-8") as _out:
                     _out.write(json.dumps(indexed_rec, separators=(",", ":")) + "\n")
 
-                summary["indexed"].append(
-                    {
-                        "candidate_id": cid,
-                        "doc_id": ingest_result.doc_id,
-                        "chunk_count": ingest_result.chunk_count,
-                        "claims_extracted": claims_extracted_count,
-                    }
-                )
+                _indexed_item: dict = {
+                    "candidate_id": cid,
+                    "doc_id": ingest_result.doc_id,
+                    "chunk_count": ingest_result.chunk_count,
+                    "claims_extracted": claims_extracted_count,
+                }
+                if embed_chroma:
+                    _indexed_item["chroma_chunks_upserted"] = chroma_chunks
+                summary["indexed"].append(_indexed_item)
                 summary["total_claims_extracted"] += claims_extracted_count
+                summary["total_chroma_chunks_upserted"] += chroma_chunks
                 _logger.info(
                     "marker_queue: indexed %s -> doc_id=%s chunks=%d",
                     cid,
@@ -1096,6 +1239,162 @@ class MarkerParseQueue:
         finally:
             if owns_store:
                 store.close()
+
+        return summary
+
+    def embed_done_items_into_chroma(
+        self,
+        chroma_path: Optional[Path] = None,
+        collection_name: str = _ACADEMIC_CHROMA_COLLECTION,
+        force: bool = False,
+        _chromadb=None,
+        _embedder_cls=None,
+    ) -> dict:
+        """Backfill: embed already-indexed academic papers into ChromaDB.
+
+        Reads ``indexed.jsonl`` for the list of KS-indexed items, then embeds
+        each one's body sidecar into the named Chroma collection.
+
+        Idempotency is tracked in ``chroma_embedded.jsonl``.  Items already
+        recorded there are skipped unless ``force=True``.
+
+        Parameters
+        ----------
+        force:
+            Re-embed even items already in ``chroma_embedded.jsonl``.
+        _chromadb, _embedder_cls:
+            Injectable for offline testing (same semantics as
+            ``_embed_body_into_chroma``).
+
+        Returns
+        -------
+        dict with keys:
+            embedded                  list of {candidate_id, doc_id, chunks_upserted}
+            skipped_already_embedded  list of candidate_ids
+            skipped_no_body           list of candidate_ids
+            failed                    list of {candidate_id, error}
+            total_chunks_upserted     int
+        """
+        indexed_path = self.queue_dir / "indexed.jsonl"
+        embedded_path = self.queue_dir / "chroma_embedded.jsonl"
+        body_dir = self.queue_dir / _BODY_STORE_SUBDIR
+
+        # Load indexed items; deduplicate by candidate_id (keep last record)
+        indexed_by_cid: dict[str, dict] = {}
+        if indexed_path.exists():
+            with open(indexed_path, encoding="utf-8") as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line:
+                        try:
+                            rec = json.loads(_line)
+                            cid = rec.get("candidate_id", "")
+                            if cid:
+                                indexed_by_cid[cid] = rec
+                        except json.JSONDecodeError:
+                            pass
+
+        # Load already-embedded candidate_ids (skip on force)
+        embedded_ids: set[str] = set()
+        if not force and embedded_path.exists():
+            with open(embedded_path, encoding="utf-8") as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line:
+                        try:
+                            embedded_ids.add(json.loads(_line).get("candidate_id", ""))
+                        except json.JSONDecodeError:
+                            pass
+
+        summary: dict = {
+            "embedded": [],
+            "skipped_already_embedded": [],
+            "skipped_no_body": [],
+            "failed": [],
+            "total_chunks_upserted": 0,
+        }
+
+        best_results = self._read_best_results()
+
+        for cid, indexed_rec in indexed_by_cid.items():
+            if cid in embedded_ids and not force:
+                summary["skipped_already_embedded"].append(cid)
+                continue
+
+            body_file = body_dir / f"{cid}.body.txt"
+            if not body_file.exists():
+                summary["skipped_no_body"].append(cid)
+                continue
+
+            ks_doc_id = indexed_rec.get("doc_id", "")
+            if not ks_doc_id:
+                summary["failed"].append(
+                    {"candidate_id": cid, "error": "doc_id missing from indexed.jsonl"}
+                )
+                continue
+
+            body_text = body_file.read_text(encoding="utf-8")
+
+            result_rec = best_results.get(cid, {})
+            meta_file = body_dir / f"{cid}.meta.json"
+            sidecar_meta: dict = {}
+            if meta_file.exists():
+                try:
+                    sidecar_meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    pass
+
+            arxiv_id: str = (
+                result_rec.get("arxiv_id")
+                or (sidecar_meta.get("canonical_ids") or {}).get("arxiv_id", "")
+                or ""
+            )
+            title: str = result_rec.get("title") or sidecar_meta.get("title", "") or ""
+            body_source: str = (
+                result_rec.get("body_source") or sidecar_meta.get("body_source", "marker")
+            )
+
+            try:
+                embed_result = self._embed_body_into_chroma(
+                    body_text=body_text,
+                    ks_doc_id=ks_doc_id,
+                    arxiv_id=arxiv_id,
+                    title=title,
+                    candidate_id=cid,
+                    body_source=body_source,
+                    chroma_path=chroma_path,
+                    collection_name=collection_name,
+                    _chromadb=_chromadb,
+                    _embedder_cls=_embedder_cls,
+                )
+            except Exception as exc:
+                summary["failed"].append(
+                    {"candidate_id": cid, "error": str(exc)[:200]}
+                )
+                continue
+
+            chunks_upserted = embed_result.get("chunks_upserted", 0)
+
+            self._ensure_dir()
+            embedded_rec = {
+                "candidate_id": cid,
+                "doc_id": ks_doc_id,
+                "chunks_upserted": chunks_upserted,
+                "embedded_at": _now_iso(),
+            }
+            with open(embedded_path, "a", encoding="utf-8") as _out:
+                _out.write(json.dumps(embedded_rec, separators=(",", ":")) + "\n")
+
+            summary["embedded"].append({
+                "candidate_id": cid,
+                "doc_id": ks_doc_id,
+                "chunks_upserted": chunks_upserted,
+            })
+            summary["total_chunks_upserted"] += chunks_upserted
+            _logger.info(
+                "marker_queue: chroma-backfill %s -> doc_id=%s chunks=%d",
+                cid, ks_doc_id, chunks_upserted,
+            )
 
         return summary
 

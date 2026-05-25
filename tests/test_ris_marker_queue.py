@@ -2473,3 +2473,695 @@ class TestAutoTimeoutUncached:
         data = json.loads(out)
         # Must not be the uncached-items error response
         assert data.get("error") != "uncached items found for --auto-timeout"
+
+
+# ---------------------------------------------------------------------------
+# Chroma linkage — fake infrastructure
+# ---------------------------------------------------------------------------
+
+class _FakeChromaCollection:
+    """In-memory Chroma collection stub for offline tests."""
+
+    def __init__(self, name: str = "academic_papers") -> None:
+        self.name = name
+        self._store: dict[str, dict] = {}  # chunk_id -> {embedding, metadata, document}
+
+    def upsert(self, ids, embeddings, metadatas, documents) -> None:
+        for cid, emb, meta, doc in zip(ids, embeddings, metadatas, documents):
+            self._store[cid] = {"embedding": emb, "metadata": meta, "document": doc}
+
+    def get(self, include=None) -> dict:
+        all_ids = list(self._store.keys())
+        result: dict = {"ids": all_ids}
+        if include and "metadatas" in include:
+            result["metadatas"] = [self._store[i]["metadata"] for i in all_ids]
+        if include and "documents" in include:
+            result["documents"] = [self._store[i]["document"] for i in all_ids]
+        return result
+
+    def count(self) -> int:
+        return len(self._store)
+
+
+class _FakeChromaClient:
+    """In-memory Chroma client stub."""
+
+    def __init__(self) -> None:
+        self._collections: dict[str, _FakeChromaCollection] = {}
+
+    def get_or_create_collection(self, name: str) -> _FakeChromaCollection:
+        if name not in self._collections:
+            self._collections[name] = _FakeChromaCollection(name)
+        return self._collections[name]
+
+    def get_collection(self, name: str) -> _FakeChromaCollection:
+        if name not in self._collections:
+            raise ValueError(f"Collection '{name}' not found")
+        return self._collections[name]
+
+
+class _FakeChromaModule:
+    """Injectable chromadb module stub."""
+
+    def __init__(self) -> None:
+        self._client = _FakeChromaClient()
+
+    def PersistentClient(self, path: str) -> _FakeChromaClient:
+        return self._client
+
+
+class _FakeEmbedder:
+    """Embedder stub that returns zero vectors without loading sentence-transformers."""
+
+    def embed_texts(self, texts: list) -> "np.ndarray":
+        import numpy as np
+        return np.zeros((len(texts), 4), dtype=np.float32)
+
+
+# ---------------------------------------------------------------------------
+# TestEmbedBodyIntoChroma
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedBodyIntoChroma:
+    """Unit tests for MarkerParseQueue._embed_body_into_chroma() via injectable deps."""
+
+    _KS_DOC_ID = "a" * 64
+
+    def _make_queue(self, tmp_path: Path):
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        return MarkerParseQueue(queue_dir=tmp_path)
+
+    def _embed(self, tmp_path: Path, body_text: str = _LONG_BODY,
+               ks_doc_id: str = _KS_DOC_ID, **kwargs) -> dict:
+        q = self._make_queue(tmp_path)
+        fake_chroma = _FakeChromaModule()
+        return q._embed_body_into_chroma(
+            body_text=body_text,
+            ks_doc_id=ks_doc_id,
+            arxiv_id="2604.24366",
+            title="Test Paper",
+            candidate_id="arxiv:2604.24366",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+            **kwargs,
+        )
+
+    def test_chunks_upserted_count_nonzero(self, tmp_path: Path) -> None:
+        result = self._embed(tmp_path)
+        assert result["chunks_upserted"] > 0
+
+    def test_empty_body_returns_zero(self, tmp_path: Path) -> None:
+        result = self._embed(tmp_path, body_text="")
+        assert result == {"chunks_upserted": 0}
+
+    def test_chunk_ids_are_deterministic(self, tmp_path: Path) -> None:
+        import hashlib
+        from packages.polymarket.rag.chunker import chunk_text
+
+        chunks = chunk_text(_LONG_BODY)
+        expected_first = hashlib.sha256(
+            f"{self._KS_DOC_ID}\x000".encode()
+        ).hexdigest()
+
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="",
+            title="",
+            candidate_id="arxiv:test",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections.get("academic_papers")
+        assert col is not None
+        assert expected_first in col._store
+
+    def test_different_ks_doc_ids_produce_different_chunk_ids(self, tmp_path: Path) -> None:
+        import hashlib
+        id_a = "a" * 64
+        id_b = "b" * 64
+        cid_a = hashlib.sha256(f"{id_a}\x000".encode()).hexdigest()
+        cid_b = hashlib.sha256(f"{id_b}\x000".encode()).hexdigest()
+        assert cid_a != cid_b
+
+    def test_metadata_has_all_required_fields(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="2604.24366",
+            title="My Paper",
+            candidate_id="arxiv:2604.24366",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections["academic_papers"]
+        first_meta = next(iter(col._store.values()))["metadata"]
+        required = {"ks_doc_id", "arxiv_id", "body_source", "source_family",
+                    "title", "candidate_id", "chunk_index"}
+        assert required.issubset(first_meta.keys())
+
+    def test_ks_doc_id_set_in_metadata(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="",
+            title="",
+            candidate_id="arxiv:test",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections["academic_papers"]
+        for entry in col._store.values():
+            assert entry["metadata"]["ks_doc_id"] == self._KS_DOC_ID
+
+    def test_chunk_id_does_not_replace_ks_doc_id_metadata(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="2604.24366",
+            title="Test Paper",
+            candidate_id="arxiv:2604.24366",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections["academic_papers"]
+        for chunk_id, entry in col._store.items():
+            assert len(chunk_id) == 64
+            assert chunk_id != self._KS_DOC_ID
+            assert chunk_id != "arxiv:2604.24366"
+            assert entry["metadata"]["ks_doc_id"] == self._KS_DOC_ID
+            assert len(entry["metadata"]["ks_doc_id"]) == 64
+
+    def test_source_family_is_academic(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="",
+            title="",
+            candidate_id="arxiv:test",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections["academic_papers"]
+        for entry in col._store.values():
+            assert entry["metadata"]["source_family"] == "academic"
+
+    def test_chunk_index_sequential(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        result = q._embed_body_into_chroma(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="",
+            title="",
+            candidate_id="arxiv:test",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        col = fake_chroma._client._collections["academic_papers"]
+        indices = sorted(e["metadata"]["chunk_index"] for e in col._store.values())
+        assert indices == list(range(result["chunks_upserted"]))
+
+    def test_upsert_is_idempotent(self, tmp_path: Path) -> None:
+        fake_chroma = _FakeChromaModule()
+        q = self._make_queue(tmp_path)
+        kwargs = dict(
+            body_text=_LONG_BODY,
+            ks_doc_id=self._KS_DOC_ID,
+            arxiv_id="",
+            title="",
+            candidate_id="arxiv:test",
+            body_source="marker",
+            chroma_path=tmp_path / "chroma",
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        r1 = q._embed_body_into_chroma(**kwargs)
+        r2 = q._embed_body_into_chroma(**kwargs)
+        col = fake_chroma._client._collections["academic_papers"]
+        # Second upsert must not grow the collection
+        assert r1["chunks_upserted"] == r2["chunks_upserted"]
+        assert len(col._store) == r1["chunks_upserted"]
+
+
+# ---------------------------------------------------------------------------
+# TestEmbedDoneItemsIntoChroma
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedDoneItemsIntoChroma:
+    """Unit tests for MarkerParseQueue.embed_done_items_into_chroma()."""
+
+    _DOC_ID = "d" * 64
+
+    def _make_queue(self, tmp_path: Path):
+        from packages.research.ingestion.marker_queue import MarkerParseQueue
+        return MarkerParseQueue(queue_dir=tmp_path)
+
+    def _setup_indexed_queue(
+        self,
+        tmp_path: Path,
+        candidate_id: str = "arxiv:2604.24366",
+        doc_id: str = _DOC_ID,
+        body_text: str = _LONG_BODY,
+    ) -> None:
+        """Write body sidecar + indexed.jsonl so embed_done_items_into_chroma has data."""
+        import json as _j
+        body_dir = tmp_path / "bodies"
+        body_dir.mkdir(parents=True, exist_ok=True)
+        (body_dir / f"{candidate_id}.body.txt").write_text(body_text, encoding="utf-8")
+        meta = {
+            "title": "Test Paper",
+            "arxiv_id": "2604.24366",
+            "body_source": "marker",
+            "canonical_ids": {"arxiv_id": "2604.24366"},
+        }
+        (body_dir / f"{candidate_id}.meta.json").write_text(
+            _j.dumps(meta), encoding="utf-8"
+        )
+        indexed_rec = {
+            "candidate_id": candidate_id,
+            "doc_id": doc_id,
+            "chunk_count": 10,
+            "claims_extracted": 5,
+            "indexed_at": "2026-05-23T00:00:00+00:00",
+        }
+        with open(tmp_path / "indexed.jsonl", "a", encoding="utf-8") as f:
+            f.write(_j.dumps(indexed_rec) + "\n")
+        # Write a minimal results.jsonl so _read_best_results() works
+        result_rec = {
+            "candidate_id": candidate_id,
+            "source_url": "https://arxiv.org/abs/2604.24366",
+            "arxiv_id": "2604.24366",
+            "title": "Test Paper",
+            "body_source": "marker",
+            "body_length": len(body_text),
+            "marker_ready": True,
+            "queue_status": "done",
+        }
+        with open(tmp_path / "results.jsonl", "a", encoding="utf-8") as f:
+            f.write(_j.dumps(result_rec) + "\n")
+
+    def test_embeds_indexed_items(self, tmp_path: Path) -> None:
+        self._setup_indexed_queue(tmp_path)
+        q = self._make_queue(tmp_path)
+        fake_chroma = _FakeChromaModule()
+        result = q.embed_done_items_into_chroma(
+            _chromadb=fake_chroma,
+            _embedder_cls=_FakeEmbedder,
+        )
+        assert len(result["embedded"]) == 1
+        assert result["total_chunks_upserted"] > 0
+        assert result["embedded"][0]["doc_id"] == self._DOC_ID
+
+    def test_idempotent_second_call_skips(self, tmp_path: Path) -> None:
+        self._setup_indexed_queue(tmp_path)
+        q = self._make_queue(tmp_path)
+        fake_chroma = _FakeChromaModule()
+        first = q.embed_done_items_into_chroma(
+            _chromadb=fake_chroma, _embedder_cls=_FakeEmbedder
+        )
+        second = q.embed_done_items_into_chroma(
+            _chromadb=fake_chroma, _embedder_cls=_FakeEmbedder
+        )
+        assert len(first["embedded"]) == 1
+        assert len(second["skipped_already_embedded"]) == 1
+        assert not second["embedded"]
+
+    def test_force_reembeds(self, tmp_path: Path) -> None:
+        self._setup_indexed_queue(tmp_path)
+        q = self._make_queue(tmp_path)
+        fake_chroma = _FakeChromaModule()
+        q.embed_done_items_into_chroma(_chromadb=fake_chroma, _embedder_cls=_FakeEmbedder)
+        second = q.embed_done_items_into_chroma(
+            force=True, _chromadb=fake_chroma, _embedder_cls=_FakeEmbedder
+        )
+        assert len(second["embedded"]) == 1
+        assert not second["skipped_already_embedded"]
+
+    def test_missing_body_skipped(self, tmp_path: Path) -> None:
+        import json as _j
+        # Write indexed.jsonl without the body sidecar
+        rec = {
+            "candidate_id": "arxiv:missing",
+            "doc_id": self._DOC_ID,
+            "chunk_count": 5,
+            "claims_extracted": 2,
+            "indexed_at": "2026-05-23T00:00:00+00:00",
+        }
+        with open(tmp_path / "indexed.jsonl", "w", encoding="utf-8") as f:
+            f.write(_j.dumps(rec) + "\n")
+        q = self._make_queue(tmp_path)
+        result = q.embed_done_items_into_chroma(
+            _chromadb=_FakeChromaModule(), _embedder_cls=_FakeEmbedder
+        )
+        assert "arxiv:missing" in result["skipped_no_body"]
+        assert not result["embedded"]
+
+    def test_missing_doc_id_goes_to_failed(self, tmp_path: Path) -> None:
+        import json as _j
+        body_dir = tmp_path / "bodies"
+        body_dir.mkdir()
+        cid = "arxiv:nodocid"
+        (body_dir / f"{cid}.body.txt").write_text(_LONG_BODY, encoding="utf-8")
+        rec = {
+            "candidate_id": cid,
+            "doc_id": "",  # intentionally empty
+            "chunk_count": 5,
+            "claims_extracted": 0,
+            "indexed_at": "2026-05-23T00:00:00+00:00",
+        }
+        with open(tmp_path / "indexed.jsonl", "w", encoding="utf-8") as f:
+            f.write(_j.dumps(rec) + "\n")
+        q = self._make_queue(tmp_path)
+        result = q.embed_done_items_into_chroma(
+            _chromadb=_FakeChromaModule(), _embedder_cls=_FakeEmbedder
+        )
+        assert any(e["candidate_id"] == cid for e in result["failed"])
+
+    def test_chroma_embedded_jsonl_written(self, tmp_path: Path) -> None:
+        self._setup_indexed_queue(tmp_path)
+        q = self._make_queue(tmp_path)
+        q.embed_done_items_into_chroma(
+            _chromadb=_FakeChromaModule(), _embedder_cls=_FakeEmbedder
+        )
+        embedded_path = tmp_path / "chroma_embedded.jsonl"
+        assert embedded_path.exists()
+        import json as _j
+        lines = [_j.loads(l) for l in embedded_path.read_text().splitlines() if l.strip()]
+        assert len(lines) == 1
+        assert lines[0]["candidate_id"] == "arxiv:2604.24366"
+        assert lines[0]["doc_id"] == self._DOC_ID
+        assert lines[0]["chunks_upserted"] > 0
+
+    def test_no_indexed_jsonl_returns_empty(self, tmp_path: Path) -> None:
+        q = self._make_queue(tmp_path)
+        result = q.embed_done_items_into_chroma(
+            _chromadb=_FakeChromaModule(), _embedder_cls=_FakeEmbedder
+        )
+        assert result["embedded"] == []
+        assert result["skipped_already_embedded"] == []
+        assert result["total_chunks_upserted"] == 0
+
+
+# ---------------------------------------------------------------------------
+# TestCLICheckChromaLinks
+# ---------------------------------------------------------------------------
+
+
+class TestCLICheckChromaLinks:
+    """CLI tests for 'check-chroma-links' subcommand."""
+
+    def _make_ks_with_doc(self, tmp_path: Path) -> tuple[Path, str]:
+        from packages.polymarket.rag.knowledge_store import KnowledgeStore
+
+        ks_path = tmp_path / "knowledge.sqlite3"
+        store = KnowledgeStore(ks_path)
+        try:
+            doc_id = store.add_source_document(
+                title="Test Paper",
+                source_url="https://arxiv.org/abs/2604.24366",
+                source_family="academic",
+                content_hash="test-content-hash",
+            )
+        finally:
+            store.close()
+        assert len(doc_id) == 64
+        return ks_path, doc_id
+
+    def _make_fake_chromadb_module(
+        self,
+        collection_records: dict | None = None,
+        raise_get_collection: Exception | None = None,
+    ):
+        """Return a sys.modules-injectable fake chromadb module."""
+        import types
+        mod = types.ModuleType("chromadb")
+
+        records = collection_records  # captured in closures
+
+        class _Col:
+            def get(self, include=None) -> dict:
+                if records is None:
+                    return {"ids": [], "metadatas": []}
+                return {
+                    "ids": list(records.keys()),
+                    "metadatas": [records[k] for k in records],
+                }
+
+            def count(self) -> int:
+                return len(records) if records else 0
+
+        _raise = raise_get_collection
+
+        class _Client:
+            def get_collection(self, name: str):
+                if _raise is not None:
+                    raise _raise
+                return _Col()
+
+        class _PersistentClientCls:
+            def __new__(cls, path: str):
+                return _Client()
+
+        mod.PersistentClient = _PersistentClientCls
+        return mod
+
+    def test_check_chroma_links_in_help(self) -> None:
+        code, out = _run_cli(["check-chroma-links", "--help"])
+        assert code == 0
+        assert "check-chroma-links" in out or "--json" in out
+
+    def test_reindex_chroma_flag_in_index_done_help(self) -> None:
+        code, out = _run_cli(["index-done", "--help"])
+        assert code == 0
+        assert "--reindex-chroma" in out
+
+    def test_collection_not_found_exits_nonzero(self, tmp_path: Path) -> None:
+        import sys
+        fake_mod = self._make_fake_chromadb_module(
+            raise_get_collection=ValueError("Collection not found")
+        )
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        assert code != 0
+
+    def test_collection_not_found_json_has_error(self, tmp_path: Path) -> None:
+        import sys
+        fake_mod = self._make_fake_chromadb_module(
+            raise_get_collection=ValueError("Collection not found")
+        )
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        data = json.loads(out)
+        assert "error" in data
+
+    def test_empty_collection_exits_zero(self, tmp_path: Path) -> None:
+        import sys
+        fake_mod = self._make_fake_chromadb_module(collection_records={})
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        assert code == 0
+
+    def test_valid_linkage_json_all_zeros(self, tmp_path: Path) -> None:
+        import sys
+        ks_path, doc_id = self._make_ks_with_doc(tmp_path)
+        records = {
+            "chunk-0": {"ks_doc_id": doc_id, "source_family": "academic"},
+            "chunk-1": {"ks_doc_id": doc_id, "source_family": "academic"},
+        }
+        fake_mod = self._make_fake_chromadb_module(collection_records=records)
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--ks-path", str(ks_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        data = json.loads(out)
+        assert code == 0
+        assert data["total_chunks"] == 2
+        assert data["unique_papers"] == 1
+        assert data["missing_ks_doc_id"] == 0
+        assert data["ks_doc_id_not_in_ks"] == 0
+
+    def test_missing_ks_doc_id_exits_nonzero(self, tmp_path: Path) -> None:
+        import sys
+        records = {
+            "chunk-0": {"ks_doc_id": "", "source_family": "academic"},
+        }
+        fake_mod = self._make_fake_chromadb_module(collection_records=records)
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--ks-path", ":memory:",
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        assert code != 0
+        data = json.loads(out)
+        assert data["missing_ks_doc_id"] == 1
+
+    def test_json_output_has_all_required_fields(self, tmp_path: Path) -> None:
+        import sys
+        ks_path, doc_id = self._make_ks_with_doc(tmp_path)
+        records = {"chunk-0": {"ks_doc_id": doc_id, "source_family": "academic"}}
+        fake_mod = self._make_fake_chromadb_module(collection_records=records)
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--ks-path", str(ks_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        data = json.loads(out)
+        required = {
+            "collection", "chroma_path", "total_chunks", "unique_papers",
+            "valid_ks_doc_id", "missing_ks_doc_id", "ks_doc_id_not_in_ks",
+            "not_in_ks_doc_ids",
+        }
+        assert required.issubset(data.keys())
+
+    def test_internal_candidate_id_metadata_is_reported_as_orphan(
+        self, tmp_path: Path
+    ) -> None:
+        import sys
+        ks_path, _doc_id = self._make_ks_with_doc(tmp_path)
+        records = {
+            "chunk-0": {
+                "ks_doc_id": "arxiv:2604.24366",
+                "candidate_id": "arxiv:2604.24366",
+                "source_family": "academic",
+            }
+        }
+        fake_mod = self._make_fake_chromadb_module(collection_records=records)
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--ks-path", str(ks_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        data = json.loads(out)
+        assert code != 0
+        assert data["missing_ks_doc_id"] == 0
+        assert data["ks_doc_id_not_in_ks"] == 1
+        assert data["not_in_ks_doc_ids"] == ["arxiv:2604.24366"]
+
+    def test_mixed_valid_and_mismatched_links_are_reported(self, tmp_path: Path) -> None:
+        import sys
+        ks_path, doc_id = self._make_ks_with_doc(tmp_path)
+        orphan_doc_id = "0" * 64
+        records = {
+            "chunk-valid-0": {"ks_doc_id": doc_id, "source_family": "academic"},
+            "chunk-valid-1": {"ks_doc_id": doc_id, "source_family": "academic"},
+            "chunk-orphan": {"ks_doc_id": orphan_doc_id, "source_family": "academic"},
+        }
+        fake_mod = self._make_fake_chromadb_module(collection_records=records)
+        orig = sys.modules.get("chromadb")
+        sys.modules["chromadb"] = fake_mod
+        try:
+            code, out = _run_cli([
+                "check-chroma-links",
+                "--chroma-path", str(tmp_path),
+                "--ks-path", str(ks_path),
+                "--json",
+            ])
+        finally:
+            if orig is None:
+                sys.modules.pop("chromadb", None)
+            else:
+                sys.modules["chromadb"] = orig
+        data = json.loads(out)
+        assert code != 0
+        assert data["total_chunks"] == 3
+        assert data["unique_papers"] == 2
+        assert data["missing_ks_doc_id"] == 0
+        assert data["ks_doc_id_not_in_ks"] == 1
+        assert data["not_in_ks_doc_ids"] == [orphan_doc_id]

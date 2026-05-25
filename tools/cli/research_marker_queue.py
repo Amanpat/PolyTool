@@ -308,15 +308,25 @@ def _cmd_index_done(args: argparse.Namespace) -> int:
     q = MarkerParseQueue(queue_dir=queue_dir)
     ks_path = Path(args.ks_path) if getattr(args, "ks_path", None) else None
     extract_claims = not getattr(args, "no_extract_claims", False)
+    embed_chroma = getattr(args, "reindex_chroma", False)
+    chroma_path = Path(args.chroma_path) if getattr(args, "chroma_path", None) else None
 
     if not args.json:
         force_note = " (force=True: re-indexing all)" if args.force else ""
         extract_note = "" if extract_claims else " (--no-extract-claims: skipping extraction)"
-        print(f"Indexing marker-ready done items into KnowledgeStore{force_note}{extract_note}...")
+        chroma_note = " + Chroma embed" if embed_chroma else ""
+        print(
+            f"Indexing marker-ready done items into KnowledgeStore"
+            f"{chroma_note}{force_note}{extract_note}..."
+        )
 
     try:
         summary = q.index_done_items(
-            ks_path=ks_path, force=args.force, extract_claims=extract_claims
+            ks_path=ks_path,
+            force=args.force,
+            extract_claims=extract_claims,
+            embed_chroma=embed_chroma,
+            chroma_path=chroma_path,
         )
     except Exception as exc:
         if args.json:
@@ -334,14 +344,19 @@ def _cmd_index_done(args: argparse.Namespace) -> int:
     skipped_no_body = summary.get("skipped_no_body", [])
     failed = summary.get("failed", [])
     total_claims = summary.get("total_claims_extracted", 0)
+    total_chroma = summary.get("total_chroma_chunks_upserted", 0)
 
     if indexed:
         print(f"\nIndexed {len(indexed)} paper(s):")
         for item in indexed:
             claims_note = f"  claims={item.get('claims_extracted', 0)}" if extract_claims else ""
+            chroma_item_note = (
+                f"  chroma_chunks={item.get('chroma_chunks_upserted', 0)}"
+                if embed_chroma else ""
+            )
             print(
                 f"  [OK] {item['candidate_id']}  doc_id={item['doc_id']}"
-                f"  chunks={item['chunk_count']}{claims_note}"
+                f"  chunks={item['chunk_count']}{claims_note}{chroma_item_note}"
             )
     if skipped_dup:
         print(f"\nSkipped {len(skipped_dup)} already-indexed paper(s):")
@@ -358,13 +373,146 @@ def _cmd_index_done(args: argparse.Namespace) -> int:
 
     total = len(indexed) + len(skipped_dup) + len(skipped_no_body) + len(failed)
     claims_summary = f", {total_claims} claim(s) extracted" if extract_claims else ""
+    chroma_summary = f", {total_chroma} Chroma chunk(s) upserted" if embed_chroma else ""
     print(
         f"\nTotal: {total} done item(s) examined — "
         f"{len(indexed)} indexed, {len(skipped_dup)} already-indexed, "
-        f"{len(skipped_no_body)} no-body, {len(failed)} failed{claims_summary}."
+        f"{len(skipped_no_body)} no-body, {len(failed)} failed{claims_summary}{chroma_summary}."
     )
     # rc=1 only when there are hard failures; empty/skipped results are valid outcomes
     return 1 if failed else 0
+
+
+def _cmd_check_chroma_links(args: argparse.Namespace) -> int:
+    """Report Chroma-to-KnowledgeStore linkage health for the academic collection."""
+    from packages.research.ingestion.marker_queue import _ACADEMIC_CHROMA_COLLECTION
+
+    chroma_path = Path(args.chroma_path) if getattr(args, "chroma_path", None) else None
+    ks_path = Path(args.ks_path) if getattr(args, "ks_path", None) else None
+    collection_name = getattr(args, "collection", None) or _ACADEMIC_CHROMA_COLLECTION
+
+    try:
+        import chromadb
+    except ImportError:
+        msg = "chromadb not installed. Run: pip install chromadb"
+        if args.json:
+            print(json.dumps({"error": msg, "exit_code": 1}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        return 1
+
+    if chroma_path is None:
+        from packages.polymarket.rag.defaults import RAG_DEFAULT_PERSIST_DIR
+        chroma_path = RAG_DEFAULT_PERSIST_DIR
+
+    try:
+        client = chromadb.PersistentClient(path=str(chroma_path))
+        collection = client.get_collection(name=collection_name)
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({
+                "error": str(exc),
+                "collection": collection_name,
+                "hint": "Run 'index-done --reindex-chroma' to populate the collection first.",
+                "exit_code": 1,
+            }))
+        else:
+            print(
+                f"Error opening Chroma collection '{collection_name}': {exc}",
+                file=sys.stderr,
+            )
+            print(f"  (path: {chroma_path})", file=sys.stderr)
+            print(
+                "  Run 'index-done --reindex-chroma' to populate the collection first.",
+                file=sys.stderr,
+            )
+        return 1
+
+    try:
+        result = collection.get(include=["metadatas"])
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({"error": str(exc), "exit_code": 1}))
+        else:
+            print(f"Error fetching Chroma records: {exc}", file=sys.stderr)
+        return 1
+
+    ids = result.get("ids") or []
+    metadatas = result.get("metadatas") or []
+    total_chunks = len(ids)
+
+    missing_ks_doc_id: list[str] = []
+    unique_papers: set[str] = set()
+
+    for chunk_id, meta in zip(ids, metadatas):
+        ks_doc_id = (meta or {}).get("ks_doc_id", "")
+        if not ks_doc_id:
+            missing_ks_doc_id.append(chunk_id)
+        else:
+            unique_papers.add(ks_doc_id)
+
+    not_in_ks: list[str] = []
+    if unique_papers:
+        from packages.polymarket.rag.knowledge_store import (
+            KnowledgeStore,
+            DEFAULT_KNOWLEDGE_DB_PATH,
+        )
+        resolved = ks_path or DEFAULT_KNOWLEDGE_DB_PATH
+        try:
+            ks = KnowledgeStore(resolved)
+            try:
+                for doc_id in sorted(unique_papers):
+                    if not ks.get_source_document(doc_id):
+                        not_in_ks.append(doc_id)
+            finally:
+                ks.close()
+        except Exception as exc:
+            if not args.json:
+                print(f"Warning: could not check KnowledgeStore: {exc}", file=sys.stderr)
+
+    report = {
+        "collection": collection_name,
+        "chroma_path": str(chroma_path),
+        "total_chunks": total_chunks,
+        "unique_papers": len(unique_papers),
+        "valid_ks_doc_id": total_chunks - len(missing_ks_doc_id),
+        "missing_ks_doc_id": len(missing_ks_doc_id),
+        "ks_doc_id_not_in_ks": len(not_in_ks),
+        "not_in_ks_doc_ids": not_in_ks,
+    }
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        ok = not missing_ks_doc_id and not not_in_ks
+        return 0 if ok else 1
+
+    print(f"Chroma academic linkage report  —  collection: {collection_name}")
+    print(f"  Path:                {chroma_path}")
+    print(f"  Total chunks:        {total_chunks}")
+    print(f"  Unique papers:       {len(unique_papers)}")
+    print(f"  Valid ks_doc_id:     {total_chunks - len(missing_ks_doc_id)}")
+    print(f"  Missing ks_doc_id:   {len(missing_ks_doc_id)}")
+    print(f"  ks_doc_id not in KS: {len(not_in_ks)}")
+    if not_in_ks:
+        print("  Orphaned ks_doc_ids:")
+        for doc_id in not_in_ks:
+            print(f"    {doc_id}")
+    if total_chunks == 0:
+        print("\n  Collection is empty.")
+        print("  Run 'index-done --reindex-chroma' to populate.")
+        return 0
+    if missing_ks_doc_id:
+        print(f"\n  WARNING: {len(missing_ks_doc_id)} chunk(s) missing ks_doc_id metadata.")
+        print("  Re-embed: 'index-done --reindex-chroma --force'")
+    if not_in_ks:
+        print(f"\n  WARNING: {len(not_in_ks)} ks_doc_id(s) not found in KnowledgeStore.")
+        print("  Re-index and re-embed to repair orphaned embeddings.")
+    if not missing_ks_doc_id and not not_in_ks:
+        print(
+            f"\n  OK: all {total_chunks} chunk(s) across {len(unique_papers)} paper(s)"
+            " have valid KnowledgeStore linkage."
+        )
+    return 1 if (missing_ks_doc_id or not_in_ks) else 0
 
 
 def _cmd_prefetch(args: argparse.Namespace) -> int:
@@ -883,6 +1031,26 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_index.add_argument(
+        "--reindex-chroma",
+        action="store_true",
+        default=False,
+        dest="reindex_chroma",
+        help=(
+            "After indexing into KnowledgeStore, also embed each paper body "
+            "into the 'academic_papers' ChromaDB collection using "
+            "BAAI/bge-large-en-v1.5. Requires chromadb + sentence-transformers. "
+            "Idempotent: upserts by deterministic chunk ID. "
+            "Use 'check-chroma-links' to verify linkage afterward."
+        ),
+    )
+    p_index.add_argument(
+        "--chroma-path",
+        default=None,
+        dest="chroma_path",
+        metavar="PATH",
+        help="Override ChromaDB persist directory (default: kb/rag/index)",
+    )
+    p_index.add_argument(
         "--json",
         action="store_true",
         default=False,
@@ -970,6 +1138,42 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output diagnostic data as JSON",
     )
 
+    # check-chroma-links
+    p_chroma = subparsers.add_parser(
+        "check-chroma-links",
+        help=(
+            "Verify Chroma-to-KnowledgeStore linkage for the academic_papers collection. "
+            "Reports total chunks, unique papers, valid/missing ks_doc_id, and "
+            "ks_doc_id values not found in KS. Run after 'index-done --reindex-chroma'."
+        ),
+    )
+    p_chroma.add_argument(
+        "--ks-path",
+        default=None,
+        dest="ks_path",
+        metavar="PATH",
+        help="Override KnowledgeStore SQLite path (default: project default)",
+    )
+    p_chroma.add_argument(
+        "--chroma-path",
+        default=None,
+        dest="chroma_path",
+        metavar="PATH",
+        help="Override ChromaDB persist directory (default: kb/rag/index)",
+    )
+    p_chroma.add_argument(
+        "--collection",
+        default=None,
+        metavar="NAME",
+        help="Override collection name (default: academic_papers)",
+    )
+    p_chroma.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Output report as JSON",
+    )
+
     return parser
 
 
@@ -1008,6 +1212,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_status_report(args)
     elif args.subcommand == "jit-cache-check":
         return _cmd_jit_cache_check(args)
+    elif args.subcommand == "check-chroma-links":
+        return _cmd_check_chroma_links(args)
     else:
         print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
         return 1
