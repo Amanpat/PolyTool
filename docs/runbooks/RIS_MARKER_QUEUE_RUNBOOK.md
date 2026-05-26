@@ -60,8 +60,8 @@ python -m polytool research-marker-queue enqueue --url ARXIV_ID
 
 # Step 3b — Prefetch PDFs to local disk before starting GPU parse  [WP-1]
 #            Do this on the Windows host, outside Docker. Safe to retry.
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --max-items 10 \
   --delay-seconds 5
 
@@ -73,9 +73,13 @@ docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
   --marker-timeout 900
 
 # Step 4b — Index completed papers AND extract claims (run INSIDE Docker)
-docker exec polytool-ris-scheduler-gpu sh -c \
-  "cd /app && python -m polytool research-marker-queue \
-   --queue-dir /app/artifacts/research/marker_parse_queue index-done"
+# Note: `docker exec` requires a named running container. If Step 4 used `run --rm`,
+# that container was removed. Either: (a) start a persistent container first with
+#   docker compose --profile ris-gpu up -d
+# and then use docker exec, or (b) use docker compose run as shown here:
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+  sh -c "cd /app && python -m polytool research-marker-queue \
+  --queue-dir /app/artifacts/research/marker_parse_queue index-done"
 
 # Step 5 — Query the Marker-ready corpus
 python -m polytool research-query --question "optimal spread in prediction markets"
@@ -166,16 +170,16 @@ Output per paper: `Enqueued: arxiv:2604.24366  (status=pending)`
 > does not use the GPU and does not require the Docker container to be running.
 
 ```bash
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --max-items 10 \
   --delay-seconds 5
 ```
 
 - `--max-items N` — how many pending papers to prefetch (default: all pending)
-- `--delay-seconds S` — seconds to wait between each download (default: 5). Use 10–15
+- `--delay-seconds S` — seconds to wait between each download (default: 10). Use 10–15
   for large batches to stay within arXiv's rate limits.
-- `--queue-dir PATH` — path to your queue directory (required if not using the default)
+- `--queue-dir PATH` — path to your queue directory; must go BEFORE the subcommand: `research-marker-queue --queue-dir PATH prefetch`
 
 **Expected output (per paper):**
 ```
@@ -322,8 +326,8 @@ the [Querying section](#querying-the-academic-corpus-l2--research-query) below.
 **Fix:**
 ```bash
 # Re-run prefetch with a longer delay
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 15
 ```
 
@@ -349,8 +353,8 @@ python -m polytool research-marker-queue \
 
 **Fix:** Re-run prefetch for the affected papers:
 ```bash
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 15
 ```
 
@@ -439,8 +443,8 @@ python -m polytool research-marker-queue counts
 
 # 3. Re-run prefetch to make sure all pending papers are still cached
 #    (Docker volumes are persistent across restarts, but verify)
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 5
 
 python -m polytool research-marker-queue \
@@ -483,10 +487,10 @@ python -m polytool research-marker-queue --queue-dir artifacts/research/test_5pa
 
 | # | Check | Expected result | Command |
 |---|-------|-----------------|---------|
-| 1 | Prefetch completes without 429 errors | 5 `[PREFETCH OK]` lines, 0 failures | `research-marker-queue prefetch --queue-dir ... --delay-seconds 5` |
+| 1 | Prefetch completes without 429 errors | 5 `[PREFETCH OK]` lines, 0 failures | `research-marker-queue --queue-dir ... prefetch --delay-seconds 5` |
 | 2 | All 5 PDFs cached and non-zero | `prefetch_stats.cached=5` | `research-marker-queue --queue-dir ... status-report` |
-| 3 | warm-process: 5 done, 0 failed, 0 stuck | Queue shows `done: 5` | `research-marker-queue counts --queue-dir ...` |
-| 4 | All 5 papers `marker_ready=True` | `body_source=marker`, `body_length>=5000` for all | `research-marker-queue list --status done --queue-dir ...` |
+| 3 | warm-process: 5 done, 0 failed, 0 stuck | Queue shows `done: 5` | `research-marker-queue --queue-dir ... counts` |
+| 4 | All 5 papers `marker_ready=True` | `body_source=marker`, `body_length>=5000` for all | `research-marker-queue --queue-dir ... list --status done` |
 | 5 | index-done (in Docker) indexes all 5 | `5 indexed, 0 no-body, 0 failed` | `docker exec ... research-marker-queue --queue-dir ... index-done` |
 | 6 | research-query returns citations | `had_fallback=False` with ≥1 citation | `research-query --question "prediction markets"` |
 
