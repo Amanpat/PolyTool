@@ -45,6 +45,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -119,6 +120,11 @@ class KnowledgeStore:
         # See docs/features/FEATURE-ris-v1-data-foundation.md.
         self._llm_provider: Any = None
 
+        # When > 0, intra-method ``self._commit()`` calls are suppressed so a
+        # caller (e.g. ``ingest_dossier_findings``) can wrap several writes in a
+        # single explicit transaction with all-or-nothing rollback semantics.
+        self._defer_commit_depth: int = 0
+
         if self._db_path != ":memory:":
             Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -145,7 +151,10 @@ class KnowledgeStore:
                 published_at    TEXT,
                 ingested_at     TEXT,
                 confidence_tier TEXT,
-                metadata_json   TEXT
+                metadata_json   TEXT,
+                lifecycle       TEXT NOT NULL DEFAULT 'active',
+                superseded_by   TEXT,
+                superseded_at   TEXT
             );
 
             CREATE TABLE IF NOT EXISTS derived_claims (
@@ -229,6 +238,39 @@ class KnowledgeStore:
                 ON pending_review_history(review_item_id, created_at ASC);
         """)
         self._conn.commit()
+        self._upgrade_source_document_lifecycle()
+
+    def _upgrade_source_document_lifecycle(self) -> None:
+        """Idempotently add lifecycle columns to an existing source_documents table.
+
+        Fresh databases get these columns from the CREATE TABLE above and need
+        no ALTER.  An already-populated database (e.g. the live on-disk store)
+        predates the lifecycle columns; this method detects the missing columns
+        via ``PRAGMA table_info`` and runs ``ALTER TABLE ... ADD COLUMN`` only
+        for those that are absent.  Existing rows default to ``lifecycle='active'``.
+
+        Safe to run on every store init: a no-op once the columns exist.
+        """
+        existing = {
+            row["name"]
+            for row in self._conn.execute(
+                "PRAGMA table_info(source_documents)"
+            ).fetchall()
+        }
+        # SQLite cannot ADD a NOT NULL column without a default, but a constant
+        # DEFAULT is allowed and backfills existing rows.
+        migrations = [
+            ("lifecycle", "ALTER TABLE source_documents ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'active'"),
+            ("superseded_by", "ALTER TABLE source_documents ADD COLUMN superseded_by TEXT"),
+            ("superseded_at", "ALTER TABLE source_documents ADD COLUMN superseded_at TEXT"),
+        ]
+        applied = False
+        for column, ddl in migrations:
+            if column not in existing:
+                self._conn.execute(ddl)
+                applied = True
+        if applied:
+            self._conn.commit()
 
     def _list_tables(self) -> set[str]:
         """Return the set of application table names in this database (for testing).
@@ -239,6 +281,42 @@ class KnowledgeStore:
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         return {row["name"] for row in rows if not row["name"].startswith("sqlite_")}
+
+    # ------------------------------------------------------------------
+    # Transaction control
+    # ------------------------------------------------------------------
+
+    def _commit(self) -> None:
+        """Commit unless inside a deferred (caller-owned) transaction."""
+        if self._defer_commit_depth == 0:
+            self._conn.commit()
+
+    @contextmanager
+    def deferred_transaction(self):
+        """Run a block as one atomic transaction with rollback-on-failure.
+
+        While active, intra-method ``self._commit()`` calls are suppressed, so
+        a sequence of ``add_source_document`` / ``add_claim`` /
+        ``supersede_dossier_run`` calls commits exactly once (on clean exit) or
+        rolls back entirely (on exception).  Nesting is reference-counted.
+
+        This is the seam that makes the WI-2 "new-first, then supersede, single
+        BEGIN/COMMIT, rollback-on-failure" requirement hold: a mid-ingest
+        failure raises, the block rolls back, and the wallet keeps its OLD
+        active set (neither zero nor two active sets).
+        """
+        outermost = self._defer_commit_depth == 0
+        self._defer_commit_depth += 1
+        try:
+            yield
+            self._defer_commit_depth -= 1
+            if outermost:
+                self._conn.commit()
+        except BaseException:
+            self._defer_commit_depth -= 1
+            if outermost:
+                self._conn.rollback()
+            raise
 
     # ------------------------------------------------------------------
     # CRUD: source_documents
@@ -277,15 +355,126 @@ class KnowledgeStore:
                 metadata_json,
             ),
         )
-        self._conn.commit()
+        self._commit()
         return doc_id
 
     def get_source_document(self, doc_id: str) -> Optional[dict]:
-        """Return a source document dict by ID, or None if not found."""
+        """Return a source document dict by ID, or None if not found.
+
+        By-id lookup is lifecycle-agnostic on purpose (provenance / audit), so
+        superseded rows remain retrievable when explicitly requested by id.
+        """
         row = self._conn.execute(
             "SELECT * FROM source_documents WHERE id = ?", (doc_id,)
         ).fetchone()
         return dict(row) if row else None
+
+    def list_source_documents(
+        self,
+        *,
+        source_family: Optional[str] = None,
+        include_superseded: bool = False,
+        include_archived: bool = False,
+    ) -> list[dict]:
+        """Return source documents, excluding superseded/archived by default.
+
+        Mirrors the lifecycle-exclusion contract of :meth:`query_claims`:
+        default retrieval drops ``lifecycle IN ('superseded','archived')`` rows.
+        Pass ``include_superseded=True`` / ``include_archived=True`` to opt in.
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+        if source_family is not None:
+            conditions.append("source_family = ?")
+            params.append(source_family)
+        if not include_superseded:
+            conditions.append("lifecycle != 'superseded'")
+        if not include_archived:
+            conditions.append("lifecycle != 'archived'")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM source_documents {where}", params
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def supersede_dossier_run(
+        self,
+        *,
+        wallet: str,
+        keep_doc_ids: "list[str] | tuple[str, ...] | set[str]",
+        superseded_at: Optional[str] = None,
+    ) -> dict:
+        """Supersede prior active dossier docs for *wallet*, except *keep_doc_ids*.
+
+        WALLET-LEVEL supersede (see WI-2 design): when a new dossier run for a
+        wallet has been successfully ingested, retire ALL prior active
+        ``dossier_report`` source documents for that wallet (those NOT part of
+        the just-ingested run), and cascade-supersede their derived claims.
+
+        This is a pure DB mutation; it does NOT open or commit a transaction of
+        its own (the caller owns the BEGIN/COMMIT so the new ingest + supersede
+        are atomic).  All statements use the shared connection so they enroll in
+        the caller's active transaction.
+
+        Parameters
+        ----------
+        wallet:
+            Wallet address.  Matched against ``json_extract(metadata_json,
+            '$.wallet')`` after lowercase normalization (callers MUST persist
+            the wallet lowercased; this method also lowercases the match value).
+        keep_doc_ids:
+            Source-document ids belonging to the just-ingested run; never
+            superseded.  The newest of these is recorded as ``superseded_by``
+            on the retired docs.
+        superseded_at:
+            Optional ISO timestamp; defaults to now.
+
+        Returns
+        -------
+        dict with ``superseded_doc_ids`` (list) and ``superseded_claim_count``.
+        """
+        ts = superseded_at or _utcnow_iso()
+        wallet_norm = (wallet or "").strip().lower()
+        keep = set(keep_doc_ids)
+
+        # successor id = a representative just-ingested doc (deterministic: min id)
+        successor_id = min(keep) if keep else None
+
+        # Find prior ACTIVE dossier docs for this wallet, excluding the new run's docs.
+        rows = self._conn.execute(
+            """SELECT id FROM source_documents
+               WHERE source_family = 'dossier_report'
+                 AND lifecycle = 'active'
+                 AND lower(COALESCE(json_extract(metadata_json, '$.wallet'), '')) = ?""",
+            (wallet_norm,),
+        ).fetchall()
+        prior_ids = [r["id"] for r in rows if r["id"] not in keep]
+
+        superseded_claim_count = 0
+        for doc_id in prior_ids:
+            self._conn.execute(
+                """UPDATE source_documents
+                   SET lifecycle = 'superseded',
+                       superseded_by = ?,
+                       superseded_at = ?
+                   WHERE id = ?""",
+                (successor_id, ts, doc_id),
+            )
+            cur = self._conn.execute(
+                """UPDATE derived_claims
+                   SET lifecycle = 'superseded',
+                       superseded_by = ?,
+                       updated_at = ?
+                   WHERE source_document_id = ?
+                     AND lifecycle = 'active'""",
+                (successor_id, ts, doc_id),
+            )
+            superseded_claim_count += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
+        return {
+            "superseded_doc_ids": prior_ids,
+            "superseded_claim_count": superseded_claim_count,
+        }
 
     # ------------------------------------------------------------------
     # CRUD: derived_claims
@@ -328,7 +517,7 @@ class KnowledgeStore:
                 source_document_id, scope, tags, notes, superseded_by,
             ),
         )
-        self._conn.commit()
+        self._commit()
         return claim_id
 
     def get_claim(self, claim_id: str) -> Optional[dict]:
@@ -404,7 +593,7 @@ class KnowledgeStore:
                VALUES (?, ?, ?, ?, ?)""",
             (claim_id, source_document_id, excerpt, location, created_at),
         )
-        self._conn.commit()
+        self._commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
@@ -438,7 +627,7 @@ class KnowledgeStore:
                VALUES (?, ?, ?, ?)""",
             (source_claim_id, target_claim_id, relation_type, created_at),
         )
-        self._conn.commit()
+        self._commit()
         return cursor.lastrowid  # type: ignore[return-value]
 
     # ------------------------------------------------------------------

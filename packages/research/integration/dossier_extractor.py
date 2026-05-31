@@ -444,6 +444,16 @@ def batch_extract_dossiers(base_dir: "str | Path") -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_wallet(wallet: "str | None") -> str:
+    """Canonical wallet form used on BOTH write and supersede-match: lowercase.
+
+    One run storing a checksummed address and the next storing lowercase would
+    defeat the wallet-level supersede match and re-accumulate dossier docs, so
+    we lowercase consistently (the supersede SQL also lowercases defensively).
+    """
+    return (wallet or "").strip().lower()
+
+
 def ingest_dossier_findings(
     findings: list[dict],
     store: "KnowledgeStore",
@@ -453,7 +463,21 @@ def ingest_dossier_findings(
 
     Uses IngestPipeline with no eval gate (dossier reports are trusted
     internal content and always pass quality gates).  Content-hash dedup
-    prevents duplicate ingestion of the same dossier run.
+    prevents duplicate ingestion of the same dossier run (UNCHANGED behavior).
+
+    WI-2 wallet-level supersede:
+        After a wallet's new dossier docs are successfully ingested, ALL prior
+        active ``dossier_report`` source docs for that wallet (those not part of
+        the just-ingested run) are superseded and their claims cascade-superseded
+        — robust to missing/extra sections across runs ("latest scan only").
+
+    The new-run ingest + supersede run inside a SINGLE transaction
+    (new-first, then supersede, single BEGIN/COMMIT).  A mid-ingest failure
+    rolls back, leaving the wallet's OLD active set intact (never zero/two).
+
+    On success, disk retention runs once per superseded wallet (best-effort,
+    non-fatal): the prior run's memo is copied into the new run dir as
+    ``previous-results.md`` and the prior raw scan dir is gzipped (never deleted).
 
     Parameters
     ----------
@@ -468,84 +492,234 @@ def ingest_dossier_findings(
     -------
     list[IngestResult] — one result per finding dict.
     """
-    from packages.research.ingestion.pipeline import IngestPipeline
+    import json as _json
+
+    from packages.research.ingestion.pipeline import IngestPipeline, IngestResult
 
     adapter = DossierAdapter()
     pipeline = IngestPipeline(store=store)
-    results = []
+    results: list = []
 
+    # Group findings by normalized wallet so each wallet gets exactly ONE
+    # supersede sweep after all of its (1-3) docs are ingested.
+    by_wallet: dict[str, list[dict]] = {}
+    order: list[str] = []
     for finding in findings:
-        # Adapt finding dict -> ExtractedDocument with content_hash
-        doc = adapter.adapt(finding)
+        meta = finding.setdefault("metadata", {})
+        wallet_norm = _normalize_wallet(meta.get("wallet"))
+        # Persist the normalized wallet so the supersede-match query reads the
+        # same canonical form it matches on.
+        meta["wallet"] = wallet_norm
+        if wallet_norm not in by_wallet:
+            by_wallet[wallet_norm] = []
+            order.append(wallet_norm)
+        by_wallet[wallet_norm].append(finding)
 
-        # Check for duplicate via content_hash before calling pipeline
-        content_hash = doc.metadata.get("content_hash", "")
-        if content_hash:
-            existing = store._conn.execute(
-                "SELECT id FROM source_documents WHERE content_hash=?",
-                (content_hash,),
-            ).fetchone()
-            if existing:
-                # Already ingested — return a synthetic "already exists" result
-                from packages.research.ingestion.pipeline import IngestResult
-                results.append(IngestResult(
-                    doc_id=existing[0],
-                    chunk_count=0,
-                    gate_decision=None,
-                    rejected=False,
-                    reject_reason=None,
-                ))
-                continue
+    # results must follow the input order; build per-finding and reorder at end.
+    result_by_id: dict[int, object] = {}
 
-        # Ingest via pipeline using body text + metadata kwargs.
-        # Note: PlainTextExtractor raw-text mode sets source_url="internal://manual"
-        # and only stores content_hash in metadata_json.  When post_extract_claims=True,
-        # we need the body to be retrievable by extract_and_link (_get_document_body).
-        # We therefore run ingestion without post_ingest_extract and then, if needed,
-        # patch metadata_json with the body before calling extract_and_link directly.
-        result = pipeline.ingest(
-            doc.body,
-            source_type="dossier",
-            title=doc.title,
-            author=doc.author,
-            publish_date=doc.publish_date,
-            source_family="dossier_report",
-            source_url=doc.source_url,
-            content_hash=doc.metadata.get("content_hash"),
-            post_ingest_extract=False,  # handled below after metadata patch
-        )
+    for wallet_norm in order:
+        wallet_findings = by_wallet[wallet_norm]
+        new_doc_ids: set[str] = set()
+        # Track the run dir + a memo finding for retention (last writer wins).
+        run_dir_str = ""
+        memo_finding: "dict | None" = None
 
-        if post_extract_claims and result.doc_id and not result.rejected:
-            import json as _json
-            try:
-                from packages.research.ingestion.claim_extractor import extract_and_link
+        try:
+            with store.deferred_transaction():
+                for finding in wallet_findings:
+                    doc = adapter.adapt(finding)
+                    fmeta = finding.get("metadata", {})
+                    run_dir_str = fmeta.get("dossier_path", "") or run_dir_str
+                    if fmeta.get("document_type") == "dossier_memo":
+                        memo_finding = finding
 
-                # Patch metadata_json to include the body so _get_document_body can
-                # retrieve it (the pipeline stores only content_hash in metadata_json
-                # by default).
-                stored_doc = store._conn.execute(
-                    "SELECT metadata_json FROM source_documents WHERE id=?",
-                    (result.doc_id,),
-                ).fetchone()
-                if stored_doc:
-                    try:
-                        existing_meta = _json.loads(stored_doc[0] or "{}")
-                    except (_json.JSONDecodeError, TypeError):
-                        existing_meta = {}
-                    if "body" not in existing_meta:
-                        existing_meta["body"] = doc.body
+                    # Identical-content skip (UNCHANGED): byte-identical body
+                    # already present -> synthesize an "already exists" result,
+                    # do NOT re-ingest and do NOT count as a new-run doc.
+                    content_hash = doc.metadata.get("content_hash", "")
+                    if content_hash:
+                        existing = store._conn.execute(
+                            "SELECT id FROM source_documents WHERE content_hash=?",
+                            (content_hash,),
+                        ).fetchone()
+                        if existing:
+                            result_by_id[id(finding)] = IngestResult(
+                                doc_id=existing[0],
+                                chunk_count=0,
+                                gate_decision=None,
+                                rejected=False,
+                                reject_reason=None,
+                            )
+                            # An identical doc is part of the current active run
+                            # for this wallet; keep it so it is not superseded.
+                            new_doc_ids.add(existing[0])
+                            continue
+
+                    result = pipeline.ingest(
+                        doc.body,
+                        source_type="dossier",
+                        title=doc.title,
+                        author=doc.author,
+                        publish_date=doc.publish_date,
+                        source_family="dossier_report",
+                        source_url=doc.source_url,
+                        content_hash=doc.metadata.get("content_hash"),
+                        post_ingest_extract=False,  # handled below after metadata patch
+                    )
+                    result_by_id[id(finding)] = result
+
+                    if result.doc_id and not result.rejected:
+                        new_doc_ids.add(result.doc_id)
+
+                        # PlainTextExtractor only stores {"content_hash": ...} in
+                        # metadata_json; the supersede-match query reads
+                        # json_extract(metadata_json,'$.wallet').  Patch the
+                        # provenance identity (normalized wallet, document_type,
+                        # run_id, dossier_path) so the wallet-level match works.
+                        stored_doc = store._conn.execute(
+                            "SELECT metadata_json FROM source_documents WHERE id=?",
+                            (result.doc_id,),
+                        ).fetchone()
+                        try:
+                            existing_meta = _json.loads(
+                                (stored_doc[0] if stored_doc else None) or "{}"
+                            )
+                        except (_json.JSONDecodeError, TypeError):
+                            existing_meta = {}
+                        for _k in ("wallet", "document_type", "run_id",
+                                   "dossier_path", "user_slug"):
+                            if _k in doc.metadata and doc.metadata[_k] is not None:
+                                existing_meta[_k] = doc.metadata[_k]
+                        if post_extract_claims and "body" not in existing_meta:
+                            # _get_document_body needs the body in metadata_json.
+                            existing_meta["body"] = doc.body
                         store._conn.execute(
                             "UPDATE source_documents SET metadata_json=? WHERE id=?",
                             (_json.dumps(existing_meta), result.doc_id),
                         )
-                        store._conn.commit()
 
-                extract_and_link(store, result.doc_id)
+                        if post_extract_claims:
+                            from packages.research.ingestion.claim_extractor import (
+                                extract_and_link,
+                            )
+                            extract_and_link(store, result.doc_id)
+
+                # New-first done; NOW supersede the prior run for this wallet
+                # (excludes the just-ingested doc ids), within the same txn.
+                supersede_info = store.supersede_dossier_run(
+                    wallet=wallet_norm,
+                    keep_doc_ids=new_doc_ids,
+                )
+        except Exception:
+            # Mid-ingest failure rolled back the whole wallet block: the OLD
+            # active set is intact, and supersede did NOT fire.  Every write in
+            # this wallet's transaction was rolled back, so ALL of its findings
+            # are reported rejected (overwriting any provisional success result
+            # recorded before the rollback).
+            for finding in wallet_findings:
+                result_by_id[id(finding)] = IngestResult(
+                    doc_id="",
+                    chunk_count=0,
+                    gate_decision=None,
+                    rejected=True,
+                    reject_reason="dossier ingest transaction rolled back",
+                )
+            continue
+
+        # Retention is success-gated: only runs if the transaction committed AND
+        # something was actually superseded (i.e. a real rescan).  Best-effort.
+        if supersede_info.get("superseded_doc_ids"):
+            try:
+                _retain_prior_runs(
+                    store=store,
+                    new_run_dir=run_dir_str,
+                    superseded_doc_ids=supersede_info["superseded_doc_ids"],
+                    memo_finding=memo_finding,
+                )
             except Exception:
-                # Non-fatal: document is already stored; claim extraction failure
-                # should not block the ingest result.
+                # Retention failure must never corrupt the ingest result.
                 pass
 
-        results.append(result)
-
+    # Reassemble results in original finding order.
+    for finding in findings:
+        results.append(result_by_id.get(id(finding)))
     return results
+
+
+def _retain_prior_runs(
+    *,
+    store: "KnowledgeStore",
+    new_run_dir: str,
+    superseded_doc_ids: list,
+    memo_finding: "dict | None",
+) -> None:
+    """Copy prior memo into the new run dir and gzip prior raw scan dirs.
+
+    Success-gated: only invoked after a committed rescan that actually
+    superseded prior docs.  Never hard-deletes; the prior raw scan directory is
+    compressed in place to ``<prior_run_dir>.tar.gz`` and the original removed
+    only after the archive is written.  All failures are swallowed by the caller.
+
+    Locating the prior run dir: the superseded source docs carry their own
+    ``dossier_path`` in ``metadata_json`` (the per-run directory), so we read it
+    straight from the retired rows rather than guessing "most recent prior run".
+    """
+    import json as _json
+    import shutil
+    import tarfile
+
+    new_dir = Path(new_run_dir) if new_run_dir else None
+
+    # Resolve prior run dirs from the superseded docs' own metadata.
+    prior_dirs: list[Path] = []
+    for doc_id in superseded_doc_ids:
+        row = store._conn.execute(
+            "SELECT metadata_json FROM source_documents WHERE id=?",
+            (doc_id,),
+        ).fetchone()
+        if not row:
+            continue
+        try:
+            meta = _json.loads(row[0] or "{}")
+        except (_json.JSONDecodeError, TypeError):
+            continue
+        dp = meta.get("dossier_path", "")
+        if dp:
+            p = Path(dp)
+            if p not in prior_dirs:
+                prior_dirs.append(p)
+
+    # 1) Copy the prior memo into the new run dir as previous-results.md.
+    if new_dir is not None and new_dir.is_dir():
+        prev_results = new_dir / "previous-results.md"
+        if not prev_results.exists():
+            memo_src: "Path | None" = None
+            for p in prior_dirs:
+                candidate = p / "memo.md"
+                if candidate.exists():
+                    memo_src = candidate
+                    break
+            if memo_src is not None:
+                prev_results.write_text(
+                    memo_src.read_text(encoding="utf-8"), encoding="utf-8"
+                )
+            elif memo_finding is not None:
+                # No on-disk prior memo; fall back to the prior memo body the
+                # ingest carried (best-effort provenance).
+                prev_results.write_text(
+                    str(memo_finding.get("body", "")), encoding="utf-8"
+                )
+
+    # 2) Gzip (tar.gz) each prior raw scan dir, then remove the original dir.
+    for p in prior_dirs:
+        if new_dir is not None and p.resolve() == new_dir.resolve():
+            continue  # never archive the current run
+        if not p.is_dir():
+            continue
+        archive = p.with_suffix(p.suffix + ".tar.gz") if p.suffix else Path(str(p) + ".tar.gz")
+        if archive.exists():
+            continue  # already retired
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(str(p), arcname=p.name)
+        shutil.rmtree(p, ignore_errors=True)

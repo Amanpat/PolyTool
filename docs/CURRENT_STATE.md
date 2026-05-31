@@ -62,6 +62,80 @@ with named blockers in the spec.
 - **Feature doc**: docs/features/wallet-discovery-v1.md
 - **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md
 
+## Wallet-Ingestion v1 — WI-1 Queue Consumer + Arg-Seam Fix (2026-05-31)
+
+The discovery pipeline now drains: a new `ScanWorker` consumes `scan_queue`
+(lease -> scan -> dossier extract + RIS ingest -> advance watchlist to
+`scanned` -> complete; on failure -> fail + attempt increment; expired leases
+requeue). This turns the previously disconnected discovery parts (Loop A
+fetch -> churn -> enqueue) into an end-to-end flow.
+
+- **New module**: `packages/polymarket/discovery/scan_worker.py` (`ScanWorker`,
+  `make_clickhouse_watchlist_advancer`). Single-worker / bounded-run only; a
+  poison-pill attempt ceiling (`max_attempts`, default 5) dead-letters runaway
+  rows to `dropped`. Multi-worker lease atomicity is explicitly deferred to WI-3.
+- **New CLI**: `python -m polytool discovery run-worker [--once | --max-items N]`,
+  separate from `run-loop-a`, with the same fail-fast `CLICKHOUSE_PASSWORD`
+  handling.
+- **Arg-seam fix**: `tools/cli/wallet_scan.py::_default_scan_callable` now passes
+  raw 0x addresses via `--user` (scan.py defines no `--wallet`; the API
+  `/api/resolve` and `GammaClient.resolve` both branch on the 0x prefix, so a
+  raw address resolves correctly through `--user`).
+- **RMT collapse**: `scan_queue.load_from_clickhouse` now `SELECT ... FINAL
+  ORDER BY dedup_key, updated_at ASC` so the latest version (the
+  ReplacingMergeTree version column is `updated_at`) wins per dedup_key.
+- **Watchlist lifecycle**: a successful scan now advances the watchlist
+  `discovered`/`queued` -> `scanned` (was never advanced before WI-1).
+- **maker/taker**: ABSENT from the Data API `/trades` response (only `side` is
+  carried); no DDL column added. Deferred to the insider/on-chain path
+  (raw Jon parquet via DuckDB is the only maker/taker source). TODO marker in
+  `packages/polymarket/data_api.py`.
+- **Tests**: `tests/test_scan_worker.py` (13). Full WI-1 regression set
+  (test_wallet_discovery*, test_wallet_integration, test_wallet_scan*,
+  test_scan_worker) = 142 passed, 0 failed.
+- **Smoke**: offline structural smoke PASSED (worker wiring end-to-end against a
+  real KnowledgeStore). Live-resolution smoke BLOCKED — PolyTool API (:8000) not
+  running in this environment; documented in the dev log.
+- **Dev log**: docs/dev_logs/2026-05-31_wi-1-queue-consumer.md
+
+## Wallet-Ingestion v1 — WI-2 Dossier Supersede + Schema (2026-05-31)
+
+Dossier rescans no longer accumulate stale snapshots. CODE COMPLETE; the live DB
+schema migration is **NOT yet applied** (orchestrator applies the ALTER after a
+separate human go, with writers quiesced).
+
+- **Schema**: `source_documents` gains `lifecycle` (default `'active'`),
+  `superseded_by`, `superseded_at`. Idempotent
+  `_upgrade_source_document_lifecycle()` (`PRAGMA table_info` → `ALTER ADD COLUMN`)
+  runs from `_ensure_schema`; safe on fresh and already-populated DBs.
+- **Supersede model**: WALLET-LEVEL, gated on new-run success. When a wallet's new
+  dossier docs ingest successfully, ALL prior active `dossier_report` docs for that
+  wallet (excluding the new run) are superseded + claims cascade-superseded. Robust
+  to missing/extra sections ("latest scan only").
+- **Atomicity**: new `KnowledgeStore.deferred_transaction()` wraps new-run ingest +
+  supersede in one BEGIN/COMMIT (new-first). Mid-ingest failure rolls back → wallet
+  keeps OLD active set (never zero/two). `add_source_document/add_claim/add_evidence/
+  add_relation` now use `self._commit()` (deferred-aware).
+- **Wallet normalization**: lowercase, applied on write (persisted into
+  `metadata_json.wallet`) and on the supersede-match query.
+- **Query exclusion**: `list_source_documents(include_superseded=False, ...)` mirrors
+  `query_claims`'s opt-in flags; `get_source_document(id)` stays lifecycle-agnostic.
+- **Freshness**: `config/freshness_decay.json` gains `"dossier_report": 4`. LIVE knob —
+  `query_claims` reads it (dossier docs carry `source_family='dossier_report'` +
+  `published_at`).
+- **Mirror**: `docs/scripts/sync-ris-mirror.py::_ks_rows` now excludes
+  `lifecycle IN ('superseded','archived')` for `source_documents`/`derived_claims`
+  (mirror reads raw rows, not `query_claims`).
+- **Disk retention** (success-gated, non-fatal): prior `memo.md` copied to new run
+  `previous-results.md`; prior raw run dir gzipped to `<dir>.tar.gz` then removed
+  (archive retains it; no hard delete). Prior dirs located via superseded docs'
+  `metadata_json.dossier_path`.
+- **Tests**: `tests/test_ris_dossier_supersede.py` (10). Touched-surface set
+  (supersede + dossier_extractor + knowledge_store + wallet_scan_dossier_integration)
+  = 94 passed, 0 failed. 3 pre-existing `test_ris_phase4_source_acquisition.py`
+  failures (academic_marker_gate) are unrelated (verified on clean tree).
+- **Dev log**: docs/dev_logs/2026-05-31_wi-2-dossier-supersede.md
+
 ## Gate 2 Corpus Visibility Improvements (quick-260410-izh, 2026-04-10)
 
 Tape-manifest and scan-gate2-candidates CLI tables now surface confidence class,
@@ -1920,15 +1994,17 @@ python -m polytool research-query --question "explain sports betting markets"
 **Query normalization (2026-05-09 fix):** `_normalize_question()` and `_build_sub_queries()`
 strip common question preambles ("what are", "explain", "how does") for retrieval only.
 `"what are prediction markets"` now retrieves the same results as `"prediction markets"`.
-The original question string is preserved in the JSON output. Retrieval remains conservative
-substring/phrase matching — not semantic or vector retrieval.
+The original question string is preserved in the JSON output. Note: this normalization is
+purely lexical/string preprocessing (preamble stripping before retrieval). Primary retrieval
+is now ChromaDB semantic vector search (L2.1 — COMPLETE 2026-05-25, see below), with
+KnowledgeStore lexical matching as fallback when semantic yields no results.
 
 **No-result cases:** Two distinct cases both return `had_fallback=true`:
 1. **Empty corpus** — KnowledgeStore has no academic source documents. Run `index-done` first.
 2. **Corpus exists, no matching claims** — academic docs are indexed but no claim text
    matches the query (including normalized form). Expand corpus or try a different topic phrase.
 
-**Still deferred:** ChromaDB academic retrieval, page-level citations, and LLM synthesis.
+**ChromaDB academic retrieval (L2.1) — COMPLETE 2026-05-25** (see L2.1 section below). **Still deferred:** page-level citations and LLM synthesis.
 L4 multi-source academic harvesters were completed later on 2026-05-09 with four
 metadata-only sources (arXiv, Semantic Scholar, Crossref, OpenReview). SSRN and NBER
 remain explicitly deferred because they require brittle session/cookie or HTML scraping
@@ -1969,7 +2045,7 @@ optional follow-up and is **not** a functional blocker.
   validated separately on 2026-05-08 (3 papers, 45.55s/69.73s/48.31s, `ipc_warm_worker_used=true`).
   Docker/GPU IPC 3-paper batch re-run is an optional performance/infra follow-up.
 - SSRN/NBER sources deferred. Only arXiv papers used.
-- ChromaDB academic retrieval (L2.1) deferred.
+- ChromaDB academic retrieval (L2.1) — **COMPLETE (2026-05-25)**. Semantic path shipping in b921857; 3-paper category sample PASS. See L2.1 section below.
 
 **Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
 
@@ -2052,16 +2128,115 @@ backslash paths that Docker/Linux cannot resolve; fixed to `pdf_path.as_posix()`
 WP-1 core claim verified: *PDFs are prefetched separately; warm-process reads the
 local cached file and does not call the arXiv API.*
 
-**29-paper rerun:** NOT YET READY. WP-1 shipped and is validated, but the full 29-paper
-rerun is delayed pending WP-2 (speed/observability hardening). Blockers:
-- JIT cache persistence not confirmed: TORCHINDUCTOR_CACHE_DIR confirmed empty after
+**29-paper rerun:** QUEUE RESET COMPLETE (2026-05-28). `scaled_validation_queue_v2` is in a
+clean, validation-ready state: `pending=24, processing=0, done=5, failed=0`. All 24 pending
+PDFs are prefetched. 5 done sidecars are indexed in the KnowledgeStore (227 chunks, 1106 claims).
+Queue reset dev log: `docs/dev_logs/2026-05-28_academic-scaled-validation-queue-reset-readiness.md`.
+
+Remaining blockers before the full 29-paper warm-process can run:
+- **Chroma embedding gap: RESOLVED (2026-05-28).** All 5 done papers are now embedded
+  in Chroma via `index-done --reindex-chroma --force` on the Windows host (sentence-transformers
+  v5.2.2 available; NTFS colon restriction resolved by U+F03A fallback in body file names).
+  Post-fix: `check-chroma-links` → 9 unique papers, 359 chunks, 0 missing/orphaned.
+- **JIT cache persistence not confirmed:** TORCHINDUCTOR_CACHE_DIR confirmed empty after
   batch runs; TRITON_CACHE_DIR not yet tested. Cold-start cost unknown per restart.
-- Three timeout-risk papers require Tier-3 classification and operator approval before
-  batch inclusion: `arxiv:1011.6402` (timeout confirmed), `arxiv:2307.14129` (2947s),
-  `arxiv:2409.02025` (HTTP 429 / fetch failures).
-- Use `--auto-timeout` or explicit `--marker-timeout 7200`/`14400` for eq-heavy papers.
-  Run `jit-cache-check` diagnostic first to confirm cache persistence.
+  Run `jit-cache-check` diagnostic inside Docker before next GPU parse session.
+- **Tier-3 papers need operator approval before batch inclusion:**
+  `arxiv:1011.6402` (confirmed timeout at 3600s, ingest_tier=3),
+  `arxiv:2409.02025` (persistent HTTP 429/fetch failures, ingest_tier=3),
+  `arxiv:2508.03474` (9.7MB, tier3_flag by size).
+- Use explicit `--marker-timeout 7200`/`14400` per batch plan; `--auto-timeout` is an alternative.
+- **indexed.jsonl has 19 entries for 5 unique papers** (duplicated by multiple `--force` reindex
+  runs); harmless audit noise — code deduplicates by candidate_id. Do not read raw indexed_count
+  as unique-paper count.
+- Staged 4-batch plan ready: Batch A (5 small papers, 3600s) is the first GPU run target.
+  Full plan: `docs/dev_logs/2026-05-28_academic-scaled-validation-queue-reset-readiness.md`.
 
 **Dev logs:** `docs/dev_logs/2026-05-19_academic-prefetch-separation-wp1.md`,
 `docs/dev_logs/2026-05-22_academic-prefetch-wp1-5paper-e2e.md`,
 `docs/dev_logs/2026-05-22_academic-prefetch-wp1-cached-e2e-closeout.md`
+
+### L2.1 ChromaDB Semantic Retrieval — COMPLETE 2026-05-25
+
+**Status: COMPLETE — 3-paper category sample PASS**
+
+L2.1 adds ChromaDB vector search as the primary retrieval path for `research-query`.
+The implementation was shipped in commit `b921857` (Chroma embedding via
+`_embed_body_into_chroma()`, `--reindex-chroma` CLI flag, `check-chroma-links` subcommand,
+`<span>` tag stripping, `min_similarity` lowered 0.30→0.18, NTFS U+F03A colon fallback).
+
+**3-paper category sample (2026-05-25):**
+
+| Category | arXiv ID | Probes | Top-1 hit rate | had_fallback | Verdict |
+|----------|----------|--------|----------------|--------------|---------|
+| Prose / survey | 2510.05533 | 1a, 1b, 1c | 3/3 | False all | PASS |
+| Equation-heavy | 1106.5040 | 2a, 2b, 2c | 2/3 (2c: subdomain ambiguity) | False all | PASS |
+| Table-heavy | 1609.03471 | 3a, 3b, 3c | 2/3 (3c: subdomain ambiguity) | False all | PASS |
+| Rejection guard | — | REJ | had_fallback=True ✓ | True | PASS |
+
+Chroma link-check: `total_chunks=162, unique_papers=5, missing_ks_doc_id=0, ks_doc_id_not_in_ks=0`.
+
+**Known cosmetic issue:** Table-heavy paper (1609.03471) returns a references-section
+snippet for one query variant. Paper ranking is correct; snippet source is not. Deferred
+to a future snippet-quality pass.
+
+**Tests:** 299 passed, 1 skipped (`tests/test_ris_marker_queue.py` + `tests/test_research_query.py`).
+
+**Commits:** `7fc6bf2` (offline-safe semantic fallback), `b921857` (one-paper acceptance repair)
+
+**Dev log:** `docs/dev_logs/2026-05-25_academic-3paper-category-sample.md`
+
+**Next step:** Batch B (10 medium papers) completed 2026-05-28. See demo-ready v1 section below.
+
+## RIS Academic Pipeline — Developer/Operator Demo-Ready v1 (2026-05-28)
+
+Academic RIS is developer/operator demo-ready v1 as of 2026-05-28.
+Codex verdict: **PASS WITH CONCERNS** (approved for closeout with named caveats).
+
+**Validation chain:**
+- 3-paper operator validation (2026-05-09): functional end-to-end pass, Windows warm-thread
+- WP-1 PDF prefetch separation COMPLETE (2026-05-22): cached E2E proof, no arXiv API call during parse
+- L2.1 ChromaDB semantic retrieval COMPLETE (2026-05-25): 3-paper category sample PASS
+- Batch A (5 small papers) + Batch B (10 medium papers): done=20, failed=0, sidecar_count=20
+- Chroma: 917 chunks / 21 papers / 0 missing_ks_doc_id / 0 ks_doc_id_not_in_ks
+
+**Batch B metrics (2026-05-28):**
+- 10 papers, all `body_source=marker`, `marker_ready=True`, `ipc_warm_worker_used=True`
+- 505 KS chunks, 2490 claims extracted
+- Parse range: 31s–3249s (JIT cold-start on equation-heavy); all within 7200s timeout
+- 7 topic probes: `had_fallback=False`, `retrieval_mode=semantic`
+- Unrelated rejection (protein folding): `had_fallback=True` ✅
+
+**Demo-ready scope:**
+- Full operator path works end-to-end: enqueue → prefetch → warm-process → index-done → research-query
+- Primary retrieval: ChromaDB semantic vector search (L2.1); KS lexical as fallback
+- arXiv papers only; SSRN/NBER explicitly deferred
+- Result quality suitable for operator review and research investigation
+
+**Caveats (MUST remain visible):**
+
+1. **Lexical false positive** — `weather forecast` returns 1 lexical citation from
+   `arxiv:2605.00493` (paper mentions weather as a control category in a prediction market
+   experiment). Semantic guard is working correctly (retrieval_mode=lexical). Post-v1
+   hardening item, not a v1 blocker.
+
+2. **Docker Chroma gap** — `ris-scheduler-gpu` image lacks `chromadb`. Chroma embedding
+   must run on Windows host via `index-done --reindex-chroma --force`. NTFS colon
+   restriction handled by `cid.replace(":", "")` fallback. Operational friction only.
+
+3. **JIT cache persistence unresolved** — `TORCHINDUCTOR_CACHE_DIR` confirmed empty after
+   batch runs. In-session reuse works; cross-restart persistence not confirmed. Run
+   `jit-cache-check` before Batch C/D planning.
+
+4. **Batch C/D deferred** — 9 pending Tier-3/large papers remain in queue.
+   `arxiv:2409.02025` (HTTP 429 failures) and `arxiv:1011.6402` (3600s timeout) require
+   explicit Tier-3 operator approval. Do NOT run Batch C/D without JIT cache verification.
+
+**Not production-ready.** Parse throughput (~45–70s/paper warm, up to 3249s
+equation-heavy), manual Chroma embedding on Windows host, and JIT cache uncertainty
+make this a developer/operator demo path, not a production service.
+
+**Feature doc:** `docs/features/FEATURE-ris-academic-demo-ready-v1.md`
+**Codex review:** `docs/dev_logs/2026-05-28_codex-review-academic-batch-b-closeout.md`
+**Batch B validation:** `docs/dev_logs/2026-05-28_academic-scaled-validation-batch-b.md`
+**Closeout log:** `docs/dev_logs/2026-05-28_academic-ris-demo-ready-v1-closeout.md`
