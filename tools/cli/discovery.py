@@ -202,6 +202,42 @@ def main(argv: list[str]) -> int:
     s_run.add_argument("--json", action="store_true", help="Output result as JSON")
     _add_ch_args(s_run)
 
+    # --- review (WI-4 dev/ops human-gate utility) ---
+    review_parser = subparsers.add_parser(
+        "review",
+        help=(
+            "Dev/ops human-gate utility: approve or deny a wallet for promotion. "
+            "Writes review_status THROUGH the enforced lifecycle gate "
+            "(validate_transition); never bypasses it. Not the production UI (WP-5)."
+        ),
+    )
+    review_group = review_parser.add_mutually_exclusive_group(required=True)
+    review_group.add_argument(
+        "--approve",
+        action="store_true",
+        help="Set review_status='approved' (scanned->reviewed if needed). Promotion "
+        "to 'promoted' still goes through validate_transition with approved status.",
+    )
+    review_group.add_argument(
+        "--deny",
+        action="store_true",
+        help="Set review_status='rejected' (records denial; no lifecycle advance).",
+    )
+    review_parser.add_argument("wallet", help="Wallet address (0x..) to review")
+    review_parser.add_argument(
+        "--promote",
+        action="store_true",
+        help="With --approve: also advance lifecycle reviewed->promoted through "
+        "validate_transition (requires the row to be at/advance to 'reviewed').",
+    )
+    review_parser.add_argument("--json", action="store_true", help="Output result as JSON")
+    review_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate the transition and print the planned write without writing.",
+    )
+    _add_ch_args(review_parser)
+
     args = parser.parse_args(argv)
 
     if args.subcommand == "run-loop-a":
@@ -210,6 +246,8 @@ def main(argv: list[str]) -> int:
         return _run_worker(args)
     if args.subcommand == "scheduler":
         return _run_scheduler(args)
+    if args.subcommand == "review":
+        return _run_review(args)
 
     print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
     return 1
@@ -397,6 +435,152 @@ def _run_worker(args: argparse.Namespace) -> int:
     print(f"  flushed_ch  : {flushed}")
     print("")
     return 0
+
+
+def _run_review(args: argparse.Namespace) -> int:
+    """Approve/deny a wallet for promotion THROUGH the enforced lifecycle gate.
+
+    Reads the current watchlist row, plans the transition via
+    packages.polymarket.discovery.review.plan_review (which calls
+    validate_transition), then writes the updated row. Refuses to modify a
+    locked (operator-owned) entry. Never bypasses the human gate.
+    """
+    password = args.clickhouse_password or os.environ.get("CLICKHOUSE_PASSWORD", "")
+    if not password:
+        print(
+            "Error: CLICKHOUSE_PASSWORD is required to review a wallet.\n"
+            "Set the CLICKHOUSE_PASSWORD environment variable or use --clickhouse-password.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        from datetime import datetime, timezone
+
+        from packages.polymarket.discovery.candidate_population import is_locked_row
+        from packages.polymarket.discovery.clickhouse_writer import (
+            read_watchlist_row,
+            write_watchlist_rows,
+        )
+        from packages.polymarket.discovery.models import (
+            InvalidTransitionError,
+            LifecycleState,
+            ReviewStatus,
+            WatchlistRow,
+        )
+        from packages.polymarket.discovery.review import plan_review
+    except ImportError as exc:
+        print(f"Error: could not import discovery review deps: {exc}", file=sys.stderr)
+        return 1
+
+    ch_kwargs = dict(
+        host=args.clickhouse_host,
+        port=args.clickhouse_port,
+        user=args.clickhouse_user,
+        password=password,
+    )
+
+    row = read_watchlist_row(args.wallet, **ch_kwargs)
+    if row is None:
+        msg = f"wallet {args.wallet} not found in watchlist"
+        if args.json:
+            print(json.dumps({"wallet": args.wallet, "ok": False, "error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        return 1
+
+    # Locked-immutability: a review CLI is an operator tool, but it must not be
+    # used by automation to mutate locked rows. We refuse here too for safety.
+    if is_locked_row(row):
+        msg = f"wallet {args.wallet} is operator-locked (locked=1); refusing to modify"
+        if args.json:
+            print(json.dumps({"wallet": args.wallet, "ok": False, "error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        return 1
+
+    try:
+        current_state = LifecycleState(str(row.get("lifecycle_state")))
+    except ValueError:
+        msg = f"unrecognized lifecycle_state {row.get('lifecycle_state')!r}"
+        if args.json:
+            print(json.dumps({"wallet": args.wallet, "ok": False, "error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        return 1
+
+    try:
+        plan = plan_review(
+            wallet_address=args.wallet,
+            current_lifecycle=current_state,
+            approve=bool(args.approve),
+            promote=bool(args.promote),
+        )
+    except InvalidTransitionError as exc:
+        if args.json:
+            print(json.dumps({"wallet": args.wallet, "ok": False, "error": str(exc)}))
+        else:
+            print(f"Error: gate refused the transition: {exc}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        out = {
+            "wallet": args.wallet,
+            "ok": True,
+            "dry_run": True,
+            "from_lifecycle": plan.from_lifecycle.value,
+            "to_lifecycle": plan.to_lifecycle.value,
+            "review_status": plan.review_status.value,
+            "note": plan.note,
+        }
+        if args.json:
+            print(json.dumps(out))
+        else:
+            print(
+                f"(dry-run) {args.wallet}: {plan.from_lifecycle.value} -> "
+                f"{plan.to_lifecycle.value}, review_status={plan.review_status.value}\n"
+                f"  {plan.note}"
+            )
+        return 0
+
+    now = datetime.now(timezone.utc)
+    updated = WatchlistRow(
+        wallet_address=args.wallet,
+        lifecycle_state=plan.to_lifecycle,
+        review_status=plan.review_status,
+        priority=int(row.get("priority", 3) or 3),
+        source=str(row.get("source", "manual") or "manual"),
+        reason=str(row.get("reason", "") or ""),
+        last_scan_run_id=row.get("last_scan_run_id"),
+        last_scanned_at=None,
+        last_activity_at=None,
+        metadata_json=str(row.get("metadata_json", "{}") or "{}"),
+        updated_at=now,
+        tier=str(row.get("tier", "candidate") or "candidate"),
+        locked=int(row.get("locked", 0) or 0),
+    )
+    ok = write_watchlist_rows([updated], **ch_kwargs)
+
+    out = {
+        "wallet": args.wallet,
+        "ok": bool(ok),
+        "from_lifecycle": plan.from_lifecycle.value,
+        "to_lifecycle": plan.to_lifecycle.value,
+        "review_status": plan.review_status.value,
+        "note": plan.note,
+    }
+    if args.json:
+        print(json.dumps(out))
+    elif ok:
+        print(
+            f"{args.wallet}: {plan.from_lifecycle.value} -> {plan.to_lifecycle.value}, "
+            f"review_status={plan.review_status.value}"
+        )
+        print(f"  {plan.note}")
+    else:
+        print(f"Error: failed to write watchlist row for {args.wallet}", file=sys.stderr)
+        return 1
+    return 0 if ok else 1
 
 
 def _run_scheduler(args: argparse.Namespace) -> int:

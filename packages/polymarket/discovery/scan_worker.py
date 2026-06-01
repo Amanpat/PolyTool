@@ -280,13 +280,35 @@ def make_clickhouse_watchlist_advancer(
     writing a fresh row with lifecycle_state='scanned' and a newer updated_at
     collapses to the latest state per wallet (discovered/queued -> scanned).
 
-    This stays inside WI-1 scope: it records that the wallet was scanned. It
-    does NOT set tiers, locks, or promote (that is WP-4), and it does not gate
-    on review_status (promotion still requires the existing human gate).
+    WI-4: the advance writes a CANDIDATE-tier row (tier='candidate', locked=0)
+    and is GUARDED by the locked-immutability rule — if the wallet is already
+    operator-locked (locked=1) in the watchlist, the advance is skipped so a
+    full discovery+rescan cycle leaves the locked entry byte-identical. It still
+    does NOT promote and does NOT gate on review_status (promotion still requires
+    the existing human gate via validate_transition).
     """
-    from packages.polymarket.discovery.clickhouse_writer import write_watchlist_rows
+    from packages.polymarket.discovery.clickhouse_writer import (
+        read_watchlist_lock_state,
+        write_watchlist_rows,
+    )
+    from packages.polymarket.discovery.candidate_population import (
+        TIER_CANDIDATE,
+        is_locked_row,
+    )
 
     def _advance(wallet_address: str, run_root: Path) -> None:
+        # WI-4 locked-immutability guard: never overwrite an operator-locked row.
+        lock_state = read_watchlist_lock_state(
+            wallet_address, host=host, port=port, user=user, password=password
+        )
+        if lock_state is not None and is_locked_row(lock_state):
+            logger.info(
+                "scan-worker: wallet %s is operator-locked; skipping watchlist advance "
+                "(immutable per WI-4)",
+                wallet_address,
+            )
+            return
+
         now = datetime.now(timezone.utc)
         run_id = run_root.name or None
         row = WatchlistRow(
@@ -301,6 +323,8 @@ def make_clickhouse_watchlist_advancer(
             last_activity_at=None,
             metadata_json="{}",
             updated_at=now,
+            tier=TIER_CANDIDATE,
+            locked=0,
         )
         ok = write_watchlist_rows(
             [row], host=host, port=port, user=user, password=password

@@ -131,18 +131,36 @@ def validate_transition(
 
 @dataclass
 class WatchlistRow:
-    """One row in polytool.watchlist — one current row per wallet."""
+    """One row in polytool.watchlist — one current row per wallet.
+
+    Two-tier model (WI-4):
+    - ``source`` keeps its ORIGIN meaning ('loop_a' | 'manual' | 'loop_d').
+    - ``tier`` is the system/operator ownership tier: 'candidate' (system-owned,
+      auto-populated from deep-scan evidence, updated on rescan) or 'locked'
+      (operator-owned, never auto-modified).
+    - ``locked`` (0/1) is the immutability flag. locked=1 entries are NEVER
+      modified or removed by any automated path. Auto-vs-manual ownership is
+      derived from ``locked`` (and/or ``source == 'manual'``), NOT from a new
+      'source' value — see WI-4 dev log Fork #1.
+
+    The ``tier`` / ``locked`` field NAMES + VALUES ('candidate' | 'locked')
+    match the scheduler's ``resolve_tier`` contract (WI-3) exactly — Fork #2.
+    Both carry safe defaults so the two existing positional constructors
+    (loop_a, scan_worker) remain valid without change.
+    """
     wallet_address:   str
     lifecycle_state:  LifecycleState
     review_status:    ReviewStatus
     priority:         int              # 1 (highest) to 5 (lowest), default 3
-    source:           str              # 'loop_a', 'manual', 'loop_d'
+    source:           str              # 'loop_a', 'manual', 'loop_d' (ORIGIN)
     reason:           str              # default ''
     last_scan_run_id: Optional[str]
     last_scanned_at:  Optional[datetime]
     last_activity_at: Optional[datetime]
     metadata_json:    str              # JSON string, default '{}'
     updated_at:       datetime
+    tier:             str = "candidate"   # 'candidate' | 'locked'  (WI-4 Fork #2)
+    locked:           int = 0            # 0 | 1 immutability flag   (WI-4 Fork #2)
 
 
 @dataclass

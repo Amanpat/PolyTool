@@ -2268,3 +2268,25 @@ CLI: `python -m polytool discovery scheduler {status,start,run-job}`. Compose se
 `last_scanned_at` (written by the WI-1 worker advancer). Tests: 39 new in
 `tests/test_discovery_scheduler.py`; RIS scheduler tests unaffected (43 pass).
 **Dev log:** `docs/dev_logs/2026-06-01_wi-3-discovery-scheduler.md`
+
+## Wallet-Ingestion v1 — WI-4 Two-Tier Watchlist + Promotion Criteria (2026-06-01)
+
+The watchlist is now two-tiered. New columns `tier` (`candidate`|`locked`,
+default `candidate`) and `locked` (UInt8, default 0) added to the watchlist
+CREATE in `infra/clickhouse/initdb/27_wallet_discovery.sql` plus idempotent
+`ALTER ... ADD COLUMN IF NOT EXISTS` migrations (NOT auto-applied to live CH —
+orchestrator applies). Fork #1: did NOT add a conflicting `source` column;
+`source` keeps its ORIGIN meaning (`loop_a`/`manual`/`loop_d`) and auto-vs-manual
+ownership derives from `locked`. Fork #2: `tier`/`locked` names + values match
+WI-3 `resolve_tier` exactly (scheduler honors real tiers with zero rework).
+Candidate tier is system-owned (auto-populated from deep-scan evidence on
+rescan); locked tier is operator-only and never auto-modified (enforced in
+candidate population, the scan-worker advancer, and the review CLI; proven
+byte-identical across a discovery+rescan cycle). New deterministic
+evidence-summary module `packages/polymarket/discovery/evidence_summary.py`
+(`summarize_evidence`, `Evidence`, `is_candidate`, `is_promotion_eligible`) is
+the WP-5 contract. New `discovery review --approve|--deny <wallet>` CLI writes
+`review_status` through the enforced `validate_transition` gate — no
+auto-promote. Thresholds in `config/watchlist_promotion.json`. Tests: 38 new in
+`tests/test_wallet_discovery_two_tier.py`; existing discovery suites 105 pass.
+**Dev log:** `docs/dev_logs/2026-06-01_wi-4-two-tier-watchlist.md`

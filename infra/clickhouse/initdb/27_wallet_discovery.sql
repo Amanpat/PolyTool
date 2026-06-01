@@ -9,6 +9,17 @@
 -- lifecycle_state can advance to 'promoted'. Application-layer enforced.
 -- ---------------------------------------------------------------------------
 
+-- Two-tier model (WI-4):
+--   tier   = 'candidate' (system-owned, auto-populated from deep-scan evidence,
+--            updated on rescan) | 'locked' (operator-owned, NEVER auto-modified).
+--   locked = UInt8 ownership flag. locked=1 marks an operator-set entry that no
+--            automated path may modify or remove. Auto-vs-manual OWNERSHIP is
+--            derived from locked (and/or source='manual'), NOT from a new
+--            'source' column — the existing `source` column keeps its ORIGIN
+--            meaning (loop_a|manual|loop_d). See WI-4 dev log Fork #1.
+--   These column NAMES + VALUES ('candidate'|'locked') exactly match the
+--   scheduler's resolve_tier() contract (WI-3) so it starts honoring real tiers
+--   with zero rework. See WI-4 dev log Fork #2.
 CREATE TABLE IF NOT EXISTS polytool.watchlist
 (
     wallet_address    String,
@@ -29,6 +40,11 @@ CREATE TABLE IF NOT EXISTS polytool.watchlist
                       ),
     priority          UInt8        DEFAULT 3,
     source            String,
+    tier              Enum8(
+                          'candidate' = 1,
+                          'locked'    = 2
+                      )            DEFAULT 'candidate',
+    locked            UInt8        DEFAULT 0,
     reason            String       DEFAULT '',
     last_scan_run_id  Nullable(String),
     last_scanned_at   Nullable(DateTime),
@@ -38,6 +54,14 @@ CREATE TABLE IF NOT EXISTS polytool.watchlist
 )
 ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY (wallet_address);
+
+-- Idempotent forward migration for EXISTING databases (run by the orchestrator;
+-- do NOT auto-apply to live CH). Existing rows default to tier='candidate',
+-- locked=0. These are safe to re-run.
+ALTER TABLE polytool.watchlist
+    ADD COLUMN IF NOT EXISTS tier Enum8('candidate' = 1, 'locked' = 2) DEFAULT 'candidate' AFTER source;
+ALTER TABLE polytool.watchlist
+    ADD COLUMN IF NOT EXISTS locked UInt8 DEFAULT 0 AFTER tier;
 
 GRANT SELECT ON polytool.watchlist TO grafana_ro;
 

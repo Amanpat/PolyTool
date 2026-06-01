@@ -122,6 +122,10 @@ def write_watchlist_rows(
             "review_status":    row.review_status.value if hasattr(row.review_status, "value") else row.review_status,
             "priority":         row.priority,
             "source":           row.source,
+            # WI-4 two-tier columns. Default to 'candidate'/0 for back-compat
+            # with WatchlistRow instances built before these fields existed.
+            "tier":             getattr(row, "tier", "candidate") or "candidate",
+            "locked":           int(getattr(row, "locked", 0) or 0),
             "reason":           row.reason,
             "metadata_json":    row.metadata_json,
             "updated_at":       _dt_to_ch(row.updated_at),
@@ -208,8 +212,81 @@ def write_scan_queue_rows(
 
 
 # ---------------------------------------------------------------------------
-# Read function
+# Read functions
 # ---------------------------------------------------------------------------
+
+
+def read_watchlist_lock_state(
+    wallet_address: str,
+    *,
+    host: str = "localhost",
+    port: int = 8123,
+    user: str = "polytool_admin",
+    password: str,
+) -> Optional[dict]:
+    """Return ``{'locked': int, 'tier': str}`` for a wallet, or None if absent.
+
+    Reads the latest (FINAL) watchlist row for ``wallet_address`` so automated
+    paths can honour the locked-immutability rule (WI-4). Returns None on error
+    or when the wallet has no watchlist row yet. Column-presence tolerant: if the
+    tier/locked columns are missing (pre-migration DB) the SELECT degrades and
+    returns None, which the caller treats as "not locked".
+    """
+    _require_password(password)
+    safe_wallet = wallet_address.replace("'", "")
+    sql = (
+        "SELECT locked, tier FROM polytool.watchlist FINAL "
+        f"WHERE wallet_address = '{safe_wallet}' LIMIT 1"
+    )
+    raw = _get_query(sql, host=host, port=port, user=user, password=password)
+    if not raw or not raw.strip():
+        return None
+    for line in raw.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+            return {
+                "locked": int(d.get("locked", 0) or 0),
+                "tier": str(d.get("tier", "candidate") or "candidate"),
+            }
+        except Exception:
+            return None
+    return None
+
+
+def read_watchlist_row(
+    wallet_address: str,
+    *,
+    host: str = "localhost",
+    port: int = 8123,
+    user: str = "polytool_admin",
+    password: str,
+) -> Optional[dict]:
+    """Return the latest (FINAL) watchlist row for a wallet as a dict, or None.
+
+    Used by the ``discovery review`` CLI to read the current lifecycle_state /
+    review_status / tier / locked before routing a change through the gate.
+    Returns None on error or when the wallet has no watchlist row.
+    """
+    _require_password(password)
+    safe_wallet = wallet_address.replace("'", "")
+    sql = (
+        "SELECT * FROM polytool.watchlist FINAL "
+        f"WHERE wallet_address = '{safe_wallet}' LIMIT 1"
+    )
+    raw = _get_query(sql, host=host, port=port, user=user, password=password)
+    if not raw or not raw.strip():
+        return None
+    for line in raw.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            return json.loads(line)
+        except Exception:
+            return None
+    return None
+
 
 def read_latest_snapshot(
     order_by: str,

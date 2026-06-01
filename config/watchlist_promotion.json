@@ -1,0 +1,19 @@
+{
+  "_comment": "WI-4 Two-Tier Watchlist — candidate-tier auto-population + promotion-eligibility thresholds. Operator-tunable WITHOUT code change. Loaded defensively by packages/polymarket/discovery/evidence_summary.py and candidate_population.py; any missing key falls back to the documented default mirrored in those modules. These thresholds gate ONLY candidate-tier membership and promotion ELIGIBILITY (the human gate via validate_transition still required to actually promote). They never auto-promote. All thresholds are CONFIG, not hardcoded constants.",
+
+  "candidate_thresholds": {
+    "_comment": "A scanned wallet is auto-written to the candidate tier when it clears ANY ONE of these gates (OR semantics), so an outlier on a single strong dimension is still surfaced. min_positions is a floor applied to all metric-based gates to avoid promoting noise from a handful of trades. churn_triggered=True alone always qualifies (a churn-flagged wallet is worth a candidate slot regardless of metrics).",
+    "min_positions": 20,
+    "min_realized_net_pnl": 5000.0,
+    "min_win_rate": 0.58,
+    "min_clv_coverage_rate": 0.50,
+    "churn_qualifies": true
+  },
+
+  "promotion_eligibility": {
+    "_comment": "Stronger bar than candidate membership: a candidate is flagged promotion-ELIGIBLE (surfaced to the operator / WI-5 Discord) when it clears ALL of these (AND semantics). Eligibility is advisory only — it NEVER advances lifecycle_state. Promotion to reviewed/promoted/watched still requires a human setting review_status='approved' through validate_transition.",
+    "min_positions": 50,
+    "min_realized_net_pnl": 10000.0,
+    "min_win_rate": 0.60
+  }
+}
