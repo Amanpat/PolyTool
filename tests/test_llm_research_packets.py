@@ -213,6 +213,7 @@ def _position_to_lifecycle_row(position: dict):
         _parse_iso8601(position.get("gamma_close_date_iso") or position.get("close_date_iso")),  # 27
         _parse_iso8601(position.get("gamma_end_date_iso") or position.get("end_date_iso")),  # 28
         _parse_iso8601(position.get("gamma_uma_end_date") or position.get("uma_end_date")),  # 29
+        _parse_iso8601(position.get("gamma_start_date_iso") or position.get("start_date_iso")),  # 30
     ]
 
 

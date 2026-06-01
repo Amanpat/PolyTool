@@ -418,3 +418,159 @@ class TestMvfToDict:
         result = compute_mvf(FIXTURE_50, WALLET)
         d = mvf_to_dict(result)
         assert len(d["dimensions"]) == 11
+
+
+# ---------------------------------------------------------------------------
+# Test 8 (WI-6): real-scan-shaped field names must compute on real values.
+#
+# The live scan dossier (llm_research_packets.normalize_position_for_export)
+# emits `entry_ts`/`exit_ts`/`hold_duration_seconds`/`resolved_at` and Gamma
+# close fallbacks (`gamma_close_date_iso`, `close_date_iso`, ...), NOT the
+# legacy `first_trade_timestamp`/`last_trade_timestamp` names. Before WI-6,
+# avg_hold_duration_hours, trade_frequency_per_day, and late_entry_rate
+# silently degraded (fell back) on real input. These tests pin the actual
+# computed values on a fixture built with the REAL field names.
+# ---------------------------------------------------------------------------
+
+# Real-scan-shaped fixture. Timestamps are ISO-8601 strings (as emitted).
+#   A: entry 2023-11-14T00:00Z, exit 2023-11-15T00:00Z -> 24h hold
+#   B: entry 2023-11-14T00:00Z, no exit/resolved; hold_duration_seconds=43200 -> 12h
+#   C: entry 2023-11-16T00:00Z, resolved_at 2023-11-16T06:00Z -> 6h hold
+# avg_hold_duration_hours = (24 + 12 + 6) / 3 = 14.0
+#
+# trade_frequency window timestamps (entry + exit/resolved, NOT B's precomputed
+# duration which is not a timestamp):
+#   A: 2023-11-14T00:00Z, 2023-11-15T00:00Z
+#   B: 2023-11-14T00:00Z (entry only; no exit_ts/resolved_at)
+#   C: 2023-11-16T00:00Z, 2023-11-16T06:00Z
+# min = 2023-11-14T00:00Z, max = 2023-11-16T06:00Z -> 54 hours = 2.25 days
+# trade_frequency_per_day = 3 positions / 2.25 days = 1.333...
+#
+# late_entry_rate market windows (market-open = markets_enriched.start_date_iso,
+# plumbed as start_date_iso; close = gamma/close/end fallbacks):
+#   A: open 2023-11-13, close 2023-11-20 -> 7d window; entry 2023-11-14 = 1/7 ~0.14 -> early
+#   B: open 2023-11-13, close 2023-11-21 -> 8d window; entry 2023-11-14 = 1/8 ~0.125 -> early
+#   C: open 2023-11-15, close 2023-11-22 -> 7d window; entry 2023-11-16 = 1/7 ~0.14 -> early
+# late_entry_rate = 0 late of 3 applicable -> 0.0 (real value, NOT null)
+_REAL_SCAN_POSITIONS = [
+    {
+        "resolution_outcome": "WIN",
+        "market_slug": "btc-up-dec-31",
+        "category": "Crypto",
+        "entry_price": 0.4,
+        "entry_ts": "2023-11-14T00:00:00Z",
+        "exit_ts": "2023-11-15T00:00:00Z",
+        "start_date_iso": "2023-11-13T00:00:00Z",
+        "gamma_close_date_iso": "2023-11-20T00:00:00Z",
+    },
+    {
+        "resolution_outcome": "LOSS",
+        "market_slug": "eth-up-jan-15",
+        "category": "Crypto",
+        "entry_price": 0.6,
+        "entry_ts": "2023-11-14T00:00:00Z",
+        "exit_ts": None,
+        "resolved_at": None,
+        "hold_duration_seconds": 43200,  # 12h precomputed
+        "start_date_iso": "2023-11-13T00:00:00Z",
+        "close_date_iso": "2023-11-21T00:00:00Z",
+    },
+    {
+        "resolution_outcome": "PROFIT_EXIT",
+        "market_slug": "sol-up-jan-15",
+        "category": "Crypto",
+        "entry_price": 0.5,
+        "entry_ts": "2023-11-16T00:00:00Z",
+        "resolved_at": "2023-11-16T06:00:00Z",
+        "start_date_iso": "2023-11-15T00:00:00Z",
+        "end_date_iso": "2023-11-22T00:00:00Z",
+    },
+]
+
+
+class TestRealScanFieldReconciliation:
+    """WI-6: degraded dims must compute on actual scan field names."""
+
+    def test_avg_hold_duration_uses_entry_exit_and_precomputed(self):
+        result = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        # (24 + 12 + 6) / 3 = 14.0 hours
+        assert result.dimensions["avg_hold_duration_hours"] == pytest.approx(14.0)
+
+    def test_avg_hold_duration_no_degradation_note(self):
+        result = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        notes = result.metadata["data_notes"]
+        assert not any("avg_hold_duration_unavailable" in n for n in notes)
+
+    def test_trade_frequency_uses_real_timestamps_not_fallback(self):
+        result = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        # 3 positions over a 54h (2.25-day) window -> 1.3333...
+        # NOT the degraded fallback of float(len(positions)) == 3.0
+        assert result.dimensions["trade_frequency_per_day"] == pytest.approx(3 / 2.25)
+        assert result.dimensions["trade_frequency_per_day"] != pytest.approx(3.0)
+
+    def test_late_entry_rate_computes_on_real_scan_fields(self):
+        """WI-6 completion: scan dossier now carries market-open via
+        ``start_date_iso`` (markets_enriched.start_date_iso), so late_entry_rate
+        computes a REAL value (not null) end-to-end from entry + open + close.
+
+        All three fixture positions entered early in their windows -> 0.0.
+        """
+        result = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        assert result.dimensions["late_entry_rate"] is not None
+        assert result.dimensions["late_entry_rate"] == pytest.approx(0.0)
+
+    def test_late_entry_rate_no_degradation_note(self):
+        """With start_date_iso present, no late_entry_rate_unavailable note."""
+        result = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        notes = result.metadata["data_notes"]
+        assert not any("late_entry_rate_unavailable" in n for n in notes)
+
+    def test_late_entry_rate_detects_late_entries_via_start_date_iso(self):
+        """Mixed early/late entries computed off start_date_iso + close fields."""
+        positions = [
+            {
+                "resolution_outcome": "WIN",
+                "market_slug": "m1",
+                "category": "Crypto",
+                "start_date_iso": "2023-11-10T00:00:00Z",
+                "entry_ts": "2023-11-19T00:00:00Z",  # 9/10 of the way in -> late
+                "gamma_close_date_iso": "2023-11-20T00:00:00Z",
+            },
+            {
+                "resolution_outcome": "WIN",
+                "market_slug": "m2",
+                "category": "Crypto",
+                "start_date_iso": "2023-11-10T00:00:00Z",
+                "entry_ts": "2023-11-11T00:00:00Z",  # 1/10 in -> early
+                "close_date_iso": "2023-11-20T00:00:00Z",
+            },
+        ]
+        result = compute_mvf(positions, "0xreal")
+        # 1 of 2 entered in final 20% -> 0.5
+        assert result.dimensions["late_entry_rate"] == pytest.approx(0.5)
+
+    def test_late_entry_rate_null_when_start_date_genuinely_absent(self):
+        """When start_date_iso is genuinely NULL for the markets, the dimension
+        honestly stays null with a data note (no fabrication)."""
+        positions = [
+            {
+                "resolution_outcome": "WIN",
+                "market_slug": "m1",
+                "category": "Crypto",
+                "entry_ts": "2023-11-14T00:00:00Z",
+                "gamma_close_date_iso": "2023-11-20T00:00:00Z",
+                # no start_date_iso / market-open
+            },
+        ]
+        result = compute_mvf(positions, "0xreal")
+        assert result.dimensions["late_entry_rate"] is None
+        notes = result.metadata["data_notes"]
+        assert any("late_entry_rate_unavailable" in n for n in notes)
+        assert any("start_date_iso" in n for n in notes)
+
+    def test_determinism_on_real_shaped_input(self):
+        r1 = compute_mvf(_REAL_SCAN_POSITIONS, "0xreal")
+        r2 = compute_mvf(list(reversed(_REAL_SCAN_POSITIONS)), "0xreal")
+        # Order-invariant aggregate dims must match exactly.
+        for key in ("avg_hold_duration_hours", "trade_frequency_per_day"):
+            assert r1.dimensions[key] == r2.dimensions[key]

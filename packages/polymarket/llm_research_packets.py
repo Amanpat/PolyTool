@@ -404,7 +404,13 @@ def _build_category_join_sql(
 def _build_close_ts_join_sql(
     clickhouse_client: Any,
 ) -> tuple[str, str]:
-    """Return optional JOIN/select SQL that exposes close-ts fallback columns."""
+    """Return optional JOIN/select SQL that exposes open/close-ts fallback columns.
+
+    The market-open column (``markets_enriched.start_date_iso``) is selected
+    alongside the close/end columns from the SAME already-joined ``me_close``
+    subquery — no new table or data source. It feeds the MVF ``late_entry_rate``
+    dimension's market-START reference (WI-6).
+    """
     has_market_tokens = _table_exists(clickhouse_client, "market_tokens")
     has_markets_enriched = _table_exists(clickhouse_client, "markets_enriched")
 
@@ -412,6 +418,7 @@ def _build_close_ts_join_sql(
         "NULL AS gamma_close_date_iso",
         "NULL AS gamma_end_date_iso",
         "NULL AS gamma_uma_end_date",
+        "NULL AS gamma_start_date_iso",
     ]
     join_parts: list[str] = []
 
@@ -432,12 +439,14 @@ def _build_close_ts_join_sql(
 
     if has_market_tokens and has_markets_enriched:
         select_parts[0] = "me_close.close_date_iso AS gamma_close_date_iso"
+        select_parts[3] = "me_close.start_date_iso AS gamma_start_date_iso"
         join_parts.append(
             """
         LEFT JOIN (
             SELECT
                 condition_id,
-                any(close_date_iso) AS close_date_iso
+                any(close_date_iso) AS close_date_iso,
+                any(start_date_iso) AS start_date_iso
             FROM markets_enriched
             GROUP BY condition_id
         ) me_close ON if(
@@ -1457,7 +1466,7 @@ def export_user_dossier(
         for row in positions_lifecycle_result.result_rows:
             try:
                 if using_enriched_view:
-                    if len(row) != 30:
+                    if len(row) != 31:
                         continue
                     (
                         resolved_token_id,
@@ -1490,9 +1499,10 @@ def export_user_dossier(
                         gamma_close_date_iso_raw,
                         gamma_end_date_iso_raw,
                         gamma_uma_end_date_raw,
+                        gamma_start_date_iso_raw,
                     ) = row
                 else:
-                    if len(row) != 21:
+                    if len(row) != 22:
                         continue
                     (
                         resolved_token_id,
@@ -1516,6 +1526,7 @@ def export_user_dossier(
                         gamma_close_date_iso_raw,
                         gamma_end_date_iso_raw,
                         gamma_uma_end_date_raw,
+                        gamma_start_date_iso_raw,
                     ) = row
                     settlement_price_raw = None
                     resolved_at_raw = None
@@ -1636,6 +1647,10 @@ def export_user_dossier(
                     "end_date_iso": _optional_isoformat(gamma_end_date_iso_raw),
                     "gamma_uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
                     "uma_end_date": _optional_isoformat(gamma_uma_end_date_raw),
+                    # Market-open fallback (markets_enriched.start_date_iso) used by
+                    # the MVF late_entry_rate dimension's market-START reference (WI-6).
+                    "gamma_start_date_iso": _optional_isoformat(gamma_start_date_iso_raw),
+                    "start_date_iso": _optional_isoformat(gamma_start_date_iso_raw),
                 }
                 positions_lifecycle_rows.append(
                     normalize_position_for_export(position_row, now_ts=generated_at)
