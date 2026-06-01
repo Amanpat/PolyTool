@@ -79,4 +79,40 @@ behavior changed.
 
 ---
 
-## WI-3 — Discovery + Rescan Scheduler — ⏳ NEXT (depends on WI-1 + WI-2, both ✅)
+## WI-3 — Discovery + Rescan Scheduler — ✅ COMPLETE (2026-06-01)
+
+**Files:** `packages/research/scheduling/discovery_scheduler.py` (new), `config/discovery_scheduler.json` (new),
+`tests/test_discovery_scheduler.py` (new, 39), `tools/cli/discovery.py` (+`scheduler` subcmd group),
+`docker-compose.yml` (+`discovery-scheduler` service), dev log `docs/dev_logs/2026-06-01_wi-3-discovery-scheduler.md`.
+Committed with WI-1 (shared `discovery.py`): commit after `e1709aa`.
+
+**Tests:** 82 passed (39 new + 43 RIS scheduler, unaffected); broader 273 passed.
+
+**Key decisions:** reuses RIS `JOB_REGISTRY` pattern via parallel `DISCOVERY_JOB_REGISTRY` (gate 1, no 2nd framework).
+Single bounded `ScanWorker` tick per fire (NOT long-lived) — honors WI-1's single-worker / non-atomic-lease assumption.
+`resolve_tier` forward-compatible: reads WI-4 `tier`/`locked` cols if present, else `lifecycle_state`/`source` fallback —
+**no watchlist DDL changed** (WI-4 owns it; full tiering inert until then). skip-if-recent vs watchlist `last_scanned_at`.
+Priority locked=1/candidate=2/discovered=3/rest=4. Config-driven cadences (locked 6h / candidate 24h / discovered 14d /
+rest 30d). WP-2 supersede precondition MERGED. Offline-only (no live scheduler runtime per packet scope).
+
+---
+
+## WI-6 — MVF Input Fix — ✅ COMPLETE (2026-06-01, ran parallel to WI-3)
+
+**Files:** `packages/polymarket/discovery/mvf.py`, `packages/polymarket/llm_research_packets.py`,
+`tests/test_mvf.py`, `tests/test_llm_research_packets.py`, dev log `docs/dev_logs/2026-06-01_wi-6-mvf-input-fix.md`.
+Separate commit (disjoint from WI-3).
+
+**Tests:** 57 passed (mvf + wallet_discovery_integrated; `== 11` dim assertion green).
+
+**Outcome:** all 3 silently-degraded dims now compute on real scan fields — `avg_hold_duration_hours` (→14.0),
+`trade_frequency_per_day` (→1.333), `late_entry_rate` (→1.0 on sample). late_entry_rate was first deferred by the
+subagent ("market-open absent"); orchestrator verified `markets_enriched.start_date_iso` exists and had it plumbed
+through the existing close-ts JOIN (NOT a new data source) — DoD finished, not deferred. Dimension count corrected to
+**11** (no clean 12th; `maker_taker_ratio` has no live input). maker_taker_ratio null/documented (Data API lacks it).
+
+**Independent caveat (no longer blocking):** none — late_entry_rate completed.
+
+---
+
+## WI-4 — Two-Tier Watchlist + Promotion Criteria — ⏳ NEXT (depends on WI-1 ✅; produces evidence-summary for WI-5)
