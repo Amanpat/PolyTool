@@ -28,11 +28,43 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from packages.polymarket.rag.knowledge_store import KnowledgeStore  # noqa: E402
+from packages.polymarket.rag.knowledge_store import (  # noqa: E402
+    DEFAULT_KNOWLEDGE_DB_PATH,
+    KnowledgeStore,
+)
 from packages.research.integration.dossier_extractor import (  # noqa: E402
     extract_dossier_findings,
     ingest_dossier_findings,
 )
+
+
+# ---------------------------------------------------------------------------
+# Live-DB test-safety guard (WI-2 hardening, 2026-05-31)
+# ---------------------------------------------------------------------------
+
+
+class TestLiveDbGuard:
+    """Opening the live default knowledge DB under pytest must be refused.
+
+    Prevents the WI-2 incident where a bare KnowledgeStore() opened during a
+    test/ad-hoc run silently ran a schema ALTER against real operator data.
+    """
+
+    def test_default_live_path_raises_under_pytest(self):
+        with pytest.raises(RuntimeError, match="live knowledge DB"):
+            KnowledgeStore()  # no arg -> DEFAULT_KNOWLEDGE_DB_PATH
+
+    def test_explicit_live_path_raises_under_pytest(self):
+        with pytest.raises(RuntimeError, match="live knowledge DB"):
+            KnowledgeStore(str(DEFAULT_KNOWLEDGE_DB_PATH))
+
+    def test_memory_path_is_allowed(self):
+        store = KnowledgeStore(":memory:")
+        assert store is not None
+
+    def test_tmp_file_path_is_allowed(self, tmp_path):
+        store = KnowledgeStore(str(tmp_path / "guard_ok.sqlite3"))
+        assert store is not None
 
 
 # ---------------------------------------------------------------------------

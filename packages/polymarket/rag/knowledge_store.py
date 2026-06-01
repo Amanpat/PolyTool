@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -113,6 +114,25 @@ class KnowledgeStore:
 
     def __init__(self, db_path: str | Path = DEFAULT_KNOWLEDGE_DB_PATH) -> None:
         self._db_path = str(db_path)
+
+        # Test-safety guard: refuse to open the live default knowledge DB under
+        # pytest. Opening it auto-runs schema upgrades (_ensure_schema) against
+        # real operator data — a WI-2 incident (2026-05-31) traced a live ALTER
+        # to a bare KnowledgeStore() opened during an ad-hoc/test run. Every test
+        # must pass an explicit db_path (a tmp file or ":memory:"). Set
+        # POLYTOOL_ALLOW_LIVE_KB=1 to override for a deliberate live-DB test.
+        if (
+            os.environ.get("PYTEST_CURRENT_TEST")
+            and not os.environ.get("POLYTOOL_ALLOW_LIVE_KB")
+            and self._db_path != ":memory:"
+            and Path(self._db_path).resolve() == DEFAULT_KNOWLEDGE_DB_PATH.resolve()
+        ):
+            raise RuntimeError(
+                "Refusing to open the live knowledge DB "
+                f"({DEFAULT_KNOWLEDGE_DB_PATH}) under pytest — pass an explicit "
+                "db_path (tmp file or ':memory:'). Set POLYTOOL_ALLOW_LIVE_KB=1 "
+                "only for a deliberate live-DB test."
+            )
 
         # LLM provider integration point.  Defaults to None (cloud LLM calls
         # disabled pending authority sync between Roadmap v5.1 Tier 1 free
