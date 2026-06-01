@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -55,6 +56,8 @@ from packages.polymarket.rag.freshness import (
     compute_freshness_modifier,
     load_freshness_config,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_KNOWLEDGE_DB_PATH = Path("kb") / "rag" / "knowledge" / "knowledge.sqlite3"
 
@@ -114,25 +117,6 @@ class KnowledgeStore:
 
     def __init__(self, db_path: str | Path = DEFAULT_KNOWLEDGE_DB_PATH) -> None:
         self._db_path = str(db_path)
-
-        # Test-safety guard: refuse to open the live default knowledge DB under
-        # pytest. Opening it auto-runs schema upgrades (_ensure_schema) against
-        # real operator data — a WI-2 incident (2026-05-31) traced a live ALTER
-        # to a bare KnowledgeStore() opened during an ad-hoc/test run. Every test
-        # must pass an explicit db_path (a tmp file or ":memory:"). Set
-        # POLYTOOL_ALLOW_LIVE_KB=1 to override for a deliberate live-DB test.
-        if (
-            os.environ.get("PYTEST_CURRENT_TEST")
-            and not os.environ.get("POLYTOOL_ALLOW_LIVE_KB")
-            and self._db_path != ":memory:"
-            and Path(self._db_path).resolve() == DEFAULT_KNOWLEDGE_DB_PATH.resolve()
-        ):
-            raise RuntimeError(
-                "Refusing to open the live knowledge DB "
-                f"({DEFAULT_KNOWLEDGE_DB_PATH}) under pytest — pass an explicit "
-                "db_path (tmp file or ':memory:'). Set POLYTOOL_ALLOW_LIVE_KB=1 "
-                "only for a deliberate live-DB test."
-            )
 
         # LLM provider integration point.  Defaults to None (cloud LLM calls
         # disabled pending authority sync between Roadmap v5.1 Tier 1 free
@@ -284,13 +268,55 @@ class KnowledgeStore:
             ("superseded_by", "ALTER TABLE source_documents ADD COLUMN superseded_by TEXT"),
             ("superseded_at", "ALTER TABLE source_documents ADD COLUMN superseded_at TEXT"),
         ]
-        applied = False
-        for column, ddl in migrations:
-            if column not in existing:
-                self._conn.execute(ddl)
-                applied = True
-        if applied:
-            self._conn.commit()
+        missing = [(c, ddl) for c, ddl in migrations if c not in existing]
+        if not missing:
+            return
+        # WI-2 safeguard (2026-05-31 incident): the live lifecycle ALTER once
+        # auto-applied to a populated on-disk DB via an ad-hoc `python -m polytool`
+        # run with no backup. Schema auto-upgrade-on-open is correct for production,
+        # so rather than block it, take a one-time backup of a POPULATED on-disk DB
+        # before mutating its schema. No-op for ":memory:" and fresh/empty DBs.
+        self._backup_before_schema_migration()
+        for _column, ddl in missing:
+            self._conn.execute(ddl)
+        self._conn.commit()
+
+    def _backup_before_schema_migration(self) -> None:
+        """One-time backup of a populated on-disk DB before a schema ALTER.
+
+        Skips ":memory:", non-existent/empty files, and empty stores (nothing to
+        lose). Uses SQLite's online backup API (WAL-safe). Best-effort: a backup
+        failure is logged but does not block the migration.
+        """
+        if self._db_path == ":memory:":
+            return
+        src = Path(self._db_path)
+        if not src.exists() or src.stat().st_size == 0:
+            return
+        try:
+            row_count = self._conn.execute(
+                "SELECT count(*) FROM source_documents"
+            ).fetchone()[0]
+        except sqlite3.Error:
+            row_count = 0
+        if not row_count:
+            return
+        backup_path = src.with_suffix(src.suffix + ".premigration.bak")
+        if backup_path.exists():
+            return  # one-time; never clobber an earlier pre-migration backup
+        try:
+            with sqlite3.connect(str(backup_path)) as dest:
+                self._conn.backup(dest)
+            logger.warning(
+                "source_documents schema upgrade: backed up %d-row DB to %s "
+                "before ALTER (WI-2 safeguard)",
+                row_count,
+                backup_path,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "pre-migration backup failed (%s); proceeding with ALTER", exc
+            )
 
     def _list_tables(self) -> set[str]:
         """Return the set of application table names in this database (for testing).

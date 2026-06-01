@@ -28,10 +28,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from packages.polymarket.rag.knowledge_store import (  # noqa: E402
-    DEFAULT_KNOWLEDGE_DB_PATH,
-    KnowledgeStore,
-)
+from packages.polymarket.rag.knowledge_store import KnowledgeStore  # noqa: E402
 from packages.research.integration.dossier_extractor import (  # noqa: E402
     extract_dossier_findings,
     ingest_dossier_findings,
@@ -39,32 +36,69 @@ from packages.research.integration.dossier_extractor import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Live-DB test-safety guard (WI-2 hardening, 2026-05-31)
+# Pre-migration backup safeguard (WI-2 lesson, 2026-05-31)
 # ---------------------------------------------------------------------------
 
 
-class TestLiveDbGuard:
-    """Opening the live default knowledge DB under pytest must be refused.
+class TestPreMigrationBackup:
+    """A populated on-disk DB is backed up once before the lifecycle schema ALTER.
 
-    Prevents the WI-2 incident where a bare KnowledgeStore() opened during a
-    test/ad-hoc run silently ran a schema ALTER against real operator data.
+    The WI-2 incident: an ad-hoc run auto-upgraded the populated live DB with no
+    backup. Auto-upgrade-on-open is correct for production, so the safeguard is a
+    one-time backup of a populated on-disk DB before mutating its schema (no-op
+    for fresh/empty DBs and ":memory:").
     """
 
-    def test_default_live_path_raises_under_pytest(self):
-        with pytest.raises(RuntimeError, match="live knowledge DB"):
-            KnowledgeStore()  # no arg -> DEFAULT_KNOWLEDGE_DB_PATH
+    def _legacy_db_with_rows(self, db_path, n: int = 2) -> None:
+        # Build a pre-lifecycle source_documents table with rows, then close.
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "CREATE TABLE source_documents (id TEXT PRIMARY KEY, title TEXT, "
+            "source_url TEXT, source_family TEXT, content_hash TEXT, "
+            "chunk_count INTEGER, published_at TEXT, ingested_at TEXT, "
+            "confidence_tier TEXT, metadata_json TEXT)"
+        )
+        for i in range(n):
+            conn.execute(
+                "INSERT INTO source_documents (id, title) VALUES (?, ?)",
+                (f"doc-{i}", f"Doc {i}"),
+            )
+        conn.commit()
+        conn.close()
 
-    def test_explicit_live_path_raises_under_pytest(self):
-        with pytest.raises(RuntimeError, match="live knowledge DB"):
-            KnowledgeStore(str(DEFAULT_KNOWLEDGE_DB_PATH))
+    def test_populated_ondisk_db_backed_up_before_alter(self, tmp_path):
+        db = tmp_path / "legacy.sqlite3"
+        self._legacy_db_with_rows(db, n=3)
+        backup = db.with_suffix(db.suffix + ".premigration.bak")
+        assert not backup.exists()
+        # Opening upgrades the schema -> should back up first.
+        store = KnowledgeStore(str(db))
+        cols = {r["name"] for r in store._conn.execute("PRAGMA table_info(source_documents)")}
+        assert {"lifecycle", "superseded_by", "superseded_at"} <= cols  # migrated
+        assert backup.exists()  # backed up
+        # Backup retains the pre-migration (no-lifecycle) shape + the 3 rows.
+        bconn = sqlite3.connect(str(backup))
+        bcols = {r[1] for r in bconn.execute("PRAGMA table_info(source_documents)")}
+        bn = bconn.execute("SELECT count(*) FROM source_documents").fetchone()[0]
+        bconn.close()
+        assert "lifecycle" not in bcols and bn == 3
 
-    def test_memory_path_is_allowed(self):
+    def test_backup_is_one_time_not_clobbered(self, tmp_path):
+        db = tmp_path / "legacy.sqlite3"
+        self._legacy_db_with_rows(db, n=1)
+        backup = db.with_suffix(db.suffix + ".premigration.bak")
+        backup.write_text("SENTINEL")  # pre-existing backup must not be clobbered
+        KnowledgeStore(str(db))
+        assert backup.read_text() == "SENTINEL"
+
+    def test_fresh_db_not_backed_up(self, tmp_path):
+        db = tmp_path / "fresh.sqlite3"
+        KnowledgeStore(str(db))  # creates schema fresh, no ALTER, no rows
+        assert not db.with_suffix(db.suffix + ".premigration.bak").exists()
+
+    def test_memory_store_has_no_backup(self):
         store = KnowledgeStore(":memory:")
-        assert store is not None
-
-    def test_tmp_file_path_is_allowed(self, tmp_path):
-        store = KnowledgeStore(str(tmp_path / "guard_ok.sqlite3"))
-        assert store is not None
+        assert store is not None  # no file, no backup, no error
 
 
 # ---------------------------------------------------------------------------
