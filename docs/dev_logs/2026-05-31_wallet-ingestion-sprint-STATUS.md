@@ -52,6 +52,48 @@ docs; no partial writes). BUT pass-1 advanced `0xcf60`'s watchlist row to `scann
   report success on zero ingest.
 Awaiting operator direction before any code change. `api` service left running for re-validation.
 
+### ✅ RESOLVED + RE-VALIDATION PASS (2026-06-01)
+
+**Fix applied per operator decision (commit `ae4947d`):**
+- **DEFECT 1 (Option A):** explicit `raw_text=True` bypass on `PlainTextExtractor.extract`; dossier ingest's
+  `pipeline.ingest` passes it so memo bodies with `/` are literal text. Shared `/`→path heuristic UNCHANGED
+  for other callers. **Option B (remove the content-sniffing heuristic across all callers + caller audit)
+  logged as a backlog work-packet** — see `docs/dev_logs/2026-06-01_wi-validation-fix.md`.
+- **DEFECT 2 (mandatory):** ingest never reports success on zero-persisted. `ingest_dossier_findings` logs
+  the rollback loudly (`exc_info`); `_make_dossier_extractor` raises when 0/N persist; the worker no longer
+  swallows ingest errors → ingest failure marks the queue item FAILED + does NOT advance the watchlist.
+  Kept all-or-nothing per wallet (preserves the supersede invariant); failures are loud, not per-section.
+- Regression tests: memo-with-`/` ingests all 3; worker fails item + skips advance on zero-persist.
+- **Cleanup:** `0xcf60` watchlist row (lying `scanned`/no-dossier) reset to `queued`, then properly
+  re-driven by the re-validation.
+
+**Live two-pass re-validation on the blocked real wallet `0xcf609d3256f0f37f0595e5dc64012fa3a8fea6f5`:**
+- Pass 1 (run `6353dc1c`): ingested 3/3 findings → 3 active docs + 17 active claims; watchlist `scanned`.
+- Pass 2 (run `ae7ffe57`, changed content): ingested 3/3 → supersede fired. **All four invariants PASS:**
+  - (a) exactly ONE active dossier set: 3 active (run `ae7ffe57`), 3 superseded (run `6353dc1c`).
+  - (b) prior set superseded + linked: all 3 `superseded_by`→active doc + `superseded_at` set; claims
+    cascaded (17 superseded / 17 active; active claims tie only to active docs).
+  - (c) RIS mirror shows ONLY active: 3 active doc-ids present in 5 mirror files each; 3 superseded
+    doc-ids in 0 files (sync reported "3 deleted" — stale superseded dossiers removed from the vault).
+  - (d) disk retention: `previous-results.md` (47 KB) in the new run dir; prior raw run gzipped to
+    `6353dc1c….tar.gz`, original dir removed (archived, not deleted).
+
+**Minor note (not a failure):** the first pre-fix failed run dir `b894610b…` remains as a loose on-disk
+dir (it never ingested/superseded anything; harmless orphan). Could be cleaned up later.
+
+### Post-validation closeout (2026-06-01)
+- **Full-suite baseline CONFIRMED:** `5355 passed, 1 skipped, 3 failed` — the 3 failures are exactly the
+  pre-existing `test_ris_phase4_source_acquisition::TestEndToEnd` academic tests (unrelated). The ~12
+  guard-induced failures are gone; the validation fix added zero new failures. Backlogged:
+  `work-packet-backlog-test-ris-phase4-failures.md`.
+- **Option B** (remove the extractor `/`→path heuristic across all callers) backlogged:
+  `work-packet-backlog-extractor-slash-heuristic.md`.
+- **`api` docker service STOPPED** (no longer needed; gateway-intents WI-5 connects outbound). Remaining
+  services: `clickhouse`, `ris-scheduler-gpu` (both pre-existing).
+- Fix dev log: `docs/dev_logs/2026-06-01_wi-validation-fix.md`. Commit `ae4947d`.
+
+**WI-5 remains parked on the Discord bot token + approval channel ID in `.env`.**
+
 ---
 
 ## WI-1 — Queue Consumer + Arg-Seam Fix — ✅ COMPLETE (2026-05-31)
