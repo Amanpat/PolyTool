@@ -8,6 +8,52 @@ in `.env`), and any failing acceptance gate/test.
 
 ---
 
+## ⛔ BLOCKER — Live two-pass supersede validation halted (2026-06-01)
+
+**Status: STOPPED and reported per the "invariant fails → stop, do not patch around" rule. No fix applied.**
+
+The live validation could NOT reach the supersede check because the **scan → dossier → RIS ingest step
+silently persists nothing for realistic wallets.**
+
+**Repro:** real pass-1 scan of `0xcf609d3256f0f37f0595e5dc64012fa3a8fea6f5` (rank-9 leaderboard wallet).
+Worker reported `completed=1`; dossier written to disk (run `b894610b…`, 3 valid findings extractable);
+watchlist advanced to `scanned`. But the live KS still holds only the 2 smoke docs — **0 docs/claims
+ingested for this wallet.** Reproduced into temp stores: `ingest_dossier_findings` returns 3 results yet
+persists 0 (both `post_extract_claims` True/False).
+
+**Root cause (two interacting defects):**
+1. **Pre-existing (NOT this sprint):** `PlainTextExtractor.extract` (`extractors.py:163-165`) treats any
+   raw-text string containing `/` or `\\` as a (missing) file path → raises `FileNotFoundError`. The dossier
+   **memo** body contains `/` (dates/percentages/prose) → throws. Detectors/Candidates are slash-free.
+   `extractors.py` is untouched by this sprint (empty `git log c249ff5..HEAD`).
+2. **WI-2 amplification:** `ingest_dossier_findings` wraps a wallet's 1–3 findings in ONE
+   `deferred_transaction()` with a broad `except: rollback-all` (lines 614-628). The memo's FileNotFoundError
+   rolls back the WHOLE wallet (incl. the good Detectors/Candidates) and is swallowed **non-fatally**, so the
+   worker reports success with zero persisted. Pre-WI-2, findings ingested independently (partial success).
+
+**Why the WI-1 "live smoke PASS" was a false positive:** wallet `0x84cf` had no substantive memo, so only 2
+slash-free findings (Detectors+Candidates) ingested — it never exercised the memo path. Realistic wallets
+(with a memo) ingest nothing. The WI-2 unit tests passed because their synthetic finding bodies are slash-free.
+
+**Two-pass invariants (a–d): NOT EVALUABLE** — pass-1 ingest never persisted, so there is no active set to
+supersede. Blocked at the precondition.
+
+**Live-state note (no corruption):** the rolled-back ingest left the live KS unchanged (still the 2 smoke
+docs; no partial writes). BUT pass-1 advanced `0xcf60`'s watchlist row to `scanned` + marked the queue row
+`done` while RIS holds no dossier for it — a watchlist/RIS inconsistency the silent-failure produced.
+
+**Decision needed from operator (fix is scope-sensitive — shared extractor + WI-2 transaction semantics):**
+- Option A (narrow): in the dossier ingest, force true raw-text mode (e.g. write body to a temp file and pass
+  the path, or add an explicit `raw_text=True` bypass) — avoids touching the shared extractor heuristic.
+- Option B (root, broad): fix `PlainTextExtractor`'s `/`→path heuristic (affects ALL ingestion paths —
+  academic/manual/etc.; higher blast radius; arguably out of this sprint's scope).
+- Plus (WI-2 hardening): make the per-wallet ingest NOT silently swallow + total-rollback — surface the error
+  and/or ingest findings independently so one bad section can't void the wallet, and so the worker does not
+  report success on zero ingest.
+Awaiting operator direction before any code change. `api` service left running for re-validation.
+
+---
+
 ## WI-1 — Queue Consumer + Arg-Seam Fix — ✅ COMPLETE (2026-05-31)
 
 **Files changed:** created `packages/polymarket/discovery/scan_worker.py` (`ScanWorker` +
