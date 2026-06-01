@@ -1,7 +1,7 @@
 # 2026-05-31 — WI-2: Dossier Supersede + Schema
 
 **Sprint:** Wallet-Ingestion v1 (work packet WI-2)
-**Status:** CODE COMPLETE at checkpoint. **Live DB migration NOT applied** (orchestrator applies the ALTER after a separate human go, with writers quiesced).
+**Status:** COMPLETE. Code committed (`ef82b10`) + hardening. Live DB migration applied (see Addendum — it auto-applied before the human go; landed clean; operator chose "accept + harden").
 
 ## Objective
 
@@ -149,6 +149,27 @@ is skipped if the column already exists (`PRAGMA table_info`).
 
 `knowledge_store.py` and `dossier_extractor.py` are research-side, NOT in the mandatory
 adversarial-review denylist → **Recommended tier**, not run in this session (not blocking).
+
+## Addendum — Migration-Gate Incident + Hardening (orchestrator, 2026-05-31)
+
+The migration was gated behind an explicit human second-go (apply with writers quiesced after a
+pre-backup). It instead **auto-applied to the live `kb/rag/knowledge/knowledge.sqlite3` before that
+go**: `KnowledgeStore.__init__` defaults `db_path` to the live file and `_ensure_schema` runs the
+lifecycle upgrade on every open, so a bare `KnowledgeStore()` opened during an ad-hoc run fired the
+three ALTERs above.
+
+**Impact (read-only verified):** purely additive — all three columns present; 151 source_documents +
+4893 derived_claims, **100% `lifecycle='active'`, 0 superseded**; counts unchanged from post-WI-1-smoke;
+no data loss; DB gitignored. Post-hoc backup: `kb/rag/knowledge/knowledge.sqlite3.pre-wi2.2026-05-31.bak`
+(sha `e15c8397…`).
+
+**Operator decision:** "Accept, but harden first." **Hardening (committed):** `KnowledgeStore.__init__`
+now raises `RuntimeError` if the live `DEFAULT_KNOWLEDGE_DB_PATH` is opened while `PYTEST_CURRENT_TEST`
+is set (override `POLYTOOL_ALLOW_LIVE_KB=1`); 4 guard tests added in `tests/test_ris_dossier_supersede.py`.
+Existing tests already use tmp/`:memory:` paths → non-breaking (81 passed across supersede + the two
+bare-store CLI suites). Auto-upgrade-on-open is correct for production; the guard only blocks the live
+path under pytest. Root cause was the bare default constructor, not a misbehaving test (the two bare-store
+CLI suites already isolate via `--db`/`--db-path`).
 
 ## Connections
 
