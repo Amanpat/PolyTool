@@ -121,4 +121,32 @@ through the existing close-ts JOIN (NOT a new data source) — DoD finished, not
 
 ---
 
-## WI-4 — Two-Tier Watchlist + Promotion Criteria — ⏳ NEXT (depends on WI-1 ✅; produces evidence-summary for WI-5)
+## WI-4 — Two-Tier Watchlist + Promotion Criteria — ✅ COMPLETE (2026-06-01)
+
+**Files:** `packages/polymarket/discovery/{evidence_summary,candidate_population,review}.py` (new),
+`config/watchlist_promotion.json` (new), `tests/test_wallet_discovery_two_tier.py` (new, 38),
+`infra/clickhouse/initdb/27_wallet_discovery.sql` (+tier/locked), `models.py`/`clickhouse_writer.py`/
+`scan_worker.py`/`tools/cli/discovery.py` (modified), dev log `docs/dev_logs/2026-06-01_wi-4-two-tier-watchlist.md`.
+Commit `c31d59c`.
+
+**Tests:** 38 new + existing discovery suites green.
+
+**Forks:** #1 kept existing `source` (origin loop_a/manual/loop_d) — added `tier`(candidate|locked)+`locked`(UInt8),
+no clobber; ownership = `locked=1`. #2 columns/values match WI-3 `resolve_tier` (verified `TestResolveTierAlignment`) —
+the scheduler now honors real tiers.
+
+**Evidence-summary (WI-5 contract):** `evidence_summary.summarize_evidence(evidence) -> str` (deterministic),
+plus `Evidence` dataclass, `is_candidate`, `is_promotion_eligible`, `load_promotion_config`. WI-5 imports this.
+
+**Gate intact:** auto-population only writes `lifecycle_state='scanned'`+`review_status='pending'`; promotion
+requires `validate_transition` approval; no auto-promote path. Locked immutability proven byte-identical across a
+full cycle.
+
+**Live-CH DDL applied by orchestrator (2026-06-01):** `ADD COLUMN IF NOT EXISTS tier / locked` on
+`polytool.watchlist` (1-row table, quiescent); existing smoke row backfilled `tier='candidate', locked=0` (verified).
+Additive/idempotent; not a declared hard-stop gate (unlike WI-2's SQLite auto-upgrade, CH DDL is applied
+deliberately, not on connect).
+
+---
+
+## WI-5 — Discord Two-Way Approval — ⏳ NEXT — ⛔ HARD STOP (requires bot token in .env; never read/print/log/commit it; never self-approve)
