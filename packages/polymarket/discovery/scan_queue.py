@@ -235,12 +235,24 @@ class ScanQueueManager:
         if not password:
             raise ValueError("CLICKHOUSE_PASSWORD required.")
 
+        # RMT latest-state collapse (WI-1 check #4):
+        # polytool.scan_queue is ENGINE = ReplacingMergeTree(updated_at) with
+        # ORDER BY (dedup_key) — see infra/clickhouse/initdb/27_wallet_discovery.sql.
+        # `updated_at` IS the ReplacingMergeTree version column, so the row with
+        # the max(updated_at) per dedup_key is exactly what `FINAL` returns. Two
+        # guards are applied for parity, both keyed on the real version column:
+        #   1. SELECT ... FINAL forces ClickHouse to collapse duplicate parts.
+        #   2. ORDER BY dedup_key, updated_at ASC means that when the loader does
+        #      `self._items[dedup_key] = row`, the last assignment per key is the
+        #      newest version even if background merges have not yet run.
+        # Previously the loader ordered by dedup_key alone, so an arbitrary
+        # (possibly stale) version could win and a wallet could be leased on it.
         sql = (
             "SELECT queue_id, dedup_key, wallet_address, source, source_ref, "
             "priority, queue_state, available_at, leased_at, lease_expires_at, "
             "lease_owner, attempt_count, last_error, created_at, updated_at "
-            "FROM polytool.scan_queue "
-            "ORDER BY dedup_key FORMAT JSONEachRow"
+            "FROM polytool.scan_queue FINAL "
+            "ORDER BY dedup_key ASC, updated_at ASC FORMAT JSONEachRow"
         )
         url = f"http://{host}:{port}/?query={urllib.parse.quote(sql)}"
         credentials = base64.b64encode(f"{user}:{password}".encode()).decode()

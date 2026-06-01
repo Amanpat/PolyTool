@@ -1,0 +1,40 @@
+{
+  "_comment": "WI-3 Discovery + Rescan Scheduler config. Operator-tunable without code change. Loaded defensively by packages/research/scheduling/discovery_scheduler.py; any missing key falls back to the documented default. All thresholds are CONFIG, not hardcoded constants (per WI-3 packet + global guard).",
+
+  "cadences": {
+    "_comment": "APScheduler CronTrigger kwargs per discovery job id. Edit hours/days here to retune cadence without touching code.",
+    "discovery_loop_a": { "hour": "*/6" },
+    "watchlist_rescan": { "hour": "1,13" },
+    "queue_drain": { "minute": "*/15" }
+  },
+
+  "skip_if_recent": {
+    "_comment": "Tier-aware skip-if-recent freshness windows in HOURS. Before enqueueing a wallet for rescan, its last-scan timestamp is compared against the window for its resolved tier; if scanned within the window it is skipped (not re-enqueued). Defaults: locked 6h, candidate 24h, discovered 14d(336h), rest 30d(720h). WP-2 (dossier supersede) is MERGED; sub-daily rescan for locked tier is therefore enabled. Do NOT lower these below WP-2 assumptions without operator sign-off.",
+    "locked_hours": 6,
+    "candidate_hours": 24,
+    "discovered_hours": 336,
+    "rest_hours": 720
+  },
+
+  "tier_priority": {
+    "_comment": "Resolved-tier -> scan_queue.priority (1=highest .. 5=lowest). The WI-1 worker drains by (priority, created_at), so this controls drain order: locked -> candidate -> discovered -> rest.",
+    "locked": 1,
+    "candidate": 2,
+    "discovered": 3,
+    "rest": 4
+  },
+
+  "queue_drain": {
+    "_comment": "queue-drain job bound. Single-tick bounded drain (one ScanWorker run per fire); NOT a long-lived continuous worker, because the WI-1 ScanWorker documents a single-worker assumption (ClickHouse leases are not atomic CAS). One scheduled tick = one bounded drain = exactly one drainer at a time.",
+    "max_items": 10,
+    "max_attempts": 5,
+    "lease_seconds": 300,
+    "owner": "discovery-scheduler"
+  },
+
+  "rescan": {
+    "_comment": "watchlist-rescan job bounds. Caps how many stale wallets are enqueued per fire to avoid flooding the queue.",
+    "max_enqueue": 200,
+    "source": "loop_a"
+  }
+}

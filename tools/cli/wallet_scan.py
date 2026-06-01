@@ -183,10 +183,12 @@ def _default_scan_callable(identifier: str, scan_flags: Dict[str, Any]) -> str:
     from tools.cli import scan
 
     kind = _detect_identifier_type(identifier)
-    if kind == "handle":
-        argv = ["--user", identifier]
-    else:
-        argv = ["--wallet", identifier]
+    # WI-1 arg-seam fix: scan.py's parser defines only --user (it accepts both
+    # @handles and raw 0x wallet addresses; the API /api/resolve endpoint and
+    # GammaClient.resolve both branch on the 0x-prefix). There is no --wallet
+    # flag, so raw addresses must also be passed via --user, otherwise argparse
+    # raised "unrecognized arguments: --wallet" and the whole handoff broke.
+    argv = ["--user", identifier]
 
     if scan_flags.get("lite"):
         argv.append("--lite")

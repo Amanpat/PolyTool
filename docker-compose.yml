@@ -150,6 +150,31 @@ services:
     networks:
       - polytool
 
+  # Wallet-Discovery scheduler (WI-3). Mirrors the ris-scheduler pattern.
+  # Runs three APScheduler jobs: discovery_loop_a, watchlist_rescan, queue_drain.
+  # queue_drain is a SINGLE bounded ScanWorker tick per fire (WI-1 single-worker
+  # safety: ClickHouse leases are not atomic CAS — never run >1 drainer).
+  # Cadences/thresholds/priorities are config-driven (config/discovery_scheduler.json).
+  # Reads CLICKHOUSE_PASSWORD from .env (fail-fast per CLAUDE.md auth rule).
+  discovery-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: polytool-discovery-scheduler
+    env_file:
+      - .env
+    command: ["python", "-m", "polytool", "discovery", "scheduler", "start"]
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/config:ro
+      - ./kb:/app/kb
+      - ./artifacts:/app/artifacts
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - polytool
+
   # GPU-enabled RIS scheduler for academic PDF ingest (dev machine with RTX 2070 Super).
   # Requires: Docker Desktop 29.x with WSL2 GPU passthrough (--gpus all works automatically).
   # Model weights are volume-mounted from host ~/.cache/datalab — NOT baked into the image.

@@ -2240,3 +2240,31 @@ make this a developer/operator demo path, not a production service.
 **Codex review:** `docs/dev_logs/2026-05-28_codex-review-academic-batch-b-closeout.md`
 **Batch B validation:** `docs/dev_logs/2026-05-28_academic-scaled-validation-batch-b.md`
 **Closeout log:** `docs/dev_logs/2026-05-28_academic-ris-demo-ready-v1-closeout.md`
+
+## Wallet-Ingestion v1 — WI-6 MVF Input Fix (2026-06-01)
+
+MVF helpers now consume the actual scan dossier field names. `avg_hold_duration_hours`
+and `trade_frequency_per_day` compute on real values (previously silently degraded:
+null / count-fallback) by resolving `entry_ts`/`exit_ts`/`resolved_at` and the precomputed
+`hold_duration_seconds`. `late_entry_rate` now reads the real Gamma close fields but stays
+null by design because the dossier carries no market-open timestamp (adding one is a new
+data source, out of scope). Dimension count formally corrected to **11** (no clean 12th
+dimension; `maker_taker_ratio` has no Data API input per WI-1, left null + documented).
+Tests: `tests/test_mvf.py` 43 passed (+6 asserting correct values); integrated 12 passed.
+**Dev log:** `docs/dev_logs/2026-06-01_wi-6-mvf-input-fix.md`
+
+## Wallet-Ingestion v1 — WI-3 Discovery + Rescan Scheduler (2026-06-01)
+
+New `packages/research/scheduling/discovery_scheduler.py` reuses the RIS APScheduler
+`JOB_REGISTRY` pattern (parallel `DISCOVERY_JOB_REGISTRY`; RIS scheduler untouched) with
+three jobs: `discovery_loop_a`, `watchlist_rescan` (tier-aware skip-if-recent enqueue),
+`queue_drain` (single bounded `ScanWorker` tick — WI-1 single-worker safety). Tier
+resolution is forward-compatible: reads WI-4's future `tier`/`locked` columns if present,
+else falls back to `lifecycle_state`/`source` (no watchlist DDL changed). Cadences,
+per-tier freshness windows (locked 6h / candidate 24h / discovered 14d / rest 30d), and
+tier→priority (locked 1 → rest 4) are config-driven in `config/discovery_scheduler.json`.
+CLI: `python -m polytool discovery scheduler {status,start,run-job}`. Compose service
+`discovery-scheduler` added (`restart: unless-stopped`). Skip-if-recent uses watchlist
+`last_scanned_at` (written by the WI-1 worker advancer). Tests: 39 new in
+`tests/test_discovery_scheduler.py`; RIS scheduler tests unaffected (43 pass).
+**Dev log:** `docs/dev_logs/2026-06-01_wi-3-discovery-scheduler.md`

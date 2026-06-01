@@ -55,6 +55,15 @@ class Trade:
         )
         outcome = data.get("outcome", "") or data.get("outcomeName", "") or ""
         side = data.get("side", "") or data.get("type", "") or ""
+        # WI-1 maker/taker investigation (deferred): the Polymarket Data API
+        # /trades response carries only `side` (BUY/SELL), NOT a per-fill
+        # maker/taker liquidity flag. There is therefore no maker/taker field to
+        # preserve into scan output or the `user_trades` DDL, so no column was
+        # added in WI-1. The only source that retains maker/taker is the raw
+        # Jon-Becker parquet (DuckDB-readable: maker, taker, maker_asset_id,
+        # taker_asset_id, ...). Insider attribution that needs maker/taker must
+        # source it from that archive path — see the deferred insider/on-chain
+        # work. Do NOT add on-chain/Alchemy log fetching here to synthesize it.
         size = float(data.get("size", 0) or data.get("amount", 0) or 0)
         price = float(data.get("price", 0) or data.get("avgPrice", 0) or 0)
         transaction_hash = data.get("transactionHash", "") or data.get("txHash", "") or data.get("transaction_hash", "") or ""
