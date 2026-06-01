@@ -149,4 +149,29 @@ deliberately, not on connect).
 
 ---
 
-## WI-5 — Discord Two-Way Approval — ⏳ NEXT — ⛔ HARD STOP (requires bot token in .env; never read/print/log/commit it; never self-approve)
+## WI-5 — Discord Two-Way Approval — ⛔ BLOCKED at hard stop (2026-06-01)
+
+**Stopped per the hard-stop gate: the Discord bot token is ABSENT from `.env`.** Only `DISCORD_WEBHOOK_URL`
+is present (existing Track-A outbound webhook — cannot render buttons or receive click interactions; WI-5
+needs a gateway/interactions BOT). No secret was read/printed/logged/committed; no promotion fabricated.
+
+**To unblock (operator action):** place in `.env` (agent never handles these):
+- a Discord **bot token** (e.g. `DISCORD_BOT_TOKEN=...`), and
+- the **approval channel ID** (e.g. `DISCORD_APPROVAL_CHANNEL_ID=...`).
+Also create the bot in the Discord developer portal (message-send + components/buttons; gateway intents or a
+public interactions endpoint) and add it to the target server.
+
+WI-5 consumes WI-4's `evidence_summary.summarize_evidence()` (ready) and writes back through
+`validate_transition` (ready). All upstream deps (WP-1..WP-4) are complete, so WI-5 can proceed the moment
+the token lands.
+
+---
+
+## Sprint summary (2026-06-01)
+**Complete:** WI-1 ✅, WI-2 ✅, WI-3 ✅, WI-4 ✅, WI-6 ✅. **Blocked:** WI-5 ⛔ (bot token).
+Pipeline now runs end-to-end: discover → enqueue → drain/scan → dossier → RIS ingest (with supersede) →
+watchlist (two-tier, scanned) → scheduler cadence. Human gate intact; no auto-promote.
+**Flags for operator:** (1) WI-2 migration auto-applied + hardening corrected (guard reverted → backup
+safeguard); backups `knowledge.sqlite3.pre-wi2.2026-05-31.bak`. (2) 3 pre-existing `test_ris_phase4`
+academic failures remain (unrelated to this sprint). (3) Orchestrator started the `api` docker service for
+the WI-1 live smoke — still running. (4) Live-CH watchlist DDL applied (WI-4).
