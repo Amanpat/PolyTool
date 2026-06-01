@@ -163,13 +163,24 @@ three ALTERs above.
 no data loss; DB gitignored. Post-hoc backup: `kb/rag/knowledge/knowledge.sqlite3.pre-wi2.2026-05-31.bak`
 (sha `e15c8397…`).
 
-**Operator decision:** "Accept, but harden first." **Hardening (committed):** `KnowledgeStore.__init__`
-now raises `RuntimeError` if the live `DEFAULT_KNOWLEDGE_DB_PATH` is opened while `PYTEST_CURRENT_TEST`
-is set (override `POLYTOOL_ALLOW_LIVE_KB=1`); 4 guard tests added in `tests/test_ris_dossier_supersede.py`.
-Existing tests already use tmp/`:memory:` paths → non-breaking (81 passed across supersede + the two
-bare-store CLI suites). Auto-upgrade-on-open is correct for production; the guard only blocks the live
-path under pytest. Root cause was the bare default constructor, not a misbehaving test (the two bare-store
-CLI suites already isolate via `--db`/`--db-path`).
+**Operator decision:** "Accept, but harden first."
+
+**Hardening — first attempt (REVERTED, commit `e1709aa` → reverted in `f8bae6e`):** added a guard that
+raised if the live `DEFAULT_KNOWLEDGE_DB_PATH` was opened under `PYTEST_CURRENT_TEST`. **This was wrong:**
+(1) `tests/conftest.py :: pytest_configure` already `chdir`s the whole session into an isolated temp
+workspace, and `DEFAULT_KNOWLEDGE_DB_PATH` is a *relative* path — so under pytest it resolves into the
+workspace, never the real repo DB. The guard fired on the already-safe workspace path. (2) It raised on
+~12 RIS CLI tests (marker-queue `index-done`, monitoring run-log, acquire) that legitimately open the
+default-path store (safe via the chdir). It also did NOT address the true incident vector — the live DB
+was migrated by an ad-hoc `python -m polytool` run in the *real* CWD (not pytest), which the guard cannot
+catch.
+
+**Hardening — corrected (commit `f8bae6e`):** `_backup_before_schema_migration()` takes a one-time WAL-safe
+backup (`<db>.premigration.bak`) before the lifecycle ALTER mutates a **populated on-disk** DB — the actual
+ad-hoc-run vector. No-op for `:memory:` and fresh/empty DBs; never clobbers an existing backup. 4 backup
+tests replace the 4 reverted guard tests. The 11 RIS tests pass again; only 3 genuinely pre-existing
+`test_ris_phase4_source_acquisition` academic failures remain (unrelated). Auto-upgrade-on-open stays the
+production behavior (correct); the safeguard just guarantees a recoverable copy first.
 
 ## Connections
 

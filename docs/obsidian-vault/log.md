@@ -177,7 +177,7 @@ Shipped the keystone packet: `ScanWorker` drains `scan_queue` (lease→scan→do
 Packet: [[claude-memory/work-packets/work-packet-wi-1-queue-consumer]] — Dev log: docs/dev_logs/2026-05-31_wi-1-queue-consumer.md
 
 ## [2026-05-31] wallet-ingestion-v1 | WI-2 Dossier Supersede + Schema COMPLETE
-Wallet-level supersede-on-new-run for dossier docs+claims (sections are conditional, so not (wallet,section)); lifecycle columns on `source_documents` with idempotent upgrade; `dossier_report: 4` freshness (confirmed live knob); success-gated disk retention; RIS mirror now excludes superseded. Commit `ef82b10` + hardening. Migration-gate incident: the live ALTER auto-applied via a bare `KnowledgeStore()` (landed clean, additive, backup saved); operator chose accept+harden → `__init__` now refuses the live DB under pytest.
+Wallet-level supersede-on-new-run for dossier docs+claims (sections are conditional, so not (wallet,section)); lifecycle columns on `source_documents` with idempotent upgrade; `dossier_report: 4` freshness (confirmed live knob); success-gated disk retention; RIS mirror now excludes superseded. Commit `ef82b10` + hardening. Migration-gate incident: the live ALTER auto-applied via a bare `KnowledgeStore()` (landed clean, additive, backup saved); operator chose accept+harden. Hardening corrected mid-sprint: the first pytest-refusal guard was misconceived (pytest already chdir-isolates) and reverted; replaced with `_backup_before_schema_migration()` (one-time `.premigration.bak` before mutating a populated on-disk DB).
 Packet: [[claude-memory/work-packets/work-packet-wi-2-dossier-supersede]] — Dev log: docs/dev_logs/2026-05-31_wi-2-dossier-supersede.md
 
 ## [2026-06-01] wallet-ingestion-v1 | WI-3 Scheduler + WI-6 MVF Fix COMPLETE (parallel batch)

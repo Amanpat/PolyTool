@@ -71,11 +71,17 @@ docs' `metadata_json.dossier_path`.
 ALTER auto-applied to the live `knowledge.sqlite3` (a bare `KnowledgeStore()` opened during an ad-hoc run;
 `_ensure_schema` auto-upgrades on open) WITHOUT the planned second-go/quiesce/pre-backup. Verified clean:
 additive only, 151 docs / 4893 claims all `lifecycle='active'`, 0 superseded, no data loss, DB gitignored.
-Backup taken: `kb/rag/knowledge/knowledge.sqlite3.pre-wi2.2026-05-31.bak` (sha `e15c8397…`). **Hardening
-applied:** `KnowledgeStore.__init__` refuses the live `DEFAULT_KNOWLEDGE_DB_PATH` under pytest
-(`POLYTOOL_ALLOW_LIVE_KB=1` override) + 4 guard tests; existing tests already use tmp/:memory: (non-breaking).
-Root cause = bare-default constructor; the auto-upgrade-on-open is correct for production, so no production
-behavior changed.
+Backup taken: `kb/rag/knowledge/knowledge.sqlite3.pre-wi2.2026-05-31.bak` (sha `e15c8397…`).
+
+**Hardening — corrected after a wrong first attempt:** The first guard (commit `e1709aa`) refused the live
+`DEFAULT_KNOWLEDGE_DB_PATH` under pytest — but that was **misconceived and reverted** (`f8bae6e`): pytest
+already `chdir`s into an isolated temp workspace (`conftest.py`), and the default path is relative, so tests
+never touch the real DB; the guard instead broke ~12 RIS CLI tests and did not address the real vector (an
+ad-hoc non-pytest `python -m polytool` run in the real CWD). **Correct safeguard (`f8bae6e`):**
+`_backup_before_schema_migration()` — one-time WAL-safe `<db>.premigration.bak` before the lifecycle ALTER
+mutates a populated on-disk DB; no-op for `:memory:`/fresh DBs. 11 RIS tests restored; sprint surface 149/0;
+only 3 pre-existing `test_ris_phase4` academic failures remain (unrelated). Lesson logged: verify "pre-existing"
+claims — the regression was mine, surfaced via the live-DB error message, not actually pre-existing.
 
 ---
 
