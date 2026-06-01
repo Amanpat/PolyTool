@@ -140,8 +140,18 @@ class PlainTextExtractor(Extractor):
         source_family: str = SOURCE_FAMILIES.get(source_type, source_type)
 
         # --- decide mode ---
-        as_path = Path(source) if isinstance(source, str) else source
-        if as_path.exists():
+        # Explicit raw-text bypass: a caller that passes raw_text=True KNOWS
+        # `source` is a literal body, so skip BOTH the file probe and the legacy
+        # content-sniffing heuristic below. This is the sanctioned escape hatch
+        # from the "/"->path guard for trusted callers (e.g. dossier ingest,
+        # whose memo bodies contain "/"). The heuristic itself is unchanged for
+        # every other caller.
+        # BACKLOG: removing the content-sniffing heuristic across ALL callers
+        # (with a full caller audit) is tracked separately — see
+        # docs/dev_logs/2026-06-01_wi-validation-fix.md.
+        raw_text: bool = bool(kwargs.get("raw_text", False))
+        as_path = None if raw_text else (Path(source) if isinstance(source, str) else source)
+        if as_path is not None and as_path.exists():
             # File mode
             body = as_path.read_text(encoding="utf-8")
             abs_path = str(as_path.resolve()).replace("\\", "/")
@@ -156,13 +166,14 @@ class PlainTextExtractor(Extractor):
                 title = m.group(1).strip() if m else as_path.stem
 
         else:
-            # Raw-text mode: source must be a non-file string
-            if isinstance(source, Path):
-                raise FileNotFoundError(f"No such file: {source}")
-            # Check if caller meant a file path that doesn't exist
-            if isinstance(source, str) and "/" in source or (isinstance(source, str) and "\\" in source):
-                # Looks like a path that doesn't exist
-                raise FileNotFoundError(f"No such file: {source}")
+            # Raw-text mode: source is a literal string body.
+            if not raw_text:
+                # Legacy content-sniffing guard (UNCHANGED): a path-like string
+                # that does not exist is treated as a missing file.
+                if isinstance(source, Path):
+                    raise FileNotFoundError(f"No such file: {source}")
+                if isinstance(source, str) and "/" in source or (isinstance(source, str) and "\\" in source):
+                    raise FileNotFoundError(f"No such file: {source}")
 
             title = kwargs.get("title")
             if not title:

@@ -209,19 +209,16 @@ class ScanWorker:
 
                 if self._post_scan_extractor is not None:
                     slug = self._read_wallet_from_dossier(run_root) or wallet
-                    # Non-fatal by contract; the extractor itself swallows its
-                    # own errors, but guard here too so ingestion failure does
-                    # not flip a successful scan into a queue failure.
-                    try:
-                        self._post_scan_extractor(run_root, str(slug), wallet)
-                    except Exception as exc:  # pragma: no cover - defensive
-                        logger.warning(
-                            "scan-worker: non-fatal dossier extract error for %s: %s",
-                            wallet,
-                            exc,
-                        )
+                    # DEFECT 2 (2026-06-01): dossier ingest failure is FATAL to
+                    # this item. Do NOT swallow it — let it propagate to the
+                    # failure path below so the item is marked failed (requeued
+                    # within attempt limits) and the watchlist is NOT advanced to
+                    # 'scanned'. The extractor raises on zero-persisted or any
+                    # ingest error (never reports success on an empty ingest).
+                    self._post_scan_extractor(run_root, str(slug), wallet)
 
-                # Advance watchlist lifecycle to 'scanned' (WI-1 check #2).
+                # Advance watchlist lifecycle to 'scanned' (WI-1 check #2) —
+                # only reached after a successful dossier ingest above.
                 if self._watchlist_advancer is not None:
                     try:
                         self._watchlist_advancer(wallet, run_root)
@@ -236,8 +233,14 @@ class ScanWorker:
                 result.completed += 1
                 result.processed_keys.append(leased.dedup_key)
             except Exception as exc:
+                # LOUD by design (DEFECT 2): scan OR ingest failure fails the
+                # item. The watchlist is not advanced and the row is not
+                # completed; expired-lease requeue / max-attempts ceiling handle
+                # retry.
                 err = f"{type(exc).__name__}: {exc}"
-                logger.warning("scan-worker: scan failed for %s: %s", wallet, err)
+                logger.error(
+                    "scan-worker: item failed for %s: %s", wallet, err, exc_info=True
+                )
                 self._queue.fail(leased.dedup_key, err)
                 result.failed += 1
 

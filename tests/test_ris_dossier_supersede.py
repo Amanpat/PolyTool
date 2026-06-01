@@ -205,6 +205,44 @@ def _all_dossier_docs(store: KnowledgeStore) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Slash-in-body regression (2026-06-01 live-validation finding)
+# ---------------------------------------------------------------------------
+
+
+class TestSlashBodyIngestRegression:
+    """A dossier whose body contains '/' must ingest ALL findings.
+
+    Live validation found that PlainTextExtractor's '/'->file-path heuristic
+    raised FileNotFoundError on dossier memo bodies (which contain '/'), and
+    WI-2's per-wallet transaction then rolled back the WHOLE wallet (zero
+    persisted) while the worker silently reported success. Fixed via an explicit
+    raw_text=True bypass on the dossier ingest's pipeline.ingest call.
+    """
+
+    def test_memo_with_slash_ingests_all_three_findings(self, tmp_path):
+        store = KnowledgeStore(":memory:")
+        # '/' lands in BOTH the memo body and the detector body (trend field).
+        run = _make_run(
+            tmp_path,
+            wallet="0xslash",
+            run_id="r1",
+            generated_at="2026-04-01T00:00:00Z",
+            memo_tag="DCA/ladder/arb",
+        )
+        findings = extract_dossier_findings(run)
+        assert len(findings) == 3
+        # The exact bug trigger must be present, else the test proves nothing.
+        assert any("/" in f["body"] for f in findings)
+
+        results = ingest_dossier_findings(findings, store, post_extract_claims=True)
+        assert all(not r.rejected for r in results), [
+            r.reject_reason for r in results
+        ]
+        assert len(_active_dossier_docs(store)) == 3
+        store.close()
+
+
+# ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
 

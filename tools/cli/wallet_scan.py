@@ -91,13 +91,31 @@ def _make_dossier_extractor(store_path: str = DEFAULT_DOSSIER_DB) -> PostScanExt
 
     def _extract_and_ingest(scan_run_root: Path, slug: str, wallet: str) -> None:
         findings = extract_dossier_findings(scan_run_root)
-        if findings:
-            ingest_dossier_findings(findings, store, post_extract_claims=True)
-            print(
-                f"[dossier-extract] {slug}: {len(findings)} finding(s) ingested "
-                f"+ claims extracted into {store_path}",
-                file=sys.stderr,
+        if not findings:
+            return
+        results = ingest_dossier_findings(findings, store, post_extract_claims=True)
+        persisted = [
+            r
+            for r in (results or [])
+            if r is not None
+            and not getattr(r, "rejected", False)
+            and getattr(r, "doc_id", "")
+        ]
+        if not persisted:
+            # DEFECT 2 (2026-06-01): never report success on zero-persisted
+            # ingest. An all-rejected/rolled-back result (e.g. the extractor
+            # threw inside the per-wallet transaction) must surface as a failure
+            # so the worker marks the queue item failed and does NOT advance the
+            # watchlist to 'scanned'.
+            raise RuntimeError(
+                f"dossier ingest persisted 0 of {len(findings)} finding(s) for "
+                f"{slug} ({wallet}) — all findings rejected/rolled back"
             )
+        print(
+            f"[dossier-extract] {slug}: {len(persisted)}/{len(findings)} finding(s) "
+            f"ingested + claims extracted into {store_path}",
+            file=sys.stderr,
+        )
 
     return _extract_and_ingest
 

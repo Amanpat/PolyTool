@@ -113,20 +113,38 @@ class TestScanWorkerFailure:
         assert item.attempt_count == 1
         assert "scan blew up" in (item.last_error or "")
 
-    def test_ingest_failure_does_not_fail_the_queue_row(self):
-        """A non-fatal dossier/ingest error must not flip a good scan to failed."""
+    def test_ingest_failure_fails_item_and_skips_watchlist_advance(self):
+        """DEFECT 2 (2026-06-01): ingest failure is FATAL to the item.
+
+        A dossier/ingest exception (incl. the extractor raising on
+        zero-persisted) must mark the queue row FAILED, must NOT complete it,
+        and must NOT advance the watchlist to 'scanned'. Reverses the prior
+        'non-fatal ingest' contract that once let the worker report success on a
+        zero-persisted ingest.
+        """
         mgr = _manager_with("0xAAA")
         scan, _ = _record_scan()
+        advanced: list[str] = []
 
         def bad_extractor(run_root: Path, slug: str, wallet: str) -> None:
-            raise ValueError("ingest exploded")
+            raise RuntimeError("dossier ingest persisted 0 of 3 finding(s)")
 
-        worker = ScanWorker(mgr, scan_callable=scan, post_scan_extractor=bad_extractor)
+        worker = ScanWorker(
+            mgr,
+            scan_callable=scan,
+            post_scan_extractor=bad_extractor,
+            watchlist_advancer=lambda wallet, run_root: advanced.append(wallet),
+        )
         result = worker.run(max_items=1)
 
-        assert result.completed == 1
-        assert result.failed == 0
-        assert mgr._items["loop_a:0xAAA"].queue_state == QueueState.done
+        assert result.completed == 0
+        assert result.failed == 1
+        item = mgr._items["loop_a:0xAAA"]
+        assert item.queue_state == QueueState.failed
+        assert item.attempt_count == 1
+        assert "persisted 0" in (item.last_error or "")
+        # Watchlist must NOT be advanced when ingest failed.
+        assert advanced == []
 
 
 # ---------------------------------------------------------------------------

@@ -26,11 +26,14 @@ Dossier directory layout:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from packages.research.ingestion.adapters import DossierAdapter
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from packages.polymarket.rag.knowledge_store import KnowledgeStore
@@ -566,6 +569,7 @@ def ingest_dossier_findings(
                         source_url=doc.source_url,
                         content_hash=doc.metadata.get("content_hash"),
                         post_ingest_extract=False,  # handled below after metadata patch
+                        raw_text=True,  # body is literal text; bypass the "/"->path heuristic
                     )
                     result_by_id[id(finding)] = result
 
@@ -611,12 +615,23 @@ def ingest_dossier_findings(
                     wallet=wallet_norm,
                     keep_doc_ids=new_doc_ids,
                 )
-        except Exception:
+        except Exception as exc:
             # Mid-ingest failure rolled back the whole wallet block: the OLD
             # active set is intact, and supersede did NOT fire.  Every write in
             # this wallet's transaction was rolled back, so ALL of its findings
             # are reported rejected (overwriting any provisional success result
             # recorded before the rollback).
+            # LOUD by design (DEFECT 2 fix): a swallowed rollback once let the
+            # worker report success on zero-persisted ingest. Callers MUST treat
+            # an all-rejected result as a failure.
+            logger.error(
+                "dossier ingest transaction rolled back for wallet %s "
+                "(%d finding(s) lost): %s",
+                wallet_norm,
+                len(wallet_findings),
+                exc,
+                exc_info=True,
+            )
             for finding in wallet_findings:
                 result_by_id[id(finding)] = IngestResult(
                     doc_id="",
