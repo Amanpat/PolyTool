@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: — Core RAG Pipeline
 current_phase: 5 (Reranking)
 status: executing
-last_updated: "2026-04-15T23:58:08.320Z"
-last_activity: "2026-04-15 - Completed quick task 260415-rdy: Loop D feasibility assessment — READY_WITH_CONSTRAINTS verdict; probe helpers + 24 tests; dev log at docs/dev_logs/2026-04-15_wallet_discovery_loop_d_pof.md"
+last_updated: "2026-05-28T18:01:38.767Z"
+last_activity: "2026-04-22 - Completed quick task 260422-ll0: Finish PMXT Deliverable C; retriever over-fetch fix; 2/5 body-claim retrieval threshold met; Deliverable C COMPLETE"
 progress:
   total_phases: 5
   completed_phases: 0

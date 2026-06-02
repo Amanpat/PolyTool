@@ -13,9 +13,11 @@ from tools.cli.wallet_scan import (
     _build_leaderboard,
     _build_leaderboard_md,
     _detect_identifier_type,
+    _extract_user_metrics,
     _make_dossier_extractor,
     _sort_key_for_leaderboard,
     _read_wallet_from_dossier,
+    _win_rate_from_outcome_counts,
     parse_input_file,
 )
 
@@ -39,10 +41,19 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _make_coverage_report(*, pnl_net: float, gross_pnl: float, positions_total: int) -> dict:
+    # Mirrors the REAL persisted schema from
+    # polytool/reports/coverage.py build_coverage_report: positions_total is
+    # nested under "totals" and percentages under "outcome_percentages". (An
+    # earlier top-level fixture masked a reader bug; keep this faithful.)
     return {
-        "positions_total": positions_total,
+        "totals": {"positions_total": positions_total},
         "outcome_counts": {"WIN": 2, "LOSS": 1, "PENDING": 1},
-        "outcome_pcts": {"WIN": 0.5, "LOSS": 0.25, "PENDING": 0.25, "UNKNOWN_RESOLUTION": 0.0},
+        "outcome_percentages": {
+            "WIN": 0.5,
+            "LOSS": 0.25,
+            "PENDING": 0.25,
+            "UNKNOWN_RESOLUTION": 0.0,
+        },
         "pnl": {
             "realized_pnl_net_estimated_fees_total": pnl_net,
             "gross_pnl_total": gross_pnl,
@@ -70,6 +81,86 @@ def _make_scan_run_root(
         ),
     )
     return run_root
+
+
+# ---------------------------------------------------------------------------
+# _extract_user_metrics — field sourcing against the REAL persisted schema
+# ---------------------------------------------------------------------------
+
+
+class TestExtractUserMetrics:
+    def test_positions_total_read_from_nested_totals(self, tmp_path: Path) -> None:
+        # Regression: positions_total lives under report["totals"], not top level.
+        run_root = _make_scan_run_root(
+            tmp_path, "run_x", pnl_net=124000.0, positions_total=180
+        )
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["positions_total"] == 180  # NOT 0
+
+    def test_win_rate_extracted_from_outcome_counts(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path, "run_w", positions_total=4)
+        metrics = _extract_user_metrics(run_root)
+        # outcome_counts WIN=2, LOSS=1 -> 2/(2+1) = 0.6667 (PENDING excluded)
+        assert metrics["win_rate"] == pytest.approx(2 / 3, abs=1e-4)
+
+    def test_pnl_and_clv_still_read_correctly(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(
+            tmp_path, "run_p", pnl_net=124000.0, gross_pnl=130000.0, positions_total=180
+        )
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["realized_net_pnl"] == pytest.approx(124000.0)
+        assert metrics["clv_coverage_rate"] == pytest.approx(0.75)
+
+    def test_internal_consistency_nonzero_pnl_has_nonzero_trades(
+        self, tmp_path: Path
+    ) -> None:
+        # The reported bug: +$124k PnL with "0 trades" must never happen.
+        run_root = _make_scan_run_root(
+            tmp_path, "run_c", pnl_net=124000.0, positions_total=180
+        )
+        metrics = _extract_user_metrics(run_root)
+        if metrics.get("realized_net_pnl"):
+            assert metrics["positions_total"], "non-zero PnL implies non-zero trades"
+
+    def test_missing_positions_total_is_none_not_zero(self, tmp_path: Path) -> None:
+        # No count anywhere in the report -> None, so the summary omits trades
+        # rather than fabricate a misleading 0.
+        run_root = tmp_path / "run_missing"
+        run_root.mkdir(parents=True, exist_ok=True)
+        _write_json(
+            run_root / "coverage_reconciliation_report.json",
+            {
+                "pnl": {"realized_pnl_net_estimated_fees_total": 5.0},
+                "clv_coverage": {"coverage_rate": 0.4},
+                "outcome_counts": {},
+            },
+        )
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["positions_total"] is None  # NOT 0
+
+    def test_legacy_top_level_positions_total_fallback(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run_legacy"
+        run_root.mkdir(parents=True, exist_ok=True)
+        _write_json(
+            run_root / "coverage_reconciliation_report.json",
+            {"positions_total": 42, "outcome_counts": {}},
+        )
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["positions_total"] == 42
+
+
+class TestWinRateFromOutcomeCounts:
+    def test_canonical_formula_excludes_pending(self) -> None:
+        wr = _win_rate_from_outcome_counts(
+            {"WIN": 6, "PROFIT_EXIT": 2, "LOSS": 1, "LOSS_EXIT": 1, "PENDING": 99}
+        )
+        assert wr == pytest.approx((6 + 2) / (6 + 2 + 1 + 1))
+
+    def test_no_resolved_outcomes_returns_none_not_zero(self) -> None:
+        assert _win_rate_from_outcome_counts({"PENDING": 5, "UNKNOWN_RESOLUTION": 3}) is None
+
+    def test_empty_returns_none(self) -> None:
+        assert _win_rate_from_outcome_counts({}) is None
 
 
 # ---------------------------------------------------------------------------

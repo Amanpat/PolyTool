@@ -308,6 +308,76 @@ python -m polytool research-precheck run --idea "description of planned work" --
 # GO = proceed, CAUTION = note concerns, STOP = do not proceed without operator discussion
 ```
 
+### Academic RIS: research paper ingestion and querying
+
+The Academic RIS pipeline ingests arXiv papers, parses PDFs with Marker (GPU), indexes
+extracted text into the KnowledgeStore, embeds chunks into ChromaDB, and returns ranked
+semantic citations when queried.
+
+**Status: developer/operator demo-ready v1. NOT production-ready.**
+See [`docs/features/FEATURE-ris-academic-demo-ready-v1.md`](docs/features/FEATURE-ris-academic-demo-ready-v1.md)
+for the full evidence chain and explicit caveats.
+
+#### Prerequisites
+
+- Install with `pip install -e ".[all]"` (includes `rag` extras — ChromaDB, sentence-transformers).
+- Docker with GPU support for Marker parsing (`--profile ris-gpu`). PDF prefetch runs on the Windows host before starting Docker.
+- `kb/` and `artifacts/research/` directories created by the bootstrap script.
+
+#### Happy-path commands
+
+```bash
+# 1. Enqueue one or more papers (Windows host)
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/scaled_validation_queue_v2 \
+  enqueue --url arxiv:XXXX.XXXXX
+
+# 2. Prefetch PDFs to local disk before GPU parse (Windows host — safe to retry)
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/scaled_validation_queue_v2 \
+  prefetch
+
+# 3. Check queue state
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/scaled_validation_queue_v2 \
+  status-report
+
+# 4. Parse PDFs in Docker GPU container (see runbook for docker compose command)
+#    Full command in: docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md
+
+# 5. Index into KnowledgeStore (run inside Docker container after warm-process)
+#    research-marker-queue index-done
+
+# 6. Embed into Chroma (Windows host — Docker image lacks chromadb)
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/scaled_validation_queue_v2 \
+  index-done --reindex-chroma --force
+
+# 7. Verify Chroma links
+python -m polytool research-marker-queue check-chroma-links --json
+
+# 8. Query the corpus
+python -m polytool research-query --question "market microstructure limit order book"
+```
+
+#### Success checks
+
+- Queue items show `marker_ready=True` in `status-report`.
+- Body sidecar files exist under `artifacts/research/scaled_validation_queue_v2/bodies/`.
+- `check-chroma-links --json` shows `missing_ks_doc_id: 0` and `ks_doc_id_not_in_ks: 0`.
+- `research-query` response shows `retrieval_mode: semantic` (or `lexical` for fallback).
+
+#### Known caveats
+
+- **Not production-ready.** Each batch requires operator supervision and manual Chroma embedding on the Windows host.
+- **Chroma embedding requires Windows host.** The `ris-scheduler-gpu` Docker image lacks `chromadb`; run `index-done --reindex-chroma --force` on the host, not inside the container. `--force` refreshes Chroma for queue items already recorded by the Docker-side `index-done` step.
+- **Lexical false positive.** A query like `weather forecast` may return a citation from a prediction-market paper that mentions weather forecasting as a control category. The semantic guard is working; the false positive is in the lexical fallback path over legitimately relevant text. Post-v1 hardening item.
+- **JIT cache persistence unconfirmed.** In-session JIT reuse works, but cross-restart cache persistence is not confirmed. Run `research-marker-queue jit-cache-check` before large batches.
+- **Batch C/D deferred.** 9 large papers remain (including two timeout/rate-limit cases). Do not run without JIT cache verification and Tier-3 operator approval.
+
+Full runbook (Docker commands, recovery steps, queue states):
+[`docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`](docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md)
+
 ### Crypto pair bot (standalone -- does not require gates to pass)
 
 ```bash

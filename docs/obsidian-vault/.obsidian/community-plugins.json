@@ -3,8 +3,9 @@
   "calendar",
   "obsidian-kanban",
   "obsidian-local-rest-api",
-  "smart-connections",
-  "smart-connections-visualizer",
   "templater-obsidian",
-  "obsidian-tasks-plugin"
+  "obsidian-tasks-plugin",
+  "obsidian-linter",
+  "metaedit",
+  "realclaudian"
 ]

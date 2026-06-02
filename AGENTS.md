@@ -257,6 +257,20 @@ Stop and ask the operator if:
 
 Escalation format: state the conflict, quote the relevant rule, propose the cheapest way to resolve (usually a context-fetch or a question to the operator).
 
+## Vault Operations
+
+The project maintains an Obsidian vault at `docs/obsidian-vault/`. Full operating rules for reading and writing the vault are in:
+
+- `docs/obsidian-vault/CLAUDE.md` — rules for Claude agents (zone discipline, tier hierarchy, write sequence, frontmatter schema)
+- `docs/obsidian-vault/AGENTS.md` — agent-agnostic version of the same rules
+
+**Key points for all agents:**
+
+- Zone B (`claude-memory/`) is freely writable. Zone A (`repo-docs/`) is read-only from the vault — edit in repo instead. Zone C (`ris-mirror/`) is read-only — written only by the RIS sync service.
+- Vault-root files (`index.md`, `log.md`, `CLAUDE.md`, `AGENTS.md`, `README.md`) may be linked by short name from any zone: `[[index]]`, `[[log]]`, `[[CLAUDE]]`, `[[AGENTS]]`, `[[README]]`.
+- Every vault write must append an entry to `docs/obsidian-vault/log.md`.
+- Never delete vault documents — archive instead (set `status: archived`, move to `claude-memory/archive/`).
+
 ## Default Session Output
 
 A good Codex session in PolyTool leaves behind:

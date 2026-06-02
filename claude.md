@@ -130,6 +130,12 @@ CLI entrypoint falling back to a wrong default.
 - PnL computation with the repo’s current fee model.
 - Resolution enrichment and CLV capture.
 - `wallet-scan`, `alpha-distill`, hypothesis registry, local RAG, and LLM bundle tooling.
+- **Wallet-ingestion pipeline (WI-1, 2026-05-31):** `discovery run-worker` drains `scan_queue`
+  (lease → scan → dossier → RIS ingest → watchlist `scanned` → complete), separate from
+  `discovery run-loop-a`. Worker in `packages/polymarket/discovery/scan_worker.py`; assumes a
+  SINGLE worker (ClickHouse leases are not atomic CAS — multi-worker cadence is WP-3). maker/taker
+  is NOT available from the Data API (`/trades` carries `side` only); deferred to the raw-Jon-parquet
+  / DuckDB path — do not add on-chain log fetching to recover it.
 
 ### SimTrader stack
 
@@ -565,3 +571,17 @@ Rules:
 - If 5+ mandatory files changed, batch: /codex:adversarial-review --base main --background
 - Do NOT use /codex:rescue unless the work packet explicitly delegates a task to Codex.
 - Include a one-line Codex review summary in the dev log (tier, issues found, issues addressed).
+
+## Vault Operations
+
+The project maintains an Obsidian vault at `docs/obsidian-vault/`. Full operating rules for reading and writing the vault are in:
+
+- `docs/obsidian-vault/CLAUDE.md` — rules for Claude agents (zone discipline, tier hierarchy, write sequence, frontmatter schema)
+- `docs/obsidian-vault/AGENTS.md` — agent-agnostic version of the same rules
+
+**Key points for Claude Code:**
+
+- Zone B (`claude-memory/`) is freely writable. Zone A (`repo-docs/`) is read-only from the vault — edit in repo instead. Zone C (`ris-mirror/`) is read-only — written only by the RIS sync service.
+- Vault-root files (`index.md`, `log.md`, `CLAUDE.md`, `AGENTS.md`, `README.md`) may be linked by short name from any zone: `[[index]]`, `[[log]]`, `[[CLAUDE]]`, `[[AGENTS]]`, `[[README]]`.
+- Every vault write must append an entry to `docs/obsidian-vault/log.md`.
+- Never delete vault documents — archive instead (set `status: archived`, move to `claude-memory/archive/`).

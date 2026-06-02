@@ -1048,7 +1048,7 @@ class TestSemanticRetrievalAcceptanceGaps:
             ],
         }])
         new_quant_id = _get_ks_doc_id(ks, "The New Quant")
-        # Inject a fake collection that returns a low-similarity hit (0.10 < 0.30 threshold)
+        # Score 0.10 is well below min_similarity (0.18) — rejected at the chunk level
         fake_coll = _FakeChromaCollForAcademic({
             "weather forecast": [(new_quant_id, 0.10)],
         })
@@ -1058,6 +1058,100 @@ class TestSemanticRetrievalAcceptanceGaps:
             "the min_similarity threshold and fall through to lexical/no-result"
         )
         assert result.citations == []
+
+    def test_out_of_domain_single_borderline_hit_rejected_by_confidence_guard(self):
+        """Single barely-above-threshold hit (protein-folding style) must be rejected.
+
+        Score 0.182 clears min_similarity (0.18) but falls below confident_threshold
+        (0.19). The nearest-neighbor rejection guard fires: len(hits)==1 and
+        score < confident_threshold → return [], falling through to had_fallback=True.
+
+        Reproduces the Codex BLOCK (2026-05-28): 'protein folding molecular dynamics'
+        returned arxiv:1705.01446 at score 0.18156, just above the legacy 0.18 threshold.
+        """
+        ks = _make_ks(academic_docs=[{
+            "title": "Finance Stochastic Control Paper",
+            "metadata_json": _marker_metadata("1705.01446", "marker"),
+            "claims": ["Stochastic control and Hamilton-Jacobi-Bellman equations in finance."],
+        }])
+        paper_id = _get_ks_doc_id(ks, "Finance Stochastic Control Paper")
+        # Score 0.182 simulates the protein-folding nearest-neighbor case
+        fake_coll = _FakeChromaCollForAcademic({
+            "protein folding molecular dynamics": [(paper_id, 0.182)],
+        })
+        result = self._call(
+            "protein folding molecular dynamics", ks,
+            _chroma_collection=fake_coll, _embed_fn=lambda q: None,
+        )
+        assert result.had_fallback is True, (
+            "Single hit at 0.182 (below confident_threshold=0.19) must be rejected "
+            "by the nearest-neighbor guard even though it clears min_similarity=0.18"
+        )
+        assert result.citations == []
+
+    def test_relevant_single_hit_at_hallucination_score_passes(self):
+        """A single hit at score 0.197 (hallucination AT-3 calibration) must still pass.
+
+        Score 0.197 > confident_threshold (0.19): single-hit confidence guard allows it.
+        Documents the calibration boundary: protein folding (0.182) rejects;
+        hallucination (0.197) accepts. Raising confident_threshold above 0.197
+        would break AT-3 (the hallucination acceptance test).
+        """
+        ks = _make_ks(academic_docs=[{
+            "title": "The New Quant",
+            "metadata_json": _marker_metadata("2510.05533", "marker"),
+            "claims": ["Hallucination is a key limitation for LLM-based trading systems."],
+        }])
+        new_quant_id = _get_ks_doc_id(ks, "The New Quant")
+        # Score 0.197 — the live hallucination query score from the L2.1 repair run
+        fake_coll = _FakeChromaCollForAcademic({
+            "what does this paper say about hallucination": [(new_quant_id, 0.197)],
+        })
+        result = self._call(
+            "what does this paper say about hallucination", ks,
+            _chroma_collection=fake_coll, _embed_fn=lambda q: None,
+        )
+        assert result.had_fallback is False, (
+            "Score 0.197 >= confident_threshold=0.19: hallucination query must still accept"
+        )
+        assert len(result.citations) == 1
+        assert result.citations[0].title == "The New Quant"
+
+    def test_multiple_hits_above_min_threshold_bypass_confidence_guard(self):
+        """Two papers above min_similarity bypass the single-hit guard.
+
+        When ≥2 distinct papers pass min_similarity, the query is not a lone
+        nearest-neighbor artifact. Both papers must be returned even if neither
+        individually exceeds confident_threshold.
+        """
+        ks = _make_ks(academic_docs=[
+            {
+                "title": "LLM Finance Paper",
+                "metadata_json": _marker_metadata("2510.05533", "marker"),
+                "claims": ["Large language models for financial prediction."],
+            },
+            {
+                "title": "Prediction Market Paper",
+                "metadata_json": _marker_metadata("2507.01990", "marker"),
+                "claims": ["Prediction market microstructure and liquidity."],
+            },
+        ])
+        llm_id = _get_ks_doc_id(ks, "LLM Finance Paper")
+        pm_id = _get_ks_doc_id(ks, "Prediction Market Paper")
+        # Both papers score between min_similarity (0.18) and confident_threshold (0.19)
+        # — the single-hit guard must NOT fire when len(hits) >= 2
+        fake_coll = _FakeChromaCollForAcademic({
+            "llm prediction markets": [(llm_id, 0.185), (pm_id, 0.184)],
+        })
+        result = self._call(
+            "llm prediction markets", ks,
+            _chroma_collection=fake_coll, _embed_fn=lambda q: None,
+        )
+        assert result.had_fallback is False, (
+            "Multiple papers above min_similarity must be accepted without the "
+            "single-hit confidence guard firing"
+        )
+        assert len(result.citations) == 2
 
     def test_result_exposes_retrieval_mode_metadata(self):
         """Operators need to distinguish lexical, semantic, and fallback results."""

@@ -15,8 +15,32 @@
   "enable_folder_templates": true,
   "folder_templates": [
     {
-      "folder": "",
-      "template": ""
+      "folder": "claude-memory/decisions",
+      "template": "Templates/decisions-template"
+    },
+    {
+      "folder": "claude-memory/research",
+      "template": "Templates/research-template"
+    },
+    {
+      "folder": "claude-memory/session-notes",
+      "template": "Templates/session-notes-template"
+    },
+    {
+      "folder": "claude-memory/prompts",
+      "template": "Templates/prompts-template"
+    },
+    {
+      "folder": "claude-memory/ideas",
+      "template": "Templates/ideas-template"
+    },
+    {
+      "folder": "claude-memory/work-packets",
+      "template": "Templates/work-packets-template"
+    },
+    {
+      "folder": "claude-memory/spec",
+      "template": "Templates/spec-template"
     }
   ],
   "enable_file_templates": false,

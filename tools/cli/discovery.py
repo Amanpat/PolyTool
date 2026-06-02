@@ -138,6 +138,12 @@ def main(argv: list[str]) -> int:
         help="Do not advance the watchlist lifecycle to 'scanned' on success.",
     )
     worker_parser.add_argument(
+        "--no-notify",
+        action="store_true",
+        help="Skip the post-drain Discord notification pass for newly-pending "
+        "candidates (notifications are deduped and non-fatal by default).",
+    )
+    worker_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Load queue from ClickHouse and report pending items without scanning or writing.",
@@ -459,6 +465,33 @@ def _run_worker(args: argparse.Namespace) -> int:
     print(f"  dropped     : {result.dropped}")
     print(f"  skipped     : {result.skipped}")
     print(f"  flushed_ch  : {flushed}")
+
+    # Notify newly-pending candidates via the outbound Discord webhook (Part B).
+    # Deduped via the WI-5 approvals_notified.json state file; each post carries
+    # real (display-time) evidence + the approve/deny CLI commands. The whole
+    # pass is non-fatal: a webhook (or read) failure NEVER fails the worker.
+    if not args.no_notify:
+        try:
+            from packages.polymarket.discovery.clickhouse_writer import (
+                read_pending_candidates,
+            )
+            from packages.polymarket.discovery.pending_notify import (
+                notify_pending_candidates,
+            )
+
+            pending_rows = read_pending_candidates(**ch_kwargs)
+            notify_summary = notify_pending_candidates(pending_rows)
+            print(
+                f"  notified    : {notify_summary['posted']} "
+                f"(deduped {notify_summary['deduped']}, "
+                f"failed {notify_summary['failed']})"
+            )
+        except Exception as exc:  # non-fatal: notifications never block the pipeline
+            print(
+                f"  notified    : skipped (non-fatal {type(exc).__name__}: {exc})",
+                file=sys.stderr,
+            )
+
     print("")
     return 0
 
@@ -514,6 +547,9 @@ def _run_review(args: argparse.Namespace) -> int:
             from packages.polymarket.discovery.clickhouse_writer import (
                 read_pending_candidates,
             )
+            from packages.polymarket.discovery.pending_notify import (
+                compute_row_evidence,
+            )
         except ImportError as exc:
             print(f"Error: could not import discovery read deps: {exc}", file=sys.stderr)
             return 1
@@ -532,7 +568,10 @@ def _run_review(args: argparse.Namespace) -> int:
             wallet = str(row.get("wallet_address", "") or "")
             if args.unnotified_only and wallet.lower() in notified:
                 continue
-            reason = str(row.get("reason", "") or "")
+            # Compute the evidence summary from the wallet's scan data AT DISPLAY
+            # TIME (Part A) so a worker-advanced row showing the generic reason
+            # still surfaces real evidence; falls back to the stored reason.
+            reason = compute_row_evidence(row)
             items.append(
                 {
                     "wallet_address": wallet,

@@ -347,6 +347,7 @@ def _query_chroma_semantic(
     question: str,
     n_results: int = 20,
     min_similarity: float = 0.18,
+    confident_threshold: float = 0.19,
     _embed_fn=None,
 ) -> list[tuple[str, float, str]]:
     """Query ChromaDB for the question. Returns (ks_doc_id, similarity, chunk_text).
@@ -355,6 +356,14 @@ def _query_chroma_semantic(
     Hits below min_similarity are discarded so unrelated nearest-neighbor results
     do not satisfy queries that have no relevant paper in the corpus.
     Returns [] on any Chroma error so the caller falls through to lexical.
+
+    Nearest-neighbor rejection guard: a single paper that barely clears
+    min_similarity is likely the "best available" corpus match for an out-of-domain
+    query, not a genuine semantic hit. The guard requires EITHER:
+      (a) ≥2 distinct papers above min_similarity (collective corpus evidence), OR
+      (b) the single top paper exceeds confident_threshold (clear individual match).
+    Calibrated against: protein folding (0.18156, must reject) and hallucination
+    (0.197, must accept). confident_threshold must not exceed 0.197 or AT-3 breaks.
 
     Model loading uses local_files_only=True to fail immediately when the BGE
     model is not locally cached — avoiding HuggingFace network retries and the
@@ -415,6 +424,13 @@ def _query_chroma_semantic(
         if similarity < min_similarity:
             continue  # below relevance threshold — unrelated nearest-neighbor hit
         hits.append((str(ks_doc_id), similarity, doc_text or ""))
+
+    # Nearest-neighbor rejection guard (see docstring).
+    # A single barely-above-threshold hit is a "best available" artifact.
+    # Guard fires only when confident_threshold > min_similarity (allows disabling
+    # by caller if needed) and exactly one paper passed min_similarity.
+    if confident_threshold > min_similarity and len(hits) == 1 and hits[0][1] < confident_threshold:
+        return []
 
     return hits
 

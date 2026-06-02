@@ -39,6 +39,13 @@ L2 Query (research-query --question "...")
   └─ multi-angle KS query over Marker-ready academic corpus
 ```
 
+### Which path to follow
+
+> **First run or 1–3 papers** → skip to [Operator Path (end-to-end)](#operator-path-end-to-end) below.
+> **Batches of 5+ papers** → use the [Prefetch then Parse](#prefetch-then-parse-wp-1-workflow) section immediately after this Quick Start.
+
+---
+
 ### Quick start (full pipeline — WP-1 prefetch path)
 
 > **Recommended path for batches of 5+ papers.** The `prefetch` command (Step 3b)
@@ -498,45 +505,61 @@ If any check fails, consult the Troubleshooting section above before running a f
 
 ---
 
-### Corpus Status (as of 2026-05-18)
+### Corpus Status (as of 2026-05-28 — post-reset, pre-Batch-A)
 
-**The 29-paper scaled validation corpus is paused. Do not run the full batch yet.**
+**QUEUE RESET COMPLETE. Staged cached validation is ready to begin at Batch A.**
+
+> **History note:** The pre-reset state (failed=5, processing=1, pending=18) is documented
+> in `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`. The queue was reset
+> on 2026-05-28 after WP-1 prefetch separation validated (2026-05-22) and Tier-3 paper
+> handling was established. Do not use the pre-reset counts for planning.
 
 Current state of `artifacts/research/scaled_validation_queue_v2`:
 
 | Status | Count | Notes |
 |--------|-------|-------|
-| done | 5 | All equation-heavy arXiv papers; `marker_ready=True` for all |
-| failed | 5 | Fetch failures (HTTP 429 / timeout) during Batch 2 — root cause: arXiv rate limiting |
-| processing | 1 | arxiv:1011.6402 — stuck after session kill; needs `--force` reset before rerun |
-| pending | 18 | Table-heavy, prose/survey, outlier papers — never reached |
+| done | 5 | All indexed in KS (227 chunks, 1106 claims) and embedded in Chroma |
+| failed | 0 | — |
+| processing | 0 | — |
+| pending | 24 | All PDFs prefetched and cached (24/24) |
 
-**Why paused:** The rate-limit root cause (papers failing fetch during GPU parse) was fixed
-by WP-1 prefetch separation (shipped 2026-05-22, E2E validated). However the full 29-paper
-rerun is NOT yet unblocked. Remaining blockers per WP-2 review (2026-05-23):
+**Remaining open items before full 29-paper run:**
 
-1. **JIT cache persistence unknown.** TORCHINDUCTOR_CACHE_DIR confirmed empty after batch
-   runs. TRITON_CACHE_DIR (the suspected Surya/Triton kernel cache) not yet tested. Until
-   persistence is confirmed, each Docker restart may pay 27–50 min cold-start per format
-   group — making the full batch runtime unpredictable. Run `jit-cache-check` diagnostic
-   before proceeding.
+1. **JIT cache persistence: UNPROVEN.** `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR`
+   both unset in container; persistence not tested across Docker restarts. Each restart may
+   pay 27–50 min cold-start per format group. Run `jit-cache-check` inside Docker and
+   follow the manual before/after diagnostic before scheduling large batches.
 
-2. **Three timeout-risk papers need Tier-3 handling.** `arxiv:1011.6402` timed out at
-   3600s (confirmed). `arxiv:2307.14129` took 2947s. `arxiv:2409.02025` failed with HTTP
-   429 / fetch errors across multiple runs. These must be re-enqueued with `--tier 3` and
-   require explicit operator approval before inclusion in a batch.
+2. **Tier-3 papers require operator approval before Batch D.**
+   - `arxiv:1011.6402`: confirmed timeout at 3600s; `ingest_tier=3`. Do not include in
+     Batch A/B/C.
+   - `arxiv:2409.02025`: persistent HTTP 429 / fetch failures; `ingest_tier=3`. Do not
+     include in Batch A/B/C.
+   - `arxiv:2508.03474` (9.7 MB): `tier3_flag=true` by size; requires 14400s timeout.
+     Include in Batch C as the first large-paper probe.
 
-3. **Use `--auto-timeout` for the full batch.** Run `prefetch` first so file sizes are in
-   the manifest, then pass `--auto-timeout` to `warm-process`.
+3. **indexed.jsonl has duplicate entries.** `status-report` reports `indexed_count=19`
+   (inflated by multiple `--force` reindex runs) while unique indexed papers remain 5.
+   The code deduplicates by `candidate_id` when reading `indexed.jsonl`, so this is
+   harmless audit noise. Do not use raw `indexed_count` as the unique-paper count.
 
-See `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md` for pre-WP-1 analysis
-and `docs/dev_logs/2026-05-23_academic-processing-speed-diagnosis.md` for the WP-2
-blockers.
+**Run plan — 4 batches:**
+
+| Batch | Papers | `--marker-timeout` | Notes |
+|-------|--------|--------------------|-------|
+| A (5) | 2507.01990, 2510.05533, 2605.00864, 2507.08921, 2601.18815 | 3600s | Small PDFs (≤600KB); run first |
+| B (10) | 1206.4810, 2003.05958, 2203.13053, 1810.04383, 1609.03471, 2605.11640, 2605.02286, 2605.00493, 2208.13564, 2605.10400 | 7200s | Medium PDFs |
+| C (7) | 2508.03474, 2308.04947, 2403.09267, 2212.12717, 2602.21091, 2604.20050, 2604.10005 | 14400s | Large PDFs; run 2508.03474 first as probe |
+| D (2) | 1011.6402, 2409.02025 | 7200s+ | **Operator approval required before running** |
+
+Stop condition for A/B: if >1 paper fails with `marker_timeout`, stop and diagnose.
+Full batch plan with stop conditions: `docs/dev_logs/2026-05-28_academic-scaled-validation-queue-reset-readiness.md`.
 
 **Do not:**
-- Run `warm-process` on the 29-paper queue without prefetching first.
-- Reset and include timeout-risk papers without `--tier 3` and operator approval.
-- Treat the 5/29 done count as a representative corpus sample.
+- Run `warm-process` on the 29-paper queue without verifying PDFs are still cached first.
+- Include Tier-3 papers (1011.6402, 2409.02025) in Batch A/B/C without operator approval.
+- Treat a partial pass (e.g. 20/24 parsed) as a valid 29-paper corpus measurement.
+- Reset done papers with `--force` — preserve the 5 successful Batch 2 parses.
 
 ---
 
@@ -916,7 +939,7 @@ python -m polytool research-query \
 6. Papers ranked by highest claim score
 7. Citations returned with: title, arxiv_id, source_url, snippet, body_source
 
-**Retrieval is conservative substring/phrase matching — not semantic or vector retrieval.**
+**Primary retrieval is semantic (ChromaDB `academic_papers` vector search — L2.1, complete 2026-05-25). Lexical KnowledgeStore fallback activates only when no Chroma chunks exceed the similarity threshold (`had_fallback=true`, `retrieval_mode=lexical`).**
 
 **Prerequisite:** Papers must be indexed into the KnowledgeStore first.
 Use `research-marker-queue` (Steps 1–4 above) then **Step 4b** (`index-done`):
@@ -970,7 +993,8 @@ research-harvest (or manual enqueue)
 - Docker/GPU IPC 3-paper batch (`ipc_warm_worker_used=true`) was validated separately on
   2026-05-08 and is an optional performance/infra follow-up.
 - SSRN/NBER sources deferred. Only arXiv papers used.
-- ChromaDB academic retrieval (L2.1) deferred.
+- ChromaDB academic retrieval (L2.1) — **COMPLETE 2026-05-25**. Semantic retrieval confirmed in 3-paper category sample (prose/survey, equation-heavy, table-heavy). See the L2.1 section in `docs/CURRENT_STATE.md`.
+- **NTFS caveat:** This 2026-05-09 run executed `index-done` on the Windows host, predating the NTFS colon restriction discovery (2026-05-17). arXiv candidate IDs like `arxiv:1106.5040` contain a colon; Windows Python cannot open `bodies/arxiv:1106.5040.body.txt`. The 2026-05-09 run succeeded because it used a queue without colon-bearing IDs. **Always run `index-done` inside Docker** when using the GPU parse path on Windows. The current operator path reflects this requirement.
 
 **Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
 

@@ -1,0 +1,16 @@
+# Mirror is regenerable - never commit
+ris-mirror/
+
+# Sync-service runtime logs (machine-local, regenerable)
+.sync-logs/
+
+# Obsidian per-machine caches (keep plugin configs and core settings)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

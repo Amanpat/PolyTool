@@ -153,6 +153,49 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _coerce_int_or_none(value: Any) -> Optional[int]:
+    """Coerce to int, or None when absent/unparseable.
+
+    Unlike ``int(value or 0)``, a missing source yields None (not a misleading
+    0) so downstream summaries omit the metric instead of fabricating a zero.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+
+def _win_rate_from_outcome_counts(outcome_counts: Dict[str, Any]) -> Optional[float]:
+    """Compute overall win rate from a coverage report's ``outcome_counts``.
+
+    Mirrors the canonical per-segment formula in polytool/reports/coverage.py
+    (``_finalize_segment_bucket``): numerator = WIN + PROFIT_EXIT, denominator =
+    WIN + LOSS + PROFIT_EXIT + LOSS_EXIT (resolved outcomes only; PENDING and
+    UNKNOWN_RESOLUTION are excluded). Returns None when there are no resolved
+    outcomes — never a misleading 0% — so callers omit win rate rather than
+    imply a 0% win record for an unresolved book.
+    """
+    if not isinstance(outcome_counts, dict):
+        return None
+
+    def _n(key: str) -> int:
+        return _coerce_int_or_none(outcome_counts.get(key)) or 0
+
+    wins = _n("WIN")
+    losses = _n("LOSS")
+    profit_exits = _n("PROFIT_EXIT")
+    loss_exits = _n("LOSS_EXIT")
+    denominator = wins + losses + profit_exits + loss_exits
+    if denominator <= 0:
+        return None
+    return round((wins + profit_exits) / denominator, 6)
+
+
 # ---------------------------------------------------------------------------
 # Input parsing
 # ---------------------------------------------------------------------------
@@ -262,8 +305,14 @@ def _extract_user_metrics(run_root: Path) -> Dict[str, Any]:
 
     pnl = coverage.get("pnl") or {}
     outcome_counts = coverage.get("outcome_counts") or {}
-    outcome_pcts = coverage.get("outcome_pcts") or {}
+    # The persisted report keys outcome percentages as "outcome_percentages"
+    # (polytool/reports/coverage.py build_coverage_report). Accept the legacy
+    # "outcome_pcts" alias defensively so older artifacts still read.
+    outcome_pcts = coverage.get("outcome_percentages") or coverage.get("outcome_pcts") or {}
     clv_section = coverage.get("clv_coverage") or {}
+    # positions_total lives under report["totals"] in the persisted schema; a
+    # bare top-level value is a legacy fallback only.
+    totals = coverage.get("totals") or {}
 
     # Realized net PnL is the primary leaderboard sort metric
     realized_net_pnl = _safe_float(
@@ -273,7 +322,18 @@ def _extract_user_metrics(run_root: Path) -> Dict[str, Any]:
     gross_pnl = _safe_float(pnl.get("gross_pnl_total"))
     clv_coverage_rate = _safe_float(clv_section.get("coverage_rate"))
 
-    positions_total = int(coverage.get("positions_total") or 0)
+    # Read the trade/position count from its real (nested) location. When the
+    # count is genuinely absent we keep None (NOT 0) so the summary omits trades
+    # rather than show a misleading "0 trades" beside non-zero PnL/CLV.
+    raw_positions = totals.get("positions_total")
+    if raw_positions is None:
+        raw_positions = coverage.get("positions_total")
+    positions_total = _coerce_int_or_none(raw_positions)
+
+    # Win rate is derivable from outcome_counts (was previously never extracted,
+    # so summarize_evidence always omitted "% win"). None when no resolved book.
+    win_rate = _win_rate_from_outcome_counts(outcome_counts)
+
     unknown_resolution_pct = _safe_float(outcome_pcts.get("UNKNOWN_RESOLUTION"))
 
     # Top segment highlights from segment_analysis
@@ -294,6 +354,7 @@ def _extract_user_metrics(run_root: Path) -> Dict[str, Any]:
         "realized_net_pnl": realized_net_pnl,
         "gross_pnl": gross_pnl,
         "positions_total": positions_total,
+        "win_rate": win_rate,
         "clv_coverage_rate": clv_coverage_rate,
         "unknown_resolution_pct": unknown_resolution_pct,
         "outcome_counts": {

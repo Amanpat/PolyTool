@@ -1,0 +1,2078 @@
+---
+title: Current State
+type: reference
+status: active
+source_zone: repo
+mirror_of: docs/CURRENT_STATE.md
+last_synced: '2026-05-25T22:03:09Z'
+lifecycle: reviewed
+generator: repo-sync
+---
+
+# Current State / What We Built
+
+This repo is a local-first toolchain for Polymarket analysis: data ingestion,
+ClickHouse analytics, Grafana dashboards, private evidence exports, and a local
+RAG workflow that defaults to local-only LLM inference. (Narrow exception: Tier 1
+free cloud APIs are authorized for RIS evaluation gate scoring only — see
+PLAN_OF_RECORD Section 0 and quick-260407-lpr.)
+
+Master Roadmap v5.1 (`docs/reference/POLYTOOL_MASTER_ROADMAP_v5_1.md`) is the
+governing roadmap document for public docs. This file records implemented repo
+truth; do not infer v5.1 phase completion from strategic roadmap language
+alone.
+
+- **Branch workflow:** main-only as of 2026-04-06. All prior feature branches
+  (feat/ws-clob-feed, phase-1, simtrader, roadmap*, etc.) consolidated into main.
+  Safety tag: `safety/pre-main-consolidation-20260406`.
+- **Docs governance:** public docs surface follows
+  [ADR 0014](adr/0014-public-docs-surface-and-repo-hygiene-boundaries.md).
+  `docs/README.md` and `docs/INDEX.md` are navigation only; `docs/dev_logs/**`
+  remains preserved history; `docs/ROADMAP.md` is a non-governing roadmap
+  router/operator surface; `docs/obsidian-vault/**` remains a separate
+  subsystem excluded from public docs count goals. Root-level hidden tooling,
+  local workspace state, runtime state, and scratch boundaries are now defined
+  in
+  [docs/reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md](reference/LOCAL_STATE_AND_TOOLING_BOUNDARY.md);
+  repo-cleanliness expectations exclude those local-state/runtime roots unless a
+  task explicitly targets them. Durable .gitignore hardening for local-only hidden
+  tooling paths (.claude/settings.local.json, .claude/worktrees/, .claude/skills/,
+  .opencode/package.json, .opencode/bun.lock, .opencode/node_modules/) is now in
+  place; tracked .claude worktree and settings.local.json deindexing is complete
+  (quick-260411-im0 commit f24600a + quick-260411-ime commit 79fe441).
+
+## Roadmap Items Not Yet Implemented (v5 framing)
+
+- The v4 control plane is not shipped: no broad n8n orchestration layer, no broad
+  FastAPI wrapper surface, no Discord approval system, and no automated
+  feedback loop. (A scoped RIS n8n pilot exists for RIS ingestion workflows only -- see ADR 0013 and the RIS n8n sections below.)
+- The v4 research expansion is not shipped: `candidate-scan`, research
+  scraper, news/signals ingest, and signal-linked market workflows are not
+  current repo features.
+- The v4 UI rebuild is not shipped: existing Studio/Grafana surfaces remain
+  the current operator UI, not the Phase 7 Next.js rebuild.
+- The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
+  blocked, and Stage 0/Stage 1 live promotion are not complete.
+
+## Wallet Discovery v1 (Shipped, 2026-04-10)
+
+Wallet Discovery v1 is implemented, integrated, and hardened.
+Shipped across two parallel packets (commits 83832e1, 724a23c) with integration
+(2026-04-10) and acceptance hardening (12 integrated tests, 118 total
+discovery-area tests, 3908 full suite).
+
+Shipped scope: Loop A leaderboard discovery, ClickHouse table contracts
+(watchlist, leaderboard_snapshots, scan_queue), unified `polytool scan` with
+`--quick` (hard no-LLM guarantee), MVF computation (11-dim, Python math only).
+
+Full four-loop discovery system (B/C/D), insider scoring, cloud LLM wallet
+analysis, auto-promotion, and n8n workflow integration remain future intent
+with named blockers in the spec.
+
+- **Spec**: docs/specs/SPEC-wallet-discovery-v1.md
+- **Feature doc**: docs/features/wallet-discovery-v1.md
+- **Runbook**: docs/runbooks/WALLET_DISCOVERY_V1_OPERATOR_RUNBOOK.md
+
+## Gate 2 Corpus Visibility Improvements (quick-260410-izh, 2026-04-10)
+
+Tape-manifest and scan-gate2-candidates CLI tables now surface confidence class,
+structured reject code, and event density for each tape. Operators can immediately
+see whether a failing tape is DEPTH_ONLY, EDGE_ONLY, NO_OVERLAP, or NO_EVENTS,
+and whether the tape is GOLD, SILVER, BRONZE, or UNKNOWN quality.
+
+- `tape_manifest.py`: new `classify_tape_confidence`, `classify_reject_code`,
+  `enrich_tape_diagnostics` helpers; enriched `print_manifest_table` and
+  `manifest_to_dict`; `TapeRecord.diagnostics` field.
+- `scan_gate2_candidates.py`: `CandidateResult` gains `events_scanned`,
+  `confidence_class`, `recorded_by`; `print_table` and `print_ranked_table`
+  show Events and Conf columns.
+- 30 new tests in `tests/test_gate2_corpus_visibility.py`. No eligibility
+  criteria changed.
+
+## Infrastructure Fixes (quick-260405-gef + quick-260405-j2t, 2026-04-05)
+
+- **pair-bot-live profile gate fix**: `docker-compose.yml` `pair-bot-live` service
+  was missing `profiles: ["pair-bot"]`, causing the live trading bot to start in the
+  default stack. Fixed: added `profiles: ["pair-bot"]`. Service now requires explicit
+  `--profile pair-bot` activation. `.env.example` updated with pair-bot profile
+  documentation. Dev log: `docs/dev_logs/2026-04-05_docker_build_matrix_closeout.md`.
+
+- **API Dockerfile curl fix**: `services/api/Dockerfile` now installs `curl` via apt
+  so the docker-compose healthcheck (`curl -f http://localhost:8000/health`) passes.
+  Previously the healthcheck failed with `curl: not found` because `python:3.11-slim`
+  does not include curl.
+
+- **Full build matrix verified (2026-04-05)**: All 5 compose paths tested clean:
+  default stack, pair-bot profile, ris-n8n profile, cli profile, full combination.
+  3695 tests passing, no Python regressions.
+
+- **Docker build context tightened (quick-260405-j2t, 2026-04-05)**: `.dockerignore`
+  rewritten to exclude ~660 MB+ of non-build files: `docs/`, `tests/`, `kb/`,
+  `.planning/`, `infra/`, `scripts/`, `config/`, `docker_data/`, `.claude/`, `.env*`,
+  `*.log`, `LICENSE`, `README.md`, `CLAUDE.md`. Build context
+  reduced to ~12 MB of actual source code. Dev log:
+  `docs/dev_logs/2026-04-05_docker_perf_hygiene.md`.
+
+- **Dockerfile cache optimization (quick-260405-j2t, 2026-04-05)**: Root `Dockerfile`
+  now uses selective `COPY` (only `polytool/`, `packages/`, `tools/`, `services/`)
+  instead of `COPY . .`. Two-phase pip install: deps cached on `pyproject.toml`,
+  fast `--no-deps` reinstall after source copy. Source edits no longer invalidate
+  the dependency install layer.
+
+- **BuildKit cache mounts added (quick-260405-j2t, 2026-04-05)**: Both
+  `Dockerfile` and `services/api/Dockerfile` now use `--mount=type=cache` for apt
+  and pip. Subsequent rebuilds pull from local wheel cache instead of re-downloading
+  from PyPI. `# syntax=docker/dockerfile:1` directive added to both files.
+
+- **Dockerfile.bot adopted for pair-bot (quick-260405-jle, 2026-04-05)**:
+  `pair-bot-paper` and `pair-bot-live` compose services now build from
+  `Dockerfile.bot` (python:3.11-slim, `[live,simtrader]` only, multi-stage).
+  Root `Dockerfile` narrowed to `[ris,mcp,simtrader,historical,historical-import,live]`
+  (quick-260405-jyv) — drops `[rag]` (~450MB sentence-transformers/chromadb, all
+  imports lazy), `[studio]` (API has own Dockerfile), and `[dev]` (pytest not for
+  runtime). See dev logs `2026-04-05_docker_image_slimming.md` and
+  `2026-04-05_root_image_final_slimming.md`.
+
+- **Root Dockerfile layer-order fix verified (quick-260405-kpg, 2026-04-05)**:
+  Full default-compose build (`docker compose build`) passes with exit 0 after the
+  stub-RUN layer fix from quick-260405-kh2. Both `api` and `ris-scheduler` services
+  build cleanly. `python -m polytool --help` exits 0 inside the ris-scheduler container.
+  Dev log: `docs/dev_logs/2026-04-05_root_dockerfile_build_fix_closeout.md`.
+
+## Status as of 2026-03-29 (Phase 1B — Gate 2 FAILED, 7/50 positive at 14%) — Re-confirmed 2026-04-14
+
+Track A / SimTrader plumbing is implemented. Phase 1B Gate 2 has been run
+against the full 50-tape recovery corpus and FAILED. The corpus is complete
+(50/50 tapes qualify). The gate failure is a strategy profitability issue
+on low-frequency tapes, not a corpus gap. The repo's current execution status is:
+
+- Gate 1: PASSED
+- Gate 2: **FAILED** (2026-03-29, re-confirmed 2026-04-14) — 7/50 positive tapes (14%),
+  gate threshold is 70%. Corpus is complete (50/50): politics=10, sports=15, crypto=10,
+  near_resolution=10, new_market=5.
+  Gate artifacts: `artifacts/gates/mm_sweep_gate/gate_failed.json` (2026-03-29 original),
+  `artifacts/gates/gate2_sweep/gate_failed.json` (2026-04-14 authoritative re-sweep).
+  Recovery corpus manifest: `config/recovery_corpus_v1.tape_manifest` (50 entries).
+  Sweep driver: `tools/gates/run_recovery_corpus_sweep.py` (extended with resume/cache
+  capability in quick-260414-rqv).
+  **Root cause:** silver tapes (9) produce zero fills — no tick density for MM orders.
+  Non-crypto shadow tapes (31) produce mostly negative or zero PnL on low-frequency
+  politics/sports markets. Crypto 5m shadow tapes (10) are 7/10 positive.
+  **Crypto-positive tapes:** btc-updown (4/5 positive), eth-updown (2/2 positive),
+  sol-updown (1/3 positive). PnL range: +$4.67 to +$297.25.
+  **Re-sweep (2026-04-14, quick-260414-rqv):** Authoritative re-run of the full
+  50-tape corpus. Result identical to 2026-03-29: 7/50 = 14% positive, FAILED.
+  No improvement. Gate 2 status confirmed unchanged.
+  Dev log: `docs/dev_logs/2026-04-14_gate2_full_corpus_resweep.md`.
+  **Path forward options (documented in dev log):**
+  (1) Crypto-only corpus subset test: run sweep on 10 crypto tapes only (7/10 = 70%,
+  would pass threshold but requires spec change); (2) Strategy improvement for
+  low-frequency markets; (3) Focus on Track 2 (crypto pair bot) while Gate 2 research
+  continues in background. Authoritative dev log:
+  `docs/dev_logs/2026-03-29_crypto_watch_and_capture.md`.
+  **Path drift fix (quick-045):** Shadow tapes migrated from `artifacts/simtrader/tapes/`
+  to `artifacts/tapes/shadow/` canonical path. `config/recovery_corpus_v1.tape_manifest`
+  written with all 50 qualifying paths.
+- **Artifacts directory restructure** (quick-036, 2026-03-28): All tapes unified under
+  `artifacts/tapes/{gold,silver,shadow,crypto}/` hierarchy. 18 Python path constants
+  updated. Canonical layout documented in CLAUDE.md. See dev log
+  `docs/dev_logs/2026-03-28_artifacts_restructure.md`.
+- **Market Selection Engine** (quick-037, 2026-03-28): Seven-factor scorer
+  (category_edge, spread_opportunity, volume, competition, reward_apr, adverse_selection,
+  time_gaussian) with NegRisk penalty and longshot bonus. CLI:
+  `python -m polytool market-scan`. Artifacts written to `artifacts/market_selection/`.
+  2728 tests passing. See dev log `docs/dev_logs/2026-03-28_market_selection_engine.md`.
+
+- **Live execution wiring** (quick-040, 2026-03-28): `PolymarketClobOrderClient` via
+  py-clob-client 0.34.6 with deferred import; `_log_trade_event()` JSONL logging per
+  place/cancel; `Dockerfile.bot` + docker-compose `pair-bot-paper`/`pair-bot-live`
+  services under isolated profiles; 6 new offline tests; 2734 passing.
+  See dev log `docs/dev_logs/2026-03-28_crypto_pair_live_docker.md`.
+
+**Next executable step**: Gate 2 FAILED (7/50 = 14%, need 70%). Three path-forward
+options are documented in `docs/dev_logs/2026-03-29_crypto_watch_and_capture.md`:
+
+1. **Crypto-only corpus subset** — Re-run sweep on 10 crypto 5m tapes only (7/10 = 70%).
+   Passes the threshold but requires a spec change to redefine Gate 2 scope. Requires
+   operator authorization (spec change = architectural decision).
+2. **Strategy improvement** — Improve market_maker_v1 profitability on low-frequency
+   politics/sports tapes. Research path; timeline uncertain.
+3. **Track 2 focus** — Run crypto pair bot (Track 2) independently while Gate 2
+   research continues. Track 2 does NOT wait for Gate 2 (CLAUDE.md rule: standalone).
+
+Re-run sweep command (after any corpus/strategy change):
+```
+python tools/gates/run_recovery_corpus_sweep.py \
+  --manifest config/recovery_corpus_v1.tape_manifest \
+  --out artifacts/gates/mm_sweep_gate \
+  --threshold 0.70
+```
+
+**Escalation deadline:** ADR-benchmark-versioning-and-crypto-unavailability.md escalation
+criteria for benchmark_v2 deadline was 2026-04-12 (PASSED as of 2026-04-14). Crypto markets
+returned on 2026-04-14 (12 active 5m markets: BTC=4, ETH=4, SOL=4) — verdict is
+RESUME_CRYPTO_CAPTURE. See docs/dev_logs/2026-04-14_gate2_next_step_packet.md for the
+full evidence packet and capture execution commands. No AI agent should autonomously trigger
+benchmark_v2. Do NOT modify config/benchmark_v1.* files under any circumstance.
+
+- Gate 3: **BLOCKED** — Gate 2 must PASS first
+- Gate 4: PASSED
+- **Tape integrity audit** (quick-050, 2026-03-29): All 4 tape roots scanned
+  (314 tapes: gold=8, silver=118, shadow=181, crypto_new=7). Verdict: **SAFE_TO_USE**.
+  Zero YES/NO token-ID mapping bugs, zero quote-stream duplicates, zero structural
+  corruption. Details: `artifacts/debug/tape_integrity_audit_report.md`.
+- **Primary Gate 2 path**: DuckDB reads pmxt and Jon-Becker Parquet
+  files directly — no ClickHouse import step required. Silver tape reconstruction
+  from those files + 2-min price history → Gate 2 scenario sweep. ClickHouse
+  bulk import (SPEC-0018) is off the critical path; see
+  `docs/runbooks/BULK_HISTORICAL_IMPORT_V0.md` (now legacy/optional).
+- **pmxt raw files**: exist locally. Full ClickHouse import (78,264,878 rows,
+  2026-03-15) is complete but is legacy under v4.2. DuckDB reads the Parquet
+  files directly. Artifact: `artifacts/imports/pmxt_full_batch1.json`
+- **Jon-Becker raw files**: exist locally. Sample ClickHouse import confirmed
+  (1,000 rows, 2026-03-16); full ClickHouse import is not required under v4.2.
+  DuckDB reads the Parquet files directly.
+  Artifacts: `artifacts/imports/jon_dry_run.json`, `artifacts/imports/jon_sample_run.json`
+- **price_2min** (canonical live-updating ClickHouse series): table created
+  (`infra/clickhouse/initdb/24_price_2min.sql`), `fetch-price-2min` CLI
+  shipped. Naming conflict resolved: `price_2min` = live CH series (this path);
+  `price_history_2min` = legacy local-file bulk import (SPEC-0018, off critical
+  path). See dev log `docs/dev_logs/2026-03-16_price_2min_clickhouse_v0.md`.
+  CLI: `python -m polytool fetch-price-2min --token-id <ID> [--dry-run]`.
+- **Silver tape reconstruction**: foundation v0 shipped 2026-03-16; operational
+  v1 shipped 2026-03-16. Single-market CLI (`reconstruct-silver`) and batch CLI
+  (`batch-reconstruct-silver`) are operational. `tape_metadata` ClickHouse table
+  defined (`infra/clickhouse/initdb/25_tape_metadata.sql`). Batch manifest
+  (`silver_batch_manifest_v1`) written after each run. Metadata persists to
+  ClickHouse with JSONL fallback. DuckDB + real dataset integration pending.
+  See dev logs `2026-03-16_silver_reconstructor_foundation_v0.md` and
+  `2026-03-16_silver_reconstructor_operational_v1.md`.
+- **Benchmark v1 manifest curation**: `benchmark-manifest` CLI shipped
+  2026-03-16. It audits canonical local tape roots and either writes
+  `config/benchmark_v1.tape_manifest` + `config/benchmark_v1.audit.json`, or
+  writes `config/benchmark_v1.gap_report.json` and exits non-zero when quotas
+  are not satisfiable.
+  **Bucket classification fix (2026-03-21)**: `silver_meta.json` contains no
+  market text, so `_classify_candidate()` could not assign politics/sports/crypto
+  labels to Silver tapes — all three keyword-driven buckets showed 0 candidates
+  despite 120 tapes on disk. Fix: `market_meta.json` (schema
+  `silver_market_meta_v1`) now written alongside Silver tapes containing `slug`,
+  `category` (= bucket), `market_id`, `platform`, `token_id`, and
+  `benchmark_bucket`. `_load_metadata()` reads `market_meta.json` first.
+  `write_market_meta()` and `backfill_market_meta_from_targets()` added to
+  `batch_reconstruct_silver.py`. `--backfill-market-meta` CLI flag triggers
+  backfill-only mode (no reconstruction, no credential check). Backfill run:
+  120 tape dirs updated, 0 errors. Latest gap report
+  (`config/benchmark_v1.gap_report.json`, `2026-03-21T19:42:42+00:00`):
+  `inventory_by_tier gold=13, silver=118`, `selected_total=45`,
+  shortages `politics=0, sports=0, crypto=0, near_resolution=0, new_market=5`.
+  Only `new_market=5` remains. No `config/benchmark_v1.tape_manifest` exists
+  yet (blocked by new_market shortage only). A resumed real-shell Phase 1
+  closure attempt earlier on 2026-03-21 set `CLICKHOUSE_PASSWORD`, brought
+  Docker up, and ran `python -m polytool new-market-capture`, which wrote 300
+  live targets (`generated_at 2026-03-21T20:05:03Z`). The follow-up
+  `capture-new-market-tapes --benchmark-refresh` run then created 0 tapes and
+  skipped all 300 targets because every `resolve_slug` call failed with
+  `MarketPicker.__init__() missing 2 required positional arguments:
+  'gamma_client' and 'clob_client'`. Refreshed gap report
+  (`config/benchmark_v1.gap_report.json`, `2026-03-21T20:05:05+00:00`) still
+  shows `new_market.candidate_count=0` and shortage `new_market=5`. That
+  constructor bug is now fixed. A later final Phase 1 retry on 2026-03-21 used
+  the corrected CLI flags and passed dry-run
+  (`targets_attempted=300`, `tapes_created=231`, `failure_count=0`,
+  `skip_count=69`). The follow-up live command
+  `python -m polytool capture-new-market-tapes --targets-manifest config/benchmark_v1_new_market_capture.targets.json --out-root artifacts/tapes/new_market --benchmark-refresh`
+  recorded new Gold tapes under `artifacts/tapes/new_market/` but appeared to
+  hang past the five-tape quota. Finalization check on 2026-03-21 then stopped
+  PID `9660`, confirmed the relevant tape dirs on disk (`sol`, `xrp`, `bnb`,
+  `hype`, `eth`, `doge`) all had `raw_ws.jsonl`, `events.jsonl`, `meta.json`,
+  and `watch_meta.json`, and also found a previously unlisted
+  `btc-updown-5m-1774209300/` dir with `raw_ws.jsonl`, `events.jsonl`, and
+  `watch_meta.json` but no `meta.json`. Running plain
+  `python -m polytool benchmark-manifest` still wrote a gap report because the
+  default `inventory_roots` were only `artifacts/simtrader/tapes` and
+  `artifacts/silver`, so none of the `artifacts/tapes/new_market/*` tapes were
+  discovered. Re-running with explicit roots
+  `--root artifacts/simtrader/tapes --root artifacts/silver --root artifacts/tapes/new_market`
+  immediately wrote `config/benchmark_v1.tape_manifest`,
+  `config/benchmark_v1.audit.json`, and `config/benchmark_v1.lock.json`.
+  Validation passed with bucket counts
+  `politics=10, sports=15, crypto=10, near_resolution=10, new_market=5`.
+  Audit selected five `new_market` tapes:
+  `xrp-updown-5m-1774209300`, `sol-updown-5m-1774209300`,
+  `btc-updown-5m-1774209300`, `bnb-updown-5m-1774209300`, and
+  `hype-updown-5m-1774209300`. `benchmark_v1` is now closed. See dev logs
+  `docs/dev_logs/2026-03-21_benchmark_curation_bucket_fix.md`,
+  `docs/dev_logs/2026-03-21_phase1_new_market_closure_attempt.md`,
+  `docs/dev_logs/2026-03-21_phase1_final_new_market_execution_retry.md`, and
+  `docs/dev_logs/2026-03-21_phase1_finalization_check.md`.
+- **Benchmark v1 gap-fill planner**: `packages/polymarket/benchmark_gap_fill_planner.py`
+  shipped 2026-03-17. Queries pmxt_archive + Jon-Becker Parquet via DuckDB to
+  discover Silver reconstruction targets for the shortage buckets. Real-data
+  probe (2026-03-17): 9,249 markets matched; 2,052 politics / 2,049 sports /
+  279 crypto / 272 near_resolution candidates found — all four buckets coverable
+  via Silver reconstruction. new_market bucket remains INSUFFICIENT (0
+  candidates; JB snapshot ~2026-02-03, 40 days stale). Target manifest written
+  to `config/benchmark_v1_gap_fill.targets.json` (120 targets; 9+11+10+9
+  priority-1 + overflow); insufficiency report at
+  `config/benchmark_v1_gap_fill.insufficiency.json`.
+  See spec `docs/specs/SPEC-benchmark-gap-fill-planner-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_gap_fill_planner.md`.
+  A constrained live probe on 2026-03-19 confirmed that three priority-1
+  targets (politics / sports / crypto) reconstruct successfully without hard
+  failures, but all three degrade to low-confidence, price_2min-only Silver
+  tapes because pmxt anchors and Jon-Becker fills are absent in-window. A full
+  direct live run completed on 2026-03-20 under
+  `artifacts/silver/manual_gap_fill_full_20260319_213841/`: all 120 manifest
+  targets wrote a `benchmark_gap_fill_run_v1` artifact, but benchmark refresh
+  still blocked with shortages `politics=9`, `sports=11`, `crypto=10`,
+  `near_resolution=0`, `new_market=5`. The benchmark is therefore not reduced
+  to `new_market` only.
+- **Benchmark v1 gap-fill execution**: `batch-reconstruct-silver` extended with
+  `--targets-manifest` mode (Mode 2) 2026-03-17. Accepts `benchmark_gap_fill_v1`
+  targets manifest; each target provides its own window. Per-target skip/failure
+  without aborting the batch. `--benchmark-refresh` re-runs benchmark curation after
+  the batch. Emits `benchmark_gap_fill_run_v1` result artifact. 40 new tests; dry-run
+  smoke with 120-target real manifest: all parsed and dispatched correctly.
+  A real-shell probe run on 2026-03-19 wrote
+  `artifacts/silver/manual_gap_fill_probe3_20260319_190329/gap_fill_run.json`
+  for three priority-1 targets (politics / sports / crypto):
+  `targets_attempted=3`, `tapes_created=3`, `failure_count=0`, `skip_count=0`,
+  metadata writes `clickhouse=3`. All three outcomes are `status=success` with
+  `reconstruction_confidence=low`, `fill_count=0`, and
+  `price_2min_count=event_count`, with shared warnings
+  `pmxt_anchor_missing` and `jon_fills_missing`. A full-manifest direct live
+  execution then completed on 2026-03-20 at
+  `artifacts/silver/manual_gap_fill_full_20260319_213841/gap_fill_run.json`:
+  `targets_attempted=120`, `tapes_created=120`, `failure_count=0`,
+  `skip_count=0`, metadata writes `clickhouse=120`. Success classes were 40
+  `confidence=low, price_2min_only` outcomes and 80 `confidence=none,
+  empty_tape` outcomes; warnings were `pmxt_anchor_missing=120`,
+  `jon_fills_missing=120`, `price_2min_missing=80`. Benchmark refresh updated
+  `config/benchmark_v1.gap_report.json` but still blocked with shortages
+  `politics=9`, `sports=11`, `crypto=10`, `near_resolution=0`,
+  `new_market=5`. See dev logs
+  `docs/dev_logs/2026-03-19_silver_probe3_diagnosis.md` and
+  `docs/dev_logs/2026-03-20_silver_gap_fill_full_run.md`.
+  A resumed orchestrated live closure run on 2026-03-20 after the full-target
+  prefetch fix wrote
+  `artifacts/benchmark_closure/2026-03-20/bf64af3f-17bc-429f-ac09-8fbf05ad66ad/benchmark_closure_run_v1.json`:
+  Stage 2 prefetched 118 unique token IDs across all 120 targets, fetched and
+  inserted 450,327 `price_2min` rows, and `batch_reconstruct` again created 120
+  tapes with `failure_count=0` and `skip_count=0`. The refreshed gap report did
+  raise `inventory_by_tier.silver` from 38 to 118 and `near_resolution`
+  `candidate_count` from 21 to 81, but shortages remained `politics=9`,
+  `sports=11`, `crypto=10`, `near_resolution=0`, `new_market=5`, so
+  `benchmark_v1` is still not reduced to `new_market` only.
+  See spec `docs/specs/SPEC-benchmark-gap-fill-execution-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_gap_fill_execution.md`.
+- **New-market capture planner**: `packages/polymarket/new_market_capture_planner.py`
+  shipped 2026-03-17. Discovers newly listed Polymarket candidates (<48h old) via
+  the live Gamma API, ranks them conservatively (age ascending, volume desc, slug
+  asc), deduplicates by token_id, and writes
+  `config/benchmark_v1_new_market_capture.targets.json` (if candidates exist) and/or
+  `config/benchmark_v1_new_market_capture.insufficiency.json` (if < 5 candidates).
+  CLI: `python -m polytool new-market-capture [--dry-run] [--limit 300]`.
+  `fetch_recent_markets()` added to `market_selection/api_client.py` (returns
+  `condition_id` + `market_id` in addition to standard fields). 42 offline tests;
+  no live network calls in tests.
+  See spec `docs/specs/SPEC-new-market-capture-planner-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_new_market_capture_planner.md`.
+- **New-market capture execution**: `tools/cli/capture_new_market_tapes.py` shipped
+  2026-03-17. Consumes `config/benchmark_v1_new_market_capture.targets.json`
+  (schema `benchmark_new_market_capture_v1`), resolves YES/NO token IDs via
+  `MarketPicker.resolve_slug()`, records Gold tapes via `TapeRecorder` for each
+  target's `record_duration_seconds`, writes `watch_meta.json` with
+  `regime="new_market"`, persists `tape_metadata` row (tier="gold") to ClickHouse
+  with JSONL fallback. `--benchmark-refresh` re-runs benchmark curation after the
+  batch. Emits `benchmark_new_market_capture_run_v1` result artifact. Per-target
+  failures do not abort the batch. 45 offline tests; no live network calls in tests.
+  CLI: `python -m polytool capture-new-market-tapes [--dry-run] [--benchmark-refresh]`.
+  A real live attempt ran on 2026-03-21 after `CLICKHOUSE_PASSWORD` and Docker
+  were confirmed. Planner output contained 300 viable new-market targets, but
+  capture artifact `artifacts/simtrader/tapes/new_market_capture/capture_run_558b6d88.json`
+  shows `targets_attempted=300`, `tapes_created=0`, `failure_count=0`,
+  `skip_count=300`. Every target was skipped at slug resolution because
+  `MarketPicker.__init__()` was called without required `gamma_client` and
+  `clob_client` arguments, so no Gold tapes were recorded and benchmark refresh
+  remained blocked with `new_market=5`.
+  **MarketPicker constructor fix (2026-03-21)**: `resolve_both_token_ids()` in
+  `capture_new_market_tapes.py` was calling `MarketPicker()` with no arguments.
+  Fixed to `MarketPicker(GammaClient(), ClobClient())` matching every other CLI
+  entrypoint (`simtrader.py`, `prepare_gate2.py`, `watch_arb_candidates.py`).
+  Regression test `test_default_path_constructs_picker_with_clients` added.
+  46 tests pass in `test_capture_new_market_tapes.py`. Constructor bug no longer
+  skips all 300 targets. A corrected dry-run on 2026-03-21 passed
+  (`targets_attempted=300`, `tapes_created=231`, `skip_count=69`). The
+  corrected live capture with `--benchmark-refresh` then recorded at least six
+  Gold tapes under `artifacts/tapes/new_market/`, but never emitted a new
+  `capture_run_*.json` or benchmark refresh. As of
+  `2026-03-21T19:36:26-04:00`, PID `9660` was still writing
+  `doge-updown-5m-1774209300/raw_ws.jsonl`, proving the live path continues
+  past the required five-tape quota instead of terminating cleanly.
+  See spec `docs/specs/SPEC-new-market-capture-execution-v1.md` and dev log
+  `docs/dev_logs/2026-03-17_new_market_capture_execution.md`, plus run logs
+  `docs/dev_logs/2026-03-21_phase1_new_market_closure_attempt.md` and
+  `docs/dev_logs/2026-03-21_new_market_capture_marketpicker_fix.md`.
+- **Benchmark closure orchestrator v0**: `tools/cli/close_benchmark_v1.py`
+  shipped 2026-03-17. Orchestrates preflight + Silver gap-fill + new-market
+  capture + benchmark curation in sequence. CLI:
+  `python -m polytool close-benchmark-v1 [--dry-run] [--skip-silver]
+  [--skip-new-market] [--out PATH] [--pmxt-root PATH] [--jon-root PATH]`.
+  Writes canonical run artifact `benchmark_closure_run_v1` to
+  `artifacts/benchmark_closure/<YYYY-MM-DD>/<run_id>/`.  Exit 0 =
+  manifest_created, exit 1 = blocked, exit 2 = preflight blocked.  23 offline
+  tests (all passing). Real dry-run confirmed: preflight passes, 39 priority-1
+  tokens identified, 5-bucket shortage correctly surfaced from real gap report.
+  **Prefetch scope fix (2026-03-20)**: `run_silver_gap_fill_stage()` previously
+  called `_priority1_token_ids()` for the `fetch-price-2min` argv, covering only
+  39 of 120 targets. The remaining 81 overflow (priority≥2) targets had no
+  `price_2min` rows in ClickHouse, causing the Silver reconstructor to degrade
+  them to `confidence=none` (root cause of `price_2min_missing=80` in the
+  2026-03-20 full run). Fixed by adding `_all_unique_token_ids()` (order-
+  preserving dedup via `dict.fromkeys`) and switching the fetch argv to use all
+  unique token IDs across all priorities. `fetch_outcome` now records both
+  `token_count` (all) and `priority1_count` for traceability. 10 new regression
+  tests added (5 in `TestHelpers`, 5 in `TestFullTargetPricePrefetch`); 40 tests
+  pass in `test_close_benchmark_v1.py` (57 across both closure test files).
+  See spec `docs/specs/SPEC-benchmark-closure-orchestrator-v1.md` and dev logs
+  `docs/dev_logs/2026-03-17_benchmark_closure_orchestrator_v0.md` and
+  `docs/dev_logs/2026-03-20_full_target_price2min_prefetch_fix.md`.
+  Real-shell validation followed immediately on 2026-03-20: the fixed closure
+  path prefetched all 118 unique target token IDs (39 priority-1 entries across
+  120 manifest targets), refreshed the gap report, and wrote run artifact
+  `artifacts/benchmark_closure/2026-03-20/bf64af3f-17bc-429f-ac09-8fbf05ad66ad/benchmark_closure_run_v1.json`.
+  The closure still ended `final_status=blocked`, proving the prefetch scope bug
+  is fixed but is no longer the limiting factor; the remaining shortages are
+  still `politics=9`, `sports=11`, `crypto=10`, and `new_market=5`.
+- **Benchmark closure operator readiness v0**: Shipped 2026-03-17.
+  Added `--status` and `--export-tokens` operator helpers to `close_benchmark_v1.py`.
+  `--status` prints a human-readable closure progress table (manifest, gap-fill
+  targets, token export, latest run, residual blockers, suggested next step).
+  `--export-tokens` materialises the 39 priority-1 token IDs from the gap-fill
+  targets manifest to `config/benchmark_v1_priority1_tokens.txt` (one per line)
+  and `config/benchmark_v1_priority1_tokens.json`. Both flags are read-only,
+  idempotent, and safe without Docker/ClickHouse. Token export confirmed: 39
+  tokens written. Canonical operator runbook:
+  `docs/runbooks/BENCHMARK_CLOSURE_RUNBOOK.md` (7 resumable steps).
+  17 new offline tests (all passing). See spec
+  `docs/specs/SPEC-benchmark-closure-operator-readiness-v0.md` and dev log
+  `docs/dev_logs/2026-03-17_benchmark_closure_operator_readiness_v0.md`.
+  Real operator attempt executed on 2026-03-17 from branch `phase-1`.
+  Docker came up successfully enough for `polytool-clickhouse` to report
+  healthy, and `--status` confirmed `config/benchmark_v1_new_market_capture.targets.json`
+  already exists locally. The first live attempt stopped at
+  `python -m polytool fetch-price-2min --token-file config/benchmark_v1_priority1_tokens.txt`
+  with Windows stdout `UnicodeEncodeError` on `\\u2192`; that console bug is
+  fixed and regression-tested (`test_stdout_encodable_as_cp1252`). Resumed live
+  attempt artifact root:
+  `artifacts/benchmark_closure/live_attempt_resume_2026-03-17_210038`.
+  The resumed live fetch succeeded for the priority-1 export, processing 38
+  unique token IDs from the 39-line file (one duplicated token) and inserting
+  `149626` rows into `polytool.price_2min`. The next real blocker is
+  downstream in the Silver closure / refresh path:
+  `python -m polytool close-benchmark-v1 --skip-new-market ...` ended blocked,
+  `config/benchmark_v1.tape_manifest` was not created, and stderr recorded
+  repeated `price_2min: ClickHouse query failed: 400 ...` plus
+  `jon: missing required columns. token_col=None ts_col=timestamp ...` while
+  refresh fell back to `config/benchmark_v1.gap_report.json`.
+  See `docs/dev_logs/2026-03-17_benchmark_closure_live_attempt.md`,
+  `docs/dev_logs/2026-03-17_benchmark_closure_live_attempt_resume.md`, and
+  `docs/dev_logs/2026-03-17_fetch_price_2min_windows_stdout_fix.md`.
+- **Silver input compatibility fix** (2026-03-18): Two root-cause bugs in
+  `packages/polymarket/silver_reconstructor.py` that blocked the Silver closure
+  path are now fixed: (1) `_real_fetch_price_2min()` was calling
+  `toDateTime('{ISO string}')` which ClickHouse rejects with HTTP 400 —
+  replaced with `toDateTime({int(epoch)})`. (2) `_real_fetch_jon_fills()` used
+  `_JON_TOKEN_CANDIDATES = ["asset_id", ...]` which does not match the real
+  Jon-Becker maker/taker dataset schema (`maker_asset_id` + `taker_asset_id`);
+  now detects the maker/taker pair and issues an OR query. 13 new regression
+  tests added in `tests/test_silver_input_compatibility.py`. 145 existing Silver
+  tests still pass. Two resumed live closure attempts were then tried on
+  2026-03-18, followed by a Docker Desktop recovery/verification pass on
+  2026-03-18/2026-03-19. The in-sandbox Codex account
+  (`desktop-6l73imi\\codexsandboxoffline`) saw `docker version`,
+  `docker info`, `docker compose ps`, `wsl --status`, and `wsl -l -v` fail
+  with access denied, which initially looked like a local Docker Desktop
+  outage. A second verification outside the sandbox as the real Windows user
+  (`desktop-6l73imi\\patel`) showed Docker Desktop healthy: `docker version`
+  returned both client and server, `docker info` reported Docker Desktop
+  4.52.0 / Engine 29.0.1, `wsl --status` reported default distro
+  `docker-desktop`, and `wsl -l -v` showed `docker-desktop` running under
+  WSL2. `docker compose ps` succeeded but showed no running compose services,
+  and read-only `python -m polytool close-benchmark-v1 --status` still reports
+  residual shortages in `politics` (9), `sports` (11), `crypto` (10),
+  `near_resolution` (9), and `new_market` (5), with
+  `config/benchmark_v1.tape_manifest` still missing. This establishes that the
+  earlier Docker failure was a Codex sandbox permissions boundary, not a broken
+  Docker Desktop installation or WSL backend. See
+  `docs/dev_logs/2026-03-18_silver_input_compatibility_fix.md`,
+  `docs/dev_logs/2026-03-18_benchmark_closure_resume_after_silver_fix.md`,
+  `docs/dev_logs/2026-03-18_benchmark_closure_after_docker_recovery.md`, and
+  `docs/dev_logs/2026-03-18_docker_desktop_engine_recovery_attempt.md`.
+- **ClickHouse auth propagation fix — Stage 2 complete** (2026-03-18 +
+  2026-03-19): The `AUTHENTICATION_FAILED` (HTTP 516) bug that blocked Stage 2
+  Silver gap-fill has been fully resolved across all Stage 2 CLI entrypoints.
+  The 2026-03-18 patch fixed `close_benchmark_v1.main()` and
+  `batch_reconstruct_silver.main()` but missed `fetch_price_2min.main()`,
+  which still silently fell back to `"polytool_admin"` as the ClickHouse
+  password when neither `--clickhouse-password` nor `CLICKHOUSE_PASSWORD` env
+  was set (via `os.environ.get("CLICKHOUSE_PASSWORD", "polytool_admin")`).
+  The 2026-03-19 follow-up: (1) removed the `"polytool_admin"` fallback from
+  `fetch_price_2min.main()` — now fail-fast with `if not ch_password`; (2)
+  strengthened the existing fail-fast guards in `close_benchmark_v1.main()`
+  and `batch_reconstruct_silver.main()` from `if ch_password is None` to
+  `if not ch_password` to catch empty-string exports (`CLICKHOUSE_PASSWORD=""`).
+  Four new regression tests in `test_fetch_price_2min.py`
+  (`TestFetchPrice2MinAuthFailFast`) and one each in `test_close_benchmark_v1.py`
+  and `test_batch_silver.py` (`test_empty_string_password_returns_1`). All
+  six new tests pass; 113 tests across the three affected files pass with no
+  regressions. See dev logs
+  `docs/dev_logs/2026-03-18_clickhouse_auth_propagation_fix.md` and
+  `docs/dev_logs/2026-03-19_clickhouse_auth_stage2_fix.md`.
+- **Silver stage read-auth fix** (2026-03-19): Two remaining structural gaps in the
+  benchmark closure orchestrator are now fixed. (1) `_check_clickhouse` now sends
+  `Authorization: Basic <base64(user:password)>` with every probe request, so
+  preflight no longer reports CH unavailable on a healthy credential-protected instance.
+  (2) `run_preflight` now accepts and forwards `clickhouse_user`/`clickhouse_password`
+  to `_check_clickhouse`, making the preflight CH probe structurally consistent with
+  Stage 2's authenticated access. (3) `run_silver_gap_fill_stage` now bubbles per-target
+  failure details (`token_id`, `bucket`, `slug`, `error`) from `run_batch_from_targets`
+  outcomes into `batch_reconstruct["failed_targets"]` in the orchestrator artifact for
+  direct triage without digging into the full batch artifact. Three new regression tests
+  added (`TestPreflightCredentialConsistency`): auth header sent, credentials forwarded,
+  failed targets surfaced. 116 tests across the three affected files pass.
+  See dev log `docs/dev_logs/2026-03-19_silver_stage_read_auth_fix.md`.
+- **Direct Silver gap-fill diagnosis, resumed with a 3-target probe**
+  (2026-03-19): The first same-day real-shell attempt was blocked before Docker
+  startup because `CLICKHOUSE_PASSWORD` was empty in the shell environment; see
+  `docs/dev_logs/2026-03-19_silver_gap_fill_direct_diagnosis.md`. After
+  re-supplying the password, a constrained 3-target follow-up probe ran under
+  `artifacts/silver/manual_gap_fill_probe3_20260319_190329/` and wrote a real
+  `gap_fill_run.json`. Politics
+  (`100-tariff-on-canada-in-effect-by-june-30`), sports
+  (`2025-2026-epl-winner-more-than-90-points`), and crypto
+  (`another-crypto-hack-over-100m-before-2027`) all finished with
+  `status=success`, but all three share the same degraded success class:
+  `reconstruction_confidence=low`, `fill_count=0`, and event tapes comprised
+  only `price_2min_guide` entries because no pmxt anchor snapshot and no
+  Jon-Becker fills were found for their windows. This clears the "hard failure"
+  hypothesis for the sampled politics / sports / crypto buckets, but it does
+  not yet prove that `benchmark_v1` is blocked only by `new_market`; the full
+  gap-fill manifest and the `near_resolution` bucket still need live
+  confirmation. See dev log
+  `docs/dev_logs/2026-03-19_silver_probe3_diagnosis.md`.
+- **Gap-fill summarizer** (2026-03-20): Read-only diagnostic CLI
+  `summarize-gap-fill` shipped. Loads any `benchmark_gap_fill_run_v1` artifact
+  and prints totals, per-bucket breakdown (success/failure/skip + confidence
+  distribution), normalized warning and error classes, success class
+  classification (price_2min_only vs. has_fills, etc.), metadata write summary,
+  benchmark refresh outcome, and artifact paths. `--json` flag emits
+  machine-readable output. No network, no ClickHouse, no writes.
+  Smoke-tested against both the probe-3 (3-target) and full (120-target) real
+  artifacts. Key findings from full-manifest run:
+  all 4 non-new-market buckets produced tapes with 0 hard failures;
+  80/120 tapes are `confidence=none` (empty, `price_2min_missing` +
+  `pmxt_anchor_missing` + `jon_fills_missing`); 40/120 are `confidence=low`
+  (price_2min_only). CLI: `python -m polytool summarize-gap-fill --path <path>`.
+  35 offline tests passing.
+  See spec `docs/specs/SPEC-summarize-gap-fill-v0.md` and dev log
+  `docs/dev_logs/2026-03-20_gap_fill_summarizer_v0.md`.
+- Gate 2 is not closed, but benchmark_v1 is now closed as of 2026-03-21.
+  After the same-day new-market capture retries, a finalization check stopped
+  the hanging live process, confirmed the recorded `artifacts/tapes/new_market`
+  tapes on disk, and showed why plain `benchmark-manifest` still blocked:
+  default `inventory_roots` excluded `artifacts/tapes/new_market`. Re-running
+  `benchmark-manifest` with explicit roots for `artifacts/simtrader/tapes`,
+  `artifacts/silver`, and `artifacts/tapes/new_market` wrote
+  `config/benchmark_v1.tape_manifest` and `config/benchmark_v1.lock.json`.
+  Validation passed with bucket counts
+  `politics=10, sports=15, crypto=10, near_resolution=10, new_market=5`, so
+  the benchmark is closed and the next work can move to Gate 2 scenario sweep.
+- Opportunity Radar: deferred until after the first clean Gate 2 -> Gate 3
+  progression
+
+## Phase 1B — Gate 2 Benchmark Sweep Tooling Complete (2026-03-26)
+
+Gate 2 sweep tooling is now complete. The following changes landed on
+2026-03-26:
+
+- **`tools/gates/mm_sweep.py`** — extended `_build_tape_candidate` with full
+  metadata fallback chain for YES asset ID extraction:
+  `prep_meta.json` → `meta.json` context extraction → `watch_meta.json`
+  (`yes_asset_id`) → `market_meta.json` (`token_id`) → `silver_meta.json`
+  (`token_id`). Bucket derivation reads `watch_meta.bucket` or
+  `market_meta.benchmark_bucket`. All 50 benchmark_v1 tapes (Gold new_market
+  + Silver buckets) can now be swept without YES-token lookup failures.
+  Added `bucket` field to `TapeCandidate` dataclass.
+  Added `bucket_breakdown` dict to gate JSON payload when bucket metadata is
+  present.
+  Added `gate_summary.md` Markdown artifact alongside `gate_passed.json` /
+  `gate_failed.json`, with per-bucket table and per-tape verdict rows.
+
+- **`tools/gates/close_mm_sweep_gate.py`** — added `--benchmark-manifest`
+  flag. When passed, overrides `--tapes-dir` and `--manifest` and runs the
+  full 50-tape sweep. Command:
+  `python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/benchmark_v1.tape_manifest --out artifacts/gates/mm_sweep_gate`
+
+- **`tests/test_mm_sweep_gate.py`** — 7 new tests covering `watch_meta`,
+  `market_meta`, `silver_meta` fallbacks, `bucket_breakdown` presence and
+  absence, CLI `--benchmark-manifest` flag, and Markdown summary writing.
+  12 total tests pass (0.43s); 0 failed.
+
+- **`docs/specs/SPEC-phase1b-gate2-shadow-packet.md`** — Phase 1B spec:
+  Gate 2 criteria (>= 70%), artifact contract (bucket_breakdown schema),
+  Gate 3 criteria and promotion path.
+
+- **`docs/runbooks/GATE3_SHADOW_RUNBOOK.md`** — full Gate 3 operator runbook:
+  prerequisites, safety invariants, shadow session commands, artifact checks,
+  gate_passed.json authoring, abort criteria.
+
+**Gate 2 execution result (2026-03-26): NOT_RUN — corpus insufficient**
+
+Gate 2 was run on 2026-03-26 against `config/benchmark_v1.tape_manifest`.
+Verdict: **NOT_RUN** — only 10/50 tapes meet `min_events=50` threshold;
+41 tapes skipped as SKIPPED_TOO_SHORT. Gate requires at least 50 eligible
+tapes to compute a valid verdict. `gate_failed.json` has been cleared.
+
+Diagnostic run on 2026-03-26 confirms:
+- 41/50 tapes: SKIPPED_TOO_SHORT (effective_events < 50)
+- 9/50 tapes: RAN_ZERO_PROFIT / no_touch — strategy does quote but spreads
+  are never crossed on these near_resolution Silver tapes
+- 0 fills across all 9 qualifying tapes
+- Fill opportunity classification: all 9 are "no_touch" (strategy quoted,
+  market never crossed the spread in replay)
+
+Root cause of NOT_RUN: the benchmark_v1 corpus consists primarily of
+short Silver tapes (reconstructed from price_2min only, no pmxt/JB fills)
+with insufficient event density. The 5 Gold new_market tapes have 1-3
+effective events each after deduplication.
+
+Code changes included in this session (2026-03-26):
+- **`tools/gates/mm_sweep.py`** — added `min_eligible_tapes` parameter
+  (default=50); NOT_RUN branch returns `gate_payload=None` and clears old
+  artifacts when eligible tape count is below threshold.
+- **`tools/gates/close_mm_sweep_gate.py`** — NOT_RUN exits 0 (not 1);
+  added `--min-eligible-tapes` CLI argument.
+- **`tools/cli/simtrader.py`** — NOT_RUN exits 0; added `--min-eligible-tapes`.
+- **`tools/gates/mm_sweep_diagnostic.py`** — new per-tape root cause diagnostic
+  tool. Run with `--benchmark-manifest config/benchmark_v1.tape_manifest`.
+- **`docs/specs/SPEC-0012`** — updated §2 to declare `market_maker_v1` as
+  canonical Phase 1 strategy (authority conflict resolved).
+- **`docs/ARCHITECTURE.md`** — updated 3 occurrences from `market_maker_v0`
+  to `market_maker_v1`.
+
+Gate 2 artifacts:
+- `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md` — per-tape
+  breakdown (50 tapes: 41 SKIPPED_TOO_SHORT, 9 RAN_ZERO_PROFIT, all no_touch)
+- No `gate_failed.json` or `gate_passed.json` (NOT_RUN clears old artifacts)
+
+**Gate 3**: NOT RUN. Gate 2 must PASS first per spec.
+
+**Next action**: Acquire longer, higher-quality tapes to meet the 50-tape
+eligible corpus requirement. Options: (a) lower `min_events` threshold with
+justification, (b) record longer Gold tapes via shadow mode, (c) reconstruct
+Silver tapes with pmxt+JB data for buckets that have historical coverage.
+See dev log `docs/dev_logs/2026-03-26_phase1b_recovery_root_cause.md`
+and `artifacts/gates/mm_sweep_gate/diagnostic/diagnostic_report.md`.
+
+## Phase 1B — Corpus Recovery Tooling (2026-03-26)
+
+Recovery corpus tooling is now complete. The following changes landed on
+2026-03-26 as quick-027:
+
+- **`docs/specs/SPEC-phase1b-corpus-recovery-v1.md`** — Authoritative contract
+  for the recovery corpus. Defines admission rules (min_events=50, tier
+  preference Gold>Silver, 5-bucket quotas: politics=10, sports=15, crypto=10,
+  near_resolution=10, new_market=5), manifest versioning policy, Gate 2 rerun
+  preconditions, and success/failure artifact contracts. benchmark_v1 files
+  are explicitly preserved as immutable.
+
+- **`tools/gates/corpus_audit.py`** — Scans tape inventory across configurable
+  tape roots, applies admission rules, and writes either
+  `config/recovery_corpus_v1.tape_manifest` (exit 0, corpus qualified) or
+  `artifacts/corpus_audit/shortage_report.md` (exit 1, corpus insufficient).
+  CLI: `python tools/gates/corpus_audit.py --tape-roots <dir> --out-dir
+  artifacts/corpus_audit --manifest-out config/recovery_corpus_v1.tape_manifest`
+
+- **`tests/test_corpus_audit.py`** — 6 TDD tests covering all admission rule
+  paths: accepted tape, too_short rejection, no_bucket_label rejection, quota
+  cap enforcement, shortage report writing on insufficient corpus, manifest
+  writing on qualified corpus. All 6 pass; full suite 2662 passed.
+
+- **`artifacts/corpus_audit/shortage_report.md`** — Current shortage: 10/50
+  tapes qualify (1 politics Gold + 9 near_resolution Silver). Exact need per bucket:
+  crypto=10, near_resolution=1, new_market=5, politics=9, sports=15.
+
+- **`artifacts/corpus_audit/phase1b_residual_shortage_v1.md`** — Definitive
+  operator guide (quick-028): corpus state table, why live capture is the only path,
+  exact shadow capture commands per bucket (sports=15, politics=9, crypto=10,
+  new_market=5, near_resolution=1), resume instructions, Gate 2/3 command reference.
+
+- **`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`** — Step-by-step operator
+  guide: prerequisites, shortage check, shadow capture command (600s minimum,
+  market_maker_v1 strategy, --record-tape), post-capture validation,
+  resumability workflow, bucket targeting guide, stopping condition.
+
+**Gate 2 recovery path status (2026-03-27): corpus 10/50 — SHORTAGE**
+
+Recovery corpus audit: 137 tapes scanned, 10 accepted (1 politics Gold +
+9 near_resolution Silver), 127 rejected. All 5 buckets must be covered.
+Gate 2 rerun is blocked until corpus_audit.py exits 0.
+
+quick-028 (2026-03-27): salvaged 1 politics Gold tape by injecting
+`market_meta.json` and `watch_meta.json` into
+`artifacts/simtrader/tapes/20260226T181825Z_shadow_10167699/`. Silver
+reconstruction is exhausted; all remaining 40 tapes require live Gold
+shadow captures.
+
+**Definitive shortage packet**: `artifacts/corpus_audit/phase1b_residual_shortage_v1.md`
+— exact capture commands per bucket, resume instructions, Gate 2/3 reference.
+
+**Next action**: Capture Gold shadow tapes using
+`docs/runbooks/CORPUS_GOLD_CAPTURE_RUNBOOK.md`. Remaining shortage:
+sports=15, politics=9, crypto=10, new_market=5, near_resolution=1
+(total 40 tapes). When corpus_audit exits 0, manifest is written and
+Gate 2 rerun is unblocked:
+`python tools/gates/close_mm_sweep_gate.py --benchmark-manifest config/recovery_corpus_v1.tape_manifest --out artifacts/gates/mm_sweep_gate`
+
+benchmark_v1 files (tape_manifest, lock.json, audit.json) are unchanged.
+
+## Track 2 / Phase 1A — Crypto Pair Bot (2026-03-23)
+
+Phase 1A (Track 2, crypto pair bot) code and infrastructure are shipped as of
+2026-03-23. The primary deliverables:
+
+**Strategy pivot history:** Original pair-cost accumulation thesis (quick-019)
+was replaced by per-leg target_bid gate in quick-046, then fully rebuilt as
+directional momentum strategy (quick-049) based on gabagool22 wallet analysis
+(quick-048). The accumulation_engine.py module now implements MomentumConfig and
+evaluate_directional_entry() rather than a pair-cost ceiling check.
+
+- **Accumulation engine** (`packages/polymarket/crypto_pairs/accumulation_engine.py`):
+  Originally: YES + NO pair accumulation below pair-cost ceiling (pre-quick-046
+  behavior, now superseded). Current strategy: directional momentum entries via
+  evaluate_directional_entry() (quick-049). Favorite leg fills at ask <=
+  max_favorite_entry (0.75); hedge leg fills only if ask <= max_hedge_price (0.20).
+  Momentum trigger: 0.3% price move in 30s Coinbase reference window.
+  Kill switch, daily loss cap, max open pairs, max unpaired exposure window remain.
+- **Reference feed** (`packages/polymarket/crypto_pairs/reference_feed.py`):
+  BTC/ETH/SOL price feed with injectable provider selection. Supports Binance
+  WebSocket (`BinanceFeed`), Coinbase WebSocket (`CoinbaseFeed`), and automatic
+  fallback (`AutoReferenceFeed`: Binance primary, Coinbase fallback). Provider
+  selected via `--reference-feed-provider binance|coinbase|auto`. Safety state
+  machine: `CONNECTED`, `DISCONNECTED`, `NEVER_CONNECTED`; stale threshold 15s.
+- **Fair value** (`packages/polymarket/crypto_pairs/fair_value.py`):
+  Pair-cost calculation and threshold evaluation.
+- **Live execution** (`packages/polymarket/crypto_pairs/live_execution.py`):
+  Order routing and fill simulation (paper mode).
+- **Live runner** (`packages/polymarket/crypto_pairs/live_runner.py`):
+  Main run loop; emits Track 2 event objects; writes JSONL artifacts and
+  ClickHouse events on finalization.
+- **Event models** (`packages/polymarket/crypto_pairs/event_models.py`):
+  7 Track 2 event types, ClickHouse projection contract.
+- **ClickHouse sink** (`packages/polymarket/crypto_pairs/clickhouse_sink.py`):
+  Optional projection target; disabled by default; enabled with `--sink-enabled`.
+- **ClickHouse table** (`infra/clickhouse/initdb/26_crypto_pair_events.sql`):
+  `polytool.crypto_pair_events` — `ReplacingMergeTree`, `ORDER BY (run_id,
+  event_type, event_ts, event_id)`. `grafana_ro` SELECT grant already present.
+- **CLI**: `python -m polytool crypto-pair-run --duration-seconds 86400 --sink-enabled`
+- **Reporting CLI**: `python -m polytool crypto-pair-report` (artifact analysis)
+- **Grafana dashboard** (`infra/grafana/dashboards/polyttool_crypto_pair_paper_soak.json`):
+  12 panels matching the paper-soak runbook. Auto-provisioned at
+  `docker compose up -d`. UID: `polytool-crypto-pair-paper-soak`.
+  Datasource: `ClickHouse` (UID `clickhouse-polytool`). Default range: `now-7d`.
+  Panels: Paper Soak Scorecard, Run Summary Funnel, Maker Fill Rate Floor,
+  Partial-Leg Incidence, Active Pairs, Pair Cost Distribution, Estimated Profit
+  Per Completed Pair, Net Profit Per Settlement, Cumulative Net PnL, Daily
+  Trade Count, Feed State Transition Counts, Recent Feed Safety Events.
+- **Paper soak runbook**: `docs/runbooks/CRYPTO_PAIR_PAPER_SOAK_RUNBOOK.md`
+- **Rubric spec**: `docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`
+- **Feature docs**: `docs/features/FEATURE-crypto-pair-runner-v0.md`,
+  `docs/features/FEATURE-crypto-pair-clickhouse-sink-v0.md`,
+  `docs/features/FEATURE-crypto-pair-grafana-panels-v0.md` (query pack),
+  `docs/features/FEATURE-crypto-pair-grafana-panels-v1.md` (provisioned dashboard)
+
+**Track 2 paper soak: BLOCKED — awaiting active markets and full soak**
+(status as of 2026-03-29, updated quick-053).
+
+Quick-047 audit declared the pre-quick-049 strategy ready for paper soak.
+That status is superseded by the quick-049 pivot to directional momentum. The 10-min paper soak run in quick-049 returned 0
+intents because no active BTC/ETH/SOL 5m/15m markets exist on Polymarket as of
+2026-03-29 and static market prices did not clear the 0.3% momentum threshold.
+A full 24h soak with real momentum signals has not been run and the rubric has
+not been applied.
+
+BTC/ETH/SOL 5m markets were briefly confirmed active 2026-03-29 during Gate 2
+capture (quick-045); use `python -m polytool crypto-pair-watch --one-shot` to
+verify current availability before any run.
+
+Coinbase feed confirmed working (quick-023/026). Binance is geo-restricted per
+quick-022; use `--reference-feed-provider coinbase` for this machine.
+
+**Live deployment blockers (as of 2026-03-29):**
+1. No active BTC/ETH/SOL 5m/15m markets on Polymarket. Use
+   `python -m polytool crypto-pair-watch --one-shot` to check.
+2. No full paper soak with real momentum signals. Must complete a 24h soak
+   on a live market and pass the promote rubric
+   (`docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`) before considering live.
+3. Oracle mismatch concern: Polymarket's bracket resolution uses the Chainlink
+   oracle (on-chain), while the reference feed uses Coinbase WebSocket prices.
+   Divergence between the two sources on short 5m brackets has not been measured
+   or validated.
+4. Deployment environment: home internet latency assumptions from earlier
+   development are not confirmed adequate for maker-fill timing. EU VPS is
+   the likely deployment target; infra not yet set up.
+5. In-memory cooldown: `_entered_brackets` resets on runner restart.
+   Acceptable for paper mode; must be reviewed before live capital.
+
+(Command valid once blockers above are cleared.)
+
+Definitive 24h paper soak launch command:
+
+```powershell
+$env:CLICKHOUSE_PASSWORD = "polytool_admin"
+python -m polytool crypto-pair-run `
+  --duration-hours 24 `
+  --cycle-interval-seconds 30 `
+  --reference-feed-provider coinbase `
+  --heartbeat-minutes 30 `
+  --auto-report `
+  --sink-enabled
+```
+
+Artifacts land in `artifacts/tapes/crypto/paper_runs/`. Runbook:
+`docs/runbooks/CRYPTO_PAIR_PAPER_SOAK_RUNBOOK.md`. After the run finalizes,
+open the Grafana dashboard at `http://localhost:3000/d/polytool-crypto-pair-paper-soak`
+and apply the promote / rerun / reject rubric from
+`docs/specs/SPEC-crypto-pair-paper-soak-rubric-v0.md`.
+
+Previous blocker records: Binance HTTP 451 geo-restriction unblocked via
+Coinbase fallback feed (quick-026, dev log
+`docs/dev_logs/2026-03-26_phase1a_coinbase_feed_fallback.md`).
+
+---
+
+
+---
+
+> **Historical details** (pre-Phase-1 implementation records) moved to `docs/archive/CURRENT_STATE_HISTORY.md`.
+
+## RIS v1 Data Foundation (quick-055, 2026-04-01)
+
+Lightweight SQLite persistence layer for `external_knowledge` RAG partition shipped.
+Modules: `packages/polymarket/rag/knowledge_store.py`, `packages/polymarket/rag/freshness.py`.
+Config: `config/freshness_decay.json`. Tests: `tests/test_knowledge_store.py`.
+
+**Authority conflict (RESOLVED, quick-260407-lpr):** PLAN_OF_RECORD Section 0 now
+carries a narrow exception: Tier 1 free cloud APIs (Gemini Flash, DeepSeek V3) are
+authorized for RIS evaluation gate scoring only. Cloud providers are NOT yet
+implemented in code (`providers.py` has `manual` and `ollama` only;
+`RIS_ENABLE_CLOUD_PROVIDERS` env var has no effect). The knowledge store provider
+abstraction (`_llm_provider`) is wired but cloud execution remains disabled until
+the provider implementations ship.
+
+This is a data-plane addition. It does not change live trading, SimTrader, gates,
+or benchmark artifacts.
+
+## RIS Phase 2 — Corpus Seeding and Extractor Benchmark (quick-260401-nzz, 2026-04-01)
+
+Manifest-driven batch seeder and extractor benchmark harness added to the RIS v1 pipeline.
+
+**New modules:**
+- `packages/research/ingestion/seed.py` — `SeedEntry`, `SeedManifest`, `SeedResult`,
+  `load_seed_manifest()`, `run_seed()`. Seeds knowledge store from JSON manifest with stable
+  deterministic IDs and authoritative `source_family` tagging.
+- `packages/research/ingestion/benchmark.py` — `ExtractorMetric`, `BenchmarkResult`,
+  `run_extractor_benchmark()`. Compares extractor outputs on a fixture set, writes
+  `benchmark_results.json` artifact.
+
+**Extended modules:**
+- `packages/research/ingestion/extractors.py` — added `MarkdownExtractor` (delegates to
+  PlainTextExtractor), `StubPDFExtractor` (raises NotImplementedError; docling/marker/pymupdf4llm),
+  `StubDocxExtractor` (raises NotImplementedError; python-docx), `EXTRACTOR_REGISTRY`,
+  `get_extractor()` factory.
+- `packages/research/ingestion/__init__.py` — exports all new symbols.
+
+**New CLIs:**
+- `python -m polytool research-seed --manifest config/seed_manifest.json --db :memory: --no-eval`
+- `python -m polytool research-benchmark --fixtures-dir tests/fixtures/ris_seed_corpus --extractors plain_text,markdown --json`
+
+**Seed manifest:** `config/seed_manifest.json` — 11 entries (8 RAGfiles + 3 roadmap docs),
+all `source_family="book_foundational"` (null half-life). Smoke test confirmed 11/11 ingested.
+
+**Tests:** 52 new tests (18 seed + 34 extractor/benchmark). 3012 total passing, 0 failed.
+
+**Fixture:** `tests/fixtures/ris_seed_corpus/sample_structured.pdf.txt` (prediction market fee
+structures reference text for benchmark determinism).
+
+**Not changed:** live execution, SimTrader, OMS, risk manager, ClickHouse schema, gate files,
+benchmark manifests. PDF/DOCX extraction remains stubbed — no external lib added.
+
+See `docs/features/FEATURE-ris-v2-seed-and-benchmark.md` and
+`docs/dev_logs/2026-04-01_ris_phase2_seed_and_extractor_benchmark.md`.
+
+## RIS Phase 2 — Operator Feedback Loop and Richer Query Integration (260401-o1q, 2026-04-01)
+
+Lifecycle event recording, enriched knowledge store queries, and CLI subcommands added.
+
+**Ledger schema v2** (`packages/research/synthesis/precheck_ledger.py`):
+- Schema bumped to `precheck_ledger_v2`. Old v0/v1 entries remain readable.
+- `append_override(precheck_id, override_reason, ledger_path)` — records `event_type="override"`
+- `append_outcome(precheck_id, outcome_label, outcome_date, ledger_path)` — records `event_type="outcome"`, labels: `successful/failed/partial/not_tried`
+- `get_precheck_history(precheck_id, ledger_path)` — all events for a precheck ID sorted ascending
+- `list_prechecks_by_window(start_iso, end_iso, ledger_path)` — events within a time window
+
+**PrecheckResult lifecycle fields** (`packages/research/synthesis/precheck.py`):
+- Added `was_overridden`, `override_reason`, `outcome_label`, `outcome_date` with defaults.
+- Not populated by `run_precheck()` — for downstream hydration from ledger history.
+
+**Enriched query output** (`packages/research/ingestion/retriever.py`):
+- `query_knowledge_store_enriched()` — returns claims augmented with `provenance_docs`,
+  `contradiction_summary`, `is_contradicted`, `staleness_note`, `lifecycle`
+- `format_enriched_report()` — structured multi-line report string per claim
+
+**CLI subcommands** (`tools/cli/research_precheck.py`):
+- Refactored to argparse subparsers: `run` (backward compat), `override`, `outcome`, `history`, `inspect`
+- Backward compat: `research-precheck --idea "..."` (no subcommand) still works
+
+CLI usage examples:
+```
+python -m polytool research-precheck --idea "test"  # backward compat
+python -m polytool research-precheck run --idea "test" --no-ledger
+python -m polytool research-precheck override --precheck-id abc123 --reason "changed approach"
+python -m polytool research-precheck outcome --precheck-id abc123 --label successful
+python -m polytool research-precheck history --precheck-id abc123 --json
+python -m polytool research-precheck inspect --top-k 5
+```
+
+Tests: 26 new offline tests in `tests/test_ris_phase2_operator_loop.py`. 3012 total passing.
+
+## RIS Phase 2 — Query Spine Wiring (quick-260402-ivb, 2026-04-02)
+
+KnowledgeStore is now wired into the canonical `rag-query --hybrid` retrieval path as a
+third RRF source alongside Chroma vector search and FTS5 lexical search. This closes the
+"Chroma wiring" gap that was deferred in the RIS v1 data foundation plan.
+
+**Architecture:** Three-way `reciprocal_rank_fusion_multi()` merges ranked results from:
+1. Chroma vector search (`top_k_vector`, default 25 candidates)
+2. SQLite FTS5 lexical search (`top_k_lexical`, default 25 candidates)
+3. KnowledgeStore claims (`top_k_knowledge`, default 25 candidates)
+
+KS claims are pre-filtered by case-insensitive substring match on the query text before
+entering RRF. Claims with `freshness_modifier < min_freshness` are excluded. Contradicted
+claims carry a 0.5x `effective_score` penalty and rank lower in fusion.
+
+**New CLI flags on `rag-query`:**
+- `--knowledge-store PATH` — activate KS as third source; `default` resolves to `kb/rag/knowledge/knowledge.sqlite3`
+- `--source-family NAME` — filter KS claims by source family (e.g. `book_foundational`)
+- `--min-freshness FLOAT` — exclude KS claims below freshness threshold [0,1]
+- `--evidence-mode` — promote provenance/contradiction annotations to top-level keys in output
+- `--top-k-knowledge N` — KS candidate count for RRF (default 25)
+
+**Canonical query path:**
+```
+python -m polytool rag-query --question "..." --hybrid --knowledge-store default --evidence-mode
+```
+
+**Evidence-mode fields** promoted to top-level for KS-sourced results:
+`provenance_docs`, `contradiction_summary`, `staleness_note`, `lifecycle`, `is_contradicted`
+
+Files changed: `packages/polymarket/rag/lexical.py` (added `reciprocal_rank_fusion_multi`),
+`packages/polymarket/rag/query.py` (KS params + three-way fusion path),
+`packages/research/ingestion/retriever.py` (added `query_knowledge_store_for_rrf`),
+`tools/cli/rag_query.py` (5 new flags + evidence-mode logic).
+
+Tests: 25 new offline tests in `tests/test_ris_query_spine.py`. 3037 total passing.
+
+## RIS Phase 3 — Real Extractor Integration and Corpus Backfill (quick-260402-m6p, 2026-04-02)
+
+Stub extractors replaced with real implementations; structure-aware Markdown extractor
+added; benchmark harness enhanced with quality proxy metrics; reseed workflow wired.
+
+**StructuredMarkdownExtractor** (key: `"structured_markdown"`) is the primary extractor
+for the `docs/reference/` corpus. It parses heading structure, tables, and fenced code
+blocks and stores the counts in `ExtractedDocument.metadata`:
+
+| Metadata key      | What it captures                                            |
+|-------------------|-------------------------------------------------------------|
+| `sections`        | List of heading text strings (H1-H6)                        |
+| `section_count`   | Total heading count                                         |
+| `header_count`    | Same as section_count                                       |
+| `table_count`     | Pipe-delimited table blocks detected                        |
+| `code_block_count`| Fenced code block pairs (``` or ~~~)                        |
+
+Body text is returned unchanged — Markdown is preserved, not stripped.
+
+**PDFExtractor** (key: `"pdf"`) and **DocxExtractor** (key: `"docx"`) are real
+implementations using optional deps `pdfplumber` and `python-docx`. Both raise
+`ImportError` with `pip install` instructions at call-time when the dep is absent.
+No PDF or DOCX files exist in the corpus yet; extractors are wired for when they arrive.
+
+**StubPDFExtractor** and **StubDocxExtractor** are retained for backward compatibility
+but are no longer registered in `EXTRACTOR_REGISTRY`.
+
+**Seed manifest v3** (`config/seed_manifest.json`): all 11 entries have
+`"extractor": "structured_markdown"`. Auto-detect for `.md` files also resolves to
+`"structured_markdown"` by default.
+
+**Reseed CLI flag**: `python -m polytool research-seed --reseed` deletes existing
+docs by `source_url` before re-ingesting, allowing re-extraction with improved
+extractors without creating duplicates. Without `--reseed`, the seeder is idempotent
+(INSERT OR IGNORE semantics).
+
+**Benchmark quality proxy delta on real corpus** (8 files in `docs/reference/RAGfiles/`):
+
+| Extractor             | avg_section_count | avg_header_count | total_table_count |
+|-----------------------|-------------------|------------------|-------------------|
+| `plain_text`          | 0.0               | 0.0              | 0                 |
+| `structured_markdown` | 28.5              | 28.5             | 23                |
+
+Files changed: `packages/research/ingestion/extractors.py`,
+`packages/research/ingestion/benchmark.py`, `packages/research/ingestion/seed.py`,
+`packages/research/ingestion/__init__.py`, `config/seed_manifest.json`,
+`tools/cli/research_seed.py`.
+
+Tests: 42 new offline tests in `tests/test_ris_real_extractors.py`. 3110 total passing.
+Feature doc: `docs/features/FEATURE-ris-v3-real-extractors.md`.
+Dev log: `docs/dev_logs/2026-04-02_ris_phase3_real_extractor_and_backfill.md`.
+
+## RIS Phase 3 — Evaluation Gate Hardening (quick-260402-m6t, 2026-04-02)
+
+Deterministic pre-scoring layer added to the RIS evaluation gate. The pipeline is now:
+`hard_stops -> near_duplicate_check -> feature_extraction -> LLM_scoring -> artifact_persistence`.
+LLM scoring is still the primary quality signal; Phase 3 adds local-first guardrails and
+observability on top — without replacing or weakening it.
+
+**Feature extraction** (`packages/research/evaluation/feature_extraction.py`): per-family
+deterministic extractors using pure regex/text (no network). Families and key features:
+- `academic`: `has_doi`, `has_arxiv_id`, `has_ssrn_id`, `methodology_cues` count, `has_known_author`, `has_publish_date`
+- `github`: `stars`, `forks`, `has_readme_mention`, `has_license_mention`, `commit_recency`
+- `blog`/`news`: `has_byline`, `has_date`, `heading_count`, `paragraph_count`, `has_blockquote`
+- `forum_social`: `has_screenshot`, `has_data_mention`, `reply_count`, `specificity_markers`
+- `manual`/default: `body_length`, `word_count`, `has_url`
+
+**Near-duplicate detection** (`packages/research/evaluation/dedup.py`): two-pass — SHA256
+of normalized body for exact matches, then word 5-gram Jaccard similarity (threshold 0.85)
+for near-duplicates. Near-duplicates rejected before LLM scoring (no API tokens consumed).
+
+**Eval artifact persistence** (`packages/research/evaluation/artifacts.py`): opt-in JSONL
+artifact writer (`DocumentEvaluator(artifacts_dir=Path(...))`). One record per eval:
+gate, hard_stop_result, near_duplicate_result, family_features, scores, source metadata.
+CLI flag: `python -m polytool research-eval --artifacts-dir PATH --json`
+
+**Enhanced calibration analytics** (`packages/research/synthesis/calibration.py`):
+`compute_eval_artifact_summary()` returns gate_distribution, hard_stop_distribution,
+family_gate_distribution, dedup_stats, avg_features_by_family.
+`format_calibration_report()` gains "Hard-Stop Causes" and "Family Gate Distribution" sections.
+
+**SOURCE_FAMILY_OFFSETS hook** (`packages/research/evaluation/types.py`): empty dict;
+the designated future extension point for data-driven per-family credibility adjustments.
+Do not populate until >= 50 eval artifacts span >= 3 source families.
+
+Fully backward compatible: without new constructor params, evaluator behavior is identical
+to Phase 2.
+
+Tests: 47 new offline tests in `tests/test_ris_phase3_features.py`. 3111 total passing,
+4 pre-existing failures (require gitignored local dossier artifact files — unrelated to
+Phase 3 changes).
+
+See `docs/features/FEATURE-ris-phase3-gate-hardening.md` and
+`docs/dev_logs/2026-04-02_ris_phase3_gate_hardening.md`.
+
+## RIS Phase 4 — External Source Acquisition (quick-260402-ogu, 2026-04-02)
+
+Raw-source caching, adapter boundaries for three source families (academic/preprint,
+GitHub/repo, blog/news/article), metadata normalization with canonical IDs, and a
+CLI/callable path wiring fixture-backed external sources through the full adapter ->
+cache -> normalize -> eval -> store pipeline.
+
+**Core modules:**
+- `packages/research/ingestion/source_cache.py` — RawSourceCache with deterministic
+  SHA-256 source IDs; envelope format `{source_id, source_family, cached_at, payload}`;
+  disk layout `{cache_dir}/{family}/{source_id}.json`
+- `packages/research/ingestion/normalize.py` — NormalizedMetadata dataclass, URL
+  canonicalization, canonical ID extraction (DOI/arXiv/SSRN/GitHub repo), family-specific
+  normalize_metadata()
+- `packages/research/ingestion/adapters.py` — SourceAdapter ABC, AcademicAdapter,
+  GithubAdapter, BlogNewsAdapter, ADAPTER_REGISTRY, get_adapter()
+- `packages/research/ingestion/pipeline.py` — IngestPipeline.ingest_external() wires
+  adapter output into standard hard-stop -> eval gate -> chunk -> store pipeline
+
+**CLI extension:**
+```bash
+python -m polytool research-ingest \
+  --from-adapter tests/fixtures/ris_external_sources/arxiv_sample.json \
+  --source-family academic --no-eval --json
+```
+
+**Source families covered:** academic (arxiv/ssrn/book), github, blog, news.
+
+**Canonical IDs extracted:** doi, arxiv_id, ssrn_id, repo_url.
+
+**Fixtures:** `tests/fixtures/ris_external_sources/{arxiv,github,blog}_sample.json`
+
+Tests: 49 new offline tests in `tests/test_ris_phase4_source_acquisition.py`.
+2009 total passing, 1 pre-existing failure (unrelated claim_extractor work).
+
+See `docs/features/FEATURE-ris-phase4-source-acquisition.md` and
+`docs/dev_logs/2026-04-02_ris_phase4_source_acquisition.md`.
+
+## RIS Phase 4 — Claim Extraction and Evidence Linking (quick-260402-ogq, 2026-04-02)
+
+Heuristic claim extraction pipeline that populates `derived_claims`, `claim_evidence`,
+and `claim_relations` tables from already-ingested source documents. No LLM calls.
+
+**New modules:**
+- `packages/research/ingestion/claim_extractor.py` — `HeuristicClaimExtractor`,
+  `extract_claims_from_document()`, `build_intra_doc_relations()`, `extract_and_link()`
+- `tools/cli/research_extract_claims.py` — `research-extract-claims` CLI
+
+**Key design decisions:**
+- Idempotent via `_deterministic_created_at()`: claim IDs are stable across re-runs
+  by deriving `created_at` from `SHA-256(doc_id + sentence + chunk_id + extractor_id)`
+- Empirical regex requires 3+ digit numbers (`\b\d{3,}\b`) to avoid 2-digit numbers
+  (e.g., "20 bps") stealing priority from normative keyword classification
+- Evidence deduplication: checks for existing `(claim_id, source_document_id)` before
+  inserting (KnowledgeStore `add_evidence()` has no INSERT OR IGNORE)
+- `post_ingest_extract=True` on `IngestPipeline.ingest()` enables single-pass
+  ingest + extraction; failure is non-fatal
+
+**CLI usage:**
+```bash
+python -m polytool research-extract-claims --doc-id <DOC_ID>
+python -m polytool research-extract-claims --all
+python -m polytool research-extract-claims --all --dry-run
+python -m polytool research-extract-claims --all --json
+python -m polytool research-extract-claims --all --db-path artifacts/ris/knowledge.sqlite3
+```
+
+Tests: 56 new offline tests in `tests/test_ris_claim_extraction.py`. 3262 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase 4 section) and
+`docs/dev_logs/2026-04-02_ris_phase4_claim_extraction.md`.
+
+## RIS Social Ingestion v1 -- Reddit + YouTube (quick-260402-wj9, 2026-04-02)
+
+- Adds `RedditAdapter`, `YouTubeAdapter` to `ADAPTER_REGISTRY` in `packages/research/ingestion/adapters.py`
+- Adds `LiveRedditFetcher`, `LiveYouTubeFetcher`, `clean_transcript()` to `packages/research/ingestion/fetchers.py`
+- Both fetchers support offline `fetch_raw()` mode -- no PRAW or yt-dlp needed for tests
+- `research-acquire` CLI now accepts `--source-family reddit` and `--source-family youtube`
+- Twitter/X explicitly marked DEFERRED (no implementation, no implied support)
+  - Reason: $100/month API not justified pre-profit; free alternatives unreliable
+- 30 new offline tests in `tests/test_ris_social_ingestion.py` (all passing)
+- Total test count: 3405 passing, 0 failed, 3 deselected
+- See `docs/features/FEATURE-ris-social-ingestion-v1.md` for coverage table and setup notes
+
+## RIS_01 Academic Ingestion — Practical v1 Closure (quick-260402-wj3, 2026-04-02)
+
+- `LiveAcademicFetcher.search_by_topic(query, max_results=5)` — ArXiv Atom search API,
+  injectable `_http_fn`, returns `list[dict]`; accessible via `research-acquire --search`
+- `BookAdapter` added to `ADAPTER_REGISTRY["book"]` — stable canonical URL
+  `internal://book/{book_id}/{slug}` for curated book chapter ingestion
+- `canonicalize_url()` guard added for non-HTTP schemes (`internal://` now passes through
+  unchanged); fixes normalization crash on book canonical URLs
+- `IngestPipeline.ingest_external()` now accepts `post_ingest_extract=False` kwarg (same
+  non-fatal pattern as `ingest()`)
+- Both `research-ingest` and `research-acquire` CLIs expose `--extract-claims` flag
+- `research-acquire` exposes `--search QUERY` + `--max-results N` for ArXiv topic search
+- SSRN status documented truthfully as deferred (live scraper not implemented; URL-pattern
+  detection works when operator provides pre-built raw_source via `--from-adapter`)
+- 26 new offline tests in `tests/test_ris_academic_ingest_v1.py` (all passing)
+- See `docs/features/FEATURE-ris-academic-ingest-v1.md` and
+  `docs/dev_logs/2026-04-02_ris_r1_academic_ingestion_completion.md`
+
+## RIS Report Persistence and Catalog (quick-260402-xbt, 2026-04-02)
+
+Report persistence layer for the RIS synthesis engine. Reports are saved as
+markdown artifacts under `artifacts/research/reports/` with a JSONL index for
+list/search. Manual weekly-digest command generates summary digests from precheck
+and eval artifact data.
+
+- `packages/research/synthesis/report_ledger.py` -- ReportEntry, persist_report,
+  list_reports, search_reports, generate_digest
+- `tools/cli/research_report.py` -- save/list/search/digest subcommands
+- Storage: local-first JSONL index at `artifacts/research/reports/report_index.jsonl`
+- ClickHouse indexing: deferred (JSONL is sufficient for current operator scale)
+- APScheduler/n8n automation: deferred to RIS_06
+
+CLI:
+
+```
+python -m polytool research-report save --title "Market Edge Analysis" --body "Report content..."
+python -m polytool research-report list --window 7d
+python -m polytool research-report search --query "market maker"
+python -m polytool research-report digest --window 7
+```
+
+Tests: 21 new offline tests in `tests/test_ris_report_catalog.py`. 3334 total passing,
+0 failed.
+
+See `docs/features/FEATURE-ris-report-persistence.md` and
+`docs/dev_logs/2026-04-02_ris_r3_report_storage_and_catalog.md`.
+
+## RIS Query Planner, HyDE Expansion, and Combined Retrieval (quick-260402-xbj, 2026-04-03)
+
+Query-planning side of RIS_05 Synthesis Engine. Three new modules in
+`packages/research/synthesis/` enable multi-angle evidence retrieval for research
+briefs and prechecks.
+
+**New modules:**
+- `packages/research/synthesis/query_planner.py` — `QueryPlan` dataclass, `plan_queries()`:
+  topic -> 3-5 diverse retrieval queries via ANGLE_PREFIXES (deterministic) or LLM (Ollama).
+  Supports `include_step_back=True` for broader contextual query. Falls back to deterministic
+  when LLM returns unparseable JSON or raises.
+- `packages/research/synthesis/hyde.py` — `HydeResult` dataclass, `expand_hyde()`:
+  query -> hypothetical document passage (HyDE technique). Deterministic template fallback.
+- `packages/research/synthesis/retrieval.py` — `RetrievalPlan` dataclass, `retrieve_for_research()`:
+  multi-angle retrieval through existing `query_index()` RRF spine. Merges by chunk_id (highest
+  score), tracks `result_sources` dict, falls back to empty results if Chroma unavailable.
+
+**All three modules follow the existing provider pattern** (same as `precheck.py`):
+uses `get_provider()` with `was_fallback` tracking. Local providers (manual, ollama) work offline.
+
+**Key design note:** `get_provider` imported at module level so that `unittest.mock.patch`
+can intercept it in tests. Retrieval module uses a thin `query_index` wrapper at module level
+to defer Chroma import while remaining patchable.
+
+**Deferred:** semantic query dedup, parallel sub-query execution, multi-hop reasoning,
+cloud provider HyDE (RIS v2 deliverable).
+
+27 offline tests in `tests/test_ris_query_planner.py`. 3474 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-query-planner.md` and
+`docs/dev_logs/2026-04-03_ris_query_planner.md`.
+
+## RIS_05 Synthesis Engine v1 -- Deterministic Report and Precheck Synthesis (quick-260402-xbo, 2026-04-03)
+
+The deterministic synthesis layer for RIS_05 is shipped. `ReportSynthesizer` takes
+enriched claims from `query_knowledge_store_enriched()` and produces structured,
+cited research artifacts -- no LLM calls. LLM-based synthesis (DeepSeek V3) is deferred to v2.
+
+**New module:** `packages/research/synthesis/report.py`
+
+- `CitedEvidence` -- single cited evidence item with source attribution (source_doc_id,
+  source_title, source_type, trust_tier, confidence, freshness_note, provenance_url)
+- `ResearchBrief` -- structured report matching RIS_05 format with all sections:
+  summary, key_findings, contradictions, actionability, knowledge_gaps, cited_sources
+- `EnhancedPrecheck` -- parallel to PrecheckResult; GO/CAUTION/STOP with cited evidence
+  lists (supporting, contradicting), risk_factors, stale_warning, evidence_gap
+- `ReportSynthesizer.synthesize_brief(topic, claims)` -- sorts by effective_score,
+  top non-contradicted claims -> key_findings, contradicted -> contradictions section,
+  stale -> knowledge_gaps, strategy keywords -> actionability
+- `ReportSynthesizer.synthesize_precheck(idea, claims)` -- keyword-filters claims by
+  idea relevance, separates supporting vs contradicting, applies GO/CAUTION/STOP rules
+- `format_citation()`, `format_research_brief()`, `format_enhanced_precheck()` -- markdown renderers
+
+**Exports added to `packages/research/synthesis/__init__.py`:**
+`CitedEvidence`, `EnhancedPrecheck`, `ResearchBrief`, `ReportSynthesizer`,
+`format_citation`, `format_enhanced_precheck`, `format_research_brief`
+
+**Deferred (v2):** LLM-based synthesis (DeepSeek V3), multi-model citation verification,
+iterative orchestrator loop, weekly digest, CLI commands for report generation,
+report storage/catalog, ClickHouse report indexing, past failures search.
+
+21 offline tests in `tests/test_ris_report_synthesis.py`. 3474 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-synthesis-engine-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r3_report_and_precheck_synthesis.md`.
+
+## RIS Operator Stats and Metrics Export (quick-260403-1sg, 2026-04-03)
+
+Operator metrics surface for the RIS pipeline. `research-stats summary` and `research-stats export` are now operational.
+
+**New module:** `packages/research/metrics.py`
+
+- `RisMetricsSnapshot` dataclass -- all counts in one view (docs, claims, gate split, precheck decisions, reports, acquisition)
+- `collect_ris_metrics(...)` -- reads from KS SQLite, eval_artifacts.jsonl, precheck_ledger.jsonl, report_index.jsonl, acquisition_review.jsonl; no network, no ClickHouse
+- `format_metrics_summary(snapshot)` -- human-readable multi-line string with sections: Knowledge Store, Eval Gate, Prechecks, Reports, Acquisition
+
+**New CLI:** `research-stats`
+
+- `research-stats summary` -- print metrics snapshot (or --json for raw JSON)
+- `research-stats export` -- write `artifacts/research/metrics_snapshot.json` for Grafana Infinity plugin polling
+
+**Deferred:** ClickHouse write path, APScheduler integration for periodic export, pre-built Grafana dashboard JSON.
+
+15 offline deterministic tests in `tests/test_ris_ops_metrics.py`. 3489 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-ops-cli-and-metrics.md` and
+`docs/dev_logs/2026-04-03_ris_r4_ops_cli_and_metrics.md`.
+
+## RIS Monitoring and Health Checks (quick-260403-1sc, 2026-04-03)
+
+RIS operational visibility layer (R4) shipped. Pipeline run logs, health condition
+evaluation, and alert routing are now available.
+
+**New module:** `packages/research/monitoring/`
+
+- `run_log.py` -- `RunRecord` dataclass + JSONL append-only log (`append_run`, `list_runs`, `load_last_run`)
+- `health_checks.py` -- 6 health checks per RIS_06 spec: `pipeline_failed`, `no_new_docs_48h`,
+  `accept_rate_low`, `accept_rate_high`, `model_unavailable` (GREEN stub), `rejection_audit_disagreement`
+- `alert_sink.py` -- `LogSink` (default, no config) + `WebhookSink` (optional, needs URL) + `fire_alerts()`
+
+**New CLI:** `python -m polytool research-health [--json] [--window-hours N] [--run-log PATH]`
+
+- Loads run history, evaluates all 6 health checks, fires LogSink alerts for YELLOW/RED
+- `--json` outputs `{"checks": [...], "summary": "GREEN|YELLOW|RED|no_data", "run_count": N, "deferred_checks": [...]}`
+- Table output includes footer note when deferred checks present
+
+**Manual producer wiring (quick-260403-it1, 2026-04-03):** research-ingest and
+research-acquire now call append_run() automatically after every run. Operators
+running these commands manually will see their runs in research-health immediately.
+Deferred checks labeled `[DEFERRED]` in output -- GREEN = no data, not verified healthy.
+
+**Deferred:** ClickHouse ingestion_log table, Grafana panels,
+`model_unavailable` (requires provider event data), rejection audit wiring (requires audit runner).
+
+54 offline deterministic tests in `tests/test_ris_monitoring.py`. 0 new failures in regression.
+
+See `docs/features/FEATURE-ris-monitoring-health-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r4_monitoring_and_health.md`.
+
+## RIS Scheduler v1 (quick-260403-1s3, 2026-04-03)
+
+APScheduler background scheduler with 8 named jobs for automated RIS ingestion.
+Twitter/X deferred (no live fetcher yet).
+
+**New modules:**
+- `packages/research/scheduling/__init__.py` — package marker
+- `packages/research/scheduling/scheduler.py` — `JOB_REGISTRY` (8 jobs), `start_research_scheduler()`,
+  `run_job(job_id) -> int`; lazy APScheduler import inside `start_research_scheduler()` so
+  JOB_REGISTRY is always importable without APScheduler installed; injectable `_scheduler_factory`
+  and `_job_runner` for offline testing
+
+**Jobs registered (8):** academic_ingest (ArXiv, every 12h), reddit_polymarket (r/polymarket, every 6h),
+reddit_others (PredictionMarkets + Kalshi, daily 03:00), blog_ingest (3 feeds, every 4h),
+youtube_ingest (Mondays 04:00), github_ingest (Wednesdays 04:00),
+freshness_refresh (Sundays 02:00), weekly_digest (Sundays 08:00).
+
+**New CLI:** `research-scheduler`
+
+```
+python -m polytool research-scheduler status        # list 8 jobs, no APScheduler needed
+python -m polytool research-scheduler status --json # JSON list output
+python -m polytool research-scheduler start         # blocking scheduler loop (Ctrl-C to stop)
+python -m polytool research-scheduler start --dry-run
+python -m polytool research-scheduler run-job academic_ingest
+```
+
+**Install:** `pip install 'polytool[ris]'` (adds `apscheduler>=3.10.0,<4.0`)
+
+28 offline tests in `tests/test_ris_scheduler.py`. 3557 total passing, 0 failed.
+
+See `docs/features/FEATURE-ris-scheduler-v1.md` and
+`docs/dev_logs/2026-04-03_ris_scheduler_apscheduler.md`.
+
+## RIS SimTrader Bridge v1 (quick-260403-jyg, 2026-04-03)
+
+Practical v1 bridge between RIS research outputs and the hypothesis registry /
+simulator validation workflow. ResearchBrief and EnhancedPrecheck objects can now
+be converted to hypothesis candidates and registered in one function-call chain.
+Validation feedback hook lets SimTrader replay outcomes update claim validation
+status in the KnowledgeStore, closing the research-to-validation loop.
+
+**New module:** `packages/research/integration/`
+
+**Key functions:**
+- `brief_to_candidate(brief)` -- ResearchBrief -> hypothesis candidate dict
+- `precheck_to_candidate(precheck)` -- EnhancedPrecheck -> hypothesis candidate dict
+- `register_research_hypothesis(registry_path, candidate)` -- write JSONL registry event with `source.origin="research_bridge"` and full evidence_doc_ids provenance
+- `record_validation_outcome(store, hypothesis_id, claim_ids, outcome, reason)` -- maps `confirmed/contradicted/inconclusive` to `CONSISTENT_WITH_RESULTS / CONTRADICTED / INCONCLUSIVE` in the KnowledgeStore
+
+**KnowledgeStore addition:**
+- `update_claim_validation_status(claim_id, validation_status, actor)` -- updates SQLite `derived_claims` row; validates against `VALID_VALIDATION_STATUSES`
+
+**What is v1 (shipped):** manual bridge functions, deterministic, no LLM calls, no network, evidence provenance chain, 37 offline tests.
+
+**What remains deferred (R5 / v2):** auto-test orchestration loop, auto-hypothesis promotion, Discord approval integration, scheduled re-validation, LLM-enhanced hypothesis generation.
+
+37 new tests in `tests/test_ris_simtrader_bridge.py`. 3644 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-simtrader-bridge-v1.md` and
+`docs/dev_logs/2026-04-03_ris_r5_simtrader_bridge.md`.
+
+## RIS_07 Dev Agent Integration and Fast-Research Preservation (quick-260403-jyl, 2026-04-03)
+
+RIS_07 integration layer closed at practical v1 scope. CLAUDE.md now contains a
+Research Intelligence System section with dev-agent pre-build workflow (precheck ->
+query -> build) and fast-research preservation recipes (research-acquire for URLs,
+research-ingest --text for manual findings).
+
+**New/updated files:**
+- `CLAUDE.md` -- RIS section added with truthful CLI command references
+- `docs/features/FEATURE-ris-dev-agent-integration-v1.md` -- operator recipes, v2 deferred items
+
+**Integration tests:** 10 new tests in `tests/test_ris_integration_workflow.py`
+covering precheck round-trip, ingest-then-query, acquire dry-run, file ingest,
+and contradiction detection.
+
+**v2 deferred items (explicitly out of scope):**
+- Dossier-to-external-knowledge extraction (RIS_07 Section 1): **v1 shipped** — CLI + batch extract via research-dossier-extract. Auto-trigger via --extract-dossier also shipped (quick-260403-lim).
+- SimTrader auto-promotion loop (RIS_07 Section 3): bridge functions shipped (quick-260403-jyg), auto-hypothesis generation loop v2 deferred.
+- Auto-discovery -> knowledge loop (RIS_07 Section 2)
+- MCP auto-routing for rag-query: **v1 shipped** — polymarket_rag_query uses hybrid KS retrieval when DB exists (quick-260403-lir)
+
+10 new tests in `tests/test_ris_integration_workflow.py`. 3660 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-dev-agent-integration-v1.md` and
+`docs/dev_logs/2026-04-03_ris_07_dev_agent_integration.md`.
+
+## RIS R5 Dossier Pipeline and Discovery Loop (quick-260403-jy8, 2026-04-03)
+
+Dossier-to-KnowledgeStore extraction pipeline shipped. Wallet-scan dossier artifacts
+(`dossier.json`, `memo.md`, `hypothesis_candidates.json`) can now be parsed into
+structured research findings and ingested as `source_family="dossier_report"`.
+
+**New/updated files:**
+- `packages/research/integration/dossier_extractor.py` -- parse + ingest pipeline
+- `packages/research/ingestion/adapters.py` -- `DossierAdapter` in `ADAPTER_REGISTRY["dossier"]`
+- `packages/research/integration/__init__.py` -- dossier pipeline exports
+- `tools/cli/research_dossier_extract.py` -- `research-dossier-extract` CLI entrypoint
+- `tests/test_ris_dossier_extractor.py` -- 31 offline deterministic tests
+
+**What shipped:**
+- 3 document types per dossier run: Detectors, Hypothesis Candidates, Memo
+- Wallet provenance in metadata: wallet address, user_slug, run_id, dossier_path
+- Content-hash dedup (idempotent re-ingestion)
+- CLI: single `--dossier-dir` and `--batch` (walks `artifacts/dossiers/users/`)
+- Full regression: 3660 tests passing, 0 failures
+
+**Deferred:**
+- Auto-trigger after wallet-scan: **Shipped** via --extract-dossier flag (quick-260403-lim)
+- RAG query integration (Chroma/FTS5 not yet connected to KnowledgeStore)
+- LLM-assisted memo extraction (authority conflict blocks this)
+
+31 new tests in `tests/test_ris_dossier_extractor.py`. 3660 total passing, 0 new failures.
+
+See `docs/features/FEATURE-ris-v1-data-foundation.md` (Phase R5 section) and
+`docs/dev_logs/2026-04-03_ris_r5_dossier_and_discovery_loop.md`.
+
+## RIS Final Dossier Operationalization (quick-260403-lim, 2026-04-03)
+
+Closed the dossier/discovery-loop gap: dossier findings are now a first-class
+output of the wallet-scan workflow via an opt-in `--extract-dossier` flag.
+
+**New/updated files:**
+- `tools/cli/wallet_scan.py` -- PostScanExtractor hook, --extract-dossier flag, _make_dossier_extractor factory
+- `tests/test_wallet_scan.py` -- 9 new tests in TestWalletScannerDossierHook (31 total)
+- `tests/test_wallet_scan_dossier_integration.py` -- 9 end-to-end integration tests
+- `docs/features/wallet-scan-v0.md` -- Dossier Extraction section added
+- `docs/dev_logs/2026-04-03_ris_final_dossier_operationalization.md` -- dev log
+
+**What shipped:**
+- `WalletScanner` accepts `post_scan_extractor: Optional[PostScanExtractor]`
+- Extractor called after each successful scan with (scan_run_root, slug, wallet)
+- Non-fatal: exceptions caught and printed to stderr; scan loop never aborts
+- `--extract-dossier` flag (default off; backward compatible)
+- `--extract-dossier-db` flag for custom KnowledgeStore path
+- End-to-end test proves: dossier.json -> extract -> ingest -> source_documents >= 1 row
+- Content-hash dedup confirmed end-to-end (idempotent reingest)
+- 40 new tests; 3685 total passing, 4 pre-existing failures unchanged
+
+**Still deferred:**
+- RAG query integration via Chroma/FTS5 (KnowledgeStore hybrid routing shipped in quick-260403-lir; dossier-path hybrid retrieval via derived_claims shipped in quick-260403-n2o; direct Chroma embed not yet wired)
+- LLM-assisted memo extraction (authority conflict)
+- Parallel scan workers
+
+See `docs/features/wallet-scan-v0.md` (Dossier Extraction section) and
+`docs/dev_logs/2026-04-03_ris_final_dossier_operationalization.md`.
+
+## RIS Bridge CLI and MCP KnowledgeStore Routing (quick-260403-lir, 2026-04-03)
+
+Closed the two final implementation gaps in RIS v1:
+
+1. CLI entry points for `register_research_hypothesis` and `record_validation_outcome`
+   (the core bridge logic existed but had no `polytool` commands).
+2. `mcp_server.polymarket_rag_query` now uses hybrid KnowledgeStore retrieval when the
+   default KS DB (`kb/rag/knowledge/knowledge.sqlite3`) is present. Falls back to
+   vector-only when DB absent. Response includes `ks_active` bool.
+
+**New/updated files:**
+- `tools/cli/research_bridge.py` -- register-hypothesis + record-outcome subcommands
+- `tools/cli/mcp_server.py` -- hybrid KS retrieval with ks_active flag
+- `tests/test_ris_bridge_cli_and_mcp.py` -- 11 offline tests
+
+11 new tests. 3689 total passing, 4 pre-existing failures unchanged.
+
+See `docs/dev_logs/2026-04-03_ris_final_bridge_and_mcp_fix.md`.
+
+## RIS Dossier Queryability Fix (quick-260403-n2o, 2026-04-03)
+
+Closed the final functional gap in the dossier integration: `wallet-scan --extract-dossier`
+now produces retrieval-visible `derived_claims` in KnowledgeStore, not just `source_documents`.
+
+**Root cause:** `_make_dossier_extractor()` called `ingest_dossier_findings(findings, store)`
+without `post_extract_claims=True`. Additionally, `_get_document_body()` in the claim extractor
+could not retrieve body text for dossier documents (stored with `source_url="internal://manual"`
+and no `body` key in `metadata_json`). Both issues fixed.
+
+**New/updated files:**
+- `tools/cli/wallet_scan.py` -- pass `post_extract_claims=True`; update log message
+- `packages/research/integration/dossier_extractor.py` -- patch `metadata_json` with body; call `extract_and_link` directly
+- `tests/test_wallet_scan_dossier_integration.py` -- 6 new tests in TestDossierClaimExtraction
+- `docs/features/wallet-scan-v0.md` -- step 3, Queryable via RIS, Notes updated
+- `docs/dev_logs/2026-04-03_ris_final_dossier_queryability_fix.md` -- dev log
+
+**What shipped:**
+- Dossier ingest now triggers claim extraction automatically (end-to-end)
+- `derived_claims` table populated after `--extract-dossier` runs
+- `rag-query --hybrid --knowledge-store default` surfaces dossier findings
+- Provenance chain intact: `derived_claim.source_document_id` -> `source_documents` row with `source_family="dossier_report"`
+- Idempotent: re-ingest with same dossier produces 0 new claims (INSERT OR IGNORE)
+- 6 new tests prove the full chain; 3695 total passing, 0 failures
+
+**Deferred:**
+- LLM-assisted dossier memo extraction (authority conflict; rule-based extractor used)
+- Direct Chroma embed path (not needed; KS hybrid retrieval via derived_claims is sufficient)
+
+See `docs/dev_logs/2026-04-03_ris_final_dossier_queryability_fix.md`.
+
+## RIS v1 — Complete (2026-04-03)
+
+All practical v1 scope RIS subsystems are shipped and passing 3695 tests.
+
+**v1 Complete:**
+- R0: Knowledge store foundation (SQLite + Chroma, BGE-M3 embeddings)
+- R1: Academic ingestion (ArXiv search, BookAdapter, manual URL, --extract-claims)
+- R2: Social ingestion (Reddit, YouTube, clean_transcript)
+- R3: Synthesis engine (deterministic ReportSynthesizer, EnhancedPrecheck, ResearchBrief)
+- R4: Infrastructure (scheduler 8-job, health checks 6-condition, stats/metrics export, report catalog save/list/search/digest)
+- R5: Dossier pipeline (DossierExtractor, DossierAdapter, research-dossier-extract CLI, batch mode)
+- Dev agent integration (CLAUDE.md RIS section, operator recipes A-E, 10 integration tests)
+- SimTrader bridge (brief_to_candidate, precheck_to_candidate, register_research_hypothesis, record_validation_outcome)
+- wallet-scan --extract-dossier auto-trigger hook (quick-260403-lim)
+- Bridge CLI (research-register-hypothesis, research-record-outcome) + MCP KnowledgeStore hybrid routing (quick-260403-lir)
+- Dossier claim extraction + hybrid retrieval (derived_claims, provenance chain, idempotency) (quick-260403-n2o)
+
+**v2 Deferred (require Phase 3+ or additional infra):**
+- Auto-discovery -> knowledge loop (requires candidate scanner integration)
+- SimTrader auto-promotion loop (bridge shipped; auto-loop not wired)
+- LLM-based synthesis (DeepSeek V3 prose generation)
+- n8n migration from APScheduler
+- ClickHouse ingestion_log table + Grafana panels
+- ChatGPT architect / Google Drive connector
+- Weekly digest automation
+- SSRN ingestion, Twitter/X ingestion
+- LLM-assisted dossier memo extraction (authority conflict)
+
+All 3695 tests pass. Codex review: docs-only changes, skip tier.
+
+## RIS n8n Pilot Roadmap Complete (quick-260404-sb4, 2026-04-05)
+
+- **RIS n8n pilot complete** (quick-260404-sb4, 2026-04-05): the current canonical
+  active workflow source is `infra/n8n/workflows/ris-unified-dev.json`, a single unified
+  canvas with 9 RIS-only sections. Import via `python infra/n8n/import_workflows.py`,
+  which reads from `infra/n8n/workflows/`. `workflows/n8n/` is a stub redirect only;
+  all active JSON lives in `infra/n8n/workflows/`. Scoped to RIS ingestion only per
+  ADR 0013 (`docs/adr/0013-ris-n8n-pilot-scoped.md`). NOT Phase 3 automation. Runtime
+  smoke test still requires Docker + a running n8n container.
+
+The unified workflow covers Health Monitor, Academic, Reddit, Blog/RSS, YouTube,
+GitHub, Freshness, Weekly Digest, and URL Ingestion. The scheduled/manual sections
+continue to use the same RIS CLI surfaces (`research-scheduler run-job <id>`,
+`research-health`, `research-stats summary`, `research-report digest`, and
+`research-acquire`) while remaining out of scope for strategy, gate, risk, and live
+capital logic. See `docs/runbooks/RIS_OPERATOR_GUIDE.md` for the current section inventory and
+scheduler mutual exclusion guidance.
+
+Note: The v2 deferred item "n8n migration from APScheduler" above refers to broad Phase 3
+automation. The RIS n8n pilot is a scoped opt-in (ADR 0013), not that Phase 3 item.
+
+## RIS n8n Runtime Path Fixed and Smoke Tested (quick-260404-t5l, 2026-04-05)
+
+- **Runtime fix complete** (quick-260404-t5l, 2026-04-05): All 11 n8n workflow templates now use
+  `docker exec polytool-ris-scheduler python -m polytool ...` (docker-beside-docker pattern).
+  Previously bare `python -m polytool ...` commands failed inside the n8n container (no Python).
+
+- **Custom n8n image**: `polytool-n8n:2.14.2` built from `infra/n8n/Dockerfile`. Extends
+  `n8nio/n8n:2.14.2` with `docker-cli` installed via Docker static binary (wget + tar). Mount:
+  `/var/run/docker.sock` + `group_add: ["0"]` (required on Docker Desktop / WSL2).
+
+- **Smoke test results**: Build OK, docker-cli v27.3.1 confirmed inside n8n container, exec
+  bridge to ris-scheduler verified (research-health output received), 11/11 workflows imported.
+
+- **Import script fixed**: `infra/n8n/import-workflows.sh` now uses `n8n import:workflow` CLI
+  (n8n 1.123.28 deprecated basic-auth REST API for workflow import).
+
+- **Workflow JSON tag format fixed**: String tags (`["ris", ...]`) stripped to `[]` (n8n 1.123.28
+  SQLite schema requires tag objects with `id` field; string tags cause constraint violation).
+
+- **Doc fixes**: Removed stale `research-scheduler stop` / `research-scheduler list` from
+  `docs/runbooks/RIS_OPERATOR_GUIDE.md`; updated ADR 0013 (3 -> 11 workflow table, custom image section,
+  Docker socket security risk row).
+
+See `docs/dev_logs/2026-04-05_ris_n8n_runtime_fix.md` for full verbatim output.
+
+## RIS n8n Docs Reconciliation (quick-260404-uav, 2026-04-05)
+
+- **Docs-only cleanup** (quick-260404-uav, 2026-04-05): Fixed 5 doc drifts in
+  `docs/runbooks/RIS_OPERATOR_GUIDE.md` that predated the quick-260404-t5l runtime fix.
+
+- **Drifts fixed**: (1) last-verified date updated to 2026-04-05; (2) import step
+  annotation updated from curl/jq/REST to docker exec CLI; (3) "NOT been
+  runtime-verified" replaced with confirmed smoke test summary; (4) python-PATH warning
+  replaced with docker-exec bridge explanation; (5) MCP command corrected from
+  `mcp-server --port 8001` to `mcp`.
+
+- **ADR 0013 and CURRENT_STATE.md**: Confirmed clean — no contradictions found.
+
+See `docs/dev_logs/2026-04-05_ris_n8n_docs_reconcile.md`.
+
+## n8n Version Bump: 1.88.0 -> 1.123.28 (quick-260405-vbn, 2026-04-05)
+
+- Pinned n8n base image updated from `n8nio/n8n:1.88.0` to `n8nio/n8n:1.123.28`
+  (latest stable 1.x release as of 2026-04-05).
+- Evidence: Docker Hub tag `1.123.28` published 2026-04-02; GitHub release
+  `n8n@1.123.28` (non-prerelease) published same day.
+- Staying on 1.x line; 2.x migration deferred (would require new ADR).
+- Build and startup verified: `docker compose --profile ris-n8n build n8n` and
+  `docker compose --profile ris-n8n up -d n8n` both pass.
+- See `docs/dev_logs/2026-04-05_n8n_version_bump.md` for full evidence.
+
+## n8n 2.x Migration: 1.123.28 -> 2.14.2 (quick-260406-ido, 2026-04-06)
+
+- Pinned n8n base image upgraded from `n8nio/n8n:1.123.28` to `n8nio/n8n:2.14.2`
+  (latest stable 2.x as of 2026-04-06; `2.15.0` was prerelease=True on GitHub).
+- Motivation: n8n 2.x provides instance-level MCP at `/mcp-server/http`
+  (works on community edition; requires JWT bearer token from n8n Settings UI).
+- Docker static binary install for docker-cli retained (same as 1.123.28 DHI fix).
+- `N8N_RUNNERS_ENABLED=true` replaced with `N8N_RUNNERS_MODE=internal` (2.x API).
+- `N8N_BASIC_AUTH_ACTIVE/USER/PASSWORD` are no-ops in 2.x (retained in compose for
+  reference; owner setup wizard required on fresh `n8n_data` volume).
+- Build verified: image built from 2.14.2 base, docker-cli v29.3.1 confirmed.
+- Container starts: `{"status":"ok"}` from `/healthz`.
+- Workflow import: 11/11 workflows imported successfully.
+- MCP backend endpoint: works on community edition n8n >= 2.14.2 (not Enterprise-only).
+  `POST /mcp-server/http` with `Accept: application/json, text/event-stream` and valid
+  JWT bearer token returns MCP initialize response. `GET` without Accept header hits the
+  SPA frontend (200 HTML) -- this caused the earlier false "Enterprise-only" finding.
+  `N8N_MCP_BEARER_TOKEN` is the compose-side env var read by n8n at container startup.
+  See `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md` for full probe evidence.
+- See `docs/dev_logs/2026-04-06_n8n_2x_instance_mcp_upgrade.md` for full evidence.
+
+## n8n Instance MCP Connection Debug (quick-260406-le7, 2026-04-06)
+
+- Root cause: Claude Code does NOT expand `${VAR}` in HTTP-type `.mcp.json` entries.
+  The literal template strings were sent as-is, causing connection failure.
+- Key finding: n8n instance-level MCP HTTP backend works on community edition 2.14.2
+  (not Enterprise-only). Earlier GET probes hit the SPA frontend; correct POST with
+  Accept header reaches the real backend.
+- `.mcp.json`: removed the n8n-instance-mcp entry; correct fix is `claude mcp add
+  --transport http -s local` with the real token.
+- `.env.example`: real JWT token replaced with placeholder.
+- Multiple docs corrected to remove "Enterprise only" claims.
+- See `docs/dev_logs/2026-04-06_n8n_instance_mcp_connection_debug.md`.
+
+## RIS Phase 2 -- Cloud Provider Routing (quick-260408-*, 2026-04-08)
+
+- Gemini and DeepSeek HTTP clients implemented in `packages/research/evaluation/providers.py`.
+- Routed evaluation chain: gemini (primary) -> deepseek (escalation) -> ollama (fallback).
+- Fail-closed on malformed JSON, missing required fields, or provider unavailability.
+- Config: `config/ris_eval_config.json` with env-var overrides (`RIS_EVAL_*`).
+- Requires `RIS_ENABLE_CLOUD_PROVIDERS=1` plus API keys (`GEMINI_API_KEY` / `DEEPSEEK_API_KEY`).
+- 120 tests passing in focused evaluation/routing suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_cloud_provider_routing.md`.
+
+## RIS Phase 2 -- Ingest/Review Integration (quick-260408-*, 2026-04-08)
+
+- Pipeline dispositions: ACCEPT (ingest), REVIEW (pending_review queue), REJECT (clean exit), BLOCKED (scorer failure queued).
+- `research-review` CLI: list, inspect, accept, reject, defer.
+- `pending_review` + `pending_review_history` tables in KnowledgeStore SQLite.
+- Acquisition review records carry disposition, gate, pending_review_id.
+- 97 tests passing in focused ingest/review suite; 3779 total.
+- See `docs/dev_logs/2026-04-08_ris_phase2_ingest_review_integration.md`.
+
+## RIS Phase 2 -- Monitoring Truth (quick-260408-oyu, 2026-04-08)
+
+- 5 new fields in `RisMetricsSnapshot`: provider_route_distribution, provider_failure_counts, review_queue, disposition_distribution, routing_summary.
+- `model_unavailable` health check replaced stub with real provider failure detection (YELLOW >3 failures, RED all providers failing).
+- New `review_queue_backlog` health check added (GREEN <= 20, YELLOW > 20, RED > 50).
+- Overall category: HEALTHY / DEGRADED / BLOCKED_ON_SETUP / FAILURE shown in `research-health` output.
+- 75 tests passing in monitoring suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_monitoring_truth.md`.
+
+## RIS Phase 2 -- Retrieval Benchmark Truth (quick-260408-oz0, 2026-04-08)
+
+- Query class segmentation: factual, analytical, exploratory.
+- 8 required metrics per Phase 2 spec tracked per class per retrieval mode.
+- Baseline artifacts: per_class_modes, corpus_hash, eval_config in report.json.
+- Phase 2 benchmark suite: `docs/eval/ris_retrieval_benchmark.jsonl` (9 cases).
+- 35 tests passing in rag_eval suite.
+- See `docs/dev_logs/2026-04-08_ris_phase2_retrieval_benchmark_truth.md`.
+
+## Discord Alert Embed Conversion (quick-260409-*, 2026-04-09)
+
+- All 10 Discord notification format nodes in `ris-unified-dev.json` converted from plain-text `content` payloads to structured Discord embed format.
+- Sender node updated to post `{ embeds: $json.embeds }` instead of `{ content: $json.content }`.
+- Color-coded severity: RED (errors, failures, RED health), YELLOW (warnings), GREEN (healthy summary).
+- Inline fields for numeric metrics (Runs, Docs, New, Cached, Errors); full-width for text content.
+- Reference: `docs/dev_logs/2026-04-09_discord_alert_layout_refinement.md`.
+
+## Discord Embed Final Polish (quick-260409-*, 2026-04-09)
+
+- Eliminated `n/a` and `none` placeholders -- fields omitted entirely when underlying value is absent.
+- Conditional fields: stat/output fields use truthiness guards before pushing to `fields` array.
+- Severity in titles: `Ingest Failed: {Family}`, `Pipeline Error: {Section}` (display names), `RIS Health: {STATUS}`.
+- Shortened footers: dropped `ris-unified-dev` from all footers (e.g. `RIS | health`, `RIS | ingest`).
+- URL truncation: long URLs in ingest failures truncated to `domain/...last20chars`.
+- Problem-first descriptions: health alerts state the problem, not repeat stats.
+- `[RED]`/`[YLW]` severity markers in Actionable Checks for mobile scannability.
+- Verified via live ingest failure curl test + JSON validity + grep checks for n/a/none/ris-unified-dev.
+- Reference: `docs/dev_logs/2026-04-09_discord_embed_final_polish.md`.
+
+## RIS Phase 2 -- Conditional Close (2026-04-09)
+
+RIS Phase 2 is conditionally complete as of 2026-04-09. All core deliverables are shipped and operator-verified.
+
+Shipped items:
+- Cloud provider routing: Gemini primary, DeepSeek escalation, Ollama fallback.
+- Ingest/review integration: ACCEPT/REVIEW/REJECT/BLOCKED dispositions, `research-review` CLI, `pending_review` and `pending_review_history` tables.
+- Monitoring truth: provider failure detection, review queue backlog check, 5 new `RisMetricsSnapshot` fields.
+- Retrieval benchmark: query class segmentation, per-class metrics, baseline artifacts in `report.json`.
+- Discord embed alerting via n8n: structured embeds with conditional fields, severity color coding, problem-first descriptions.
+- Operator SOPs and runbooks: `docs/runbooks/RIS_N8N_OPERATOR_SOP.md`, `docs/runbooks/RIS_DISCORD_ALERTS.md`, `docs/runbooks/RIS_N8N_SMOKE_TEST.md`.
+
+Deferred items (explicit):
+- Broad n8n orchestration -- Phase 3 per ADR 0013.
+- n8n owning scheduling -- APScheduler remains the default scheduler; n8n schedule triggers are disabled in the committed workflow JSON.
+- FastAPI wrapper for RIS endpoints -- Phase 3 deliverable.
+- Autoresearch `import-results` -- Phase 4 deliverable.
+
+## RIS L3 v1 SVM Topic Filter — Default-Off Integrated (2026-05-07)
+
+SVM-based relevance scorer shipped as an opt-in default-off backend for the L3 prefetch
+filter pipeline. **Lexical scorer v1.1 remains the production default.** SVM is activated
+only by explicit CLI flags plus a model path.
+
+**Director decision (2026-05-07):** `BAAI/bge-large-en-v1.5` approved as the L3 v1 SVM
+production model for default-off use. Enforce deferred — requires future explicit Director
+approval before autonomous rejection is enabled.
+
+**What shipped:**
+
+- `research-prefetch-svm-train` CLI — reads `labels.jsonl`, embeds via BGE-large,
+  fits `LinearSVC` with `random_state=42`, prints full eval report, exports `.joblib`
+  model and metadata ledger. Embedding cache under
+  `artifacts/research/svm_filter_models/embeddings/` (re-used across runs).
+- `SVMRelevanceScorer` runtime — loaded from a `.joblib` path; graceful `ImportError`
+  when `sentence-transformers` or `scikit-learn` are absent.
+- `research-acquire --prefetch-filter-scorer svm --prefetch-svm-model PATH`
+- `research-prefetch-discover --filter-scorer svm --svm-model PATH`
+- SVM enforce returns `rc=1` with a clear error — permanently blocked until future
+  Director approval.
+
+**Evidence (expanded 156-label run, 2026-05-06):**
+
+- Labels: 156 total (74 allow / 82 reject, 3 pending)
+- Train/test split: 117 / 39 (stratified, `random_state=42`)
+- Embedding model: `BAAI/bge-large-en-v1.5`
+- Model type: `LinearSVC`
+- Accuracy: 1.000, Macro F1: 1.000
+- Confusion matrix: `[[19, 0], [0, 20]]`
+- Prior 61-label run: no degradation at 2.5× larger test set
+- 123 targeted SVM tests pass (offline, no model weight downloads)
+- Labels SHA256: `56CEBCC2210BA7FF1A47BA1CB6A64DE649472833D23FB9D3EB4E38BEC387767E` (unchanged)
+
+**Artifacts (gitignored):**
+
+- `artifacts/research/svm_filter_models/expanded_156/svm_model_BAAI_bge-large-en-v1.5_42.joblib`
+- `artifacts/research/svm_filter_models/expanded_156/svm_metadata_BAAI_bge-large-en-v1.5_42.json`
+- `artifacts/research/svm_filter_labels/labels.jsonl`
+
+**Known caveats:**
+
+- 39-sample perfect score is encouraging but not statistically conclusive.
+- SPECTER2 AdapterHub path blocked (`peft_type` key mismatch); BGE-large declared production.
+- `peft` is NOT in `pyproject.toml` ris-svm extras and is not needed for the BGE-large path.
+- No autonomous rejection is enabled — all enforce paths blocked at rc=1.
+
+**Deferred:**
+
+- SVM enforce — requires future Director approval.
+- L2 PaperQA2 activation — **COMPLETE (2026-05-09)**. `research-query` is shipped with a Marker-ready query-time guard. See `docs/features/FEATURE-ris-l2-academic-query.md`.
+- Marker Docker IPC warm-worker v1 — **COMPLETE (2026-05-08)**. All revised functional gates PASS. See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md`.
+- L1 Marker Production Readiness Rollout — **COMPLETE (2026-05-09)**. Runbook, operator path, DoD all met. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`.
+
+**New modules:**
+`packages/research/relevance_filter/svm_scorer.py`,
+`packages/research/relevance_filter/svm_training.py`,
+`tools/cli/research_prefetch_svm_train.py`
+
+**Extended modules:**
+`packages/research/relevance_filter/__init__.py`,
+`packages/research/relevance_filter/scorer.py`,
+`tools/cli/research_acquire.py`,
+`tools/cli/research_prefetch_discover.py`,
+`polytool/__main__.py`,
+`pyproject.toml` (ris-svm extras)
+
+**Tests:** 123 new targeted SVM tests + extensions to acquire/discover CLI tests.
+
+See `docs/features/FEATURE-ris-svm-filter-v1.md` and
+`docs/dev_logs/2026-05-07_l3-v1-svm-feature-closeout.md`.
+
+## Marker Docker IPC Warm-Worker v1 — Complete (2026-05-08)
+
+Persistent IPC warm-worker subprocess for the Marker parse queue on Linux/Docker.
+Marker models load once at container startup and stay in GPU VRAM across all queued papers.
+
+**What shipped:**
+
+- `IpcMarkerWorker` (`packages/research/ingestion/marker_ipc_worker.py`) — persistent
+  subprocess, Unix domain socket at `/tmp/marker_worker.sock`, JSON IPC protocol,
+  `daemon=False` fix for multiprocessing restriction on Linux.
+- `process_next_ipc()` in `MarkerParseQueue` with `_extra_result_fields` parameter so
+  `ipc_warm_worker_used` is persisted in `results.jsonl` before `_append_result()` writes.
+- `fetch_pdf_direct()` in `ArxivFetcher` for direct-PDF queue items (`--pdf-url`).
+- `research-marker-queue warm-process` CLI — starts warm-worker, processes queued papers;
+  `--max-items N`, `--marker-timeout SECONDS`.
+- `research-marker-queue enqueue --pdf-url URL` — enqueue by direct PDF URL.
+
+**Revised functional gate (Director-approved 2026-05-08):**
+
+Original ≤10s/paper timing gate for papers 2+ is **rejected as unrealistic** for full
+academic PDFs on the RTX 2070 Super and permanently superseded. Marker's five-stage
+multi-model pipeline requires ~45–70s warm inference per paper — a hardware constant, not
+a regression. Revised gate: ≥3 full PDFs in one warm session; papers 2+ delta ≤5s
+(cold-load overhead eliminated).
+
+**Live validation evidence (2026-05-08, RTX 2070 Super, CUDA 13.2):**
+
+| Paper | parse_seconds | total_seconds | delta | body_source | ipc_warm_worker_used |
+|-------|--------------|--------------|-------|-------------|----------------------|
+| arxiv:2604.24366 (paper 1) | 45.55s | 72.31s | 26.76s (cold-load) | marker | true |
+| arxiv:2109.07581 (paper 2) | 69.73s | 69.86s | **0.13s (warm)** | marker | true |
+| arxiv:1910.08858 (paper 3) | 48.31s | 48.53s | **0.22s (warm)** | marker | true |
+
+All revised functional gates: PASS. done=3, failed=0. No pdfplumber fallback. No daemon
+error. Clean shutdown.
+
+**L1 Marker Production Rollout:** COMPLETE as of 2026-05-09. Operator path documented and
+verified. See `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md` and
+`docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`.
+
+**What remains blocked/stubbed:**
+
+- L2 PaperQA2 RAG Control Flow — COMPLETE 2026-05-09; `research-query` ships multi-angle KS query with Marker-ready query-time guard.
+- L4 Multi-source Academic Harvesters — **COMPLETE 2026-05-09**; 4 harvesters (arXiv, Semantic Scholar, Crossref, OpenReview); `research-harvest` CLI; dedup; SSRN/NBER deferred. Feature doc: `docs/features/FEATURE-ris-l4-multisource-academic-harvesters.md`.
+- Automatic warm-worker startup on container boot — deferred; manual trigger only in v1.
+- IPC crash recovery / reconnect — deferred to post-v1 hardening pass.
+- Bulk re-ingest of pdfplumber-parsed corpus — separate cleanup task.
+
+## RIS L1 Marker Production Readiness Rollout — Complete (2026-05-09)
+
+The L1 readiness milestone: repeatable, documented, tested operator path from arXiv ID
+through Marker parse through RAG-ready output.
+
+**L1 DoD — all criteria met:**
+
+| Criterion | Status |
+|-----------|--------|
+| One documented operator path (enqueue→warm-process→inspect) | ✅ `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md` |
+| Marker-only accepted docs (`body_source=marker`) | ✅ `IngestPipeline` academic gate |
+| No pdfplumber production fallback | ✅ marker_failed → rejection, no downgrade |
+| Queue states understandable and recoverable | ✅ state machine + recovery in runbook |
+| Bad/short parses rejected or retryable | ✅ MIN_MARKER_BODY_LENGTH=5000; MAX_ATTEMPTS=3 |
+| Output location and inspection commands documented | ✅ artifacts/research/marker_parse_queue/ |
+| Smoke evidence without fresh Docker parse | ✅ Feature 3 validation (3 papers, IPC warm, body_source=marker) |
+| Stale "L1 gated" CLI text removed | ✅ research_marker_queue.py updated |
+| Tests pass | ✅ 158 passed, 1 skipped |
+
+**CLI surface (canonical path):**
+
+```bash
+python -m polytool research-marker-queue enqueue --url ARXIV_ID
+python -m polytool research-marker-queue counts
+python -m polytool research-marker-queue list [--status pending|done|failed]
+# Inside Docker/GPU container:
+python -m polytool research-marker-queue warm-process --max-items N
+```
+
+**Output artifacts (gitignored):**
+- `artifacts/research/marker_parse_queue/queue.jsonl` — queue state
+- `artifacts/research/marker_parse_queue/results.jsonl` — append-only results log
+
+**RAG-readiness gate:** `body_source == "marker" AND body_length >= 5000`
+
+**Feature doc:** `docs/features/FEATURE-ris-l1-marker-production-readiness-rollout.md`
+**Runbook:** `docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md`
+**Dev log:** `docs/dev_logs/2026-05-09_ris-l1-marker-production-readiness-rollout.md`
+
+**Tests:** 4 new `TestIPCResultPersistence` tests; combined with IPC worker tests: 158
+passed, 1 skipped (Linux-only platform skip correct on Windows).
+
+See `docs/features/FEATURE-marker-docker-ipc-warm-worker-v1.md` and
+`docs/dev_logs/2026-05-08_marker-docker-ipc-warm-worker-v1-closeout.md`.
+
+## RIS L2 Academic Query — Complete (2026-05-09)
+
+`research-query` provides the first operator-ready academic query path over the
+Marker-only KnowledgeStore corpus. It implements PaperQA2-inspired multi-angle
+query planning, paper-level grouping by source document, and citation metadata
+for title, arxiv_id, source_url, snippet, body_source, and claim_count.
+
+Safety guard: new academic rows are gated by `IngestPipeline.ingest_external()`,
+and the query path also re-checks source metadata so legacy or bad academic rows
+with `body_source=pdfplumber`, missing metadata, or `body_length < 5000` cannot
+be cited.
+
+**CLI surface:**
+
+```bash
+python -m polytool research-query --question "market microstructure"
+python -m polytool research-query --question "sports betting inefficiencies" --k 10 --step-back
+python -m polytool research-query --question "avellaneda stoikov spread model" --max-angles 1
+# Natural-language questions work — preamble stripped for retrieval only:
+python -m polytool research-query --question "what are prediction markets"
+python -m polytool research-query --question "explain sports betting markets"
+```
+
+**Query normalization (2026-05-09 fix):** `_normalize_question()` and `_build_sub_queries()`
+strip common question preambles ("what are", "explain", "how does") for retrieval only.
+`"what are prediction markets"` now retrieves the same results as `"prediction markets"`.
+The original question string is preserved in the JSON output. Retrieval remains conservative
+substring/phrase matching — not semantic or vector retrieval.
+
+**No-result cases:** Two distinct cases both return `had_fallback=true`:
+1. **Empty corpus** — KnowledgeStore has no academic source documents. Run `index-done` first.
+2. **Corpus exists, no matching claims** — academic docs are indexed but no claim text
+   matches the query (including normalized form). Expand corpus or try a different topic phrase.
+
+**Still deferred:** ChromaDB academic retrieval, page-level citations, and LLM synthesis.
+L4 multi-source academic harvesters were completed later on 2026-05-09 with four
+metadata-only sources (arXiv, Semantic Scholar, Crossref, OpenReview). SSRN and NBER
+remain explicitly deferred because they require brittle session/cookie or HTML scraping
+paths.
+
+**Feature doc:** `docs/features/FEATURE-ris-l2-academic-query.md`
+**Dev logs:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-completion-sprint.md`,
+`docs/dev_logs/2026-05-09_codex-audit-fix-ris-academic-pipeline-completion-sprint.md`,
+`docs/dev_logs/2026-05-09_ris-academic-query-natural-language-normalization-docs-sync.md`
+**Tests:** `tests/test_research_query.py` — 54 passed (36 original + 18 normalization tests).
+
+## RIS Academic Pipeline — Operator-Tested v1 (2026-05-09)
+
+The full academic pipeline (enqueue → warm-process → index-done → research-query) was
+operator-tested end-to-end on 2026-05-09 using an isolated 3-paper queue
+(`artifacts/research/operator_test_queue_3paper`).
+
+**Validation type:** Windows/local warm-thread path (`ipc_warm_worker_used=false`).
+This is a functional validation. Docker/GPU IPC batch performance validation is a separate
+optional follow-up and is **not** a functional blocker.
+
+**Queue result:** 3 done, 0 failed.
+
+| Paper | body_source | body_length (chars) | chunks | claims |
+|-------|------------|---------------------|--------|--------|
+| arxiv:2604.24366 | marker | 56,856 | 25 | 125 |
+| arxiv:2109.07581 | marker | 51,370 | 23 | 115 |
+| arxiv:1910.08858 | marker | 60,814 | 31 | 133 |
+
+**Totals:** 79 chunks, 373 claims. All 3 papers: `body_source=marker`, `body_length >= 5000`.
+
+**Query results:**
+- `research-query "prediction markets"` → `had_fallback=false`, Marker citation returned.
+- `research-query "sports betting markets" --k 10 --step-back` → `had_fallback=false`, 2 Marker citations returned.
+
+**Caveats:**
+- `ipc_warm_worker_used=false` — Windows warm-thread path only. Docker/GPU IPC warm-worker was
+  validated separately on 2026-05-08 (3 papers, 45.55s/69.73s/48.31s, `ipc_warm_worker_used=true`).
+  Docker/GPU IPC 3-paper batch re-run is an optional performance/infra follow-up.
+- SSRN/NBER sources deferred. Only arXiv papers used.
+- ChromaDB academic retrieval (L2.1) deferred.
+
+**Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
+
+## RIS Academic Pipeline — Scaled Validation Triage (2026-05-17)
+
+Batch 1 of the 29-paper scaled validation corpus was executed 2026-05-16 using
+`ris-scheduler-gpu` with `--queue-dir artifacts/research/scaled_validation_queue_v1/`.
+Result: 2 clean parses, 5 infrastructure blockers. Container was stale (built
+before `_persist_body_sidecar`); no body sidecars written.
+
+All 5 blockers triaged and fixed 2026-05-17:
+
+| Blocker | Fix |
+|---------|-----|
+| 1 — pdftext daemon process chain | `WORKER_PAGE_THRESHOLD=999999` in IPC worker + docker-compose env |
+| 2 — CUDA JIT cold-start per format | Mitigated by Blocker 4 (persistent cache) |
+| 3 — Stale container image | Live source volume mounts `./packages` + `./tools` |
+| 4 — No persistent JIT cache | `TORCHINDUCTOR_CACHE_DIR=/app/cache/torchinductor` + `./cache` volume + `.gitignore` |
+| 5 — arXiv API rate-limiting | `_fetch_arxiv_api()` with 3-retry exponential backoff (5s/15s/45s) |
+
+**Smoke test (4 papers, 2026-05-17): PASS.** Blockers 1 and 3 confirmed fixed in
+practice. Blocker 4 (persistent JIT cache) unresolved — `TORCHINDUCTOR_CACHE_DIR`
+empty after run; in-session reuse works but cross-restart persistence is not confirmed.
+arXiv retry (Blocker 5) not triggered due to natural pacing; code is correct.
+
+Additional findings from smoke: `packages/__init__.py` added (missing file prevented
+live-mount import); `index-done` must run inside the Docker container on Windows
+(NTFS ADS colon restriction on candidate_id filenames). Runbook Step 4b updated.
+
+Smoke results: 4/4 parse PASS (`body_source=marker`, `marker_ready=True`). Bodies:
+67–116K chars. parse_s: 2771s / 3279s (cold JIT) / 53s / 12.5s (warm JIT reuse).
+674 claims extracted, 78 KS academic docs (7 marker-indexed). 4/4 papers retrievable.
+
+**Batch 2 partial run (2026-05-17/18, queue: scaled_validation_queue_v2):**
+5/29 papers parsed (all eq-heavy), 5/29 failed, 1 stuck, 18 pending (untouched).
+Two root causes:
+
+1. **arXiv rate limiting**: 5 papers exhausted all 3 fetch retries (HTTP 429 / timeout).
+   Retry backoff (5/15/45s) is insufficient when warm JIT allows rapid sequential fetches.
+   Fix required: pre-fetch PDFs before warm-process (separates fetch from parse).
+2. **Marker timeout**: 1011.6402 (table-heavy empirical) hit `--marker-timeout 3600`;
+   paper may have incompatible or very complex layout. Needs diagnosis.
+3. **Session kill without resume**: background job terminated; 18 papers never reached.
+
+Batch 2 is **not a valid 29-paper measurement**. Classification (production-ready /
+demo-ready) cannot be made from 5/29 eq-heavy-only results. **Pipeline PAUSED** pending
+a prefetch-separation fix before the next full run.
+
+Blocker 5 (arXiv retry) was proven INSUFFICIENT at batch scale despite being structurally
+correct. Blocker 4 (JIT cache persistence) remains unresolved — TorchInductor cache still
+empty after session.
+
+eq-heavy parse quality confirmed: 67K–149K chars per paper, all marker_ready=True,
+33–49 min per paper total (fetch + OCR). IPC warm-worker stable, no daemon errors.
+
+**Tests:** 216 passed (RIS suite) after `packages/__init__.py` addition. No regressions.
+
+**Dev log:** `docs/dev_logs/2026-05-17_academic-validation-smoke-after-triage.md`
+**Triage record:** `docs/dev_logs/2026-05-17_academic-validation-triage-fixes.md`
+**Batch 1 record:** `docs/dev_logs/2026-05-16_academic-scaled-validation-execution.md`
+**Batch 2 start record:** `docs/dev_logs/2026-05-17_academic-scaled-validation-batch2-rerun.md`
+**Operational triage memo:** `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`
+
+### WP-1 PDF Prefetch Separation — CLOSED 2026-05-22
+
+**Status: COMPLETE — WP-1 PASSES**
+
+WP-1 separates arXiv PDF download (prefetch phase) from GPU parse (warm-process).
+Implementation shipped 2026-05-19. A cross-platform POSIX path separator bug was
+found and fixed 2026-05-22 (commit 22f9201): `str(pdf_path)` on Windows produces
+backslash paths that Docker/Linux cannot resolve; fixed to `pdf_path.as_posix()`.
+
+**Cached E2E proof (2026-05-22, arxiv:2510.05533):**
+- prefetch: 523 KB PDF cached, POSIX `pdf_url` in queue record
+- warm-process: 16.4s parse, body_len=93,720, `meta.json.url` = local file path
+  (NOT arXiv URL) — proves no arXiv API call during parse
+- index-done: 34 chunks, 167 claims indexed
+- research-query `"language model"`: had_fallback=False, 20 claims, 1 citation
+
+WP-1 core claim verified: *PDFs are prefetched separately; warm-process reads the
+local cached file and does not call the arXiv API.*
+
+**29-paper rerun:** NOT YET READY. WP-1 shipped and is validated, but the full 29-paper
+rerun is delayed pending WP-2 (speed/observability hardening). Blockers:
+- JIT cache persistence not confirmed: TORCHINDUCTOR_CACHE_DIR confirmed empty after
+  batch runs; TRITON_CACHE_DIR not yet tested. Cold-start cost unknown per restart.
+- Three timeout-risk papers require Tier-3 classification and operator approval before
+  batch inclusion: `arxiv:1011.6402` (timeout confirmed), `arxiv:2307.14129` (2947s),
+  `arxiv:2409.02025` (HTTP 429 / fetch failures).
+- Use `--auto-timeout` or explicit `--marker-timeout 7200`/`14400` for eq-heavy papers.
+  Run `jit-cache-check` diagnostic first to confirm cache persistence.
+
+**Dev logs:** `docs/dev_logs/2026-05-19_academic-prefetch-separation-wp1.md`,
+`docs/dev_logs/2026-05-22_academic-prefetch-wp1-5paper-e2e.md`,
+`docs/dev_logs/2026-05-22_academic-prefetch-wp1-cached-e2e-closeout.md`
