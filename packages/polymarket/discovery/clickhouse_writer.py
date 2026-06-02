@@ -288,6 +288,73 @@ def read_watchlist_row(
     return None
 
 
+def read_pending_candidates(
+    *,
+    host: str = "localhost",
+    port: int = 8123,
+    user: str = "polytool_admin",
+    password: str,
+) -> list[dict]:
+    """Return candidate-tier watchlist rows awaiting the human gate.
+
+    Selects FINAL watchlist rows where the wallet is a system-owned candidate
+    still pending review and not operator-locked::
+
+        tier='candidate' AND review_status='pending'
+        AND locked=0 AND lifecycle_state='scanned'
+
+    Each returned dict includes at least ``wallet_address``, ``reason``,
+    ``lifecycle_state``, ``tier`` and ``review_status`` (the ``reason`` column
+    holds the deterministic ``summarize_evidence`` string).
+
+    READ-ONLY: this never writes the DB or touches the lifecycle gate.
+
+    Column-presence tolerant: on a pre-migration DB lacking the ``tier`` /
+    ``locked`` columns, the strict filter SELECT fails and returns no rows; we
+    fall back to the pre-migration filter (``review_status='pending' AND
+    lifecycle_state='scanned'``) and synthesise ``tier='candidate'``/``locked=0``
+    on the returned dicts so callers see a stable shape. Returns ``[]`` on error.
+    """
+    _require_password(password)
+
+    strict_sql = (
+        "SELECT * FROM polytool.watchlist FINAL "
+        "WHERE tier = 'candidate' AND review_status = 'pending' "
+        "AND locked = 0 AND lifecycle_state = 'scanned'"
+    )
+    raw = _get_query(strict_sql, host=host, port=port, user=user, password=password)
+
+    if raw is None:
+        # Strict SELECT errored (e.g. tier/locked columns absent pre-migration).
+        # Degrade gracefully to the pre-migration filter.
+        fallback_sql = (
+            "SELECT * FROM polytool.watchlist FINAL "
+            "WHERE review_status = 'pending' AND lifecycle_state = 'scanned'"
+        )
+        raw = _get_query(fallback_sql, host=host, port=port, user=user, password=password)
+
+    if not raw or not raw.strip():
+        return []
+
+    rows: list[dict] = []
+    for line in raw.strip().splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        # Synthesise the two-tier columns if the DB pre-dates them so callers
+        # always see a stable shape.
+        d.setdefault("tier", "candidate")
+        d.setdefault("locked", 0)
+        d.setdefault("reason", "")
+        rows.append(d)
+    return rows
+
+
 def read_latest_snapshot(
     order_by: str,
     time_period: str,

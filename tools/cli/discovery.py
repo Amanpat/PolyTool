@@ -216,19 +216,45 @@ def main(argv: list[str]) -> int:
         "--approve",
         action="store_true",
         help="Set review_status='approved' (scanned->reviewed if needed). Promotion "
-        "to 'promoted' still goes through validate_transition with approved status.",
+        "to 'promoted' still goes through validate_transition with approved status. "
+        "Requires a full wallet address.",
     )
     review_group.add_argument(
         "--deny",
         action="store_true",
-        help="Set review_status='rejected' (records denial; no lifecycle advance).",
+        help="Set review_status='rejected' (records denial; no lifecycle advance). "
+        "Requires a full wallet address.",
     )
-    review_parser.add_argument("wallet", help="Wallet address (0x..) to review")
+    review_group.add_argument(
+        "--list-pending",
+        action="store_true",
+        help="READ-ONLY: list candidate-tier wallets pending the human gate, each "
+        "with its evidence summary, full address and reply syntax. No DB writes.",
+    )
+    review_group.add_argument(
+        "--mark-notified",
+        metavar="WALLET",
+        default=None,
+        help="Record a wallet (full address) as already-notified in the dedup "
+        "state file. Writes ONLY the JSON state file — never the DB/gate.",
+    )
+    review_parser.add_argument(
+        "wallet",
+        nargs="?",
+        default=None,
+        help="Wallet address (0x..) to review (required for --approve/--deny).",
+    )
     review_parser.add_argument(
         "--promote",
         action="store_true",
         help="With --approve: also advance lifecycle reviewed->promoted through "
         "validate_transition (requires the row to be at/advance to 'reviewed').",
+    )
+    review_parser.add_argument(
+        "--unnotified-only",
+        action="store_true",
+        help="With --list-pending: filter out wallets already recorded in the "
+        "dedup state file.",
     )
     review_parser.add_argument("--json", action="store_true", help="Output result as JSON")
     review_parser.add_argument(
@@ -444,7 +470,103 @@ def _run_review(args: argparse.Namespace) -> int:
     packages.polymarket.discovery.review.plan_review (which calls
     validate_transition), then writes the updated row. Refuses to modify a
     locked (operator-owned) entry. Never bypasses the human gate.
+
+    Three READ-ONLY / state-file-only modes never touch the DB or the gate:
+      --list-pending   : list candidate-tier wallets awaiting the human gate.
+      --mark-notified  : record a wallet in the dedup JSON state file.
+    --approve/--deny remain the only gated paths (plan_review -> validate_transition).
     """
+    from packages.polymarket.discovery.approval_request import (
+        format_approval_request,
+        is_full_wallet_address,
+        load_notified,
+        mark_notified,
+    )
+
+    # --- --mark-notified: writes ONLY the JSON dedup state file (no DB/gate) ---
+    if getattr(args, "mark_notified", None):
+        wallet = args.mark_notified
+        if not is_full_wallet_address(wallet):
+            msg = f"--mark-notified requires a full wallet address (got {wallet!r})"
+            if args.json:
+                print(json.dumps({"ok": False, "error": msg}))
+            else:
+                print(f"Error: {msg}", file=sys.stderr)
+            return 1
+        mark_notified(None, wallet)
+        if args.json:
+            print(json.dumps({"ok": True, "marked_notified": wallet.lower()}))
+        else:
+            print(f"Marked notified: {wallet.lower()}")
+        return 0
+
+    # --- --list-pending: READ-ONLY listing (needs CH read; no writes) ---
+    if getattr(args, "list_pending", False):
+        password = args.clickhouse_password or os.environ.get("CLICKHOUSE_PASSWORD", "")
+        if not password:
+            print(
+                "Error: CLICKHOUSE_PASSWORD is required to list pending candidates.\n"
+                "Set the CLICKHOUSE_PASSWORD environment variable or use --clickhouse-password.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            from packages.polymarket.discovery.clickhouse_writer import (
+                read_pending_candidates,
+            )
+        except ImportError as exc:
+            print(f"Error: could not import discovery read deps: {exc}", file=sys.stderr)
+            return 1
+
+        rows = read_pending_candidates(
+            host=args.clickhouse_host,
+            port=args.clickhouse_port,
+            user=args.clickhouse_user,
+            password=password,
+        )
+
+        notified: set[str] = load_notified(None) if args.unnotified_only else set()
+
+        items = []
+        for row in rows:
+            wallet = str(row.get("wallet_address", "") or "")
+            if args.unnotified_only and wallet.lower() in notified:
+                continue
+            reason = str(row.get("reason", "") or "")
+            items.append(
+                {
+                    "wallet_address": wallet,
+                    "evidence": reason,
+                    "request_text": format_approval_request(wallet, reason),
+                    "lifecycle_state": str(row.get("lifecycle_state", "") or ""),
+                }
+            )
+
+        if args.json:
+            print(json.dumps(items))
+        else:
+            if not items:
+                print("No pending candidates.")
+            else:
+                print(f"Pending candidates ({len(items)}):")
+                print("")
+                for it in items:
+                    print(it["request_text"])
+                    print("")
+        return 0
+
+    # --- --approve / --deny: GATED path (requires a full wallet address) ---
+    if not args.wallet:
+        print("Error: --approve/--deny require a wallet address argument.", file=sys.stderr)
+        return 1
+    if not is_full_wallet_address(args.wallet):
+        print(
+            f"Error: a full wallet address is required (got {args.wallet!r}); "
+            "truncated/ambiguous identifiers are rejected.",
+            file=sys.stderr,
+        )
+        return 1
+
     password = args.clickhouse_password or os.environ.get("CLICKHOUSE_PASSWORD", "")
     if not password:
         print(

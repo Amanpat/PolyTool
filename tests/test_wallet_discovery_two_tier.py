@@ -373,10 +373,14 @@ class TestReviewCLI:
         monkeypatch.setattr(chw, "write_watchlist_rows", _fake_write)
         return disc.main(argv)
 
+    # WI-5 added a full-address guard to --approve/--deny, so review fixtures
+    # must use a full 42-char EVM address (not a "0xa" placeholder).
+    _WALLET = "0xcf6041b4c3d3c9e1f0a1b2c3d4e5f60718293a4b"
+
     def test_approve_writes_through_gate(self, monkeypatch):
         captured: list = []
         existing = {
-            "wallet_address": "0xa",
+            "wallet_address": self._WALLET,
             "lifecycle_state": "scanned",
             "review_status": "pending",
             "priority": 3,
@@ -387,7 +391,7 @@ class TestReviewCLI:
             "metadata_json": "{}",
         }
         rc = self._run(
-            ["review", "--approve", "0xa", "--json"], monkeypatch,
+            ["review", "--approve", self._WALLET, "--json"], monkeypatch,
             existing_row=existing, capture=captured,
         )
         assert rc == 0
@@ -398,12 +402,12 @@ class TestReviewCLI:
     def test_deny_writes_rejection(self, monkeypatch):
         captured: list = []
         existing = {
-            "wallet_address": "0xa", "lifecycle_state": "scanned",
+            "wallet_address": self._WALLET, "lifecycle_state": "scanned",
             "review_status": "pending", "priority": 3, "source": "loop_a",
             "tier": "candidate", "locked": 0, "reason": "x", "metadata_json": "{}",
         }
         rc = self._run(
-            ["review", "--deny", "0xa", "--json"], monkeypatch,
+            ["review", "--deny", self._WALLET, "--json"], monkeypatch,
             existing_row=existing, capture=captured,
         )
         assert rc == 0
@@ -413,12 +417,12 @@ class TestReviewCLI:
     def test_review_refuses_locked(self, monkeypatch):
         captured: list = []
         existing = {
-            "wallet_address": "0xa", "lifecycle_state": "watched",
+            "wallet_address": self._WALLET, "lifecycle_state": "watched",
             "review_status": "approved", "priority": 1, "source": "manual",
             "tier": "locked", "locked": 1, "reason": "x", "metadata_json": "{}",
         }
         rc = self._run(
-            ["review", "--approve", "0xa", "--json"], monkeypatch,
+            ["review", "--approve", self._WALLET, "--json"], monkeypatch,
             existing_row=existing, capture=captured,
         )
         assert rc == 1
@@ -427,12 +431,12 @@ class TestReviewCLI:
     def test_review_promote_from_discovered_refused_by_gate(self, monkeypatch):
         captured: list = []
         existing = {
-            "wallet_address": "0xa", "lifecycle_state": "discovered",
+            "wallet_address": self._WALLET, "lifecycle_state": "discovered",
             "review_status": "pending", "priority": 3, "source": "loop_a",
             "tier": "candidate", "locked": 0, "reason": "x", "metadata_json": "{}",
         }
         rc = self._run(
-            ["review", "--approve", "0xa", "--promote", "--json"], monkeypatch,
+            ["review", "--approve", self._WALLET, "--promote", "--json"], monkeypatch,
             existing_row=existing, capture=captured,
         )
         assert rc == 1
