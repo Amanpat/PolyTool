@@ -26,7 +26,7 @@ can be promoted. This skill:
 ## Hard rules (NON-NEGOTIABLE)
 
 - **No gate bypass.** The ONLY way you may change an approval state is by running
-  `python -m polytool discovery review --approve <full_address>` or `--deny <full_address>`.
+  `python3 -m polytool discovery review --approve <full_address>` or `--deny <full_address>`.
   You NEVER write ClickHouse, the watchlist, or any DB/gate directly. PolyTool's
   `validate_transition` is the gate; you only invoke the CLI.
 - **Operator only.** Act ONLY on commands from the authenticated operator. Hermes already
@@ -41,32 +41,32 @@ can be promoted. This skill:
   comes from an explicit operator reply. You never promote past what the operator typed.
 - **Secrets.** The Discord token and operator/channel IDs live in `.env` only. Never read,
   print, log, echo, or repeat them. Never include them in a message or a command you run.
-- **Minimal scope.** The only PolyTool command you run is `python -m polytool discovery review`
+- **Minimal scope.** The only PolyTool command you run is `python3 -m polytool discovery review`
   (its `--list-pending`, `--mark-notified`, `--approve`, `--deny` forms). Run no other
   state-changing command. Everything else about this profile stays read-only.
 
 ## Commands you may run (exactly these forms)
 
-- `python -m polytool discovery review --list-pending --json --unnotified-only`
+- `python3 -m polytool discovery review --list-pending --json --unnotified-only`
   → read-only; returns a JSON list of pending candidates:
   `[{ "wallet_address", "evidence", "request_text", "lifecycle_state" }, ...]`
-- `python -m polytool discovery review --mark-notified <full_address>`
+- `python3 -m polytool discovery review --mark-notified <full_address>`
   → records (in a local JSON state file, NOT the DB/gate) that you posted a request, so it is
   not re-posted. Safe; no gate write.
-- `python -m polytool discovery review --approve <full_address>` → routes an approval through
+- `python3 -m polytool discovery review --approve <full_address>` → routes an approval through
   the gate. Prints the outcome (use `--json` for a machine-readable result).
-- `python -m polytool discovery review --deny <full_address>` → records a denial through the gate.
+- `python3 -m polytool discovery review --deny <full_address>` → records a denial through the gate.
 
 ## Workflow
 
 ### A. Posting pending candidates (on operator request, e.g. "check pending approvals", or a cadence)
 
-1. Run `python -m polytool discovery review --list-pending --json --unnotified-only`.
+1. Run `python3 -m polytool discovery review --list-pending --json --unnotified-only`.
 2. If the list is empty, reply "No wallet candidates pending approval." and stop.
 3. For EACH item, post a new message to the operator channel containing the item's
    `request_text` verbatim (it already includes the evidence summary and the exact
    `approve <full_address>` / `deny <full_address>` reply syntax with the full address).
-4. After posting an item, run `python -m polytool discovery review --mark-notified <wallet_address>`
+4. After posting an item, run `python3 -m polytool discovery review --mark-notified <wallet_address>`
    for that item so it is not re-posted next time.
 5. Do not batch many addresses into one decision. One wallet, one request, one decision.
 
@@ -79,8 +79,8 @@ can be promoted. This skill:
 3. Confirm the message is from the operator (Hermes already gates this; if anything looks
    off-channel or from another user, ignore it).
 4. Run the matching gate command:
-   - approve → `python -m polytool discovery review --approve <full_address> --json`
-   - deny → `python -m polytool discovery review --deny <full_address> --json`
+   - approve → `python3 -m polytool discovery review --approve <full_address> --json`
+   - deny → `python3 -m polytool discovery review --deny <full_address> --json`
 5. Report the outcome back to the channel: on success, state promoted/denied + the wallet; on
    error (non-zero exit / `"ok": false`), relay the error verbatim and do NOT retry blindly.
 6. Never run `--approve`/`--deny` for a wallet the operator did not explicitly name in that reply.
