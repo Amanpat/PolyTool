@@ -270,7 +270,9 @@ services:
   # Vera operator Discord bot — Phase A (skeleton + /ping). Opt-in:
   #   docker compose --profile vera-bot up -d vera-bot
   # Long-lived service: opens an outbound gateway connection, exposes no ports.
-  # Reads DISCORD_BOT_TOKEN (and optional DISCORD_GUILD_ID) from .env via env_file.
+  # Reads ONLY DISCORD_BOT_TOKEN (+ optional DISCORD_GUILD_ID), interpolated from
+  # .env at compose time (see environment: below) — deliberately NOT env_file, so
+  # no wallet/CLOB/ClickHouse secrets enter the bot container.
   # Phase A does NO writes, NO gate access, NO approve/deny. The webhook
   # notification path is separate and unaffected.
   vera-bot:
