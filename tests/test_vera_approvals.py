@@ -28,6 +28,15 @@ from packages.polymarket.discord_bot.config import BotConfig, ClickHouseConfig  
 
 pytestmark = pytest.mark.optional_dep
 
+
+@pytest.fixture(autouse=True)
+def _clear_idempotency_guard():
+    """Reset the in-process actioned-wallet guard between tests."""
+    approvals._actioned_wallets.clear()
+    yield
+    approvals._actioned_wallets.clear()
+
+
 OPERATOR_ID = 999_000_111
 ADDR = "0x1234567890abcdef1234567890abcdef12345678"  # valid 0x + 40 hex
 ADDR2 = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -302,6 +311,84 @@ def test_handle_action_runner_raises_is_caught():
     asyncio.run(approvals.handle_action(interaction, config=_config(), runner=boom))
     interaction.followup.send.assert_awaited()  # ephemeral error sent
     assert "went wrong" in interaction.followup.send.call_args.args[0]
+
+
+def test_handle_action_duplicate_click_no_second_write():
+    """A second click on a duplicate card for an already-actioned wallet must
+    NOT trigger a second subprocess (the Codex-flagged double-write race)."""
+    cfg = _config()
+    runner = AsyncMock(return_value=(0, ""))
+
+    i1 = _interaction(
+        user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
+    )
+    asyncio.run(approvals.handle_action(i1, config=cfg, runner=runner))
+
+    # duplicate card for the SAME wallet, even with the other action
+    i2 = _interaction(
+        user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("deny", ADDR)
+    )
+    asyncio.run(approvals.handle_action(i2, config=cfg, runner=runner))
+
+    runner.assert_awaited_once()  # only the first click reached the CLI
+    assert "already actioned" in i2.followup.send.call_args.args[0]
+    i2.edit_original_response.assert_awaited()  # dup card buttons disabled
+
+
+def test_handle_action_failure_releases_reservation_for_retry():
+    """A non-zero (transient) result releases the wallet so a fresh card retries."""
+    cfg = _config()
+    runner = AsyncMock(side_effect=[(1, "transient db blip"), (0, "")])
+
+    i1 = _interaction(
+        user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
+    )
+    asyncio.run(approvals.handle_action(i1, config=cfg, runner=runner))
+    assert ADDR.lower() not in approvals._actioned_wallets  # released
+
+    i2 = _interaction(
+        user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
+    )
+    asyncio.run(approvals.handle_action(i2, config=cfg, runner=runner))
+    assert runner.await_count == 2  # retry was allowed
+
+
+def test_concurrent_clicks_same_wallet_single_subprocess():
+    """Two concurrent clicks for the same wallet → exactly one subprocess.
+
+    Proves the synchronous reserve (no await between check and add) closes the
+    race on the single asyncio event loop.
+    """
+    cfg = _config()
+
+    async def _scenario():
+        gate = asyncio.Event()
+        calls = []
+
+        async def slow_runner(action, address, ch):
+            calls.append(address)
+            await gate.wait()
+            return (0, "")
+
+        i1 = _interaction(
+            user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
+        )
+        i2 = _interaction(
+            user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
+        )
+        t1 = asyncio.create_task(
+            approvals.handle_action(i1, config=cfg, runner=slow_runner)
+        )
+        t2 = asyncio.create_task(
+            approvals.handle_action(i2, config=cfg, runner=slow_runner)
+        )
+        await asyncio.sleep(0.02)  # let both reach the reservation guard
+        gate.set()
+        await asyncio.gather(t1, t2)
+        return calls
+
+    calls = asyncio.run(_scenario())
+    assert len(calls) == 1  # only one click spawned a subprocess
 
 
 def test_handle_action_defers_before_anything_else():

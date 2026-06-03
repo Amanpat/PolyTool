@@ -55,6 +55,20 @@ _ACTION_FLAGS = {"approve": "--approve", "deny": "--deny"}
 
 _DIGEST_MAX = 10
 
+# In-process idempotency guard. The verified ``discovery review`` CLI does NOT
+# reject a re-action on an already-actioned wallet (a re-approve / approve-then-
+# deny both return 0 and both write), so the bot must not TRIGGER a second write
+# for a wallet it already actioned. This set holds wallets reserved/actioned in
+# THIS process; the reservation is taken synchronously (no await between the
+# membership check and the add) so two concurrent clicks for the same wallet
+# cannot both spawn a subprocess on the single asyncio event loop. A wallet
+# leaves pending once actioned and never re-enters it, so a successful action is
+# kept; a failed action is released so a fresh /pending card can retry.
+# Residual (out of scope for this bot, single trusted operator): an approve/deny
+# performed via the CLI *outside* the bot is not reflected here — fully closing
+# that needs CLI-level idempotency (reject non-pending re-actions).
+_actioned_wallets: set[str] = set()
+
 # A runner maps (action, address, ch_config) -> (returncode, reason_text).
 # Injectable so tests never spawn a real subprocess.
 ReviewRunner = Callable[[str, str, ClickHouseConfig], Awaitable[tuple[int, str]]]
@@ -285,23 +299,45 @@ async def handle_action(
             )
             return
         action, address = parsed
+        key = address.lower()
 
-        # 4. Trigger the verified CLI (list-form subprocess; the only writer).
-        rc, reason = await runner(action, address, config.clickhouse)
-
-        # 5. Idempotency via exit code.
-        if rc == 0:
-            await _finalize_done(interaction, action, address)
-        else:
-            logger.info(
-                "review %s for %s returned rc=%s (already actioned / gate-rejected).",
-                action, address, rc,
-            )
+        # 4. Idempotency reservation (synchronous — no await before the add) so a
+        #    double-click, an approve-then-deny across cards, or two concurrent
+        #    clicks for the same wallet cannot each trigger a write.
+        if key in _actioned_wallets:
+            logger.info("Duplicate/stale click for %s — already actioned this session; no subprocess.", address)
             await _disable_only(interaction, address)
             await interaction.followup.send(
-                f"No longer pending / already actioned: {reason or 'gate rejected the change'}",
-                ephemeral=True,
+                "No longer pending / already actioned.", ephemeral=True
             )
+            return
+        _actioned_wallets.add(key)
+
+        keep_reservation = False
+        try:
+            # 5. Trigger the verified CLI (list-form subprocess; the only writer).
+            rc, reason = await runner(action, address, config.clickhouse)
+
+            # 6. Idempotency via exit code.
+            if rc == 0:
+                keep_reservation = True  # actioned — never retry (would double-write)
+                await _finalize_done(interaction, action, address)
+            else:
+                logger.info(
+                    "review %s for %s returned rc=%s (already actioned / gate-rejected).",
+                    action, address, rc,
+                )
+                await _disable_only(interaction, address)
+                await interaction.followup.send(
+                    f"No longer pending / already actioned: {reason or 'gate rejected the change'}",
+                    ephemeral=True,
+                )
+        finally:
+            # Release the reservation only if NOT actioned, so a transient failure
+            # can be retried from a fresh /pending card (a successful write stays
+            # reserved to block any duplicate card from writing again).
+            if not keep_reservation:
+                _actioned_wallets.discard(key)
     except Exception:  # catch-all — a handler must never raise
         logger.exception("Unexpected error in approve/deny handler (no write assumed).")
         try:
