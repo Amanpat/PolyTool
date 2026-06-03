@@ -78,12 +78,28 @@ members False); exactly one command `/ping` with a description; `_ping` awaits
   ONLY `DISCORD_BOT_TOKEN` + `DISCORD_GUILD_ID` (verified no PK/CLOB/CH secrets);
   `:?` fail-fast trips when the token is unset.
 
-**Live (REQUIRES OPERATOR — blocked on the bot token):**
+**Live (DONE 2026-06-02 — operator provided the token; I ran compose):**
 
-I cannot create the Discord application, mint the bot token, or invite the bot
-to a server — those are operator-only (per the decision record, "Claude does not"
-create the token) and no token exists in `.env`. So the final "bot appears online
-+ /ping → pong in the server" check is a handoff. Runbook:
+Operator created the Discord app/token/invite and added `DISCORD_BOT_TOKEN` +
+`DISCORD_GUILD_ID=1411788462142783551` to `.env` (token never seen by me). I ran
+`docker compose --profile vera-bot up -d --build vera-bot` and read the logs:
+
+```
+INFO vera.bot: Slash commands synced to guild 1411788462142783551 (instant).
+INFO discord.gateway: Shard ID None has connected to Gateway (...).
+INFO vera.bot: Vera is online as VERA#2261 (id=1497296971130474566).
+```
+
+- ✅ Container builds and runs; ✅ bot logs in (token NOT printed — only
+  "logging in using static token"); ✅ commands sync to the guild instantly;
+  ✅ "Vera is online as VERA#2261".
+- Two build/correctness fixes were needed and applied during this step (separate
+  commit): `Dockerfile.vera` install ordering + inline README stub (README.md is
+  `.dockerignore`'d); enable the non-privileged `guilds` intent to clear the
+  "Guilds intent seems to be disabled" warning (message_content/members stay OFF).
+- **`/ping` → ephemeral `pong`:** CONFIRMED by operator in-server (2026-06-02).
+
+Original handoff runbook (kept for reference / re-deploys):
 
 1. Discord Developer Portal → New Application → Bot → Reset/Copy **token**.
    Invite with `applications.commands` (+ `bot`) scope. No privileged intents
