@@ -4,7 +4,7 @@ type: reference
 status: active
 source_zone: repo
 mirror_of: CLAUDE.md
-last_synced: '2026-05-25T22:03:09Z'
+last_synced: '2026-06-03T02:26:56Z'
 lifecycle: reviewed
 generator: repo-sync
 ---
@@ -141,6 +141,12 @@ CLI entrypoint falling back to a wrong default.
 - PnL computation with the repo’s current fee model.
 - Resolution enrichment and CLV capture.
 - `wallet-scan`, `alpha-distill`, hypothesis registry, local RAG, and LLM bundle tooling.
+- **Wallet-ingestion pipeline (WI-1, 2026-05-31):** `discovery run-worker` drains `scan_queue`
+  (lease → scan → dossier → RIS ingest → watchlist `scanned` → complete), separate from
+  `discovery run-loop-a`. Worker in `packages/polymarket/discovery/scan_worker.py`; assumes a
+  SINGLE worker (ClickHouse leases are not atomic CAS — multi-worker cadence is WP-3). maker/taker
+  is NOT available from the Data API (`/trades` carries `side` only); deferred to the raw-Jon-parquet
+  / DuckDB path — do not add on-chain log fetching to recover it.
 
 ### SimTrader stack
 

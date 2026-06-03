@@ -4,7 +4,7 @@ type: reference
 status: active
 source_zone: repo
 mirror_of: docs/runbooks/RIS_MARKER_QUEUE_RUNBOOK.md
-last_synced: '2026-05-25T22:03:09Z'
+last_synced: '2026-06-03T02:26:56Z'
 lifecycle: reviewed
 generator: repo-sync
 ---
@@ -50,6 +50,13 @@ L2 Query (research-query --question "...")
   └─ multi-angle KS query over Marker-ready academic corpus
 ```
 
+### Which path to follow
+
+> **First run or 1–3 papers** → skip to [Operator Path (end-to-end)](#operator-path-end-to-end) below.
+> **Batches of 5+ papers** → use the [Prefetch then Parse](#prefetch-then-parse-wp-1-workflow) section immediately after this Quick Start.
+
+---
+
 ### Quick start (full pipeline — WP-1 prefetch path)
 
 > **Recommended path for batches of 5+ papers.** The `prefetch` command (Step 3b)
@@ -71,8 +78,8 @@ python -m polytool research-marker-queue enqueue --url ARXIV_ID
 
 # Step 3b — Prefetch PDFs to local disk before starting GPU parse  [WP-1]
 #            Do this on the Windows host, outside Docker. Safe to retry.
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --max-items 10 \
   --delay-seconds 5
 
@@ -84,9 +91,13 @@ docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
   --marker-timeout 900
 
 # Step 4b — Index completed papers AND extract claims (run INSIDE Docker)
-docker exec polytool-ris-scheduler-gpu sh -c \
-  "cd /app && python -m polytool research-marker-queue \
-   --queue-dir /app/artifacts/research/marker_parse_queue index-done"
+# Note: `docker exec` requires a named running container. If Step 4 used `run --rm`,
+# that container was removed. Either: (a) start a persistent container first with
+#   docker compose --profile ris-gpu up -d
+# and then use docker exec, or (b) use docker compose run as shown here:
+docker compose --profile ris-gpu run --rm ris-scheduler-gpu \
+  sh -c "cd /app && python -m polytool research-marker-queue \
+  --queue-dir /app/artifacts/research/marker_parse_queue index-done"
 
 # Step 5 — Query the Marker-ready corpus
 python -m polytool research-query --question "optimal spread in prediction markets"
@@ -177,16 +188,16 @@ Output per paper: `Enqueued: arxiv:2604.24366  (status=pending)`
 > does not use the GPU and does not require the Docker container to be running.
 
 ```bash
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --max-items 10 \
   --delay-seconds 5
 ```
 
 - `--max-items N` — how many pending papers to prefetch (default: all pending)
-- `--delay-seconds S` — seconds to wait between each download (default: 5). Use 10–15
+- `--delay-seconds S` — seconds to wait between each download (default: 10). Use 10–15
   for large batches to stay within arXiv's rate limits.
-- `--queue-dir PATH` — path to your queue directory (required if not using the default)
+- `--queue-dir PATH` — path to your queue directory; must go BEFORE the subcommand: `research-marker-queue --queue-dir PATH prefetch`
 
 **Expected output (per paper):**
 ```
@@ -333,8 +344,8 @@ the [Querying section](#querying-the-academic-corpus-l2--research-query) below.
 **Fix:**
 ```bash
 # Re-run prefetch with a longer delay
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 15
 ```
 
@@ -360,8 +371,8 @@ python -m polytool research-marker-queue \
 
 **Fix:** Re-run prefetch for the affected papers:
 ```bash
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 15
 ```
 
@@ -450,8 +461,8 @@ python -m polytool research-marker-queue counts
 
 # 3. Re-run prefetch to make sure all pending papers are still cached
 #    (Docker volumes are persistent across restarts, but verify)
-python -m polytool research-marker-queue prefetch \
-  --queue-dir artifacts/research/marker_parse_queue \
+python -m polytool research-marker-queue \
+  --queue-dir artifacts/research/marker_parse_queue prefetch \
   --delay-seconds 5
 
 python -m polytool research-marker-queue \
@@ -494,10 +505,10 @@ python -m polytool research-marker-queue --queue-dir artifacts/research/test_5pa
 
 | # | Check | Expected result | Command |
 |---|-------|-----------------|---------|
-| 1 | Prefetch completes without 429 errors | 5 `[PREFETCH OK]` lines, 0 failures | `research-marker-queue prefetch --queue-dir ... --delay-seconds 5` |
+| 1 | Prefetch completes without 429 errors | 5 `[PREFETCH OK]` lines, 0 failures | `research-marker-queue --queue-dir ... prefetch --delay-seconds 5` |
 | 2 | All 5 PDFs cached and non-zero | `prefetch_stats.cached=5` | `research-marker-queue --queue-dir ... status-report` |
-| 3 | warm-process: 5 done, 0 failed, 0 stuck | Queue shows `done: 5` | `research-marker-queue counts --queue-dir ...` |
-| 4 | All 5 papers `marker_ready=True` | `body_source=marker`, `body_length>=5000` for all | `research-marker-queue list --status done --queue-dir ...` |
+| 3 | warm-process: 5 done, 0 failed, 0 stuck | Queue shows `done: 5` | `research-marker-queue --queue-dir ... counts` |
+| 4 | All 5 papers `marker_ready=True` | `body_source=marker`, `body_length>=5000` for all | `research-marker-queue --queue-dir ... list --status done` |
 | 5 | index-done (in Docker) indexes all 5 | `5 indexed, 0 no-body, 0 failed` | `docker exec ... research-marker-queue --queue-dir ... index-done` |
 | 6 | research-query returns citations | `had_fallback=False` with ≥1 citation | `research-query --question "prediction markets"` |
 
@@ -505,45 +516,61 @@ If any check fails, consult the Troubleshooting section above before running a f
 
 ---
 
-### Corpus Status (as of 2026-05-18)
+### Corpus Status (as of 2026-05-28 — post-reset, pre-Batch-A)
 
-**The 29-paper scaled validation corpus is paused. Do not run the full batch yet.**
+**QUEUE RESET COMPLETE. Staged cached validation is ready to begin at Batch A.**
+
+> **History note:** The pre-reset state (failed=5, processing=1, pending=18) is documented
+> in `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md`. The queue was reset
+> on 2026-05-28 after WP-1 prefetch separation validated (2026-05-22) and Tier-3 paper
+> handling was established. Do not use the pre-reset counts for planning.
 
 Current state of `artifacts/research/scaled_validation_queue_v2`:
 
 | Status | Count | Notes |
 |--------|-------|-------|
-| done | 5 | All equation-heavy arXiv papers; `marker_ready=True` for all |
-| failed | 5 | Fetch failures (HTTP 429 / timeout) during Batch 2 — root cause: arXiv rate limiting |
-| processing | 1 | arxiv:1011.6402 — stuck after session kill; needs `--force` reset before rerun |
-| pending | 18 | Table-heavy, prose/survey, outlier papers — never reached |
+| done | 5 | All indexed in KS (227 chunks, 1106 claims) and embedded in Chroma |
+| failed | 0 | — |
+| processing | 0 | — |
+| pending | 24 | All PDFs prefetched and cached (24/24) |
 
-**Why paused:** The rate-limit root cause (papers failing fetch during GPU parse) was fixed
-by WP-1 prefetch separation (shipped 2026-05-22, E2E validated). However the full 29-paper
-rerun is NOT yet unblocked. Remaining blockers per WP-2 review (2026-05-23):
+**Remaining open items before full 29-paper run:**
 
-1. **JIT cache persistence unknown.** TORCHINDUCTOR_CACHE_DIR confirmed empty after batch
-   runs. TRITON_CACHE_DIR (the suspected Surya/Triton kernel cache) not yet tested. Until
-   persistence is confirmed, each Docker restart may pay 27–50 min cold-start per format
-   group — making the full batch runtime unpredictable. Run `jit-cache-check` diagnostic
-   before proceeding.
+1. **JIT cache persistence: UNPROVEN.** `TORCHINDUCTOR_CACHE_DIR` and `TRITON_CACHE_DIR`
+   both unset in container; persistence not tested across Docker restarts. Each restart may
+   pay 27–50 min cold-start per format group. Run `jit-cache-check` inside Docker and
+   follow the manual before/after diagnostic before scheduling large batches.
 
-2. **Three timeout-risk papers need Tier-3 handling.** `arxiv:1011.6402` timed out at
-   3600s (confirmed). `arxiv:2307.14129` took 2947s. `arxiv:2409.02025` failed with HTTP
-   429 / fetch errors across multiple runs. These must be re-enqueued with `--tier 3` and
-   require explicit operator approval before inclusion in a batch.
+2. **Tier-3 papers require operator approval before Batch D.**
+   - `arxiv:1011.6402`: confirmed timeout at 3600s; `ingest_tier=3`. Do not include in
+     Batch A/B/C.
+   - `arxiv:2409.02025`: persistent HTTP 429 / fetch failures; `ingest_tier=3`. Do not
+     include in Batch A/B/C.
+   - `arxiv:2508.03474` (9.7 MB): `tier3_flag=true` by size; requires 14400s timeout.
+     Include in Batch C as the first large-paper probe.
 
-3. **Use `--auto-timeout` for the full batch.** Run `prefetch` first so file sizes are in
-   the manifest, then pass `--auto-timeout` to `warm-process`.
+3. **indexed.jsonl has duplicate entries.** `status-report` reports `indexed_count=19`
+   (inflated by multiple `--force` reindex runs) while unique indexed papers remain 5.
+   The code deduplicates by `candidate_id` when reading `indexed.jsonl`, so this is
+   harmless audit noise. Do not use raw `indexed_count` as the unique-paper count.
 
-See `docs/dev_logs/2026-05-18_academic-ris-operational-triage.md` for pre-WP-1 analysis
-and `docs/dev_logs/2026-05-23_academic-processing-speed-diagnosis.md` for the WP-2
-blockers.
+**Run plan — 4 batches:**
+
+| Batch | Papers | `--marker-timeout` | Notes |
+|-------|--------|--------------------|-------|
+| A (5) | 2507.01990, 2510.05533, 2605.00864, 2507.08921, 2601.18815 | 3600s | Small PDFs (≤600KB); run first |
+| B (10) | 1206.4810, 2003.05958, 2203.13053, 1810.04383, 1609.03471, 2605.11640, 2605.02286, 2605.00493, 2208.13564, 2605.10400 | 7200s | Medium PDFs |
+| C (7) | 2508.03474, 2308.04947, 2403.09267, 2212.12717, 2602.21091, 2604.20050, 2604.10005 | 14400s | Large PDFs; run 2508.03474 first as probe |
+| D (2) | 1011.6402, 2409.02025 | 7200s+ | **Operator approval required before running** |
+
+Stop condition for A/B: if >1 paper fails with `marker_timeout`, stop and diagnose.
+Full batch plan with stop conditions: `docs/dev_logs/2026-05-28_academic-scaled-validation-queue-reset-readiness.md`.
 
 **Do not:**
-- Run `warm-process` on the 29-paper queue without prefetching first.
-- Reset and include timeout-risk papers without `--tier 3` and operator approval.
-- Treat the 5/29 done count as a representative corpus sample.
+- Run `warm-process` on the 29-paper queue without verifying PDFs are still cached first.
+- Include Tier-3 papers (1011.6402, 2409.02025) in Batch A/B/C without operator approval.
+- Treat a partial pass (e.g. 20/24 parsed) as a valid 29-paper corpus measurement.
+- Reset done papers with `--force` — preserve the 5 successful Batch 2 parses.
 
 ---
 
@@ -923,7 +950,7 @@ python -m polytool research-query \
 6. Papers ranked by highest claim score
 7. Citations returned with: title, arxiv_id, source_url, snippet, body_source
 
-**Retrieval is conservative substring/phrase matching — not semantic or vector retrieval.**
+**Primary retrieval is semantic (ChromaDB `academic_papers` vector search — L2.1, complete 2026-05-25). Lexical KnowledgeStore fallback activates only when no Chroma chunks exceed the similarity threshold (`had_fallback=true`, `retrieval_mode=lexical`).**
 
 **Prerequisite:** Papers must be indexed into the KnowledgeStore first.
 Use `research-marker-queue` (Steps 1–4 above) then **Step 4b** (`index-done`):
@@ -977,7 +1004,8 @@ research-harvest (or manual enqueue)
 - Docker/GPU IPC 3-paper batch (`ipc_warm_worker_used=true`) was validated separately on
   2026-05-08 and is an optional performance/infra follow-up.
 - SSRN/NBER sources deferred. Only arXiv papers used.
-- ChromaDB academic retrieval (L2.1) deferred.
+- ChromaDB academic retrieval (L2.1) — **COMPLETE 2026-05-25**. Semantic retrieval confirmed in 3-paper category sample (prose/survey, equation-heavy, table-heavy). See the L2.1 section in `docs/CURRENT_STATE.md`.
+- **NTFS caveat:** This 2026-05-09 run executed `index-done` on the Windows host, predating the NTFS colon restriction discovery (2026-05-17). arXiv candidate IDs like `arxiv:1106.5040` contain a colon; Windows Python cannot open `bodies/arxiv:1106.5040.body.txt`. The 2026-05-09 run succeeded because it used a queue without colon-bearing IDs. **Always run `index-done` inside Docker** when using the GPU parse path on Windows. The current operator path reflects this requirement.
 
 **Dev log:** `docs/dev_logs/2026-05-09_ris-academic-pipeline-3paper-operator-validation.md`
 

@@ -4,7 +4,7 @@ type: index
 status: active
 source_zone: repo
 mirror_of: docs/reference/
-last_synced: '2026-05-25T00:00:00Z'
+last_synced: '2026-06-03T00:00:00Z'
 lifecycle: reviewed
 generator: repo-sync
 ---

@@ -1,18 +1,21 @@
 ---
 title: Vera Hermes Operator Baseline
 type: reference
-status: complete
+status: retired
 completed: 2026-04-23
+retired: 2026-06-02
 track: operator-tooling
 scope: read-only
 source_zone: repo
 mirror_of: docs/features/vera_hermes_operator_baseline.md
-last_synced: '2026-05-25T22:14:18Z'
+last_synced: '2026-06-03T02:26:56Z'
 lifecycle: reviewed
 generator: repo-sync
 ---
 
 # Feature: vera-hermes-agent Operator Baseline
+
+> **RETIRED 2026-06-02.** The `vera-hermes-agent` Hermes profile, the `hermes-gateway.service` systemd user unit, the operator skills (`polytool-status` / `polytool-dev-logs` / `polytool-files`), and the helper scripts were all removed. Hermes was read-only and isolated (no trading, no jobs); nothing operational depended on it. It is replaced by a planned purpose-built discord.py bot that reuses the name "Vera" (real approve/deny buttons over the existing gate). The webhook notification path is unaffected. History preserved below. See `docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md`.
 
 Read-only Hermes operator instance on the main local machine. Gives the operator a named, isolated personal assistant profile that can later be extended with PolyTool query skills. Does NOT connect to messaging, does NOT touch live trading paths, does NOT run scheduled jobs.
 

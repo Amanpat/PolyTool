@@ -60,13 +60,32 @@ Removed:
 - Repo wiring: `skills/polytool-operator/` (3 skills), `scripts/vera_hermes_healthcheck.sh`,
   `scripts/test_vera_{status,dev_logs,files}_commands.sh`, and `scripts/start_vera_discord_gateway.sh`.
 
-Replacement: a planned purpose-built discord.py bot reusing the name "Vera" with
-real one-tap approve/deny buttons routed through the existing enforced gate
-(`validate_transition` via `discovery review`). The **webhook notification path
-is unaffected** (`packages/polymarket/discovery/pending_notify.py` +
+Replacement (**SHIPPED 2026-06-02**, was planned): a purpose-built discord.py bot
+reusing the name "Vera" — Phase A (skeleton + `/ping`) and Phase B (`/pending` +
+one-tap approve/deny buttons) are both shipped and live-verified, with approve/deny
+routed through the existing enforced gate (`validate_transition` via `discovery
+review`; the bot never writes rows). Codex adversarial review: 10/10 invariants
+PASS. See `docs/features/FEATURE-vera-discord-bot.md`. The **webhook notification
+path is unaffected** (`packages/polymarket/discovery/pending_notify.py` +
 `notifications/discord.py` stay). Decision record:
 `docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md`.
 Feature docs marked `status: retired`. Dev log: `docs/dev_logs/2026-06-02_retire-hermes-vera-agent.md`.
+
+## Operator Discord Surface (2026-06-02)
+
+The operator's Discord surface has two decoupled halves:
+
+- **Notifications - webhook (always-on).** When a wallet enters
+  `review_status='pending'`, `discovery run-worker` posts a Discord **embed card**
+  via `DISCORD_WEBHOOK_URL` (WP-1 richer evidence fields: PnL, win rate, trades,
+  CLV, open/resolved split, discovery source, category; WP-2 embed card + digest +
+  a fenced **copy-block** of the approve/deny CLI commands). The copy-block is the
+  bot-independent fallback. See `docs/features/FEATURE-discord-alerting-tracka.md`.
+- **Interaction - Vera bot (`/pending`).** Interactive one-tap approve/deny
+  *buttons* (a webhook cannot receive interactions) run via the Vera discord.py
+  bot, a thin trigger over `discovery review --approve/--deny`. Operator-only
+  (author-guard), live-verified. See `docs/features/FEATURE-vera-discord-bot.md`.
+  This is the new "Vera" - NOT the retired `vera-hermes-agent`.
 
 ## Wallet Discovery v1 (Shipped, 2026-04-10)
 

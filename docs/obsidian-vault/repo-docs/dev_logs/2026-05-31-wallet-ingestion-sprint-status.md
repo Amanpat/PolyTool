@@ -1,0 +1,276 @@
+---
+title: Wallet Ingestion Sprint Status
+type: session_note
+status: active
+source_zone: repo
+mirror_of: docs/dev_logs/2026-05-31_wallet-ingestion-sprint-STATUS.md
+last_synced: '2026-06-03T02:26:56Z'
+lifecycle: reviewed
+generator: repo-sync
+---
+
+# Wallet-Ingestion v1 Sprint — Running STATUS Log
+
+Orchestrator-maintained. One paragraph per packet as it lands. Execution order:
+WI-1 → WI-2 → WI-3 → WI-4 → WI-5 (spine, sequential); WI-6 independent/parallel.
+
+Hard stop gates: WI-2 (before applying schema migration), WI-5 (Discord bot token must be
+in `.env`), and any failing acceptance gate/test.
+
+---
+
+## ⛔ BLOCKER — Live two-pass supersede validation halted (2026-06-01)
+
+**Status: STOPPED and reported per the "invariant fails → stop, do not patch around" rule. No fix applied.**
+
+The live validation could NOT reach the supersede check because the **scan → dossier → RIS ingest step
+silently persists nothing for realistic wallets.**
+
+**Repro:** real pass-1 scan of `0xcf609d3256f0f37f0595e5dc64012fa3a8fea6f5` (rank-9 leaderboard wallet).
+Worker reported `completed=1`; dossier written to disk (run `b894610b…`, 3 valid findings extractable);
+watchlist advanced to `scanned`. But the live KS still holds only the 2 smoke docs — **0 docs/claims
+ingested for this wallet.** Reproduced into temp stores: `ingest_dossier_findings` returns 3 results yet
+persists 0 (both `post_extract_claims` True/False).
+
+**Root cause (two interacting defects):**
+1. **Pre-existing (NOT this sprint):** `PlainTextExtractor.extract` (`extractors.py:163-165`) treats any
+   raw-text string containing `/` or `\\` as a (missing) file path → raises `FileNotFoundError`. The dossier
+   **memo** body contains `/` (dates/percentages/prose) → throws. Detectors/Candidates are slash-free.
+   `extractors.py` is untouched by this sprint (empty `git log c249ff5..HEAD`).
+2. **WI-2 amplification:** `ingest_dossier_findings` wraps a wallet's 1–3 findings in ONE
+   `deferred_transaction()` with a broad `except: rollback-all` (lines 614-628). The memo's FileNotFoundError
+   rolls back the WHOLE wallet (incl. the good Detectors/Candidates) and is swallowed **non-fatally**, so the
+   worker reports success with zero persisted. Pre-WI-2, findings ingested independently (partial success).
+
+**Why the WI-1 "live smoke PASS" was a false positive:** wallet `0x84cf` had no substantive memo, so only 2
+slash-free findings (Detectors+Candidates) ingested — it never exercised the memo path. Realistic wallets
+(with a memo) ingest nothing. The WI-2 unit tests passed because their synthetic finding bodies are slash-free.
+
+**Two-pass invariants (a–d): NOT EVALUABLE** — pass-1 ingest never persisted, so there is no active set to
+supersede. Blocked at the precondition.
+
+**Live-state note (no corruption):** the rolled-back ingest left the live KS unchanged (still the 2 smoke
+docs; no partial writes). BUT pass-1 advanced `0xcf60`'s watchlist row to `scanned` + marked the queue row
+`done` while RIS holds no dossier for it — a watchlist/RIS inconsistency the silent-failure produced.
+
+**Decision needed from operator (fix is scope-sensitive — shared extractor + WI-2 transaction semantics):**
+- Option A (narrow): in the dossier ingest, force true raw-text mode (e.g. write body to a temp file and pass
+  the path, or add an explicit `raw_text=True` bypass) — avoids touching the shared extractor heuristic.
+- Option B (root, broad): fix `PlainTextExtractor`'s `/`→path heuristic (affects ALL ingestion paths —
+  academic/manual/etc.; higher blast radius; arguably out of this sprint's scope).
+- Plus (WI-2 hardening): make the per-wallet ingest NOT silently swallow + total-rollback — surface the error
+  and/or ingest findings independently so one bad section can't void the wallet, and so the worker does not
+  report success on zero ingest.
+Awaiting operator direction before any code change. `api` service left running for re-validation.
+
+### ✅ RESOLVED + RE-VALIDATION PASS (2026-06-01)
+
+**Fix applied per operator decision (commit `ae4947d`):**
+- **DEFECT 1 (Option A):** explicit `raw_text=True` bypass on `PlainTextExtractor.extract`; dossier ingest's
+  `pipeline.ingest` passes it so memo bodies with `/` are literal text. Shared `/`→path heuristic UNCHANGED
+  for other callers. **Option B (remove the content-sniffing heuristic across all callers + caller audit)
+  logged as a backlog work-packet** — see `docs/dev_logs/2026-06-01_wi-validation-fix.md`.
+- **DEFECT 2 (mandatory):** ingest never reports success on zero-persisted. `ingest_dossier_findings` logs
+  the rollback loudly (`exc_info`); `_make_dossier_extractor` raises when 0/N persist; the worker no longer
+  swallows ingest errors → ingest failure marks the queue item FAILED + does NOT advance the watchlist.
+  Kept all-or-nothing per wallet (preserves the supersede invariant); failures are loud, not per-section.
+- Regression tests: memo-with-`/` ingests all 3; worker fails item + skips advance on zero-persist.
+- **Cleanup:** `0xcf60` watchlist row (lying `scanned`/no-dossier) reset to `queued`, then properly
+  re-driven by the re-validation.
+
+**Live two-pass re-validation on the blocked real wallet `0xcf609d3256f0f37f0595e5dc64012fa3a8fea6f5`:**
+- Pass 1 (run `6353dc1c`): ingested 3/3 findings → 3 active docs + 17 active claims; watchlist `scanned`.
+- Pass 2 (run `ae7ffe57`, changed content): ingested 3/3 → supersede fired. **All four invariants PASS:**
+  - (a) exactly ONE active dossier set: 3 active (run `ae7ffe57`), 3 superseded (run `6353dc1c`).
+  - (b) prior set superseded + linked: all 3 `superseded_by`→active doc + `superseded_at` set; claims
+    cascaded (17 superseded / 17 active; active claims tie only to active docs).
+  - (c) RIS mirror shows ONLY active: 3 active doc-ids present in 5 mirror files each; 3 superseded
+    doc-ids in 0 files (sync reported "3 deleted" — stale superseded dossiers removed from the vault).
+  - (d) disk retention: `previous-results.md` (47 KB) in the new run dir; prior raw run gzipped to
+    `6353dc1c….tar.gz`, original dir removed (archived, not deleted).
+
+**Minor note (not a failure):** the first pre-fix failed run dir `b894610b…` remains as a loose on-disk
+dir (it never ingested/superseded anything; harmless orphan). Could be cleaned up later.
+
+### Post-validation closeout (2026-06-01)
+- **Full-suite baseline CONFIRMED:** `5355 passed, 1 skipped, 3 failed` — the 3 failures are exactly the
+  pre-existing `test_ris_phase4_source_acquisition::TestEndToEnd` academic tests (unrelated). The ~12
+  guard-induced failures are gone; the validation fix added zero new failures. Backlogged:
+  `work-packet-backlog-test-ris-phase4-failures.md`.
+- **Option B** (remove the extractor `/`→path heuristic across all callers) backlogged:
+  `work-packet-backlog-extractor-slash-heuristic.md`.
+- **`api` docker service STOPPED** (no longer needed; gateway-intents WI-5 connects outbound). Remaining
+  services: `clickhouse`, `ris-scheduler-gpu` (both pre-existing).
+- Fix dev log: `docs/dev_logs/2026-06-01_wi-validation-fix.md`. Commit `ae4947d`.
+
+**WI-5 remains parked on the Discord bot token + approval channel ID in `.env`.**
+
+---
+
+## WI-1 — Queue Consumer + Arg-Seam Fix — ✅ COMPLETE (2026-05-31)
+
+**Files changed:** created `packages/polymarket/discovery/scan_worker.py` (`ScanWorker` +
+`make_clickhouse_watchlist_advancer`), `tests/test_scan_worker.py` (13 tests),
+`docs/dev_logs/2026-05-31_wi-1-queue-consumer.md`; modified `tools/cli/discovery.py`
+(`run-worker` subparser + `_run_worker`), `tools/cli/wallet_scan.py` (arg-seam: `--wallet`→`--user`),
+`packages/polymarket/discovery/scan_queue.py` (`load_from_clickhouse` → `FINAL ORDER BY dedup_key, updated_at`),
+`packages/polymarket/data_api.py` (maker/taker TODO marker), `docs/CURRENT_STATE.md`.
+
+**Tests:** 142 passed, 0 failed, 0 skipped (test_wallet_discovery, _integrated, _integration,
+_scan_dossier_integration, test_wallet_scan, test_scan_worker). CLI loads; `run-worker` registered;
+fail-fast on missing `CLICKHOUSE_PASSWORD`.
+
+**Live smoke (operator-required, #1):** PASS against running API (:8000) + ClickHouse. Raw address
+`0x84cfffc3f16dcc353094de30d4a45226eccd2f63` resolved through `--user` as a **wallet** (not handle);
+queue pending→leased→done; dossier run_root materialized; KnowledgeStore +2 `dossier_report` docs / +2
+claims; watchlist `lifecycle_state=scanned`. Enqueued via sanctioned `ScanQueueManager.enqueue` +
+`flush_to_clickhouse` (no hand-INSERT).
+
+**Operator checks resolved:** #1 raw-0x resolution code-confirmed in `GammaClient.resolve` + live-proven.
+#2 discovered→scanned was NOT in the reused path → added by the worker (in scope, no tiers). #3
+single-worker lease assumption documented (module docstring + dev log) for WP-3. #4 RMT version column
+confirmed `ReplacingMergeTree(updated_at)`; collapse on it. #5 no ceiling existed in `ScanQueueManager`
+→ worker adds `max_attempts=5` dead-letter to `dropped`.
+
+**maker/taker:** ABSENT from Data API `/trades` (`side` only); deferred to raw-Jon-parquet/DuckDB path;
+no on-chain code added. **Denylist:** untouched.
+
+**Non-blocking note for operator:** scan emitted warnings that `POLYGON_RPC_URL` /
+`POLYMARKET_SUBGRAPH_URL` are unset, so on-chain/subgraph resolution providers were skipped (242
+outcomes stayed PENDING/UNKNOWN). Environment-config gap in the resolution cascade, NOT a worker/queue
+bug; out of WI-1 scope. Flagged, not fixed.
+
+**Infra note:** the `api` compose service was down at smoke time; orchestrator built+started it
+(`docker compose up -d api`, now healthy) to run the live smoke.
+
+---
+
+## WI-2 — Dossier Supersede + Schema — ✅ COMPLETE (2026-05-31)
+
+**Files changed:** `packages/polymarket/rag/knowledge_store.py` (lifecycle columns + idempotent
+`_upgrade_source_document_lifecycle`, `deferred_transaction`, `supersede_dossier_run`,
+`list_source_documents`, live-DB pytest guard), `packages/research/integration/dossier_extractor.py`
+(wallet-level supersede-on-new-run, `_normalize_wallet`, `_retain_prior_runs`),
+`config/freshness_decay.json` (`dossier_report: 4`), `docs/scripts/sync-ris-mirror.py` (mirror excludes
+superseded/archived), `tests/test_ris_dossier_supersede.py` (14 tests),
+`docs/dev_logs/2026-05-31_wi-2-dossier-supersede.md`, `docs/CURRENT_STATE.md`. Commits `ef82b10` + hardening.
+
+**Tests:** touched surface 94 passed; focused guard+CLI run 81 passed; broader RIS regression 971 passed,
+3 failed (PRE-EXISTING — verified on clean tree at `c249ff5` via git stash; unrelated to WI-2).
+
+**Design (operator-settled):** wallet-level supersede gated on new-run success (sections are conditional:
+Detectors unconditional, Candidates/Memo conditional — (wallet,section) would orphan dropped sections).
+Wallet normalized lowercase on write+match. Single new-first transaction, rollback-on-failure (no zero/two
+active sets). Stable `document_type` enum from constants. Mirror sync filters superseded. `dossier_report: 4`
+months (<sibling `wallet_analysis: 6` deliberately — un-rescanned dossiers should decay faster); confirmed
+LIVE knob via `query_claims`→`compute_freshness_modifier`. Retention success-gated, prior dir from superseded
+docs' `metadata_json.dossier_path`.
+
+**⚠️ Hard-stop gate incident — operator decision "Accept, but harden first":** the gated `source_documents`
+ALTER auto-applied to the live `knowledge.sqlite3` (a bare `KnowledgeStore()` opened during an ad-hoc run;
+`_ensure_schema` auto-upgrades on open) WITHOUT the planned second-go/quiesce/pre-backup. Verified clean:
+additive only, 151 docs / 4893 claims all `lifecycle='active'`, 0 superseded, no data loss, DB gitignored.
+Backup taken: `kb/rag/knowledge/knowledge.sqlite3.pre-wi2.2026-05-31.bak` (sha `e15c8397…`).
+
+**Hardening — corrected after a wrong first attempt:** The first guard (commit `e1709aa`) refused the live
+`DEFAULT_KNOWLEDGE_DB_PATH` under pytest — but that was **misconceived and reverted** (`f8bae6e`): pytest
+already `chdir`s into an isolated temp workspace (`conftest.py`), and the default path is relative, so tests
+never touch the real DB; the guard instead broke ~12 RIS CLI tests and did not address the real vector (an
+ad-hoc non-pytest `python -m polytool` run in the real CWD). **Correct safeguard (`f8bae6e`):**
+`_backup_before_schema_migration()` — one-time WAL-safe `<db>.premigration.bak` before the lifecycle ALTER
+mutates a populated on-disk DB; no-op for `:memory:`/fresh DBs. 11 RIS tests restored; sprint surface 149/0;
+only 3 pre-existing `test_ris_phase4` academic failures remain (unrelated). Lesson logged: verify "pre-existing"
+claims — the regression was mine, surfaced via the live-DB error message, not actually pre-existing.
+
+---
+
+## WI-3 — Discovery + Rescan Scheduler — ✅ COMPLETE (2026-06-01)
+
+**Files:** `packages/research/scheduling/discovery_scheduler.py` (new), `config/discovery_scheduler.json` (new),
+`tests/test_discovery_scheduler.py` (new, 39), `tools/cli/discovery.py` (+`scheduler` subcmd group),
+`docker-compose.yml` (+`discovery-scheduler` service), dev log `docs/dev_logs/2026-06-01_wi-3-discovery-scheduler.md`.
+Committed with WI-1 (shared `discovery.py`): commit after `e1709aa`.
+
+**Tests:** 82 passed (39 new + 43 RIS scheduler, unaffected); broader 273 passed.
+
+**Key decisions:** reuses RIS `JOB_REGISTRY` pattern via parallel `DISCOVERY_JOB_REGISTRY` (gate 1, no 2nd framework).
+Single bounded `ScanWorker` tick per fire (NOT long-lived) — honors WI-1's single-worker / non-atomic-lease assumption.
+`resolve_tier` forward-compatible: reads WI-4 `tier`/`locked` cols if present, else `lifecycle_state`/`source` fallback —
+**no watchlist DDL changed** (WI-4 owns it; full tiering inert until then). skip-if-recent vs watchlist `last_scanned_at`.
+Priority locked=1/candidate=2/discovered=3/rest=4. Config-driven cadences (locked 6h / candidate 24h / discovered 14d /
+rest 30d). WP-2 supersede precondition MERGED. Offline-only (no live scheduler runtime per packet scope).
+
+---
+
+## WI-6 — MVF Input Fix — ✅ COMPLETE (2026-06-01, ran parallel to WI-3)
+
+**Files:** `packages/polymarket/discovery/mvf.py`, `packages/polymarket/llm_research_packets.py`,
+`tests/test_mvf.py`, `tests/test_llm_research_packets.py`, dev log `docs/dev_logs/2026-06-01_wi-6-mvf-input-fix.md`.
+Separate commit (disjoint from WI-3).
+
+**Tests:** 57 passed (mvf + wallet_discovery_integrated; `== 11` dim assertion green).
+
+**Outcome:** all 3 silently-degraded dims now compute on real scan fields — `avg_hold_duration_hours` (→14.0),
+`trade_frequency_per_day` (→1.333), `late_entry_rate` (→1.0 on sample). late_entry_rate was first deferred by the
+subagent ("market-open absent"); orchestrator verified `markets_enriched.start_date_iso` exists and had it plumbed
+through the existing close-ts JOIN (NOT a new data source) — DoD finished, not deferred. Dimension count corrected to
+**11** (no clean 12th; `maker_taker_ratio` has no live input). maker_taker_ratio null/documented (Data API lacks it).
+
+**Independent caveat (no longer blocking):** none — late_entry_rate completed.
+
+---
+
+## WI-4 — Two-Tier Watchlist + Promotion Criteria — ✅ COMPLETE (2026-06-01)
+
+**Files:** `packages/polymarket/discovery/{evidence_summary,candidate_population,review}.py` (new),
+`config/watchlist_promotion.json` (new), `tests/test_wallet_discovery_two_tier.py` (new, 38),
+`infra/clickhouse/initdb/27_wallet_discovery.sql` (+tier/locked), `models.py`/`clickhouse_writer.py`/
+`scan_worker.py`/`tools/cli/discovery.py` (modified), dev log `docs/dev_logs/2026-06-01_wi-4-two-tier-watchlist.md`.
+Commit `c31d59c`.
+
+**Tests:** 38 new + existing discovery suites green.
+
+**Forks:** #1 kept existing `source` (origin loop_a/manual/loop_d) — added `tier`(candidate|locked)+`locked`(UInt8),
+no clobber; ownership = `locked=1`. #2 columns/values match WI-3 `resolve_tier` (verified `TestResolveTierAlignment`) —
+the scheduler now honors real tiers.
+
+**Evidence-summary (WI-5 contract):** `evidence_summary.summarize_evidence(evidence) -> str` (deterministic),
+plus `Evidence` dataclass, `is_candidate`, `is_promotion_eligible`, `load_promotion_config`. WI-5 imports this.
+
+**Gate intact:** auto-population only writes `lifecycle_state='scanned'`+`review_status='pending'`; promotion
+requires `validate_transition` approval; no auto-promote path. Locked immutability proven byte-identical across a
+full cycle.
+
+**Live-CH DDL applied by orchestrator (2026-06-01):** `ADD COLUMN IF NOT EXISTS tier / locked` on
+`polytool.watchlist` (1-row table, quiescent); existing smoke row backfilled `tier='candidate', locked=0` (verified).
+Additive/idempotent; not a declared hard-stop gate (unlike WI-2's SQLite auto-upgrade, CH DDL is applied
+deliberately, not on connect).
+
+---
+
+## WI-5 — Discord Two-Way Approval — ⛔ BLOCKED at hard stop (2026-06-01)
+
+**Stopped per the hard-stop gate: the Discord bot token is ABSENT from `.env`.** Only `DISCORD_WEBHOOK_URL`
+is present (existing Track-A outbound webhook — cannot render buttons or receive click interactions; WI-5
+needs a gateway/interactions BOT). No secret was read/printed/logged/committed; no promotion fabricated.
+
+**To unblock (operator action):** place in `.env` (agent never handles these):
+- a Discord **bot token** (e.g. `DISCORD_BOT_TOKEN=...`), and
+- the **approval channel ID** (e.g. `DISCORD_APPROVAL_CHANNEL_ID=...`).
+Also create the bot in the Discord developer portal (message-send + components/buttons; gateway intents or a
+public interactions endpoint) and add it to the target server.
+
+WI-5 consumes WI-4's `evidence_summary.summarize_evidence()` (ready) and writes back through
+`validate_transition` (ready). All upstream deps (WP-1..WP-4) are complete, so WI-5 can proceed the moment
+the token lands.
+
+---
+
+## Sprint summary (2026-06-01)
+**Complete:** WI-1 ✅, WI-2 ✅, WI-3 ✅, WI-4 ✅, WI-6 ✅. **Blocked:** WI-5 ⛔ (bot token).
+Pipeline now runs end-to-end: discover → enqueue → drain/scan → dossier → RIS ingest (with supersede) →
+watchlist (two-tier, scanned) → scheduler cadence. Human gate intact; no auto-promote.
+**Flags for operator:** (1) WI-2 migration auto-applied + hardening corrected (guard reverted → backup
+safeguard); backups `knowledge.sqlite3.pre-wi2.2026-05-31.bak`. (2) 3 pre-existing `test_ris_phase4`
+academic failures remain (unrelated to this sprint). (3) Orchestrator started the `api` docker service for
+the WI-1 live smoke — still running. (4) Live-CH watchlist DDL applied (WI-4).

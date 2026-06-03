@@ -4,7 +4,7 @@ type: index
 status: active
 source_zone: repo
 mirror_of: docs/features/
-last_synced: '2026-05-25T00:00:00Z'
+last_synced: '2026-06-03T00:00:00Z'
 lifecycle: reviewed
 generator: repo-sync
 ---
@@ -59,6 +59,7 @@ generator: repo-sync
 - [[repo-docs/features/feature-price-context-signals|feature-price-context-signals]]
 - [[repo-docs/features/feature-readme-roadmap4-runbook|feature-readme-roadmap4-runbook]]
 - [[repo-docs/features/feature-regime-integrity-gate2-artifacts|feature-regime-integrity-gate2-artifacts]]
+- [[repo-docs/features/feature-ris-academic-demo-ready-v1|feature-ris-academic-demo-ready-v1]]
 - [[repo-docs/features/feature-ris-academic-ingest-v1|feature-ris-academic-ingest-v1]]
 - [[repo-docs/features/feature-ris-bridge-cli-and-mcp-v1|feature-ris-bridge-cli-and-mcp-v1]]
 - [[repo-docs/features/feature-ris-calibration-and-metadata|feature-ris-calibration-and-metadata]]
@@ -99,6 +100,7 @@ generator: repo-sync
 - [[repo-docs/features/feature-tracka-live-clob-wiring|feature-tracka-live-clob-wiring]]
 - [[repo-docs/features/feature-tracka-week1-execution-primitives|feature-tracka-week1-execution-primitives]]
 - [[repo-docs/features/feature-tracka-week2-market-maker-v0|feature-tracka-week2-market-maker-v0]]
+- [[repo-docs/features/feature-vera-discord-bot|feature-vera-discord-bot]]
 - [[repo-docs/features/polytool-dev-logs-skill|polytool-dev-logs-skill]]
 - [[repo-docs/features/polytool-files-skill|polytool-files-skill]]
 - [[repo-docs/features/polytool-status-skill|polytool-status-skill]]
@@ -107,6 +109,8 @@ generator: repo-sync
 - [[repo-docs/features/ris-operational-readiness-phase2a|ris-operational-readiness-phase2a]]
 - [[repo-docs/features/simtrader-fee-model-v2|simtrader-fee-model-v2]]
 - [[repo-docs/features/simtrader-sports-strategies-v1|simtrader-sports-strategies-v1]]
+- [[repo-docs/features/vera-discord-bot-phase-a|vera-discord-bot-phase-a]]
+- [[repo-docs/features/vera-discord-bot-phase-b|vera-discord-bot-phase-b]]
 - [[repo-docs/features/vera-hermes-operator-baseline|vera-hermes-operator-baseline]]
 - [[repo-docs/features/wallet-discovery-v1|wallet-discovery-v1]]
 - [[repo-docs/features/wallet-scan-v0|wallet-scan-v0]]

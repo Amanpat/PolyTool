@@ -4,24 +4,36 @@ type: reference
 status: active
 source_zone: repo
 mirror_of: docs/features/FEATURE-discord-alerting-tracka.md
-last_synced: '2026-05-25T22:03:09Z'
+last_synced: '2026-06-03T02:26:56Z'
 lifecycle: reviewed
 generator: repo-sync
 ---
 
 # Feature: Discord Alerting — Track A
 
-**Status:** SHIPPED (partial — see deferred items)
+**Status:** SHIPPED (extended 2026-06-02 with the pending-review embed-card system)
 **Spec:** [SPEC-0015](../specs/SPEC-0015-discord-alerting-and-operator-notifications.md)
-**Branch:** simtrader
+
+> **Notifier vs. bot (read this first).** The Discord **webhook** is the
+> always-on **notifier** — it posts alerts and pending-review cards and never
+> depends on a bot being up. The fenced **copy-block** in each pending card is
+> the **bot-independent fallback** (one-tap copy of the approve/deny CLI
+> commands; always works). **Interactive** one-tap approve/deny *buttons* are a
+> separate component — the **Vera discord.py bot** (see
+> [FEATURE-vera-discord-bot](FEATURE-vera-discord-bot.md)). A webhook can SEND
+> embeds but cannot RECEIVE button interactions, which is exactly why
+> interaction lives in the bot while notification stays in the webhook. The two
+> are decoupled by design: notifications never break if the bot is down.
 
 ---
 
 ## Summary
 
-Thin, testable Discord webhook notification layer for PolyTool Track A
-operator alerts.  Covers gate pass/fail events and live runner kill-switch
-and risk-halt events.
+Thin, testable Discord webhook notification layer for PolyTool operator alerts.
+Covers (a) gate pass/fail and live-runner kill-switch / risk-halt events, and
+(b) the wallet **pending-review embed cards** (WP-1/WP-2, 2026-06-02). All
+delivery is via the outbound `DISCORD_WEBHOOK_URL`; the layer is stateless and
+never raises.
 
 ---
 
@@ -33,7 +45,7 @@ Stateless transport layer.  All functions return `bool` and never raise.
 
 | Function | Purpose |
 |----------|---------|
-| `post_message(text)` | Core transport — posts markdown to webhook |
+| `post_message(text="", *, embeds=None, webhook_url=None)` | Core transport — posts content and/or embeds in one webhook call (content-only stays back-compatible; empty payload → no HTTP, returns False) |
 | `notify_gate_result(gate, passed, ...)` | Gate pass/fail alert |
 | `notify_session_start(mode, strategy, asset_id)` | Session opened |
 | `notify_session_stop(mode, strategy, asset_id)` | Session closed |
@@ -82,6 +94,62 @@ runner = LiveRunner(config)
 ```
 DISCORD_WEBHOOK_URL=
 ```
+
+---
+
+## Wallet pending-review notifications (WP-1 + WP-2, 2026-06-02)
+
+When the wallet-ingestion worker advances a candidate to
+`review_status='pending'`, the operator is notified via a Discord **embed card**
+posted through the same outbound webhook. This is the notification half of the
+operator approval loop; the action half is the CLI gate (`discovery review
+--approve/--deny`) and/or the Vera bot's buttons.
+
+### WP-1 — richer evidence fields (data layer)
+
+`packages/polymarket/discovery/evidence_summary.py` +
+`tools/cli/wallet_scan.py` surface three additional, display-time evidence
+fields (computed from the wallet's fresh scan data, not the stored `reason`):
+
+- **Open vs. resolved split** — `N open / M resolved` (from `outcome_counts`;
+  PENDING vs. the four resolved buckets; UNKNOWN_RESOLUTION excluded).
+- **Discovery source** — humanized from the watchlist row: `loop_a` →
+  "leaderboard discovery", `manual` → "manual", `loop_d` → "CLOB anomaly".
+- **Category focus** — dominant *known* category (omitted entirely when the
+  wallet is uncategorised; never fabricated).
+
+A row carrying only provenance (`source`) falls back to the stored reason rather
+than presenting bare provenance as performance evidence.
+
+### WP-2 — embed card + digest + copy-block
+
+`packages/polymarket/discovery/pending_notify.py` builds the notification:
+
+- **Single card** (`build_pending_embed` + `build_single_content`): info-blue
+  embed (`0x3498DB` = review *severity*, not wallet quality), title "Pending
+  wallet review", full address in the description, fields **PnL / Win rate /
+  Trades / CLV / Positions (open/resolved) / Discovery / Category** (Category
+  only when present; Win rate `-` when there is no resolved book). Footer
+  "PolyTool - Vera".
+- **Copy-block** in the message **content** — a fenced ```` ``` ```` block with
+  the full-address `discovery review --approve/--deny` commands. This is the
+  reliable one-tap-copy affordance and the **bot-independent fallback**.
+- **Digest** (`build_digest_embed` + `build_digest_content`): >1 unnotified
+  candidate collapses into ONE message (one stacked field per wallet + a
+  copy-block per wallet), bounded by `_DIGEST_MAX=10` and an 1800-char content
+  budget; overflow is reported (`skipped_capped`), never silently dropped.
+- **Dedup**: candidates are notified exactly once via the WI-5
+  `approvals_notified.json` state file; a wallet is marked notified only on a
+  delivered send (a failed webhook re-notifies next pass). The whole pass is
+  non-fatal — a webhook failure never blocks the ingestion pipeline.
+
+`notify_pending_candidates(rows)` returns
+`{considered, posted, deduped, failed, mode[, skipped_capped]}` and is fired
+(non-fatally) at the end of `discovery run-worker`.
+
+**Buttons are intentionally NOT on the webhook card** — a webhook cannot receive
+component interactions. Interactive approve/deny lives in the Vera bot's
+`/pending`; see [FEATURE-vera-discord-bot](FEATURE-vera-discord-bot.md).
 
 ---
 
