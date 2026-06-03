@@ -428,17 +428,17 @@ def test_pending_empty(monkeypatch):
     monkeypatch.setattr(approvals, "_read_pending", lambda ch: [])
     interaction = _interaction(user_id=OPERATOR_ID)
     asyncio.run(approvals.pending_command(interaction, config=_config()))
-    assert "No wallets pending review" in interaction.followup.send.call_args.args[0]
+    assert "No wallets pending review" in interaction.edit_original_response.call_args.kwargs["content"]
 
 
 def test_pending_read_failure(monkeypatch):
     monkeypatch.setattr(approvals, "_read_pending", lambda ch: None)
     interaction = _interaction(user_id=OPERATOR_ID)
     asyncio.run(approvals.pending_command(interaction, config=_config()))
-    assert "Could not read" in interaction.followup.send.call_args.args[0]
+    assert "Could not read" in interaction.edit_original_response.call_args.kwargs["content"]
 
 
-def test_pending_lists_one_card_per_wallet(monkeypatch):
+def test_pending_lists_one_card_per_wallet_public(monkeypatch):
     rows = [{"wallet_address": ADDR}, {"wallet_address": ADDR2}]
     monkeypatch.setattr(approvals, "_read_pending", lambda ch: rows)
     monkeypatch.setattr(
@@ -447,10 +447,16 @@ def test_pending_lists_one_card_per_wallet(monkeypatch):
     interaction = _interaction(user_id=OPERATOR_ID)
     asyncio.run(approvals.pending_command(interaction, config=_config()))
 
-    # one ephemeral followup per wallet
-    assert interaction.followup.send.await_count == 2
+    # first card materializes the public deferred response; the rest are followups
+    assert interaction.edit_original_response.await_count == 1
+    assert isinstance(
+        interaction.edit_original_response.call_args.kwargs.get("view"),
+        approvals.ApproveDenyView,
+    )
+    assert interaction.followup.send.await_count == 1  # second wallet
+    # cards are PUBLIC: no ephemeral flag set on the followup card
     for call in interaction.followup.send.await_args_list:
-        assert call.kwargs.get("ephemeral") is True
+        assert call.kwargs.get("ephemeral") in (None, False)
         assert isinstance(call.kwargs.get("view"), approvals.ApproveDenyView)
 
 
@@ -463,6 +469,19 @@ def test_pending_caps_at_ten_and_reports_overflow(monkeypatch):
     interaction = _interaction(user_id=OPERATOR_ID)
     asyncio.run(approvals.pending_command(interaction, config=_config()))
 
-    # 10 cards + 1 overflow note
-    assert interaction.followup.send.await_count == 11
+    # 1 card via edit_original_response + 9 card followups + 1 overflow followup
+    assert interaction.edit_original_response.await_count == 1
+    assert interaction.followup.send.await_count == 10
     assert "+1 more" in interaction.followup.send.await_args_list[-1].args[0]
+
+
+def test_pending_non_operator_stays_ephemeral(monkeypatch):
+    # a non-operator summon is rejected privately and never reads
+    called = {"read": False}
+    monkeypatch.setattr(
+        approvals, "_read_pending", lambda ch: called.__setitem__("read", True)
+    )
+    interaction = _interaction(user_id=555)
+    asyncio.run(approvals.pending_command(interaction, config=_config()))
+    assert called["read"] is False
+    assert interaction.response.send_message.call_args.kwargs.get("ephemeral") is True

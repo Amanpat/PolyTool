@@ -385,44 +385,48 @@ async def pending_command(
 ) -> None:
     """List current pending wallets, each with an Approve/Deny action row.
 
-    Author-guarded and EPHEMERAL (only the invoker sees the cards, so only the
-    operator can click the buttons). Read-only: never writes.
+    Only the operator can SUMMON the list (author-guard below), but the resulting
+    cards are PUBLIC (visible to the whole channel). Access control on the WRITE
+    is the per-click author-guard in :func:`handle_action` — a non-operator who
+    clicks gets a private "Not authorized" and nothing is written. Read-only here.
     """
     try:
-        # Author-guard on the list itself.
+        # Author-guard on the list itself (only the operator may summon it).
         if not is_operator(interaction, config):
             uid = getattr(getattr(interaction, "user", None), "id", None)
             logger.warning("Unauthorized /pending by user id=%s — rejected.", uid)
             await interaction.response.send_message("Not authorized.", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        # Public deferral — the cards below are visible to everyone in the channel.
+        await interaction.response.defer(thinking=True)
 
         rows = _read_pending(config.clickhouse)
         if rows is None:
-            await interaction.followup.send(
-                "Could not read pending wallets right now (is ClickHouse reachable "
-                "and CLICKHOUSE_PASSWORD set?).",
-                ephemeral=True,
+            await interaction.edit_original_response(
+                content="Could not read pending wallets right now (is ClickHouse "
+                "reachable and CLICKHOUSE_PASSWORD set?)."
             )
             return
         if not rows:
-            await interaction.followup.send("No wallets pending review.", ephemeral=True)
+            await interaction.edit_original_response(content="No wallets pending review.")
             return
 
         shown = rows[:_DIGEST_MAX]
         overflow = len(rows) - len(shown)
 
-        for row in shown:
+        for idx, row in enumerate(shown):
             wallet = str(row.get("wallet_address") or "")
             embed = _build_embed(row, wallet)
             view = ApproveDenyView(wallet, config=config, runner=runner)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            if idx == 0:
+                # Materialize the deferred (public) response as the first card.
+                await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                await interaction.followup.send(embed=embed, view=view)  # public
 
         if overflow > 0:
-            await interaction.followup.send(
-                f"+{overflow} more — action these first.", ephemeral=True
-            )
+            await interaction.followup.send(f"+{overflow} more — action these first.")
     except Exception:  # never raise out of a command callback
         logger.exception("Unexpected error in /pending (read-only path).")
         try:
