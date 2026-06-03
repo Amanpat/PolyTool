@@ -95,13 +95,32 @@ breakage); 387 discovery/approval tests still green; `python -m polytool --help`
 OK; `docker compose --profile vera-bot config` shows only Discord + ClickHouse
 vars (no PK/CLOB). Codex: all 10 invariants PASS.
 
-**Live (operator-gated):** there are 2 real pending wallets
-(`0x84cf…`, `0xcf60…`, both `scanned`/pending). Live verify needs
-`DISCORD_OPERATOR_USER_ID` in `.env` (operator's Discord user ID — not yet set)
-and the operator clicking in Discord (author-guarded). Plan: rebuild vera-bot →
-`/pending` shows 2 cards → operator approves one (confirm `scanned→reviewed`,
-gone from `--list-pending`) → denies the other → stale-click test → optional
-operator-id-mismatch test. [Live result to be appended once performed.]
+**Live (CONFIRMED 2026-06-02):** operator set `DISCORD_OPERATOR_USER_ID`, bot
+rebuilt + online (`VERA#2261`, commands synced). Verified against the 2 real
+pending wallets:
+
+- `/pending` (operator) rendered both pending cards with Approve/Deny.
+- **Approve** `0xcf60…6f5` → `scanned → reviewed`, `review_status=approved`
+  (ClickHouse-verified).
+- **Deny** `0x84cf…f63` → `review_status=rejected`, lifecycle stays `scanned`
+  (ClickHouse-verified).
+- `discovery review --list-pending` afterwards → **count 0** (both gone).
+- The exact gate transitions prove every write went through `validate_transition`
+  (the bot never wrote rows directly). Bot logs clean — no unauthorized /
+  malformed / non-zero lines.
+
+Both approve and deny paths confirmed end-to-end through the real CLI/gate.
+(Optional operator-id-mismatch live test skipped — the author-guard is
+Codex-verified + unit-tested.)
+
+**Presentation change (operator-requested, post-verify):** `/pending` cards were
+made PUBLIC (visible to the whole channel) instead of ephemeral. Only the operator
+can summon the list, and the per-click author-guard remains the write access
+control (a non-operator click → private "Not authorized", no write). The
+security-critical `handle_action` write path is byte-for-byte unchanged, so the
+Codex-verified write invariants still hold; only the read/list presentation
+changed. Tradeoff: pending wallet addresses + (public) evidence are now visible
+server-wide.
 
 ## Guards honored
 

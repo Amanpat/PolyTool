@@ -5,6 +5,7 @@ track: operator-tooling
 scope: write (approve/deny only)
 phase: B
 codex_review: PASS (10/10 invariants)
+live_verified: 2026-06-02 (approve + deny end-to-end through the gate)
 ---
 
 # Feature: Vera Discord Bot — Phase B (/pending + approve/deny buttons)
@@ -22,7 +23,7 @@ Decision record:
 
 | Item | Detail |
 |---|---|
-| `/pending` | Operator-only, ephemeral. Lists pending wallets (cap 10 + overflow note), reusing `read_pending_candidates` + `_row_evidence` + `build_pending_embed` — same evidence as the webhook. Each card has Approve/Deny buttons. |
+| `/pending` | Operator-only summon; cards are PUBLIC (operator-requested). Lists pending wallets (cap 10 + overflow note), reusing `read_pending_candidates` + `_row_evidence` + `build_pending_embed` — same evidence as the webhook. Each card has Approve/Deny buttons; only the operator's clicks act (author-guard). |
 | Button write | Defer <3s → author-guard → parse+re-validate custom_id (`^0x[0-9a-fA-F]{40}$`) → idempotency reserve → `discovery review --approve/--deny <addr>` via `asyncio.create_subprocess_exec` (list-form, no shell; password via child env). |
 | Idempotency | `_actioned_wallets` reserved synchronously, never released → at most one subprocess per wallet per process (fail-safe vs. ambiguous CLI failures). |
 | Author-guard | `DISCORD_OPERATOR_USER_ID` on BOTH `/pending` and every click; fail-closed when unset. |
