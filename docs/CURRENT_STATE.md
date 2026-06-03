@@ -43,6 +43,31 @@ alone.
 - The v4 live-bot path remains incomplete: Gate 2 is not passed, Gate 3 is
   blocked, and Stage 0/Stage 1 live promotion are not complete.
 
+## Hermes Operator Agent — RETIRED (2026-06-02)
+
+The `vera-hermes-agent` Hermes operator agent was retired. It was a read-only,
+natural-language Q&A agent over repo docs (skills: polytool-status / dev-logs /
+files) running on a flaky free model — isolated, with no trading, no jobs, and
+nothing operational depending on it, so removal was low-risk.
+
+Removed:
+
+- systemd user service `hermes-gateway.service` (stopped, disabled, unit file
+  deleted from `~/.config/systemd/user/`, failed stub cleared).
+- Hermes profile `vera-hermes-agent` (`hermes profile delete`; profile dir,
+  config, skills, and the `vera-hermes-agent` alias binary all removed; sticky
+  default reset to the `default` profile).
+- Repo wiring: `skills/polytool-operator/` (3 skills), `scripts/vera_hermes_healthcheck.sh`,
+  `scripts/test_vera_{status,dev_logs,files}_commands.sh`, and `scripts/start_vera_discord_gateway.sh`.
+
+Replacement: a planned purpose-built discord.py bot reusing the name "Vera" with
+real one-tap approve/deny buttons routed through the existing enforced gate
+(`validate_transition` via `discovery review`). The **webhook notification path
+is unaffected** (`packages/polymarket/discovery/pending_notify.py` +
+`notifications/discord.py` stay). Decision record:
+`docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md`.
+Feature docs marked `status: retired`. Dev log: `docs/dev_logs/2026-06-02_retire-hermes-vera-agent.md`.
+
 ## Wallet Discovery v1 (Shipped, 2026-04-10)
 
 Wallet Discovery v1 is implemented, integrated, and hardened.

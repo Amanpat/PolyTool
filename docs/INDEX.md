@@ -127,10 +127,10 @@ router/operator-facing surface only.
 | [RIS Scientific RAG Evaluation Benchmark v0](features/FEATURE-ris-scientific-eval-benchmark-v0.md) | Baseline locked 2026-05-02: corpus_size=23, P@5=1.0, off_topic_rate=30.43%, Recommendation A (pre-fetch relevance filtering); Rule D secondary/heuristic |
 | [SimTrader Fee Model v2](features/simtrader_fee_model_v2.md) | Category-aware Polymarket taker fees, maker=0, Kalshi baseline model, full propagation across all 12 runtime entry points (PMXT Deliverable A) |
 | [SimTrader Sports Strategies v1](features/simtrader_sports_strategies_v1.md) | SportsMomentum, SportsFavorite, SportsVWAP — STRATEGY_REGISTRY wiring, `_ns` config priority, clean-room reimplementation, 20 tests (PMXT Deliverable B) |
-| [vera-hermes-agent Operator Baseline](features/vera_hermes_operator_baseline.md) | Isolated Hermes operator profile on WSL2; read-only scope, SOUL.md guardrails, healthcheck script, path for future operator query skills |
-| [polytool-dev-logs Hermes Skill](features/polytool_dev_logs_skill.md) | Read-only Hermes skill for querying and summarizing dev logs; keyword filter, date filter, summary mode; strict docs/dev_logs/ scope |
-| [polytool-status Hermes Skill](features/polytool_status_skill.md) | Read-only Hermes skill for project status queries; active features, Gate 2 blockers, paused items; reads CURRENT_DEVELOPMENT + CURRENT_STATE |
-| [polytool-files Hermes Skill](features/polytool_files_skill.md) | Read-only Hermes skill for approved project doc access; whitelist of features/, specs/, runbooks/, adr/, reference/, and root docs |
+| [vera-hermes-agent Operator Baseline](features/vera_hermes_operator_baseline.md) | **RETIRED 2026-06-02.** Was an isolated read-only Hermes operator profile on WSL2; removed (profile + gateway service + skills) in favor of a planned discord.py "Vera" bot. |
+| [polytool-dev-logs Hermes Skill](features/polytool_dev_logs_skill.md) | **RETIRED 2026-06-02.** Read-only Hermes skill for dev-log queries; removed with the Hermes agent. |
+| [polytool-status Hermes Skill](features/polytool_status_skill.md) | **RETIRED 2026-06-02.** Read-only Hermes skill for project status queries; removed with the Hermes agent. |
+| [polytool-files Hermes Skill](features/polytool_files_skill.md) | **RETIRED 2026-06-02.** Read-only Hermes skill for approved project doc access; removed with the Hermes agent. |
 
 ## Specs
 

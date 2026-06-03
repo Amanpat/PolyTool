@@ -1,12 +1,15 @@
 ---
-status: complete
+status: retired
 completed: 2026-04-23
+retired: 2026-06-02
 track: operator-tooling
 scope: read-only
 skill-host: vera-hermes-agent
 ---
 
 # Feature: polytool-dev-logs Hermes Skill
+
+> **RETIRED 2026-06-02.** The host `vera-hermes-agent` Hermes profile and this skill (`skills/polytool-operator/polytool-dev-logs/`) were removed when Hermes was retired. Replaced by a planned discord.py "Vera" bot. History preserved below. See `docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md`.
 
 Read-only Hermes skill for the `vera-hermes-agent` operator profile. Lets the operator query and summarize PolyTool dev logs via natural language, without accessing live system state, live execution paths, or the polytool CLI.
 

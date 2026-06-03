@@ -1,12 +1,15 @@
 ---
-status: complete
+status: retired
 completed: 2026-04-23
+retired: 2026-06-02
 track: operator-tooling
 scope: read-only
 skill-host: vera-hermes-agent
 ---
 
 # Feature: polytool-files Hermes Skill
+
+> **RETIRED 2026-06-02.** The host `vera-hermes-agent` Hermes profile and this skill (`skills/polytool-operator/polytool-files/`) were removed when Hermes was retired. Replaced by a planned discord.py "Vera" bot. History preserved below. See `docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md`.
 
 Read-only Hermes skill for the `vera-hermes-agent` operator profile. Provides controlled access to approved PolyTool project documentation by exact path, doc-name lookup, or subtree listing. Explicitly refuses all paths outside the whitelist and all write/control requests.
 
