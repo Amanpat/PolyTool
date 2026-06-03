@@ -19,6 +19,7 @@ pytest.importorskip("discord", reason="requires the [discord] optional dependenc
 import discord  # noqa: E402
 
 from packages.polymarket.discord_bot import bot as vera_bot  # noqa: E402
+from packages.polymarket.discord_bot import config as vera_config  # noqa: E402
 from packages.polymarket.discord_bot.bot import (  # noqa: E402
     MissingTokenError,
     VeraClient,
@@ -60,23 +61,23 @@ def test_missing_token_error_message_does_not_leak_value(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Guild ID parsing
+# Env int parsing (guild id, operator id)
 # ---------------------------------------------------------------------------
 
 
-def test_get_guild_id_unset_returns_none(monkeypatch):
+def test_int_env_unset_returns_none(monkeypatch):
     monkeypatch.delenv("DISCORD_GUILD_ID", raising=False)
-    assert vera_bot._get_guild_id() is None
+    assert vera_config._int_env("DISCORD_GUILD_ID") is None
 
 
-def test_get_guild_id_valid_int(monkeypatch):
+def test_int_env_valid_int(monkeypatch):
     monkeypatch.setenv("DISCORD_GUILD_ID", "123456789012345678")
-    assert vera_bot._get_guild_id() == 123456789012345678
+    assert vera_config._int_env("DISCORD_GUILD_ID") == 123456789012345678
 
 
-def test_get_guild_id_invalid_returns_none(monkeypatch):
+def test_int_env_invalid_returns_none(monkeypatch):
     monkeypatch.setenv("DISCORD_GUILD_ID", "not-an-int")
-    assert vera_bot._get_guild_id() is None
+    assert vera_config._int_env("DISCORD_GUILD_ID") is None
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +94,11 @@ def test_build_client_uses_no_privileged_intents():
     assert client.intents.members is False
 
 
-def test_build_client_registers_only_ping():
+def test_build_client_registers_ping_and_pending():
     client = build_client()
     commands = client.tree.get_commands()
     names = sorted(c.name for c in commands)
-    assert names == ["ping"]
+    assert names == ["pending", "ping"]
 
 
 def test_build_client_is_vera_client():

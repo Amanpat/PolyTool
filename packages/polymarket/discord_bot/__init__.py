@@ -1,10 +1,13 @@
 """Vera — PolyTool operator Discord bot.
 
-Phase A (current): connection + token + intents + Docker always-on path, with a
-single ``/ping`` slash command. NO writes, NO gate access, NO approve/deny.
+Phase A: connection + token + intents + Docker always-on path, ``/ping``.
+Phase B: ``/pending`` + one-tap approve/deny buttons — the first Discord-triggered
+write surface, implemented as a THIN TRIGGER over the verified ``discovery review``
+CLI (see :mod:`packages.polymarket.discord_bot.approvals`).
 
-The webhook notification path (``packages.polymarket.notifications.discord``) is
-a separate, decoupled transport and is unaffected by this bot.
+The webhook notification path (``packages.polymarket.notifications.discord`` /
+``packages.polymarket.discovery.pending_notify``) is a separate, decoupled
+transport and is unaffected by this bot.
 """
 
 from packages.polymarket.discord_bot.bot import (
@@ -14,6 +17,7 @@ from packages.polymarket.discord_bot.bot import (
     register_commands,
     run,
 )
+from packages.polymarket.discord_bot.config import BotConfig, ClickHouseConfig, load_config
 
 __all__ = [
     "MissingTokenError",
@@ -21,4 +25,7 @@ __all__ = [
     "build_client",
     "register_commands",
     "run",
+    "BotConfig",
+    "ClickHouseConfig",
+    "load_config",
 ]

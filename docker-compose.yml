@@ -267,26 +267,39 @@ services:
       - pair-bot
     restart: unless-stopped
 
-  # Vera operator Discord bot — Phase A (skeleton + /ping). Opt-in:
+  # Vera operator Discord bot. Opt-in:
   #   docker compose --profile vera-bot up -d vera-bot
-  # Long-lived service: opens an outbound gateway connection, exposes no ports.
-  # Reads ONLY DISCORD_BOT_TOKEN (+ optional DISCORD_GUILD_ID), interpolated from
-  # .env at compose time (see environment: below) — deliberately NOT env_file, so
-  # no wallet/CLOB/ClickHouse secrets enter the bot container.
-  # Phase A does NO writes, NO gate access, NO approve/deny. The webhook
-  # notification path is separate and unaffected.
+  # Long-lived service: outbound gateway connection, exposes no ports.
+  # Phase A: /ping. Phase B: /pending + approve/deny buttons (operator-only),
+  # which trigger `python -m polytool discovery review --approve/--deny` against
+  # the SAME ClickHouse the discovery worker uses (on the polytool network).
+  # Least privilege: explicit `environment:` (NOT env_file) injects ONLY the
+  # Discord vars + ClickHouse creds — wallet keys (PK) and CLOB secrets never
+  # enter the bot container. The webhook notification path is separate/unaffected.
   vera-bot:
     build:
       context: .
       dockerfile: Dockerfile.vera
     container_name: polytool-vera-bot
-    # Least privilege: inject ONLY the Discord vars (interpolated from .env at
-    # compose time), NOT env_file. The bot must never see wallet keys (PK),
-    # CLOB secrets, or the ClickHouse password — it does no trading/DB work.
     environment:
       - "DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN in .env before starting vera-bot}"
       - "DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}"
+      # Operator's Discord user ID — the author-guard for /pending + approve/deny.
+      # Not a secret; if unset the bot rejects everyone (fail-closed).
+      - "DISCORD_OPERATOR_USER_ID=${DISCORD_OPERATOR_USER_ID:-}"
+      # ClickHouse: same DB as the discovery worker (service name on the network).
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-polytool_admin}
+      - "CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}"
     command: ["python", "-m", "packages.polymarket.discord_bot"]
+    # Read-only artifacts mount so /pending shows the SAME display-time evidence
+    # the webhook card does (scan metrics live under artifacts/dossiers/).
+    volumes:
+      - ./artifacts:/app/artifacts:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
     profiles:
       - vera-bot
     restart: unless-stopped

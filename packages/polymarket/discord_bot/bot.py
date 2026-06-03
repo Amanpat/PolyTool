@@ -23,12 +23,15 @@ Decision record:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 from typing import Optional
 
 import discord
 from discord import app_commands
+
+from packages.polymarket.discord_bot.config import BotConfig, load_config
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 _GUILD_ENV = "DISCORD_GUILD_ID"
@@ -57,47 +60,45 @@ def _get_token() -> str:
     return token
 
 
-def _get_guild_id() -> Optional[int]:
-    """Optional guild ID for instant slash-command registration.
-
-    When set, commands sync to that single guild and appear immediately.  When
-    unset, commands sync globally (Discord may take up to ~1h to surface them).
-    """
-    raw = os.environ.get(_GUILD_ENV, "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        logger.warning(
-            "%s is set but is not an integer; ignoring and syncing globally.",
-            _GUILD_ENV,
-        )
-        return None
-
-
 async def _ping(interaction: discord.Interaction) -> None:
-    """``/ping`` → ephemeral ``pong``.  The entire Phase A command surface."""
+    """``/ping`` → ephemeral ``pong``.  The Phase A health-check command."""
     await interaction.response.send_message("pong", ephemeral=True)
 
 
-def register_commands(tree: app_commands.CommandTree) -> None:
-    """Register Phase A slash commands onto ``tree``. Exactly one: ``/ping``."""
+def register_commands(tree: app_commands.CommandTree, config: BotConfig) -> None:
+    """Register Vera's slash commands onto ``tree``.
+
+    Phase A: ``/ping``. Phase B: ``/pending`` (operator-only list of pending
+    wallets with approve/deny buttons — the write surface lives in
+    :mod:`packages.polymarket.discord_bot.approvals`).
+    """
     tree.command(name="ping", description="Health check — Vera replies pong")(_ping)
+
+    @tree.command(
+        name="pending",
+        description="List wallets pending review with approve/deny (operator only)",
+    )
+    async def _pending(interaction: discord.Interaction) -> None:
+        # Lazy import so /ping-only use never imports discord_bot.approvals or
+        # the discovery read deps.
+        from packages.polymarket.discord_bot.approvals import pending_command
+
+        await pending_command(interaction, config=config)
 
 
 class VeraClient(discord.Client):
     """Minimal gateway client: no privileged intents, one command tree."""
 
-    def __init__(self, guild_id: Optional[int] = None) -> None:
+    def __init__(self, config: BotConfig) -> None:
         # Least privilege: only the non-privileged `guilds` intent. Privileged
         # intents (message_content, members) stay OFF.
         intents = discord.Intents.none()
         intents.guilds = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
-        self._guild_id = guild_id
-        register_commands(self.tree)
+        self.config = config
+        self._guild_id = config.guild_id
+        register_commands(self.tree, config)
 
     async def setup_hook(self) -> None:
         """Sync the command tree before the gateway connection is established."""
@@ -123,9 +124,20 @@ class VeraClient(discord.Client):
         )
 
 
-def build_client(guild_id: Optional[int] = None) -> VeraClient:
-    """Construct a :class:`VeraClient` with ``/ping`` registered. No network I/O."""
-    return VeraClient(guild_id=guild_id)
+def build_client(
+    config: Optional[BotConfig] = None, *, guild_id: Optional[int] = None
+) -> VeraClient:
+    """Construct a :class:`VeraClient` with ``/ping`` + ``/pending`` registered.
+
+    No network I/O. ``config`` defaults to :func:`load_config` (read from the
+    environment). ``guild_id`` is an explicit override (used by tests) applied on
+    top of the resolved config.
+    """
+    if config is None:
+        config = load_config()
+    if guild_id is not None:
+        config = dataclasses.replace(config, guild_id=guild_id)
+    return VeraClient(config)
 
 
 def run() -> None:
@@ -135,7 +147,7 @@ def run() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     token = _get_token()  # raises MissingTokenError if absent — never logs it
-    client = build_client(guild_id=_get_guild_id())
+    client = build_client(load_config())
     # discord.py reads the token internally; log_handler=None keeps our root
     # logging config (and avoids the library re-configuring handlers).
     client.run(token, log_handler=None)
