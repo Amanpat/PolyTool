@@ -56,6 +56,9 @@ historical-import = [
 live = [
     "py-clob-client>=0.17",
 ]
+discord = [
+    "discord.py>=2.3,<3.0",
+]
 ris = [
     "apscheduler>=3.10.0,<4.0",
     "pdfplumber>=0.10.0",
@@ -86,6 +89,7 @@ packages = [
     "packages", "packages.polymarket", "packages.polymarket.rag",
     "packages.polymarket.hypotheses",
     "packages.polymarket.notifications",
+    "packages.polymarket.discord_bot",
     "packages.polymarket.market_selection",
     "packages.polymarket.historical_import",
     "packages.research", "packages.research.hypotheses",

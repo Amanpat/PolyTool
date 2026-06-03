@@ -267,6 +267,30 @@ services:
       - pair-bot
     restart: unless-stopped
 
+  # Vera operator Discord bot — Phase A (skeleton + /ping). Opt-in:
+  #   docker compose --profile vera-bot up -d vera-bot
+  # Long-lived service: opens an outbound gateway connection, exposes no ports.
+  # Reads DISCORD_BOT_TOKEN (and optional DISCORD_GUILD_ID) from .env via env_file.
+  # Phase A does NO writes, NO gate access, NO approve/deny. The webhook
+  # notification path is separate and unaffected.
+  vera-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.vera
+    container_name: polytool-vera-bot
+    # Least privilege: inject ONLY the Discord vars (interpolated from .env at
+    # compose time), NOT env_file. The bot must never see wallet keys (PK),
+    # CLOB secrets, or the ClickHouse password — it does no trading/DB work.
+    environment:
+      - "DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:?set DISCORD_BOT_TOKEN in .env before starting vera-bot}"
+      - "DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}"
+    command: ["python", "-m", "packages.polymarket.discord_bot"]
+    profiles:
+      - vera-bot
+    restart: unless-stopped
+    networks:
+      - polytool
+
   n8n:
     build:
       context: ./infra/n8n
