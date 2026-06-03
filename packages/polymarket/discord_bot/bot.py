@@ -12,9 +12,10 @@ Phase A scope (intentionally tiny):
 Security contract:
 - The bot token is read from ``DISCORD_BOT_TOKEN`` and is **never** printed or
   logged.  Only the resolved bot user/id (public) is logged at startup.
-- Least-privilege gateway intents: ``discord.Intents.none()``.  Slash commands
-  and interactions are delivered regardless of privileged intents, so the bot
-  requests none — no message-content intent, no members intent.
+- Least-privilege gateway intents: only the non-privileged ``guilds`` intent
+  (discord.py's recommended baseline for a slash-command bot; avoids the
+  "Guilds intent seems to be disabled" state warning).  The privileged
+  ``message_content`` and ``members`` intents are explicitly OFF.
 
 Decision record:
     docs/obsidian-vault/claude-memory/decisions/decision-retire-hermes-build-vera-bot.md
@@ -89,7 +90,11 @@ class VeraClient(discord.Client):
     """Minimal gateway client: no privileged intents, one command tree."""
 
     def __init__(self, guild_id: Optional[int] = None) -> None:
-        super().__init__(intents=discord.Intents.none())
+        # Least privilege: only the non-privileged `guilds` intent. Privileged
+        # intents (message_content, members) stay OFF.
+        intents = discord.Intents.none()
+        intents.guilds = True
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self._guild_id = guild_id
         register_commands(self.tree)

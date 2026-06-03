@@ -86,8 +86,9 @@ def test_get_guild_id_invalid_returns_none(monkeypatch):
 
 def test_build_client_uses_no_privileged_intents():
     client = build_client()
-    assert client.intents == discord.Intents.none()
-    # message_content is the privileged intent we must NOT request.
+    # Only the non-privileged `guilds` intent is enabled (discord.py baseline).
+    assert client.intents.guilds is True
+    # The privileged intents must NOT be requested.
     assert client.intents.message_content is False
     assert client.intents.members is False
 

@@ -15,20 +15,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Layer 1: dependency manifest only — changes rarely (cache-friendly).
+# Copy the manifest + the real package source setuptools declares, THEN install.
+# (The declared packages must exist on disk at build time, so the install can
+# only run after the source is present.) polytool/, packages/, tools/ are in the
+# build context; README.md is NOT (it is excluded by .dockerignore), so — like
+# the root Dockerfile — stub it inline to satisfy setuptools metadata.
 COPY pyproject.toml ./
-
-# Layer 2: install only the bot deps ([discord] = discord.py) + base deps.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip \
-    && pip install ".[discord]"
-
-# Layer 3: copy source, then re-install --no-deps so package metadata is correct.
 COPY polytool/ ./polytool/
 COPY packages/ ./packages/
 COPY tools/ ./tools/
+
+# Install polytool + the [discord] extra (discord.py). discord.py and its deps
+# ship manylinux wheels, so no gcc/build-tools are needed in this image.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-deps ".[discord]"
+    echo "# PolyTool" > README.md \
+    && pip install --upgrade pip \
+    && pip install ".[discord]"
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM python:3.11-slim
