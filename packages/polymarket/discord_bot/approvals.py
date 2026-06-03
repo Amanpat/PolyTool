@@ -58,12 +58,19 @@ _DIGEST_MAX = 10
 # In-process idempotency guard. The verified ``discovery review`` CLI does NOT
 # reject a re-action on an already-actioned wallet (a re-approve / approve-then-
 # deny both return 0 and both write), so the bot must not TRIGGER a second write
-# for a wallet it already actioned. This set holds wallets reserved/actioned in
-# THIS process; the reservation is taken synchronously (no await between the
+# for a wallet it already attempted. This set holds wallets ATTEMPTED in THIS
+# process; the reservation is taken synchronously (no await between the
 # membership check and the add) so two concurrent clicks for the same wallet
-# cannot both spawn a subprocess on the single asyncio event loop. A wallet
-# leaves pending once actioned and never re-enters it, so a successful action is
-# kept; a failed action is released so a fresh /pending card can retry.
+# cannot both spawn a subprocess on the single asyncio event loop.
+#
+# The reservation is taken once and NEVER released — at most one subprocess per
+# wallet per process. This is deliberately fail-safe: a non-zero CLI result does
+# NOT reliably mean "no write happened" (a transport timeout AFTER ClickHouse
+# accepted the insert reports failure), so releasing on failure could let a
+# duplicate card double-write. Trade-off: a genuinely-failed attempt is not
+# retried by the bot in-session — the operator retries via the CLI copy-block
+# (the always-available fallback) or restarts the bot.
+#
 # Residual (out of scope for this bot, single trusted operator): an approve/deny
 # performed via the CLI *outside* the bot is not reflected here — fully closing
 # that needs CLI-level idempotency (reject non-pending re-actions).
@@ -303,9 +310,11 @@ async def handle_action(
 
         # 4. Idempotency reservation (synchronous — no await before the add) so a
         #    double-click, an approve-then-deny across cards, or two concurrent
-        #    clicks for the same wallet cannot each trigger a write.
+        #    clicks for the same wallet cannot each trigger a write. Taken once
+        #    and never released (see _actioned_wallets note) — at most one
+        #    subprocess per wallet per process, even on an ambiguous CLI result.
         if key in _actioned_wallets:
-            logger.info("Duplicate/stale click for %s — already actioned this session; no subprocess.", address)
+            logger.info("Duplicate/stale click for %s — already attempted this session; no subprocess.", address)
             await _disable_only(interaction, address)
             await interaction.followup.send(
                 "No longer pending / already actioned.", ephemeral=True
@@ -313,31 +322,26 @@ async def handle_action(
             return
         _actioned_wallets.add(key)
 
-        keep_reservation = False
-        try:
-            # 5. Trigger the verified CLI (list-form subprocess; the only writer).
-            rc, reason = await runner(action, address, config.clickhouse)
+        # 5. Trigger the verified CLI (list-form subprocess; the only writer).
+        rc, reason = await runner(action, address, config.clickhouse)
 
-            # 6. Idempotency via exit code.
-            if rc == 0:
-                keep_reservation = True  # actioned — never retry (would double-write)
-                await _finalize_done(interaction, action, address)
-            else:
-                logger.info(
-                    "review %s for %s returned rc=%s (already actioned / gate-rejected).",
-                    action, address, rc,
-                )
-                await _disable_only(interaction, address)
-                await interaction.followup.send(
-                    f"No longer pending / already actioned: {reason or 'gate rejected the change'}",
-                    ephemeral=True,
-                )
-        finally:
-            # Release the reservation only if NOT actioned, so a transient failure
-            # can be retried from a fresh /pending card (a successful write stays
-            # reserved to block any duplicate card from writing again).
-            if not keep_reservation:
-                _actioned_wallets.discard(key)
+        # 6. Reflect the outcome. A non-zero exit may mean already-actioned,
+        #    gate-rejected, OR an unconfirmed write (transport failure after the
+        #    insert landed) — so we never claim "not written" and never re-trigger.
+        if rc == 0:
+            await _finalize_done(interaction, action, address)
+        else:
+            logger.info(
+                "review %s for %s returned rc=%s (already actioned / gate-rejected / write unconfirmed).",
+                action, address, rc,
+            )
+            await _disable_only(interaction, address)
+            await interaction.followup.send(
+                "No longer pending / already actioned, or the change could not be "
+                f"confirmed: {reason or 'see logs'}. Re-check with "
+                "`discovery review --list-pending`; retry via the CLI if needed.",
+                ephemeral=True,
+            )
     except Exception:  # catch-all — a handler must never raise
         logger.exception("Unexpected error in approve/deny handler (no write assumed).")
         try:

@@ -335,22 +335,25 @@ def test_handle_action_duplicate_click_no_second_write():
     i2.edit_original_response.assert_awaited()  # dup card buttons disabled
 
 
-def test_handle_action_failure_releases_reservation_for_retry():
-    """A non-zero (transient) result releases the wallet so a fresh card retries."""
+def test_handle_action_failure_keeps_reservation_no_double_write():
+    """A non-zero result is fail-safe: the reservation is KEPT (the write may have
+    landed despite an ambiguous transport failure), so the bot never re-triggers
+    in-session — guaranteeing no double-write."""
     cfg = _config()
-    runner = AsyncMock(side_effect=[(1, "transient db blip"), (0, "")])
+    runner = AsyncMock(return_value=(1, "ambiguous write failure"))
 
     i1 = _interaction(
         user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
     )
     asyncio.run(approvals.handle_action(i1, config=cfg, runner=runner))
-    assert ADDR.lower() not in approvals._actioned_wallets  # released
+    assert ADDR.lower() in approvals._actioned_wallets  # KEPT (fail-safe)
 
+    # a duplicate card for the same wallet must NOT spawn a second subprocess
     i2 = _interaction(
         user_id=OPERATOR_ID, custom_id=approvals.build_custom_id("approve", ADDR)
     )
     asyncio.run(approvals.handle_action(i2, config=cfg, runner=runner))
-    assert runner.await_count == 2  # retry was allowed
+    runner.assert_awaited_once()  # no second attempt -> no double-write
 
 
 def test_concurrent_clicks_same_wallet_single_subprocess():
