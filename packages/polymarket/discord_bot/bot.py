@@ -85,6 +85,16 @@ def register_commands(tree: app_commands.CommandTree, config: BotConfig) -> None
 
         await pending_command(interaction, config=config)
 
+    @tree.command(
+        name="status",
+        description="Read-only scan-status window (operator only)",
+    )
+    async def _status(interaction: discord.Interaction) -> None:
+        # Lazy import so /ping-only use never pulls the status read deps.
+        from packages.polymarket.discord_bot.status_command import status_command
+
+        await status_command(interaction, config=config)
+
 
 class VeraClient(discord.Client):
     """Minimal gateway client: no privileged intents, one command tree."""

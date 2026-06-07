@@ -52,24 +52,45 @@ def _now_utc() -> str:
 # ---------------------------------------------------------------------------
 
 
-def post_message(text: str, *, webhook_url: Optional[str] = None) -> bool:
-    """Post a plain-text (markdown-capable) message to the Discord webhook.
+def post_message(
+    text: str = "",
+    *,
+    embeds: Optional[list] = None,
+    webhook_url: Optional[str] = None,
+) -> bool:
+    """Post a message (content and/or embeds) to the Discord webhook.
+
+    Sends ``content`` (markdown text) and/or ``embeds`` (Discord embed cards) in
+    a single webhook call. At least one must be non-empty. Webhooks render embeds
+    natively; only interactive components (buttons) require a bot, which PolyTool
+    deliberately does not use here.
 
     Args:
-        text:        Message body.  Discord supports limited markdown.
+        text:        Message content (markdown).  May be empty when ``embeds`` is
+                     supplied. A content-only call still posts exactly
+                     ``{"content": text}`` (back-compatible with the typed alert
+                     helpers below).
+        embeds:      Optional list of Discord embed dicts.
         webhook_url: Override the env-var webhook URL.  Primarily for testing.
 
     Returns:
         True if the webhook returned HTTP 2xx, False for any other outcome
-        (no URL, HTTP error, network error).  Never raises.
+        (no URL, nothing to send, HTTP error, network error).  Never raises.
     """
     url = webhook_url or _get_webhook_url()
     if not url:
         return False
+    payload: dict[str, Any] = {}
+    if text:
+        payload["content"] = text
+    if embeds:
+        payload["embeds"] = embeds
+    if not payload:
+        return False
     try:
         resp = requests.post(
             url,
-            json={"content": text},
+            json=payload,
             timeout=_TIMEOUT_SECONDS,
         )
         return resp.ok

@@ -13,10 +13,14 @@ from tools.cli.wallet_scan import (
     _build_leaderboard,
     _build_leaderboard_md,
     _detect_identifier_type,
+    _dominant_category,
     _extract_user_metrics,
+    _load_username_sidecar,
     _make_dossier_extractor,
+    _resolve_wallet_id,
     _sort_key_for_leaderboard,
     _read_wallet_from_dossier,
+    _stamp_dossier_username,
     _win_rate_from_outcome_counts,
     parse_input_file,
 )
@@ -81,6 +85,29 @@ def _make_scan_run_root(
         ),
     )
     return run_root
+
+
+def _seg_bucket(count: int) -> dict:
+    # Minimal faithful subset of polytool/reports/coverage.py
+    # _finalize_segment_bucket: the per-category 'count' is what
+    # _dominant_category reads.
+    return {"count": count, "wins": 0, "losses": 0, "win_rate": 0.0}
+
+
+def _write_segment_analysis(run_root: Path, by_category: dict) -> None:
+    # Mirrors the REAL persisted segment_analysis.json: a top-level
+    # "segment_analysis" key holding "by_category" (keyed by category name with
+    # a synthetic "Unknown" bucket always present). See _build_segment_analysis.
+    _write_json(
+        run_root / "segment_analysis.json",
+        {
+            "generated_at": "2026-06-01T00:00:00Z",
+            "run_id": run_root.name,
+            "user_slug": "unknown",
+            "wallet": "0xabc",
+            "segment_analysis": {"by_category": by_category},
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +190,148 @@ class TestWinRateFromOutcomeCounts:
         assert _win_rate_from_outcome_counts({}) is None
 
 
+class TestDominantCategory:
+    """_dominant_category reads segment_analysis.by_category 'count' buckets."""
+
+    def test_picks_highest_count_known_category(self) -> None:
+        by_cat = {
+            "Politics": _seg_bucket(30),
+            "Sports": _seg_bucket(12),
+            "Unknown": _seg_bucket(5),
+        }
+        assert _dominant_category(by_cat) == "Politics"
+
+    def test_excludes_unknown_even_when_dominant(self) -> None:
+        # The real wallets in this packet are ENTIRELY uncategorised: only the
+        # synthetic "Unknown" bucket exists. Must yield None (never "Unknown")
+        # so the summary omits category focus rather than show a non-signal.
+        by_cat = {"Unknown": _seg_bucket(50)}
+        assert _dominant_category(by_cat) is None
+
+    def test_unknown_case_insensitive(self) -> None:
+        assert _dominant_category({"unknown": _seg_bucket(7)}) is None
+
+    def test_ties_broken_alphabetically(self) -> None:
+        by_cat = {"Sports": _seg_bucket(10), "Crypto": _seg_bucket(10)}
+        assert _dominant_category(by_cat) == "Crypto"
+
+    def test_zero_count_buckets_ignored(self) -> None:
+        assert _dominant_category({"Politics": _seg_bucket(0)}) is None
+
+    def test_missing_or_malformed_is_none(self) -> None:
+        assert _dominant_category(None) is None
+        assert _dominant_category({}) is None
+        assert _dominant_category({"Politics": "not-a-dict"}) is None
+
+
+class TestExtractUserMetricsCategoryFocus:
+    """category_focus surfaced into the metrics dict from the segment file."""
+
+    def test_dominant_known_category_surfaced(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path, "run_cat", positions_total=42)
+        _write_segment_analysis(
+            run_root,
+            {"Politics": _seg_bucket(30), "Sports": _seg_bucket(12),
+             "Unknown": _seg_bucket(0)},
+        )
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["category_focus"] == "Politics"
+
+    def test_all_unknown_yields_none(self, tmp_path: Path) -> None:
+        # Mirrors BOTH real pending wallets: 50 positions, all uncategorised.
+        run_root = _make_scan_run_root(tmp_path, "run_unk", positions_total=50)
+        _write_segment_analysis(run_root, {"Unknown": _seg_bucket(50)})
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["category_focus"] is None
+
+    def test_missing_segment_file_is_none(self, tmp_path: Path) -> None:
+        # No segment_analysis.json on disk -> category_focus omitted, not raised.
+        run_root = _make_scan_run_root(tmp_path, "run_noseg", positions_total=10)
+        metrics = _extract_user_metrics(run_root)
+        assert metrics["category_focus"] is None
+
+
+def _write_dossier(run_root: Path, *, username: str | None, positions: list[dict],
+                   max_trades: int = 200) -> None:
+    """Write a faithful dossier.json (header + positions) for reader tests."""
+    header: dict = {"max_trades": max_trades, "proxy_wallet": "0xabc",
+                    "user_input": "0xabc"}
+    if username is not None:
+        header["username"] = username
+    _write_json(
+        run_root / "dossier.json",
+        {"header": header, "positions": {"count": len(positions),
+                                         "positions": positions}},
+    )
+
+
+def _pos(*, outcome: str, close: str | None, entry: str | None = None,
+         pnl: float | None = None) -> dict:
+    p: dict = {"resolution_outcome": outcome}
+    if close is not None:
+        p["close_ts"] = close
+        p["resolved_at"] = close
+    if entry is not None:
+        p["entry_ts"] = entry
+    if pnl is not None:
+        p["realized_pnl_net_estimated_fees"] = pnl
+    return p
+
+
+class TestExtractUserMetricsDossierFields:
+    """handle / last_active / win_count / recent_form sourced from the dossier."""
+
+    def test_handle_from_header_username(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path, "run_h", positions_total=2)
+        _write_dossier(run_root, username="@WhaleWatch", positions=[])
+        # Leading '@' and surrounding whitespace are stripped.
+        assert _extract_user_metrics(run_root)["handle"] == "WhaleWatch"
+
+    def test_handle_none_when_username_absent(self, tmp_path: Path) -> None:
+        # Pseudonymous wallet: no header.username -> handle None (address fallback).
+        run_root = _make_scan_run_root(tmp_path, "run_noh", positions_total=2)
+        _write_dossier(run_root, username=None, positions=[])
+        assert _extract_user_metrics(run_root)["handle"] is None
+
+    def test_no_dossier_omits_fields(self, tmp_path: Path) -> None:
+        # Coverage report only (no dossier.json) -> new fields are None.
+        run_root = _make_scan_run_root(tmp_path, "run_nod", positions_total=2)
+        m = _extract_user_metrics(run_root)
+        assert m["handle"] is None and m["last_active"] is None
+        assert m["recent_form"] is None
+
+    def test_last_active_is_newest_trade_ts(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path, "run_la", positions_total=3)
+        _write_dossier(run_root, username=None, positions=[
+            _pos(outcome="WIN", close="2026-05-01T00:00:00Z",
+                 entry="2026-04-20T00:00:00Z", pnl=10.0),
+            _pos(outcome="LOSS", close="2026-05-10T00:00:00Z",
+                 entry="2026-05-09T12:00:00Z", pnl=-5.0),
+        ])
+        # Newest TRADE (entry) ts wins — NOT the later resolution ts.
+        assert _extract_user_metrics(run_root)["last_active"] == "2026-05-09T12:00:00Z"
+
+    def test_recent_form_resolved_only(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path, "run_rf", positions_total=3)
+        _write_dossier(run_root, username=None, max_trades=200, positions=[
+            _pos(outcome="WIN", close="2026-05-01T00:00:00Z",
+                 entry="2026-04-20T00:00:00Z", pnl=10.0),
+            _pos(outcome="PROFIT_EXIT", close="2026-05-03T00:00:00Z",
+                 entry="2026-05-02T00:00:00Z", pnl=4.0),
+            # Open position: no resolution -> excluded from recent_form.
+            _pos(outcome="PENDING", close=None, entry="2026-05-05T00:00:00Z"),
+        ])
+        rf = _extract_user_metrics(run_root)["recent_form"]
+        assert rf["sample_size"] == 3 and rf["sample_cap"] == 200
+        assert len(rf["trades"]) == 2  # only the two resolved positions
+        assert {t["pnl"] for t in rf["trades"]} == {10.0, 4.0}
+
+    def test_win_count_from_outcome_counts(self, tmp_path: Path) -> None:
+        # WIN=2 (from the coverage fixture) + PROFIT_EXIT=0 -> win_count 2.
+        run_root = _make_scan_run_root(tmp_path, "run_wc", positions_total=4)
+        assert _extract_user_metrics(run_root)["win_count"] == 2
+
+
 # ---------------------------------------------------------------------------
 # parse_input_file
 # ---------------------------------------------------------------------------
@@ -174,9 +343,9 @@ class TestParseInputFile:
         _write_text(f, "@Alice\n0xdeadbeef1234\n@Bob\n")
         entries = parse_input_file(f)
         assert len(entries) == 3
-        assert entries[0] == {"identifier": "@Alice", "kind": "handle"}
-        assert entries[1] == {"identifier": "0xdeadbeef1234", "kind": "wallet"}
-        assert entries[2] == {"identifier": "@Bob", "kind": "handle"}
+        assert entries[0] == {"identifier": "@Alice", "kind": "handle", "username": ""}
+        assert entries[1] == {"identifier": "0xdeadbeef1234", "kind": "wallet", "username": ""}
+        assert entries[2] == {"identifier": "@Bob", "kind": "handle", "username": ""}
 
     def test_skips_blank_and_comment_lines(self, tmp_path: Path) -> None:
         f = tmp_path / "ids.txt"
@@ -726,3 +895,175 @@ class TestWalletScannerDossierHook:
         parser = build_parser()
         args = parser.parse_args(["--input", "wallets.txt"])
         assert args.extract_dossier is False
+
+
+# ---------------------------------------------------------------------------
+# Username display convention (export -> scan -> dossier handoff)
+# ---------------------------------------------------------------------------
+
+
+def _write_dossier_header(run_root: Path, *, proxy_wallet: str, username: str | None = None) -> None:
+    """Write a minimal dossier.json with a header (proxy_wallet + optional username)."""
+    header: dict = {"proxy_wallet": proxy_wallet}
+    if username is not None:
+        header["username"] = username
+    _write_json(run_root / "dossier.json", {"header": header, "positions": {"positions": []}})
+
+
+class TestUsernameSidecarHandoff:
+    """parse_input_file + sidecar loader carry display usernames; bare addresses still work."""
+
+    WALLET = "0xa380c504a480f591c7dfbf9944fac3994b9b21ff"
+
+    def test_parse_attaches_username_from_map(self, tmp_path: Path) -> None:
+        f = tmp_path / "ids.txt"
+        _write_text(f, f"{self.WALLET}\n0xdeadbeef1234\n")
+        umap = {self.WALLET.lower(): "Scaly-Champion"}
+        entries = parse_input_file(f, username_map=umap)
+        assert entries[0]["username"] == "Scaly-Champion"
+        # canonical key (identifier) is untouched; second wallet has no name
+        assert entries[0]["identifier"] == self.WALLET
+        assert entries[1]["username"] == ""
+
+    def test_bare_address_no_map_yields_empty_username(self, tmp_path: Path) -> None:
+        f = tmp_path / "ids.txt"
+        _write_text(f, f"{self.WALLET}\n")
+        entries = parse_input_file(f)  # no username_map at all
+        assert entries[0]["username"] == ""
+        assert entries[0]["identifier"] == self.WALLET
+
+    def test_sidecar_loader_reads_and_lowercases_keys(self, tmp_path: Path) -> None:
+        f = tmp_path / "wallets.txt"
+        _write_text(f, f"{self.WALLET}\n")
+        sidecar = tmp_path / "wallets.txt.usernames.json"
+        _write_json(sidecar, {self.WALLET.upper(): "Alice", "0xother": ""})
+        umap = _load_username_sidecar(f)
+        # key lowercased; empty-username entry dropped
+        assert umap == {self.WALLET.lower(): "Alice"}
+
+    def test_sidecar_absent_returns_empty_map(self, tmp_path: Path) -> None:
+        f = tmp_path / "wallets.txt"
+        _write_text(f, f"{self.WALLET}\n")
+        assert _load_username_sidecar(f) == {}
+
+    def test_sidecar_garbled_returns_empty_map(self, tmp_path: Path) -> None:
+        f = tmp_path / "wallets.txt"
+        _write_text(f, f"{self.WALLET}\n")
+        _write_text(tmp_path / "wallets.txt.usernames.json", "{not json")
+        assert _load_username_sidecar(f) == {}
+
+
+class TestResolveWalletId:
+    """wallet_id is canonical: dossier proxy_wallet, else a wallet identifier, never a username."""
+
+    def test_prefers_dossier_proxy_wallet(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        _write_dossier_header(run_root, proxy_wallet="0xCANONICAL")
+        entry = {"identifier": "@Alice", "kind": "handle", "username": "Alice"}
+        assert _resolve_wallet_id(entry, run_root) == "0xCANONICAL"
+
+    def test_falls_back_to_wallet_identifier(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()  # no dossier.json
+        entry = {"identifier": "0xWALLET", "kind": "wallet", "username": ""}
+        assert _resolve_wallet_id(entry, run_root) == "0xWALLET"
+
+    def test_handle_without_dossier_yields_empty(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        entry = {"identifier": "@Alice", "kind": "handle", "username": "Alice"}
+        assert _resolve_wallet_id(entry, run_root) == ""
+
+
+class TestStampDossierUsername:
+    def test_stamps_when_absent(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        _write_dossier_header(run_root, proxy_wallet="0xabc")  # no username
+        _stamp_dossier_username(run_root, "Scaly-Champion")
+        d = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        assert d["header"]["username"] == "Scaly-Champion"
+
+    def test_does_not_overwrite_existing(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        _write_dossier_header(run_root, proxy_wallet="0xabc", username="RealHandle")
+        _stamp_dossier_username(run_root, "FromHandoff")
+        d = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        assert d["header"]["username"] == "RealHandle"
+
+    def test_empty_username_is_noop(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        _write_dossier_header(run_root, proxy_wallet="0xabc")
+        _stamp_dossier_username(run_root, "")
+        d = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        assert "username" not in d["header"]
+
+    def test_missing_dossier_is_noop(self, tmp_path: Path) -> None:
+        run_root = tmp_path / "run"
+        run_root.mkdir()
+        _stamp_dossier_username(run_root, "X")  # no dossier.json -> no raise
+
+
+class TestWalletScannerUsernameCarry:
+    """End-to-end: handoff username lands in the dossier, results, and leaderboard."""
+
+    WALLET = "0xa380c504a480f591c7dfbf9944fac3994b9b21ff"
+
+    def _scanner_for(self, run_root: Path) -> WalletScanner:
+        def fake_scan(identifier: str, scan_flags: dict) -> str:
+            return run_root.as_posix()
+
+        return WalletScanner(scan_callable=fake_scan, now_provider=lambda: FIXED_NOW)
+
+    def test_handoff_username_carried_into_artifacts_and_dossier(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path / "runs", "r", pnl_net=10.0)
+        _write_dossier_header(run_root, proxy_wallet=self.WALLET)  # pseudonymous: no username
+
+        scanner = self._scanner_for(run_root)
+        entries = [{"identifier": self.WALLET, "kind": "wallet", "username": "Scaly-Champion"}]
+        paths = scanner.run(
+            entries=entries,
+            output_root=tmp_path / "out",
+            run_id="run-uc-1",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+
+        # dossier header now carries the handoff username
+        d = json.loads((run_root / "dossier.json").read_text(encoding="utf-8"))
+        assert d["header"]["username"] == "Scaly-Champion"
+
+        lb = json.loads(Path(paths["leaderboard_json"]).read_text(encoding="utf-8"))
+        row = lb["ranked"][0]
+        assert row["wallet_id"] == self.WALLET          # canonical
+        assert row["username"] == "Scaly-Champion"      # display
+        assert row["display_name"] == "Scaly-Champion"
+        # markdown shows the human name AND the wallet id as separate columns
+        md = Path(paths["leaderboard_md"]).read_text(encoding="utf-8")
+        assert "Scaly-Champion" in md
+        assert self.WALLET in md
+
+    def test_pseudonymous_wallet_display_falls_back_to_truncated_id(self, tmp_path: Path) -> None:
+        run_root = _make_scan_run_root(tmp_path / "runs", "r", pnl_net=1.0)
+        _write_dossier_header(run_root, proxy_wallet=self.WALLET)
+
+        scanner = self._scanner_for(run_root)
+        # bare-address path: no username in the handoff
+        entries = [{"identifier": self.WALLET, "kind": "wallet", "username": ""}]
+        paths = scanner.run(
+            entries=entries,
+            output_root=tmp_path / "out",
+            run_id="run-uc-2",
+            profile="lite",
+            input_file_path="wallets.txt",
+        )
+        lb = json.loads(Path(paths["leaderboard_json"]).read_text(encoding="utf-8"))
+        row = lb["ranked"][0]
+        assert row["wallet_id"] == self.WALLET
+        assert row["username"] == ""
+        # display falls back to a truncated wallet id, NOT the raw full address
+        assert row["display_name"] == "0xa380...21ff"
+

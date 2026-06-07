@@ -336,6 +336,50 @@ class TestToSnapshotRows:
         assert rows1[0].pnl == rows2[0].pnl
         assert rows1[0].is_new == rows2[0].is_new
 
+    def test_reads_camelcase_live_api_shape(self):
+        """Regression (Loop A snapshot path): the live /v1/leaderboard response is
+        camelCase (proxyWallet/userName/vol/pnl, rank as a STRING). Every field —
+        not just the wallet — must land non-empty/non-zero in the snapshot row.
+        Mirrors the real shape: keys ['rank','proxyWallet','userName','xUsername',
+        'verifiedBadge','vol','pnl','profileImage']."""
+        from packages.polymarket.discovery.leaderboard_fetcher import to_snapshot_rows
+        now = datetime.now(timezone.utc)
+        raw = [
+            {
+                "rank": "1",  # API returns rank as a string
+                "proxyWallet": "0xbddf61af533ff524d27154e589d2d7a81510c684",
+                "userName": "whale",
+                "xUsername": "whale_x",
+                "verifiedBadge": True,
+                "vol": 1234567.89,
+                "pnl": 98765.43,
+                "profileImage": "https://example/x.png",
+            },
+        ]
+        rows = to_snapshot_rows(raw, "run-camel", now, "PNL", "DAY", "OVERALL")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r.proxy_wallet == "0xbddf61af533ff524d27154e589d2d7a81510c684"
+        assert r.username == "whale"
+        assert r.rank == 1  # coerced from string
+        assert r.pnl == 98765.43
+        assert r.volume == 1234567.89  # read from `vol`, not `volume`
+        # is_new comparison must still work off the real wallet
+        rows2 = to_snapshot_rows(
+            raw, "run-camel2", now, "PNL", "DAY", "OVERALL",
+            prior_wallets={"0xbddf61af533ff524d27154e589d2d7a81510c684"},
+        )
+        assert rows2[0].is_new == 0
+
+    def test_reads_camelcase_string_numerics(self):
+        """The API may serialize vol/pnl as strings; coerce them, don't crash or zero."""
+        from packages.polymarket.discovery.leaderboard_fetcher import to_snapshot_rows
+        now = datetime.now(timezone.utc)
+        raw = [{"rank": "2", "proxyWallet": "0xDEF", "userName": "s", "vol": "500.5", "pnl": "-10.25"}]
+        rows = to_snapshot_rows(raw, "run-strnum", now, "PNL", "DAY", "OVERALL")
+        assert rows[0].volume == 500.5
+        assert rows[0].pnl == -10.25
+
 
 # ---------------------------------------------------------------------------
 # Task 2: Churn detector

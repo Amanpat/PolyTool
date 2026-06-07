@@ -87,6 +87,150 @@ The operator's Discord surface has two decoupled halves:
   (author-guard), live-verified. See `docs/features/FEATURE-vera-discord-bot.md`.
   This is the new "Vera" - NOT the retired `vera-hermes-agent`.
 
+## Scan Day-Run Readiness — Build Sprint (2026-06-04, uncommitted)
+
+Build prep for the first real top-200 wallet data-collection run. Four packets,
+all code uncommitted pending operator review. 451 focused wallet-ingestion/
+discovery/vera tests pass.
+
+- **Start/stop safety (DR-0, hardened by DR-0-FIX 2026-06-04).** ClickHouse data
+  persists on the named Docker volume `clickhouse_data` (survives `stop`/`down`;
+  only `-v` destroys it — forbidden in the toggle). Shutdown is now **bounded and
+  cooperative**: `discovery scheduler start` delegates to `run_scheduler_blocking()`
+  which traps SIGTERM/SIGINT (+ SIGBREAK on Windows), requests a cooperative drain
+  stop so `ScanWorker.run(should_stop=...)` halts BETWEEN wallets (never starts a
+  new wallet), then calls `stop_discovery_scheduler(wait=False)` so shutdown never
+  blocks unbounded. The drain path runs with a tight per-request HTTP timeout
+  (`queue_drain.request_timeout_seconds`, default 15s, scheduler-process-only) and
+  the `discovery-scheduler` service has `stop_grace_period: 60s`. An interrupted
+  scan fails all-or-nothing (no lifecycle advance, no half-written RIS) and
+  re-queues via expired-lease reclaim. The single-host advisory lock
+  (`packages/polymarket/discovery/worker_lock.py`) is now **atomic** (`O_EXCL`),
+  **fail-closed** (unwritable lock → refuse, never drain unlocked), and uses
+  **heartbeat (mtime) liveness** — a live scheduler is never reclaimed (the old
+  30-minute-age expiry bug is gone), and `--force` can reclaim only a
+  heartbeat-stale lock, never a live holder. Proven by real tests (subprocess
+  SIGTERM bounded exit; 12-way concurrent `O_EXCL` race → one winner; heartbeat
+  liveness; fail-closed). Live `docker compose stop` timing remains an operator
+  verification step. Dev log: `docs/dev_logs/2026-06-04_dr-0-fix.md`.
+  **DR-0-FIX-2 (2026-06-04) closed the two re-review blockers:** stop is now
+  request-granularity — the stop flag threads into the `scan.py` retry/backoff
+  loop so a SIGTERM aborts the in-flight request within ~one request timeout
+  instead of finishing the whole wallet (the ~67s retry storm is gone); the
+  aborted wallet is released to pending, never ingested, no attempt burned. And
+  the heartbeat is no longer a background thread — the holder refreshes the lock
+  from its own main loop (`run_scheduler_blocking(heartbeat=lock.beat)`; manual
+  worker beats between wallets), so a live holder can never look stale via a
+  silently-dead thread. Real tests: request-cancel via a hanging TCP server
+  (abort ~1.7s vs 7.5s), two-PROCESS `O_EXCL` race, no-background-thread
+  assertion, main-loop refresh. 28 shutdown tests; 395 focused pass. Dev log:
+  `docs/dev_logs/2026-06-04_dr-0-fix-2.md`. Codex re-review (pass 3) pending.
+- **On/off toggle (DR-1).** Canonical interface `scripts/scan.sh {on|off|status}`:
+  `on` = `docker compose up -d clickhouse api discovery-scheduler` (idempotent);
+  `off` = `docker compose stop discovery-scheduler` only (ClickHouse + API stay up
+  so Grafana/queries/`/status` keep working); `status` = container state + scan-queue
+  depth + watchlist pending count (reuses existing readers). The wrapper can never
+  invoke `docker compose down` or `-v` and actively refuses teardown tokens.
+- **Batch-seed (DR-2, build-only).** Read-only `discovery export-leaderboard
+  --top N --out <file>` materializes the current leaderboard addresses as a
+  `wallet-scan --input` file (reuses `fetch_leaderboard`, no new ranking). An
+  optional, default-OFF, config-driven `BulkPacer` adds polite per-page/per-wallet
+  pacing to the leaderboard and `wallet-scan` bulk loops (`--pace`); the gentle
+  scheduler cadence is unaffected. The full top-200 scan is operator-gated and was
+  NOT run. Ranked `leaderboard.json`/`.md` (desc by `realized_net_pnl`) land under
+  `artifacts/research/wallet_scan/<date>/<run_id>/` for the manual LLM hand-off.
+- **Discord `/status` (DR-3).** Read-only, operator-only (`author-guard`) `/status`
+  slash command on the Vera gateway shows a live scan window: health line + four
+  tiles (in-queue, scanned today, pending review, failed, from `scan_queue` /
+  `watchlist`) + Top-N by realized PnL with wallet ID and username as separate
+  columns. The assembler (`status_window.py`) is SELECT-only (tiles/health) plus a
+  read of the latest `leaderboard.json` artifact for the Top-N, with no reachable
+  write surface.
+  - **Top-N accuracy fix (2026-06-04, `status-accuracy-fix`).** The Top-N now
+    reads the latest `artifacts/research/wallet_scan/<date>/<run>/leaderboard.json`
+    (mounted read-only into the bot) — the SAME artifact `wallet-scan` emits — so
+    its ranking, lifetime resolved `realized_net_pnl`, and `positions_total` match
+    the leaderboard exactly. The prior `argMax(realized_pnl)` over `user_pnl_bucket`
+    read only the latest day bucket (≈0, a windowed orderbook estimate, NOT lifetime
+    resolved PnL — and summing buckets does not recover it), and the
+    `leaderboard_snapshots` username join is never populated by the
+    `wallet-scan --input` path, so usernames came back blank. The Username column
+    now uses `polytool.user_context.display_name()` → real handle when present, else
+    a truncated wallet ID, never blank. Tiles correctly read 0 when no scheduler
+    queue/watchlist rows exist (manual batch scans do not enqueue). **Deploy +
+    username handoff verification (2026-06-04):** the blank-username / `$0` PnL
+    Discord symptom was a stale `vera-bot` image, not a new code bug. The running
+    container had an old `status_window.py` hash and did not contain the
+    leaderboard artifact loader; rebuilding/recreating `vera-bot` loaded the
+    fixed file. A fresh `discovery export-leaderboard --top 5` wrote
+    `artifacts/watchlists/top5.txt.usernames.json` with 5 real handles, and a
+    `.env`-loaded wallet-scan run against `artifacts/watchlists/top5.txt` with
+    `--extract-dossier` wrote a new latest `leaderboard.json` whose `username` /
+    `display_name`, `realized_net_pnl`, and `positions_total` are visible from the
+    running bot container. **Daily PnL column follow-up:** `/status` now enriches
+    those same leaderboard rows with today's `polytool.user_pnl_bucket` day-bucket
+    `realized_pnl`, rendering `Daily PnL` before lifetime `Net PnL`; if that
+    lookup fails, only `dailyPnL` degrades and the ranked leaderboard still renders.
+    See `docs/dev_logs/2026-06-04_status-deploy-fix.md` and
+    `docs/dev_logs/2026-06-04_status-daily-pnl-column.md`.
+
+Operator-gated / BLOCKED until run live: live `docker stop` grace-window timing
+(no Docker in build env), full top-200 batch-seed scan (data-api returned 403 in
+the sandbox; proven via mocked round-trip tests). Live `/status` deployment/path
+verification is complete through the running `vera-bot` container; final Discord
+client visual confirmation still requires the operator because a bot token cannot
+originate a user slash-command interaction. See the four
+`docs/dev_logs/2026-06-04_dr-*.md` dev logs plus
+`docs/dev_logs/2026-06-04_status-deploy-fix.md`.
+
+- **DR-2a leaderboard fetch fix (2026-06-04, uncommitted).** `export-leaderboard`
+  was writing **0 addresses**. Diagnosed live (case (c)): the fetcher is fine
+  (returns 250, HTTP 200 — no 403/Cloudflare block, earlier sandbox-403 hypothesis
+  disproven), but the export read snake_case `proxy_wallet` while the live API
+  returns camelCase **`proxyWallet`** → every wallet skipped. Also fixed the rank
+  sort (string ranks were sorting lexicographically, so "top N" was wrong). Offset
+  pagination confirmed working (250 distinct). After fix: `--top 5` → 5 distinct
+  `0x`, `--top 200` → 200 distinct. Unblocks the DR-2 batch run. Known follow-up:
+  `to_snapshot_rows` (Loop A snapshot path) has the same camelCase mismatch,
+  out of scope here. See `docs/dev_logs/2026-06-04_leaderboard-fetch-fix.md`.
+
+- **Loop A snapshot camelCase fix (2026-06-04, uncommitted).** The DR-2a follow-up:
+  `to_snapshot_rows` (the Loop A path feeding ClickHouse `leaderboard_snapshots`)
+  read snake_case `proxy_wallet`/`name`/`volume` while the live API returns
+  camelCase `proxyWallet`/`userName`/`vol` → every snapshot row was written with an
+  **empty wallet, empty username, and zero volume**. Mapped the full field set (not
+  just the wallet) against the live response; applied additive camelCase-first reads
+  for wallet/username/vol/pnl and int-coerced the string `rank`. Model + ClickHouse
+  writer were already correct (snake_case, 1:1) — bug was isolated to the transform.
+  Live one-shot (`fetch_leaderboard` + `to_snapshot_rows`) now yields 5/5 real
+  wallets + usernames + non-zero vol/pnl. 89 targeted tests pass (2 new camelCase
+  regressions). This was the leading suspect for the Grafana "no user information"
+  symptom — now fixed at the write source, unblocking the Grafana diagnosis packet.
+  See `docs/dev_logs/2026-06-04_loop-a-snapshot-camelcase-fix.md`.
+
+- **Username display convention + run-readiness diagnosis (2026-06-04, uncommitted).**
+  The wallet-scan-path twin of the Loop A fix, plus a global display rule.
+  *STEP 0 (diagnosis, report-only):* the UPDATE #5 "ClickHouse auth failed / realized
+  PnL = 0" blocker is **env propagation, not a stale-volume credential mismatch** —
+  the provisioned password already equals `.env` (`admin`); scan/export entrypoints
+  fall back to the forbidden default `"polytool_admin"` when `CLICKHOUSE_PASSWORD` is
+  unset in the host shell (host shell has none; the `discovery-scheduler` container
+  does). The referenced `leaderboard.json` (`e2d340a3…`) actually has **differentiated**
+  realized PnL with 0% unknown resolutions, and resolution providers ARE set. CH-auth
+  fix is **operator-only** (propagate the env / run in-container) — recommended, not
+  executed; no `.env`/password/volume change made. *STEP 1 (implemented):* one
+  `display_name(username, wallet_id)` helper (`polytool/user_context.py`; falls back
+  to a truncated wallet ID when the username is empty/null/auto-generated) applied at
+  the scan summary line, `leaderboard.md` (now a **User** column beside a separate
+  **Wallet ID** column), and emitted into the wallet-scan artifacts. Username now flows
+  `export-leaderboard → wallet-scan → dossier` via an additive `<input>.usernames.json`
+  sidecar (bare-address inputs still scan unchanged); `wallet_id` stays the canonical
+  key/slug/join and dossier dirs stay wallet-keyed. **Code-done ≠ run-ready: the
+  200-wallet batch is gated on the operator's CH-auth env-propagation fix.** Targeted
+  tests: 139 pass across `test_user_context.py` / `test_dr2_batch_seed.py` /
+  `test_wallet_scan.py` (29 new). See
+  `docs/dev_logs/2026-06-04_username-display-convention.md`.
+
 ## Wallet Discovery v1 (Shipped, 2026-04-10)
 
 Wallet Discovery v1 is implemented, integrated, and hardened.

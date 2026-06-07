@@ -165,6 +165,14 @@ services:
       - .env
     command: ["python", "-m", "polytool", "discovery", "scheduler", "start"]
     restart: unless-stopped
+    # DR-0-FIX: give the cooperative graceful shutdown room. On `docker compose
+    # stop`, SIGTERM triggers run_scheduler_blocking -> cooperative drain stop
+    # (no new wallet leased) + scheduler.shutdown(wait=False). An in-flight
+    # wallet finishes its own bounded scan (queue_drain.request_timeout_seconds,
+    # default 15s); 60s comfortably exceeds that so a clean stop is the norm.
+    # Even if SIGKILL still lands, per-wallet all-or-nothing ingest + lease
+    # expiry mean no half-written RIS and no permanently-leased item.
+    stop_grace_period: 60s
     volumes:
       - ./config:/app/config:ro
       - ./kb:/app/kb

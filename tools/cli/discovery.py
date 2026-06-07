@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 import sys
-import time
 
 
 def main(argv: list[str]) -> int:
@@ -149,6 +148,15 @@ def main(argv: list[str]) -> int:
         help="Load queue from ClickHouse and report pending items without scanning or writing.",
     )
     worker_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reclaim a STALE (heartbeat-dead) worker lock left by a crashed "
+        "drainer. It does NOT override a LIVE holder: if the scheduler or another "
+        "worker is alive and refreshing its heartbeat, acquisition is refused even "
+        "with --force (two concurrent drainers are never allowed — ClickHouse "
+        "leases are not CAS-safe).",
+    )
+    worker_parser.add_argument(
         "--clickhouse-host",
         default="localhost",
         help="ClickHouse host (default: localhost)",
@@ -270,6 +278,67 @@ def main(argv: list[str]) -> int:
     )
     _add_ch_args(review_parser)
 
+    # --- export-leaderboard (DR-2: read-only top-N -> wallet-scan input file) ---
+    export_parser = subparsers.add_parser(
+        "export-leaderboard",
+        help=(
+            "READ-ONLY: fetch the current top-N leaderboard and write the wallet "
+            "addresses to a `wallet-scan --input` file (one 0x... per line). "
+            "Reuses fetch_leaderboard; no ClickHouse writes, no scanning."
+        ),
+    )
+    export_parser.add_argument(
+        "--top",
+        type=int,
+        default=200,
+        help="Number of leaderboard wallets to export (default: 200).",
+    )
+    export_parser.add_argument(
+        "--out",
+        required=True,
+        help="Destination input file (one 0x address per line).",
+    )
+    export_parser.add_argument(
+        "--order-by",
+        default="PNL",
+        choices=["PNL", "VOL"],
+        help="Leaderboard sort field (default: PNL).",
+    )
+    export_parser.add_argument(
+        "--time-period",
+        default="DAY",
+        choices=["DAY", "WEEK", "MONTH", "ALL"],
+        help="Leaderboard time window (default: DAY).",
+    )
+    export_parser.add_argument(
+        "--category",
+        default="OVERALL",
+        choices=["OVERALL", "POLITICS", "SPORTS", "CRYPTO"],
+        help="Leaderboard category (default: OVERALL).",
+    )
+    export_parser.add_argument(
+        "--page-size",
+        type=int,
+        default=50,
+        help="Entries per leaderboard page (default: 50, matching the API).",
+    )
+    export_parser.add_argument(
+        "--pace",
+        action="store_true",
+        help=(
+            "Enable bulk pacing between leaderboard pages (DR-2). OFF by "
+            "default; delay comes from config/discovery_scheduler.json "
+            "(bulk_pacing) unless --pace-delay overrides it."
+        ),
+    )
+    export_parser.add_argument(
+        "--pace-delay",
+        type=float,
+        default=None,
+        help="Seconds between leaderboard pages when --pace is set (overrides config).",
+    )
+    export_parser.add_argument("--json", action="store_true", help="Output summary as JSON")
+
     args = parser.parse_args(argv)
 
     if args.subcommand == "run-loop-a":
@@ -280,6 +349,8 @@ def main(argv: list[str]) -> int:
         return _run_scheduler(args)
     if args.subcommand == "review":
         return _run_review(args)
+    if args.subcommand == "export-leaderboard":
+        return _run_export_leaderboard(args)
 
     print(f"Unknown subcommand: {args.subcommand}", file=sys.stderr)
     return 1
@@ -414,6 +485,67 @@ def _run_worker(args: argparse.Namespace) -> int:
         print("")
         return 0
 
+    # DR-0 concurrency guard: refuse to drain while the scheduler (or another
+    # manual worker) holds the single-host advisory lock. ClickHouse leases are
+    # NOT CAS — two concurrent drainers can double-grab a dedup_key.
+    #
+    # DR-0-FIX: the lock is atomic (O_EXCL) and fail-closed. We acquire it BEFORE
+    # running and refuse on either a live holder (WorkerLockHeld) or an
+    # unestablishable lock (WorkerLockError) — there is no unlocked-drain path.
+    # --force can only reclaim a heartbeat-stale lock; it can NOT stomp a live
+    # holder, so "two drainers impossible" holds even with --force.
+    from packages.polymarket.discovery.worker_lock import (
+        WorkerLockError,
+        WorkerLockHeld,
+        acquire_worker_lock,
+    )
+
+    try:
+        lock = acquire_worker_lock(owner=args.owner, force=args.force)
+    except WorkerLockHeld as exc:
+        print(
+            "Error: a discovery drainer is already running.\n"
+            f"  {exc}\n"
+            "Refusing to start a second drainer (ClickHouse leases are not CAS-safe;\n"
+            "concurrent drains can double-grab a queue item). Stop the scheduler\n"
+            "(`docker compose stop discovery-scheduler`) first. --force only reclaims\n"
+            "a heartbeat-stale lock; it will NOT override a live drainer.",
+            file=sys.stderr,
+        )
+        return 1
+    except WorkerLockError as exc:
+        # Fail closed: the lock could not be established (unwritable path, lost
+        # reclaim race). Never drain unlocked.
+        print(
+            "Error: could not establish the discovery worker lock; refusing to run.\n"
+            f"  {exc}\n"
+            "Check that the lock directory (artifacts/discovery/) is writable.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Broad try/finally: ANY exception in the worker body releases the lock so a
+    # crash never leaks it (stale-reclaim is a backstop, not the primary path).
+    try:
+        return _run_worker_locked(args, queue, ch_kwargs, max_items, lock)
+    finally:
+        lock.release()
+
+
+def _run_worker_locked(
+    args: argparse.Namespace,
+    queue: "object",
+    ch_kwargs: dict,
+    max_items: int,
+    lock: "object",
+) -> int:
+    """Worker body executed while holding the advisory lock (see _run_worker)."""
+    from packages.polymarket.discovery.scan_worker import (
+        DEFAULT_SCAN_FLAGS,
+        ScanWorker,
+        make_clickhouse_watchlist_advancer,
+    )
+
     # Build scan profile flags.
     scan_flags = dict(DEFAULT_SCAN_FLAGS)
     if args.profile == "full":
@@ -448,7 +580,10 @@ def _run_worker(args: argparse.Namespace) -> int:
     )
 
     try:
-        result = worker.run(max_items=max_items)
+        # DR-0-FIX-2: refresh the single-host lock between wallets so a long
+        # bounded drain on this (main) thread never lets the lock go stale — no
+        # background heartbeat thread exists.
+        result = worker.run(max_items=max_items, heartbeat=lock.beat)
     except Exception as exc:
         print(f"Error during scan-worker execution: {exc}", file=sys.stderr)
         return 1
@@ -744,6 +879,78 @@ def _run_review(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _run_export_leaderboard(args: argparse.Namespace) -> int:
+    """DR-2: fetch the top-N leaderboard and write a wallet-scan input file.
+
+    READ-ONLY against the data API: no ClickHouse, no scanning. Reuses
+    fetch_leaderboard via the export helper (no new fetch/ranking logic).
+    """
+    from pathlib import Path
+
+    try:
+        from packages.polymarket.discovery.bulk_pacing import (
+            BulkPacer,
+            load_bulk_pacing,
+        )
+        from packages.polymarket.discovery.leaderboard_export import export_to_file
+    except ImportError as exc:
+        print(f"Error: could not import leaderboard export deps: {exc}", file=sys.stderr)
+        return 1
+
+    if args.top <= 0:
+        print("Error: --top must be a positive integer.", file=sys.stderr)
+        return 1
+
+    # Build the pacer only when --pace is set (default OFF for export too).
+    pacer = None
+    if getattr(args, "pace", False):
+        if args.pace_delay is not None:
+            pacer = BulkPacer(args.pace_delay, enabled=True)
+        else:
+            cfg_pacer = load_bulk_pacing()
+            pacer = BulkPacer(cfg_pacer.delay_seconds, enabled=True)
+
+    try:
+        summary = export_to_file(
+            args.top,
+            Path(args.out),
+            order_by=args.order_by,
+            time_period=args.time_period,
+            category=args.category,
+            page_size=args.page_size,
+            pacer=pacer,
+        )
+    except Exception as exc:
+        print(f"Error during leaderboard export: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(summary))
+    else:
+        print(
+            f"Exported {summary['written']} wallet address(es) "
+            f"(requested top {summary['requested']}) to {summary['out_path']}"
+        )
+        if summary["written"] == 0:
+            print(
+                "  Warning: zero addresses written — the leaderboard API returned "
+                "no entries (check network access to data-api.polymarket.com).",
+                file=sys.stderr,
+            )
+        else:
+            if summary.get("usernames_written"):
+                print(
+                    f"  Username sidecar: {summary['username_sidecar_path']} "
+                    f"({summary['usernames_written']} name(s); display-only, "
+                    "wallet-scan picks it up automatically)"
+                )
+            print(
+                f"  Next: python -m polytool wallet-scan --input {summary['out_path']} "
+                "--extract-dossier"
+            )
+    return 0 if summary["written"] > 0 else 2
+
+
 def _run_scheduler(args: argparse.Namespace) -> int:
     """Handle 'discovery scheduler {status,start,run-job}' (WI-3)."""
     if args.sched_command == "status":
@@ -806,32 +1013,85 @@ def _scheduler_start(args: argparse.Namespace) -> int:
     os.environ["CLICKHOUSE_PASSWORD"] = password
 
     try:
-        from packages.research.scheduling.discovery_scheduler import start_discovery_scheduler
-    except ImportError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-
-    try:
-        scheduler = start_discovery_scheduler(
-            ch_host=args.clickhouse_host,
-            ch_port=args.clickhouse_port,
-            ch_user=args.clickhouse_user,
-            exclude_job_ids=exclude if exclude else None,
+        from packages.research.scheduling.discovery_scheduler import (
+            run_scheduler_blocking,
+            start_discovery_scheduler,
         )
     except ImportError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    if exclude:
-        print(f"Excluded jobs: {', '.join(exclude)}")
-    print("Discovery scheduler started. Press Ctrl-C to stop.")
+    # DR-0 concurrency guard: the scheduler is THE drainer. Hold the single-host
+    # advisory lock for the scheduler's lifetime so a manual `run-worker` refuses
+    # to start alongside it (ClickHouse leases are not CAS-safe).
+    #
+    # DR-0-FIX: atomic + fail-closed acquisition; broad try/finally release so any
+    # startup OR runtime exception frees the lock (no leaked lock relying on
+    # stale-reclaim). The scheduler never forces — it must refuse to start if a
+    # live drainer already holds the lock.
+    from packages.polymarket.discovery.worker_lock import (
+        WorkerLockError,
+        WorkerLockHeld,
+        acquire_worker_lock,
+    )
+
     try:
-        while True:
-            time.sleep(60)
-    except KeyboardInterrupt:
-        scheduler.shutdown()
-        print("Discovery scheduler stopped.")
-    return 0
+        lock = acquire_worker_lock(owner="discovery-scheduler")
+    except WorkerLockHeld as exc:
+        print(
+            f"Error: another discovery drainer holds the worker lock.\n  {exc}\n"
+            "Refusing to start the scheduler. Stop the other drainer first.",
+            file=sys.stderr,
+        )
+        return 1
+    except WorkerLockError as exc:
+        print(
+            "Error: could not establish the discovery worker lock; refusing to start.\n"
+            f"  {exc}\n"
+            "Check that the lock directory (artifacts/discovery/) is writable.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Broad try/finally: release the lock on ANY path out (startup ImportError,
+    # runtime exception, or clean shutdown). DR-0-FIX should-fix #9.
+    try:
+        try:
+            scheduler = start_discovery_scheduler(
+                ch_host=args.clickhouse_host,
+                ch_port=args.clickhouse_port,
+                ch_user=args.clickhouse_user,
+                exclude_job_ids=exclude if exclude else None,
+            )
+        except ImportError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+        if exclude:
+            print(f"Excluded jobs: {', '.join(exclude)}")
+        print("Discovery scheduler started. Press Ctrl-C or send SIGTERM to stop.")
+
+        # DR-0-FIX bounded graceful shutdown: run_scheduler_blocking traps
+        # SIGTERM/SIGINT (+ SIGBREAK on Windows), requests a cooperative drain
+        # stop (in-flight tick halts BETWEEN wallets AND aborts the in-flight
+        # HTTP request), then calls stop_discovery_scheduler(wait=False) so
+        # shutdown never blocks unbounded on a slow job. Its return is the process
+        # exit code: 0 only on a clean shutdown, 1 if shutdown reported an error.
+        # DR-0-FIX-2: heartbeat=lock.beat refreshes the lock from THIS main loop
+        # (no background thread), so the live holder can never look stale.
+        exit_code = run_scheduler_blocking(
+            scheduler, shutdown_wait=False, heartbeat=lock.beat
+        )
+        if exit_code == 0:
+            print("Discovery scheduler stopped cleanly.")
+        else:
+            print(
+                "Discovery scheduler shutdown reported an error; see logs.",
+                file=sys.stderr,
+            )
+        return exit_code
+    finally:
+        lock.release()
 
 
 def _scheduler_run_job(args: argparse.Namespace) -> int:

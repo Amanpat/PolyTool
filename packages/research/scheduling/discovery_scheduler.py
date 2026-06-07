@@ -60,11 +60,39 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Cooperative drain-stop signal (DR-0-FIX bounded shutdown)
+# ---------------------------------------------------------------------------
+#
+# A process-wide Event the SIGTERM/SIGINT handler sets so an in-flight
+# ``queue_drain`` tick (running on an APScheduler job thread) stops leasing new
+# wallets BETWEEN wallets and returns promptly. ScanWorker.run(should_stop=...)
+# polls ``drain_stop_requested``. The scheduler and the drain job share one
+# process, so a module-level Event is the correct scope.
+_DRAIN_STOP = threading.Event()
+
+
+def request_drain_stop() -> None:
+    """Signal any in-flight drain tick to stop between wallets (idempotent)."""
+    _DRAIN_STOP.set()
+
+
+def clear_drain_stop() -> None:
+    """Reset the drain-stop flag (called when (re)starting the scheduler)."""
+    _DRAIN_STOP.clear()
+
+
+def drain_stop_requested() -> bool:
+    """True once a graceful stop has been requested."""
+    return _DRAIN_STOP.is_set()
 
 # ---------------------------------------------------------------------------
 # Config loading (defensive — every key has a fallback default)
@@ -99,6 +127,11 @@ _DEFAULT_QUEUE_DRAIN: dict[str, Any] = {
     "max_attempts": 5,
     "lease_seconds": 300,
     "owner": "discovery-scheduler",
+    # DR-0-FIX: drain-scoped per-request HTTP timeout (seconds). Well under the
+    # Docker stop grace so an in-flight wallet's scan cannot run for minutes on a
+    # slow/hung endpoint (the global scan default is 120s). Only the scheduler
+    # drain process sets this; the foreground `wallet-scan` path is unaffected.
+    "request_timeout_seconds": 15,
 }
 _DEFAULT_RESCAN: dict[str, Any] = {
     "max_enqueue": 200,
@@ -470,6 +503,15 @@ def _job_run_queue_drain() -> None:
     drain_cfg = config.get("queue_drain", _DEFAULT_QUEUE_DRAIN)
     kwargs = _ch_kwargs()
 
+    # DR-0-FIX: bound each scan HTTP request for the drain path so an in-flight
+    # wallet cannot run for minutes on a slow endpoint and blow past the Docker
+    # stop grace. scan.py reads SCAN_HTTP_TIMEOUT_SECONDS; setting it here scopes
+    # the tighter timeout to the scheduler process only (foreground wallet-scan,
+    # a separate process, keeps the 120s default).
+    req_timeout = drain_cfg.get("request_timeout_seconds")
+    if req_timeout:
+        os.environ["SCAN_HTTP_TIMEOUT_SECONDS"] = str(req_timeout)
+
     queue = ScanQueueManager()
     queue.load_from_clickhouse(**kwargs)
 
@@ -481,7 +523,13 @@ def _job_run_queue_drain() -> None:
         lease_seconds=int(drain_cfg.get("lease_seconds", 300)),
         max_attempts=int(drain_cfg.get("max_attempts", 5)),
     )
-    worker.run(max_items=int(drain_cfg.get("max_items", 10)))
+    # Cooperative shutdown: the worker checks drain_stop_requested between wallets
+    # so a SIGTERM mid-tick halts without starting a new wallet. The post-run
+    # flush still persists lease/complete/fail state for whatever finished.
+    worker.run(
+        max_items=int(drain_cfg.get("max_items", 10)),
+        should_stop=drain_stop_requested,
+    )
     queue.flush_to_clickhouse(**kwargs)
 
 
@@ -543,6 +591,9 @@ def start_discovery_scheduler(
     _RUNTIME["ch_user"] = ch_user
     _RUNTIME["config_path"] = config_path
 
+    # Fresh start: clear any stop request left over from a prior run in-process.
+    clear_drain_stop()
+
     config = load_config(config_path)
     cadences = config.get("cadences", _DEFAULT_CADENCES)
 
@@ -593,3 +644,118 @@ def start_discovery_scheduler(
 
     scheduler.start()
     return scheduler
+
+
+def stop_discovery_scheduler(scheduler: Any, *, wait: bool = True) -> bool:
+    """Cleanly shut down the discovery scheduler (DR-0 graceful shutdown).
+
+    Calls ``scheduler.shutdown(wait=wait)`` so APScheduler (a) stops accepting
+    and firing new jobs and (b) — when ``wait=True`` — lets any in-flight job
+    (e.g. a ``queue_drain`` tick already running) finish before returning. That
+    in-flight tick is a single bounded ``ScanWorker.run(...)`` which ends by
+    flushing the queue state back to ClickHouse, so a graceful stop preserves
+    queue/lease state through the existing flush path (no new flush logic here).
+
+    Never raises: a shutdown error is logged and returns False, so a SIGTERM
+    handler can always proceed to exit. ``BackgroundScheduler.shutdown`` accepts
+    a ``wait`` kwarg; the injectable test fake's ``shutdown()`` may not, so we
+    fall back to a no-arg shutdown for compatibility.
+
+    Returns True if shutdown was invoked without error, else False.
+    """
+    if scheduler is None:
+        return False
+    try:
+        try:
+            scheduler.shutdown(wait=wait)
+        except TypeError:
+            # Fake/older schedulers expose a no-arg shutdown().
+            scheduler.shutdown()
+        return True
+    except Exception:  # pragma: no cover - defensive; shutdown must never raise out
+        logger.exception("stop_discovery_scheduler: scheduler.shutdown raised")
+        return False
+
+
+def run_scheduler_blocking(
+    scheduler: Any,
+    *,
+    poll_seconds: float = 60.0,
+    shutdown_wait: bool = False,
+    install_signal_handlers: bool = True,
+    on_started: Optional[Callable[[], None]] = None,
+    heartbeat: Optional[Callable[[], None]] = None,
+) -> int:
+    """Block until SIGTERM/SIGINT, then perform a bounded cooperative shutdown.
+
+    DR-0-FIX: this is the testable core of the scheduler's blocking wait. It
+    replaces the naive ``while True: sleep`` and guarantees a bounded exit:
+
+    1. Trap SIGINT + SIGTERM (and SIGBREAK on Windows). The handler requests a
+       cooperative drain stop (so an in-flight ``queue_drain`` halts BETWEEN
+       wallets AND the in-flight HTTP request aborts) and sets the wait event.
+    2. Block on the event with a short poll (never a busy loop).
+    3. On signal, call ``stop_discovery_scheduler(scheduler, wait=shutdown_wait)``
+       with ``wait=False`` by default so we never block unbounded on a job. Any
+       wallet still in-flight aborts its in-flight request (bounded to ~one
+       request timeout via the drain cancel hook); we do not wait for the queue.
+
+    DR-0-FIX-2: ``heartbeat`` (the lock's ``beat``) is refreshed from THIS main
+    loop on every poll. There is no background heartbeat thread to die silently —
+    while this loop is alive (every <= ``poll_seconds``) the lock stays fresh;
+    when this loop exits, the holder is stopping anyway and releases the lock.
+
+    Returns 0 if shutdown reported clean, else 1 (propagated to the process exit
+    code so a failed shutdown is not reported as success).
+    """
+    stop_event = threading.Event()
+
+    def _handle_signal(signum, _frame):  # noqa: ANN001 - stdlib signal signature
+        try:
+            name = signal.Signals(signum).name
+        except Exception:  # pragma: no cover - non-standard signum
+            name = str(signum)
+        logger.info("discovery scheduler: received %s; shutting down gracefully", name)
+        # Cooperative cancel first so an in-flight drain stops between wallets,
+        # THEN release the blocking wait.
+        request_drain_stop()
+        stop_event.set()
+
+    if install_signal_handlers:
+        for signame in ("SIGINT", "SIGTERM", "SIGBREAK"):
+            sig = getattr(signal, signame, None)
+            if sig is None:
+                continue
+            try:
+                signal.signal(sig, _handle_signal)
+            except (ValueError, OSError):  # pragma: no cover - non-main-thread / unsupported
+                pass
+
+    def _beat() -> None:
+        if heartbeat is None:
+            return
+        try:
+            heartbeat()
+        except Exception:  # pragma: no cover - heartbeat must never crash the loop
+            logger.warning("run_scheduler_blocking: heartbeat refresh failed", exc_info=True)
+
+    _beat()  # refresh immediately so the lock is fresh before the first long wait
+    if on_started is not None:
+        on_started()
+
+    try:
+        while not stop_event.wait(timeout=poll_seconds):
+            # A stop can arrive via the signal handler (sets both the drain flag
+            # and stop_event) or directly via request_drain_stop(); honor either
+            # so the wait is responsive to the same cooperative-stop flag the
+            # drain uses. In production the handler sets both together.
+            if drain_stop_requested():
+                break
+            # Main-loop heartbeat (no background thread): proves the holder alive.
+            _beat()
+    except KeyboardInterrupt:  # pragma: no cover - platform-dependent Ctrl-C race
+        request_drain_stop()
+        stop_event.set()
+
+    ok = stop_discovery_scheduler(scheduler, wait=shutdown_wait)
+    return 0 if ok else 1

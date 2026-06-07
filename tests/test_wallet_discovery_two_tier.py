@@ -57,7 +57,7 @@ class TestEvidenceSummary:
             churn_triggered=True,
         )
         s = summarize_evidence(ev)
-        assert s == "+$24.0k PnL, 64% win / 180 trades, CLV 72%, churn-triggered"
+        assert s == "+$24.0k PnL, 64% win / 180 trades, CLV coverage 72%, churn-triggered"
 
     def test_determinism_same_evidence_same_string(self):
         ev = Evidence(realized_net_pnl=12345.0, win_rate=0.61, trades=99, clv_coverage_rate=0.5)

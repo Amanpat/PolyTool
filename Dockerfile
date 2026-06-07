@@ -30,6 +30,7 @@ RUN echo "# PolyTool" > README.md \
     && mkdir -p packages/polymarket/rag \
     && mkdir -p packages/polymarket/hypotheses \
     && mkdir -p packages/polymarket/notifications \
+    && mkdir -p packages/polymarket/discord_bot \
     && mkdir -p packages/polymarket/market_selection \
     && mkdir -p packages/polymarket/historical_import \
     && mkdir -p packages/polymarket/simtrader/studio \
@@ -47,6 +48,7 @@ RUN echo "# PolyTool" > README.md \
     && mkdir -p packages/polymarket/crypto_pairs \
     && mkdir -p packages/research/hypotheses \
     && mkdir -p packages/research/scheduling \
+    && mkdir -p packages/research/relevance_filter \
     && mkdir -p tools/cli \
     && mkdir -p tools/guard \
     && find polytool packages tools -type d -exec touch {}/__init__.py \;

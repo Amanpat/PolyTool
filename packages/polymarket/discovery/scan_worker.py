@@ -76,6 +76,14 @@ DEFAULT_SCAN_FLAGS: dict = {
 }
 
 
+class _NeverCancelled(Exception):
+    """Sentinel exception type used when no cancel hook is installed.
+
+    ``except _NeverCancelled`` can never match a real exception, so the
+    cooperative-cancel branch is inert unless a stop hook is wired in.
+    """
+
+
 @dataclass
 class WorkerResult:
     """Summary of one bounded worker drain."""
@@ -86,6 +94,7 @@ class WorkerResult:
     failed: int = 0
     dropped: int = 0
     skipped: int = 0
+    cancelled: int = 0
     processed_keys: list[str] = field(default_factory=list)
 
 
@@ -160,7 +169,13 @@ class ScanWorker:
 
     # -- main loop -----------------------------------------------------------
 
-    def run(self, *, max_items: int = 1) -> WorkerResult:
+    def run(
+        self,
+        *,
+        max_items: int = 1,
+        should_stop: Optional[Callable[[], bool]] = None,
+        heartbeat: Optional[Callable[[], None]] = None,
+    ) -> WorkerResult:
         """Drain up to ``max_items`` pending rows once (bounded; no scheduling).
 
         Order per loop, mirroring the packet contract:
@@ -171,9 +186,65 @@ class ScanWorker:
         Idempotency: a leased row is no longer pending, so a second call to
         run() (or a second worker) will not re-lease it and will not double
         scan it within the lease window.
+
+        Cooperative shutdown (DR-0-FIX / DR-0-FIX-2): when ``should_stop`` is
+        provided, the stop flag is wired into the scan HTTP retry loop
+        (``tools.cli.scan.set_cancel_check``) so a stop aborts the IN-FLIGHT
+        request/retry — bounding stop latency to ~one request timeout, not one
+        whole wallet. The aborted wallet raises ``ScanCancelled``; it is NOT
+        ingested and NOT failed (no attempt burned) — the lease is released back
+        to pending so it is re-scanned cleanly later. The flag is also checked
+        between wallets so no new wallet starts once stopping.
+
+        ``heartbeat`` (manual worker) is called between wallets to refresh the
+        single-host lock so a long bounded drain on the MAIN thread never lets
+        the lock go stale. The scheduler refreshes from its own main control loop
+        and does not pass this.
         """
         result = WorkerResult()
         scan_callable = self._resolve_scan_callable()
+
+        # Bridge cooperative stop into the scan request/retry loop (request
+        # granularity). Only the drain path passes should_stop; the foreground
+        # wallet-scan path never installs this hook, so it is unaffected.
+        cancel_exc: type[BaseException] = _NeverCancelled
+        cancel_installed = False
+        scan_mod = None
+        if should_stop is not None:
+            try:
+                from tools.cli import scan as scan_mod  # lazy: heavy module
+                scan_mod.set_cancel_check(should_stop)
+                cancel_exc = scan_mod.ScanCancelled
+                cancel_installed = True
+            except Exception:  # pragma: no cover - defensive; degrade to between-wallet
+                cancel_installed = False
+
+        try:
+            return self._run_locked(
+                result,
+                scan_callable,
+                max_items=max_items,
+                should_stop=should_stop,
+                heartbeat=heartbeat,
+                cancel_exc=cancel_exc,
+            )
+        finally:
+            if cancel_installed and scan_mod is not None:
+                scan_mod.clear_cancel_check()
+
+    def _run_locked(
+        self,
+        result: "WorkerResult",
+        scan_callable: ScanCallable,
+        *,
+        max_items: int,
+        should_stop: Optional[Callable[[], bool]],
+        heartbeat: Optional[Callable[[], None]],
+        cancel_exc: type[BaseException],
+    ) -> "WorkerResult":
+        # Honor a stop requested before we even start: do no work.
+        if should_stop is not None and should_stop():
+            return result
 
         # Step 1: reclaim any leases whose TTL expired (counts toward attempts).
         result.requeued = self._queue.requeue_expired_leases()
@@ -183,6 +254,26 @@ class ScanWorker:
 
         for row in candidates:
             if result.completed + result.failed + result.dropped >= max_items:
+                break
+
+            # Refresh the holder's lock heartbeat (manual worker) BETWEEN wallets
+            # so a long bounded drain on the main thread never goes stale.
+            if heartbeat is not None:
+                try:
+                    heartbeat()
+                except Exception:  # pragma: no cover - heartbeat must never fail the drain
+                    pass
+
+            # Cooperative cancel: never START a new wallet once a stop is
+            # requested. The wallet already in-flight (if any) has finished by
+            # the time we loop back here.
+            if should_stop is not None and should_stop():
+                logger.info(
+                    "scan-worker: stop requested; halting between wallets after "
+                    "%d completed / %d failed (no new wallet started)",
+                    result.completed,
+                    result.failed,
+                )
                 break
 
             # Poison-pill ceiling: dead-letter rows that have failed too often.
@@ -232,6 +323,20 @@ class ScanWorker:
                 self._queue.complete(leased.dedup_key)
                 result.completed += 1
                 result.processed_keys.append(leased.dedup_key)
+            except cancel_exc:
+                # Cooperative mid-request abort (DR-0-FIX-2): an operator stop
+                # interrupted the in-flight scan. This is NOT a failure — do NOT
+                # ingest, do NOT advance, do NOT burn an attempt. Release the
+                # lease back to pending so the wallet is re-scanned cleanly later,
+                # then stop (no new wallet starts).
+                self._queue.release(leased.dedup_key)
+                result.cancelled += 1
+                logger.info(
+                    "scan-worker: in-flight scan for %s aborted on stop; lease "
+                    "released to pending (not ingested, not failed)",
+                    wallet,
+                )
+                break
             except Exception as exc:
                 # LOUD by design (DEFECT 2): scan OR ingest failure fails the
                 # item. The watchlist is not advanced and the row is not

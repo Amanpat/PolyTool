@@ -94,11 +94,11 @@ def test_build_client_uses_no_privileged_intents():
     assert client.intents.members is False
 
 
-def test_build_client_registers_ping_and_pending():
+def test_build_client_registers_ping_pending_and_status():
     client = build_client()
     commands = client.tree.get_commands()
     names = sorted(c.name for c in commands)
-    assert names == ["pending", "ping"]
+    assert names == ["pending", "ping", "status"]
 
 
 def test_build_client_is_vera_client():

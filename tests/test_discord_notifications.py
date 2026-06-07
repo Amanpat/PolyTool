@@ -103,6 +103,30 @@ class TestPostMessage:
             timeout=5,
         )
 
+    def test_content_plus_embeds_sent_together(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", _FAKE_URL)
+        embed = {"title": "T", "color": 0x3498DB}
+        with _mock_post(ok=True) as mock_post:
+            result = post_message("body", embeds=[embed])
+        assert result is True
+        assert mock_post.call_args[1]["json"] == {"content": "body", "embeds": [embed]}
+
+    def test_embeds_only_omits_content_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", _FAKE_URL)
+        embed = {"title": "T"}
+        with _mock_post(ok=True) as mock_post:
+            result = post_message("", embeds=[embed])
+        assert result is True
+        # No empty "content" key when only embeds are supplied.
+        assert mock_post.call_args[1]["json"] == {"embeds": [embed]}
+
+    def test_nothing_to_send_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", _FAKE_URL)
+        with _mock_post(ok=True) as mock_post:
+            result = post_message("", embeds=None)
+        assert result is False
+        mock_post.assert_not_called()  # no HTTP call when payload would be empty
+
 
 # ===========================================================================
 # notify_gate_result

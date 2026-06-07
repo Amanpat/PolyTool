@@ -114,6 +114,46 @@ def _coerce_int(value: Any) -> Optional[int]:
         return None
 
 
+def _clean_str(value: Any) -> Optional[str]:
+    """Return a stripped non-empty string, or None for empty/None."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s or None
+
+
+# Resolved-outcome buckets per the coverage report's outcome_counts schema
+# (polytool/reports/coverage.py KNOWN_OUTCOMES). PENDING is "open"; the four
+# below are "resolved"; UNKNOWN_RESOLUTION is neither (excluded from both).
+_RESOLVED_OUTCOMES = ("WIN", "LOSS", "PROFIT_EXIT", "LOSS_EXIT")
+_OPEN_OUTCOME = "PENDING"
+
+
+def _open_resolved_from_outcome_counts(
+    outcome_counts: Any,
+) -> tuple[Optional[int], Optional[int]]:
+    """Split ``outcome_counts`` into ``(open, resolved)``.
+
+    - ``open``     = PENDING
+    - ``resolved`` = WIN + LOSS + PROFIT_EXIT + LOSS_EXIT
+
+    UNKNOWN_RESOLUTION is excluded from both (it is neither cleanly open nor
+    cleanly resolved). Returns ``(None, None)`` when no usable counts are present
+    so the summary omits the split rather than fabricate a "0 open / 0 resolved".
+    This reads from the metrics dict the discovery pipeline already produces
+    (``_extract_user_metrics`` carries ``outcome_counts``) -- no extractor change.
+    """
+    if not isinstance(outcome_counts, dict) or not outcome_counts:
+        return None, None
+
+    def _n(key: str) -> int:
+        return _coerce_int(outcome_counts.get(key)) or 0
+
+    open_ = _n(_OPEN_OUTCOME)
+    resolved = sum(_n(k) for k in _RESOLVED_OUTCOMES)
+    return open_, resolved
+
+
 @dataclass(frozen=True)
 class Evidence:
     """Normalised deep-scan evidence for one wallet.
@@ -129,6 +169,12 @@ class Evidence:
     trades:                position/trade count (wallet_scan positions_total).
     clv_coverage_rate:     fraction [0,1] of positions with CLV captured.
     churn_triggered:       True if Loop-A churn detection flagged this wallet.
+    open_positions:        # of still-open (PENDING) positions.
+    resolved_positions:    # of resolved (WIN+LOSS+PROFIT_EXIT+LOSS_EXIT) positions.
+    category_focus:        dominant *known* Polymarket category (None when all
+                           positions are uncategorised -- never "Unknown").
+    source:                discovery origin from the watchlist row
+                           (loop_a / manual / loop_d), for display only.
     """
 
     wallet_address: str = ""
@@ -137,6 +183,20 @@ class Evidence:
     trades: Optional[int] = None
     clv_coverage_rate: Optional[float] = None
     churn_triggered: bool = False
+    open_positions: Optional[int] = None
+    resolved_positions: Optional[int] = None
+    category_focus: Optional[str] = None
+    source: Optional[str] = None
+    # Display-only signals surfaced for the pending-review card (WP-3). None when
+    # the scan data does not carry them (handle: pseudonymous wallet; last_active
+    # / recent_form: no parseable per-trade data). recent_form is a small dict
+    # ``{"trades": [{"close": iso, "pnl": float}], "sample_size": int,
+    # "sample_cap": int|None}`` consumed by the embed builder under the honesty
+    # rule; it is read-only (never mutated) so the frozen dataclass stays safe.
+    handle: Optional[str] = None
+    win_count: Optional[int] = None
+    last_active: Optional[str] = None
+    recent_form: Optional[dict] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Evidence":
@@ -151,9 +211,23 @@ class Evidence:
         - trades             <- trades | positions_total | input_trade_count
         - clv_coverage_rate  <- clv_coverage_rate | clv
         - churn_triggered    <- churn_triggered (bool)
+        - open/resolved      <- open_positions/resolved_positions, else derived
+                                from outcome_counts (PENDING vs WIN/LOSS/*_EXIT)
+        - category_focus     <- category_focus (dominant known category, or None)
+        - source             <- source (loop_a/manual/loop_d; from the row)
         """
         if not isinstance(data, dict):
             data = {}
+
+        # open/resolved: prefer explicit counts, else derive from outcome_counts
+        # (which _extract_user_metrics already carries -- no extractor change).
+        open_p = _coerce_int(data.get("open_positions"))
+        resolved_p = _coerce_int(data.get("resolved_positions"))
+        if open_p is None and resolved_p is None:
+            open_p, resolved_p = _open_resolved_from_outcome_counts(
+                data.get("outcome_counts")
+            )
+
         return cls(
             wallet_address=str(data.get("wallet_address") or data.get("wallet") or ""),
             realized_net_pnl=_coerce_float(
@@ -175,6 +249,18 @@ class Evidence:
                 else data.get("clv")
             ),
             churn_triggered=bool(data.get("churn_triggered", False)),
+            open_positions=open_p,
+            resolved_positions=resolved_p,
+            category_focus=_clean_str(data.get("category_focus")),
+            source=_clean_str(data.get("source")),
+            handle=_clean_str(data.get("handle")),
+            win_count=_coerce_int(data.get("win_count")),
+            last_active=_clean_str(data.get("last_active")),
+            recent_form=(
+                data.get("recent_form")
+                if isinstance(data.get("recent_form"), dict)
+                else None
+            ),
         )
 
 
@@ -213,12 +299,14 @@ def summarize_evidence(evidence: "Evidence | dict") -> str:
     -------
     A single line such as::
 
-        "+$24.0k PnL, 64% win / 180 trades, CLV 72%, churn-triggered"
+        "+$24.0k PnL, 64% win / 180 trades, 10 open / 40 resolved, CLV 72%,
+         churn-triggered, focus: Politics, via loop_a"
 
     Missing dimensions are omitted (never fabricated). If no dimension is
     available, returns ``"no evidence available"``.
 
-    Field order is fixed (PnL, win/trades, CLV, churn) so the string is stable.
+    Field order is fixed (PnL, win/trades, open/resolved, CLV, churn, category
+    focus, source) so the string is stable.
     """
     ev = evidence if isinstance(evidence, Evidence) else Evidence.from_dict(evidence)
 
@@ -234,11 +322,27 @@ def summarize_evidence(evidence: "Evidence | dict") -> str:
     elif ev.trades is not None:
         parts.append(f"{ev.trades} trades")
 
+    # open-vs-resolved split: the honest explanation for a "$0 PnL / no win"
+    # wallet whose positions are all still open (e.g. "50 open / 0 resolved").
+    if ev.open_positions is not None or ev.resolved_positions is not None:
+        parts.append(
+            f"{ev.open_positions or 0} open / {ev.resolved_positions or 0} resolved"
+        )
+
+    # "CLV coverage" — this is clv_coverage_rate, a DATA-COMPLETENESS metric (what
+    # fraction of positions have a CLV value captured), NOT a closing-line-value
+    # edge signal. Label it honestly so it never reads as a skill metric.
     if ev.clv_coverage_rate is not None:
-        parts.append(f"CLV {round(ev.clv_coverage_rate * 100)}%")
+        parts.append(f"CLV coverage {round(ev.clv_coverage_rate * 100)}%")
 
     if ev.churn_triggered:
         parts.append("churn-triggered")
+
+    if ev.category_focus:
+        parts.append(f"focus: {ev.category_focus}")
+
+    if ev.source:
+        parts.append(f"via {ev.source}")
 
     if not parts:
         return "no evidence available"

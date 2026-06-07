@@ -460,6 +460,30 @@ def test_pending_lists_one_card_per_wallet_public(monkeypatch):
         assert isinstance(call.kwargs.get("view"), approvals.ApproveDenyView)
 
 
+def test_build_embed_uses_shared_redesigned_card():
+    """The bot /pending card is the SAME redesigned shared builder as the webhook.
+
+    Guards 'shared builder serves both surfaces': the bot must render the author
+    eyebrow, the relabelled 'CLV coverage', and the recent-form window row — never
+    a divergent local embed.
+    """
+    # No scan data resolvable for this row -> evidence is provenance-only, which
+    # still produces the full redesigned card (windows render the absent marker).
+    embed = approvals._build_embed({"wallet_address": ADDR, "source": "loop_a"}, ADDR)
+    assert isinstance(embed, discord.Embed)
+    assert embed.author.name == "Pending wallet review"
+    # Title falls back to the TRUNCATED address (no handle, no scan data).
+    assert embed.title.startswith("0x") and "…" in embed.title and ADDR not in embed.title
+    names = [f.name for f in embed.fields]
+    assert "CLV coverage" in names and "CLV" not in names  # relabel applied
+    assert "Last active" in names
+    assert "Recent form — full trade history" in names
+    assert names[-3:] == ["Today", "7 days", "30 days"]
+    # Discovery humanized from the row's source (the only provenance available).
+    disc = next(f.value for f in embed.fields if f.name == "Discovery")
+    assert disc == "leaderboard discovery"
+
+
 def test_pending_caps_at_ten_and_reports_overflow(monkeypatch):
     rows = [{"wallet_address": ADDR} for _ in range(11)]
     monkeypatch.setattr(approvals, "_read_pending", lambda ch: rows)

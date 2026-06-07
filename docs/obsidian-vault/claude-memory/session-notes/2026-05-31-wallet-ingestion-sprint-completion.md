@@ -113,3 +113,42 @@ Codex (independent of CC, the builder) ran a CLI-only e2e of the approval gate �
 - **Rich evidence before real promotions:** pending candidates currently display the generic worker reason ("scan-worker drained scan_queue"), not `summarize_evidence()`. Wire `summarize_evidence()` at list-pending/display time before approving real wallets.
 - **Deny lifecycle edge:** deny leaves lifecycle at `scanned` with review_status `rejected`. Filtering by review_status works (rejected dropped from pending), but confirm the scheduler's re-scan won't resurrect a rejected wallet as `pending` before running the scheduler hot.
 - (Retention cap for unbounded archive/superseded growth — tracked above — remains the hardening item before long scheduler runs.)
+
+
+---
+
+## NOTIFY + EVIDENCE + UI DESIGN + WP-2 (2026-06-02) — notification UI shipped
+
+(Earlier attempts to log this failed on vault-connection drops; re-logged now.)
+
+**Notify + evidence — shipped + Codex-re-verified.** Vera two-way approval descoped; pending notifications via webhook, approvals via CLI gate. Evidence-correctness bug (`_extract_user_metrics` read top-level coverage keys; real schema nests them → impossible "+$124k / 0 trades"; shipped because the test fixture encoded the wrong schema) found, fixed, live-re-verified.
+
+**WP-1 richer fields — shipped + verified.** open/resolved (from `outcome_counts`), discovery source (watchlist row), category focus (from `segment_analysis.by_category`, NOT `category_coverage` which is only a rate — CC caught the wrong source). Account age + total capital NOT added (no honest source). Category still UNVERIFIED on real categorised data.
+
+**WP-2 — embed card via webhook — shipped + live-verified.** `post_message(text="", *, embeds=None, webhook_url=None)` now sends content and/or embeds; content-only path unchanged (typed helpers untouched). `build_pending_embed`: blue review bar, full address, fields PnL/Win/Trades/CLV/Positions/Discovery (humanized); honest omission of win rate (no resolved book) and category (uncategorised). Copy-block commands in message content (reliable one-tap copy). Digest: >1 unnotified → ONE message, `_fit_digest` caps 10 wallets / 1800 chars (under Discord's 2000 limit), overflow surfaced not silent. Dedup marked only on delivered send (all-or-nothing for digest); never raises. +16 tests; full suite 5477 passed, 1 skip, 3 pre-existing RIS fails. Live-verified single (0xcf60) + digest (incl. honest $0/50-open 0x84cf).
+
+**Open:** WP-1 + WP-2 both UNCOMMITTED (CC left the tree for review) — commit selectively (only those files, never `git add .`; do NOT commit incidental `.obsidian/*` editor state). Reconcile dirty worktree. Verify category on a real categorised wallet.
+
+
+---
+
+## WP-3 — pending-review card final layout (2026-06-02) shipped
+
+Shared builder → serves both webhook notification + Vera /pending card.
+- Handle: `scan.py` stamps `resolve_response.username` → `dossier.json header.username` (non-fatal, never overwrites); `_extract_user_metrics` reads it; empty → address fallback. Dossier-sourced (Option 1, consistent with last_active/windows; corrected the packet's "persist on row"). NOTE: existing dossiers predate the stamp → show address until re-scanned.
+- last_active (newest entry/exit ts → "Nd/Nh ago"); signal line (discovery · win% (n/N) · active Nd ago; honest omission).
+- Recent-form windows Today/7d/30d (resolved {close,pnl} bucketed; honesty rule enforced: "—" unless the sample fully covers the window; covered-but-empty → +$0). "Today" = UTC calendar day (operator chose this fork; be aware UTC ≠ local Eastern).
+- CLV: confirmed = `clv_coverage.coverage_rate` (completeness, NOT edge) → relabelled "CLV coverage" on card + digest/summary. (The earlier flag was correct.)
+- Embed: handle title → truncated address → "Unnamed wallet" fallback; description = truncated address + View on Polymarket link + signal line; two rows of three inline fields; "Recent form" separator + Today/7d/30d row; blue bar.
+- Button-disable: NO handler change needed — `_finalize_done`/`_disable_only` already disable both buttons and `_actioned_wallets` blocks re-clicks; the deny screenshot predated the Phase B fix. Verified + locked with a parity test. (Resolves the open button-disable item.)
+- 229 targeted passed; full suite 5545 passed, 4 unrelated fails (3 pre-existing RIS Marker-gate + 1 RIS run-log flake). Tree left for review (uncommitted).
+
+### Outstanding to declare target-user ingestion DONE end-to-end
+1. **Phase B write-surface Codex adversarial pass** — CONFIRM whether it was run when Phase B shipped; if not, run it (non-operator click, tampered address, gate-not-bypassed, double-click idempotency). The one that matters.
+2. **Approve-path live test** — writes the `reviewed` row downstream; only Deny tested so far.
+3. **Scheduler-no-resurrect** — confirm a denied/rejected wallet does NOT return as pending on the next scan.
+4. **WP-3 live-verify** — re-scan a NAMED wallet → handle headline; action via /pending. (Bot receives interactions over the gateway — NO tunnel needed; /ping + the screenshot Deny already prove it.)
+5. **Commits** — WP-1/WP-2/WP-3 still uncommitted; commit selectively (not the dirty tree, not `.obsidian/*`).
+6. **Category field** — verify on a real categorised wallet.
+
+WP-3 is display/data (no write surface) → Codex not mandatory for it; the real check is live-verify on a real wallet.

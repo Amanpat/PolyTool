@@ -21,6 +21,17 @@ _LEADERBOARD_BASE_URL = "https://data-api.polymarket.com"
 _LEADERBOARD_PATH = "/v1/leaderboard"
 
 
+def _coerce_float(value) -> float:
+    """Best-effort float coercion. The data API may return numeric fields as
+    strings (e.g. ``vol``/``pnl``); missing/empty/non-numeric ⇒ 0.0."""
+    if value is None or value == "":
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def fetch_leaderboard(
     order_by: str = "PNL",
     time_period: str = "DAY",
@@ -28,6 +39,7 @@ def fetch_leaderboard(
     max_pages: int = 5,
     page_size: int = 50,
     http_client=None,
+    pacer=None,
 ) -> list[dict]:
     """Fetch paginated leaderboard entries from the Polymarket data API.
 
@@ -39,6 +51,10 @@ def fetch_leaderboard(
         page_size: Entries per page (default 50 matching API default)
         http_client: Optional injectable HttpClient for testing. If None,
             creates a real HttpClient against the data API.
+        pacer: Optional ``BulkPacer`` (DR-2). When provided AND enabled, a small
+            inter-page delay is applied before each page fetch after the first,
+            so a bulk top-N export stays polite. Default None ⇒ no pacing (the
+            existing zero-sleep behaviour Loop A and other callers rely on).
 
     Returns:
         List of raw dict entries from the API, ordered by rank (ascending).
@@ -55,6 +71,12 @@ def fetch_leaderboard(
     all_entries: list[dict] = []
 
     for page_num in range(max_pages):
+        # DR-2 bulk pacing: space out successive page fetches when enabled.
+        # No-op (and zero sleep calls) when pacer is None or disabled — Loop A
+        # and the gentle scheduler path pass no pacer, so behaviour is unchanged.
+        if pacer is not None and page_num > 0:
+            pacer.pace()
+
         offset = page_num * page_size
         params = {
             "order_by": order_by,
@@ -87,8 +109,11 @@ def fetch_leaderboard(
             logger.error("Leaderboard fetch error on page %d: %s", page_num + 1, exc)
             break
 
-    # Sort by rank ascending (spec AT-01 requires ordered rank 1-N, no duplicates)
-    all_entries.sort(key=lambda e: e.get("rank", 0))
+    # Sort by rank ascending (spec AT-01 requires ordered rank 1-N, no duplicates).
+    # The data API returns `rank` as a STRING ("1".."50"), so a naive sort orders
+    # lexicographically (1, 10, 11, ..., 2) and "top N" returns the wrong N. Coerce
+    # to int before comparing. `or 0` guards missing/empty rank.
+    all_entries.sort(key=lambda e: int(e.get("rank") or 0))
     return all_entries
 
 
@@ -121,7 +146,29 @@ def to_snapshot_rows(
     rows: list[LeaderboardSnapshotRow] = []
 
     for entry in raw_entries:
-        proxy_wallet = entry.get("proxy_wallet", "")
+        # The live /v1/leaderboard response is camelCase
+        # (proxyWallet/userName/vol/pnl, rank as a STRING). Older code/fixtures
+        # used snake_case (proxy_wallet/name/volume). Read camelCase first and
+        # fall back to snake_case so both the live API and existing fixtures
+        # work (additive — mirrors the DR-2a export-path fix). Fixing only the
+        # wallet would still write zero vol/pnl and empty usernames.
+        proxy_wallet = str(
+            entry.get("proxyWallet") or entry.get("proxy_wallet", "") or ""
+        )
+        username = str(
+            entry.get("userName")
+            or entry.get("name")
+            or entry.get("username", "")
+            or ""
+        )
+        # rank is a string ("1".."250") in the live API; `or 0` guards
+        # missing/empty so int() never raises on an empty string.
+        rank = int(entry.get("rank") or 0)
+        pnl = _coerce_float(entry.get("pnl"))
+        volume = _coerce_float(
+            entry.get("vol") if entry.get("vol") is not None else entry.get("volume")
+        )
+
         is_new = 0 if (proxy_wallet and proxy_wallet in prior) else 1
 
         raw_payload_json = json.dumps(entry)
@@ -133,11 +180,11 @@ def to_snapshot_rows(
                 order_by=order_by,
                 time_period=time_period,
                 category=category,
-                rank=int(entry.get("rank", 0)),
+                rank=rank,
                 proxy_wallet=proxy_wallet,
-                username=entry.get("name", entry.get("username", "")),
-                pnl=float(entry.get("pnl", 0.0)),
-                volume=float(entry.get("volume", 0.0)),
+                username=username,
+                pnl=pnl,
+                volume=volume,
                 is_new=is_new,
                 raw_payload_json=raw_payload_json,
             )

@@ -25,16 +25,23 @@
   },
 
   "queue_drain": {
-    "_comment": "queue-drain job bound. Single-tick bounded drain (one ScanWorker run per fire); NOT a long-lived continuous worker, because the WI-1 ScanWorker documents a single-worker assumption (ClickHouse leases are not atomic CAS). One scheduled tick = one bounded drain = exactly one drainer at a time.",
+    "_comment": "queue-drain job bound. Single-tick bounded drain (one ScanWorker run per fire); NOT a long-lived continuous worker, because the WI-1 ScanWorker documents a single-worker assumption (ClickHouse leases are not atomic CAS). One scheduled tick = one bounded drain = exactly one drainer at a time. DR-0-FIX: request_timeout_seconds bounds each scan HTTP request for the drain path (scheduler process only, via SCAN_HTTP_TIMEOUT_SECONDS) so an in-flight wallet cannot run for minutes on a slow endpoint and blow past the Docker stop grace; keep it well under the compose stop_grace_period.",
     "max_items": 10,
     "max_attempts": 5,
     "lease_seconds": 300,
-    "owner": "discovery-scheduler"
+    "owner": "discovery-scheduler",
+    "request_timeout_seconds": 15
   },
 
   "rescan": {
     "_comment": "watchlist-rescan job bounds. Caps how many stale wallets are enqueued per fire to avoid flooding the queue.",
     "max_enqueue": 200,
     "source": "loop_a"
+  },
+
+  "bulk_pacing": {
+    "_comment": "DR-2 OPTIONAL bulk-path rate pacing for the aggressive seed paths only (top-N leaderboard export + `wallet-scan` batch loop). DEFAULT OFF: enabled=false => zero sleep, zero sleep calls, behaviour identical to before. Does NOT affect the gentle scheduler cadence (queue_drain / Loop A never build a non-disabled pacer). delay_seconds is the minimum interval between successive bulk requests when enabled. `wallet-scan --pace` opts in explicitly; `--pace-delay` overrides delay_seconds. Operator-tune here for the 200-wallet batch-seed run.",
+    "enabled": false,
+    "delay_seconds": 0.5
   }
 }

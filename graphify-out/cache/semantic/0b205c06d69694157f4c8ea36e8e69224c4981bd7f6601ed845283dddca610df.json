@@ -1,0 +1,1 @@
+{"nodes": [{"id": "infra_n8n_workflows_ris_n8n_metrics_collector", "label": "ris-n8n-metrics-collector.json n8n Workflow", "file_type": "code", "source_file": "infra/n8n/workflows/ris-n8n-metrics-collector.json", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

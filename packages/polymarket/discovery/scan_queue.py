@@ -152,6 +152,29 @@ class ScanQueueManager:
         item.updated_at = now
         return item
 
+    def release(self, dedup_key: str) -> Optional[ScanQueueRow]:
+        """Release a leased item back to pending WITHOUT counting an attempt.
+
+        Used for cooperative cancel (DR-0-FIX-2): when a graceful stop aborts an
+        in-flight scan, the wallet was neither completed nor genuinely failed, so
+        it must become immediately re-scannable without burning a poison-pill
+        attempt. Distinct from ``fail`` (which increments attempt_count) and from
+        ``requeue_expired_leases`` (which also increments, since an expired lease
+        means a crash, not a clean abort).
+
+        Returns the updated row, or None if not found / not currently leased.
+        """
+        item = self._items.get(dedup_key)
+        if item is None or item.queue_state != QueueState.leased:
+            return None
+        now = self._now()
+        item.queue_state = QueueState.pending
+        item.leased_at = None
+        item.lease_expires_at = None
+        item.lease_owner = None
+        item.updated_at = now
+        return item
+
     def get_pending(self, limit: int = 10) -> list[ScanQueueRow]:
         """Return pending items available for processing.
 

@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import requests
 
@@ -29,6 +29,7 @@ from polytool.reports.coverage import (
     write_hypothesis_candidates,
 )
 from polytool.reports.manifest import build_run_manifest, write_run_manifest
+from polytool.user_context import display_name
 from tools.cli.audit_coverage import (
     DEFAULT_SEED as DEFAULT_AUDIT_SEED,
     write_audit_coverage_report,
@@ -299,6 +300,70 @@ def _resolve_bool_flag(
     return default_value
 
 
+# ---------------------------------------------------------------------------
+# Cooperative cancellation (DR-0-FIX-2 request-granularity shutdown)
+# ---------------------------------------------------------------------------
+#
+# The wallet-discovery scheduler drain bridges its stop flag into this module so
+# a SIGTERM aborts the IN-FLIGHT request/retry instead of finishing the whole
+# wallet. Without this, one hung endpoint = 4 attempts x 15s timeout + 7s backoff
+# = ~67s, which can exceed the Docker stop grace. With it, stop latency is bounded
+# to ~one in-flight request timeout (the only piece that cannot be interrupted
+# mid-syscall), because every retry/backoff checks the flag.
+#
+# This hook is process-global and OFF by default. The foreground `wallet-scan`
+# (DR-2) path never installs it, so its behavior is byte-for-byte unchanged.
+
+class ScanCancelled(Exception):
+    """Raised to abort an in-flight scan promptly on a cooperative stop request.
+
+    Distinct from NetworkError/ApiError so the drain worker can tell a clean
+    operator-initiated abort (do not fail/ingest; re-scan later) apart from a
+    genuine scan failure.
+    """
+
+
+_CANCEL_CHECK: Optional[Callable[[], bool]] = None
+
+
+def set_cancel_check(fn: Optional[Callable[[], bool]]) -> None:
+    """Install the drain-scoped cancellation predicate (drain worker only)."""
+    global _CANCEL_CHECK
+    _CANCEL_CHECK = fn
+
+
+def clear_cancel_check() -> None:
+    """Remove the cancellation predicate (always called in a finally)."""
+    global _CANCEL_CHECK
+    _CANCEL_CHECK = None
+
+
+def _scan_cancelled() -> bool:
+    fn = _CANCEL_CHECK
+    if fn is None:
+        return False
+    try:
+        return bool(fn())
+    except Exception:  # a broken predicate must never wedge the scan
+        return False
+
+
+def _raise_if_cancelled(where: str) -> None:
+    if _scan_cancelled():
+        raise ScanCancelled(f"scan aborted on stop request ({where})")
+
+
+def _cancellable_sleep(seconds: float) -> None:
+    """Sleep up to ``seconds``, aborting early (ScanCancelled) on a stop request."""
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        _raise_if_cancelled("backoff")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.2, remaining))
+
+
 def request_with_retry(
     method: str,
     url: str,
@@ -310,6 +375,8 @@ def request_with_retry(
     attempt = 0
     last_is_connection_error = False
     while True:
+        # Abort BEFORE starting another attempt if a stop was requested.
+        _raise_if_cancelled("before request")
         try:
             response = requests.request(method, url, json=payload, timeout=timeout)
             return response
@@ -322,7 +389,7 @@ def request_with_retry(
                 f"Network error contacting {url}: {exc}. Retrying in {delay:.1f}s...",
                 file=sys.stderr,
             )
-            time.sleep(delay)
+            _cancellable_sleep(delay)
             attempt += 1
 
 
@@ -360,6 +427,8 @@ def get_json(
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     attempt = 0
     while True:
+        # Abort BEFORE starting another attempt if a stop was requested.
+        _raise_if_cancelled("before request")
         try:
             response = requests.get(url, params=params, timeout=timeout)
             break
@@ -371,7 +440,7 @@ def get_json(
                 f"Network error contacting {url}: {exc}. Retrying in {delay:.1f}s...",
                 file=sys.stderr,
             )
-            time.sleep(delay)
+            _cancellable_sleep(delay)
             attempt += 1
 
     if response.status_code != 200:
@@ -847,6 +916,36 @@ def _write_dossier_json(dossier_root: Path, dossier: Dict[str, Any]) -> None:
         json.dumps(dossier, indent=2, sort_keys=True, allow_nan=False),
         encoding="utf-8",
     )
+
+
+def _persist_dossier_header_username(output_dir: Path, username: str) -> None:
+    """Write the resolved Polymarket username into ``dossier.json`` header.
+
+    The pending-review card (display-time evidence) surfaces a human handle as
+    the headline. The handle is only known at scan time (from ``/api/resolve``),
+    so we stamp it onto ``header.username`` here; ``_extract_user_metrics`` reads
+    it back so BOTH the webhook card and the Vera ``/pending`` card pick it up via
+    the shared evidence reader — no watchlist-schema or worker change needed.
+
+    Best-effort and NON-FATAL: most wallets are pseudonymous (empty username,
+    so this is never called) and a stamp failure must never break the scan. An
+    already-present non-empty header.username is left untouched.
+    """
+    clean = (username or "").strip()
+    if not clean:
+        return
+    try:
+        dossier = _load_dossier_json(output_dir)
+        header = dossier.get("header")
+        if not isinstance(header, dict):
+            header = {}
+            dossier["header"] = header
+        if str(header.get("username") or "").strip():
+            return  # already stamped — do not overwrite
+        header["username"] = clean
+        _write_dossier_json(output_dir, dossier)
+    except Exception as exc:  # pragma: no cover - defensive (never break the scan)
+        _debug_export({}, f"username-stamp skipped (non-fatal): {type(exc).__name__}: {exc}")
 
 
 def _hydrate_dossier_from_history_if_needed(
@@ -1348,6 +1447,12 @@ def _emit_trust_artifacts(
         output_dir,
         config,
         dossier_export_response,
+    )
+    # Stamp the resolved Polymarket username onto the dossier header so the
+    # pending-review card can headline a human handle (empty for pseudonymous
+    # wallets -> stays absent -> card falls back to the address). Non-fatal.
+    _persist_dossier_header_username(
+        output_dir, str(resolve_response.get("username") or "")
     )
     _debug_export(
         config,
@@ -2131,12 +2236,19 @@ def print_summary(
     dossier_export_response: Optional[Dict[str, Any]] = None,
     trust_artifacts: Optional[Dict[str, str]] = None,
 ) -> None:
-    username = resolve_response.get("username") or config["user"]
+    raw_username = str(resolve_response.get("username") or "").strip()
     proxy_wallet = resolve_response.get("proxy_wallet") or "unknown"
+
+    # DISPLAY-only: prefer a real handle, fall back to a truncated wallet ID
+    # (never the bare full address; never an auto-generated 0x...-<digits> name).
+    # wallet_id stays the canonical key. Replaces the old `username or
+    # config["user"]` default that printed the raw address as the "username".
+    wallet_for_display = "" if proxy_wallet == "unknown" else str(proxy_wallet)
+    user_display = display_name(raw_username, wallet_for_display or str(config["user"]))
 
     print("")
     print("Scan complete")
-    print(f"Username: {username}")
+    print(f"Username: {user_display}")
     print(f"Proxy wallet: {proxy_wallet}")
 
     print(

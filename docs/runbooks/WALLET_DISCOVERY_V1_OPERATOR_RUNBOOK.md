@@ -62,6 +62,55 @@ python -m polytool scan <wallet_address>
 
 ---
 
+## Day-Run On/Off Toggle (DR-1) — canonical interface
+
+One command turns scanning on, one turns it off, one shows status. The data
+store (ClickHouse) and API stay up when scanning is off, so Grafana, queries,
+and the Discord `/status` card keep working. **Canonical interface:**
+`scripts/scan.sh`.
+
+```bash
+# Turn scanning ON  -> brings up clickhouse + api + discovery-scheduler (idempotent)
+bash scripts/scan.sh on
+
+# Turn scanning OFF -> stops ONLY discovery-scheduler; ClickHouse + API stay up
+bash scripts/scan.sh off
+
+# Status -> service state + scan-queue depth + watchlist pending count (read-only)
+bash scripts/scan.sh status
+```
+
+What each does under the hood:
+
+| Command | Compose action |
+|---|---|
+| `scan.sh on` | `docker compose up -d clickhouse api discovery-scheduler` |
+| `scan.sh off` | `docker compose stop discovery-scheduler` |
+| `scan.sh status` | `docker compose ps` + ClickHouse reads via existing readers |
+
+**Windows:** Bash is available in this repo's toolchain — run `bash
+scripts/scan.sh on` from PowerShell, or use Git Bash / WSL. `scan status`
+prints ASCII only (no Unicode, per the Windows cp1252 gotcha).
+
+### Hard safety rule — never `down -v`
+
+`scripts/scan.sh` **NEVER** runs `docker compose down` and **NEVER** passes
+`-v` / `--volumes`. `docker compose down -v` (or `docker volume rm
+polytool_clickhouse_data`) is the **only** command that destroys ClickHouse's
+persistent named volume `clickhouse_data` — and it is the one command you must
+never use as a toggle. The wrapper actively **refuses** any teardown token
+(`down`, `-v`, `--volumes`, `rm`, `kill`, `--remove-orphans`) passed through
+it and exits non-zero. To pause scanning, use `scan.sh off` (a clean
+`docker compose stop` honoring the DR-0 graceful SIGTERM shutdown); to resume,
+`scan.sh on`. ClickHouse data survives `stop`/`start` and a plain `down` — only
+`down -v` wipes it.
+
+`scan status` requires `CLICKHOUSE_PASSWORD` to show queue/pending counts; if
+it is unset, status still prints container state and notes that the ClickHouse
+reads were skipped.
+
+---
+
 ## 1. Prerequisites
 
 Run these checks before any discovery operation.
